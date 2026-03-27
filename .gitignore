@@ -1,0 +1,184 @@
+# 常见 .gitignore 模板
+# 可根据项目语言/工具有选择地保留或删除条目
+
+# 操作系统
+.DS_Store
+.Trashes
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# 日志和临时文件
+*.log
+logs/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.tmp
+*.temp
+
+# 环境变量 / 密钥 / 私有配置
+.env
+.env.*      # 如 .env.local/.env.development 等
+*.key
+*.pem
+*.crt
+secrets.yml
+
+# 包管理 / 依赖 缓存
+node_modules/
+.pnpm-store/
+.cache/
+bower_components/
+vendor/          # PHP composer 依赖（若用 composer，通常忽略 vendor）
+
+# 构建产物 / 发布文件
+dist/
+build/
+out/
+release/
+target/          # Java/Scala/KT 等
+bin/
+obj/
+*.class
+*.jar
+*.war
+*.ear
+*.exe
+*.dll
+*.so
+*.o
+*.a
+*.lib
+*.app
+*.apk
+*.ipa
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+venv.bak/
+pip-wheel-metadata/
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Go
+vendor/
+*.test
+Godeps/
+bin/
+
+# Rust
+/target/
+**/*.rs.bk
+
+# Ruby
+*.gem
+*.rbc
+.bundle/
+vendor/bundle/
+log/
+tmp/
+coverage/
+
+# PHP
+/.phpunit.result.cache
+phpunit.xml.cache
+
+# Java / Gradle / Maven
+.gradle/
+.gradle-cache/
+build/
+out/
+!gradle/wrapper/gradle-wrapper.jar
+
+# C/C++ / CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.out
+*.obj
+*.lo
+*.la
+
+# IDEs and editors
+.vscode/
+.idea/
+*.iml
+*.iws
+*.ipr
+*.sublime-project
+*.sublime-workspace
+*.code-workspace
+
+# JetBrains IDE 其他
+.idea/*
+!.idea/inspectionProfiles
+!.idea/runConfigurations
+*.iws
+.idea_modules/
+
+# Xcode
+*.xcworkspace
+*.xcuserstate
+*.xcuserdatad
+*.xcuserdatad/*
+DerivedData/
+build/
+
+# Android / Studio
+*.gradle
+local.properties
+.gradle/
+captures/
+.externalNativeBuild/
+
+# Docker / container
+docker-compose.override.yml
+.dockerignore
+Dockerfile.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tfvars
+override.tfvars.json
+
+# Kubernetes / kubeconfig
+.kube/
+.kubeconfig
+
+# CI / CD
+circleci/
+.github/workflows/*.local.yml
+
+# Coverage / Test
+coverage/
+coverage-final.json
+lcov.info
+.nyc_output/
+.report/
+
+# Misc
+*.swp
+*~
+.*.sw?
+.idea/
+tags
+*.bak
+*.orig
+!.gitattributes
+
+# AI
+.claude
+.codex
+.gemini
+.opencode
