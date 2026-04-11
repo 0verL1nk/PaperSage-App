@@ -1,15 +1,30 @@
 """API response formatting."""
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
+T = TypeVar("T")
 
-class ApiEnvelope[T](BaseModel):
+
+class ApiEnvelope(BaseModel):
     """Standard API response envelope."""
+
+    code: int = 200
+    data: Any = None
+    info: str = ""
+
+
+class ApiResponse(BaseModel, Generic[T]):
+    """Generic API response."""
 
     code: int = 200
     data: T | None = None
     info: str = ""
+
+
+def api_success(data: T, info: str = "") -> ApiResponse[T]:
+    """Create a success response."""
+    return ApiResponse(code=200, data=data, info=info)
 
 
 def success_response(data: Any, info: str = "") -> dict:

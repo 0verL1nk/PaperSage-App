@@ -101,7 +101,6 @@ out/
 CMakeFiles/
 CMakeCache.txt
 cmake_install.cmake
-Makefile
 *.out
 *.obj
 *.lo
