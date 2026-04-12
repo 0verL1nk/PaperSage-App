@@ -1,0 +1,77 @@
+- generic [ref=e2]:
+  - generic [ref=e50]:
+    - banner [ref=e51]:
+      - link "P PaperSage" [ref=e53] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e55]: P
+        - generic [ref=e56]: PaperSage
+      - generic [ref=e57]:
+        - img [ref=e58]
+        - searchbox "Search..." [ref=e61]
+      - generic [ref=e62]:
+        - button "New" [ref=e63]:
+          - img
+          - generic [ref=e64]: New
+        - button "0" [ref=e65]:
+          - img
+          - generic [ref=e66]: "0"
+        - button "U User" [ref=e67]:
+          - generic [ref=e68]: U
+          - generic [ref=e69]: User
+          - img
+    - generic [ref=e70]:
+      - complementary [ref=e71]:
+        - paragraph [ref=e73]: Navigation
+        - navigation [ref=e74]:
+          - link "Projects" [ref=e75] [cursor=pointer]:
+            - /url: /app/projects
+            - img [ref=e76]
+            - text: Projects
+          - link "Documents" [ref=e78] [cursor=pointer]:
+            - /url: /app/documents
+            - img [ref=e79]
+            - text: Documents
+          - link "Trash" [ref=e82] [cursor=pointer]:
+            - /url: /app/trash
+            - img [ref=e83]
+            - text: Trash
+        - link "Profile" [ref=e87] [cursor=pointer]:
+          - /url: /app/profile
+          - img
+          - text: Profile
+      - main [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - heading "My Projects" [level=1] [ref=e91]
+            - generic [ref=e92]:
+              - link "Trash" [ref=e93] [cursor=pointer]:
+                - /url: /app/trash
+                - img
+                - text: Trash
+              - button "New Project" [ref=e94]:
+                - img
+                - text: New Project
+          - generic [ref=e96]:
+            - img [ref=e98]
+            - generic [ref=e100]:
+              - paragraph [ref=e101]: No projects yet
+              - paragraph [ref=e102]: Create your first project to get started
+            - button "Create Project" [ref=e103]:
+              - img
+              - text: Create Project
+          - dialog [ref=e116]:
+            - generic [ref=e117]:
+              - heading "Create New Project" [level=2] [ref=e118]
+              - generic [ref=e119]:
+                - generic [ref=e120]:
+                  - generic [ref=e121]: Name *
+                  - textbox "Name *" [active] [ref=e122]:
+                    - /placeholder: My Project
+                - generic [ref=e123]:
+                  - generic [ref=e124]: Description
+                  - textbox "Description" [ref=e125]:
+                    - /placeholder: Project description (optional)
+                - generic [ref=e126]:
+                  - button "Cancel" [ref=e127]
+                  - button "Create" [disabled] [ref=e128]
+  - region "Notifications alt+T"

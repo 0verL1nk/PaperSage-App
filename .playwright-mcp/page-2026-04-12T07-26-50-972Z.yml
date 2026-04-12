@@ -1,0 +1,62 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - banner [ref=e4]:
+      - link "P PaperSage" [ref=e6] [cursor=pointer]:
+        - /url: /
+        - generic [ref=e8]: P
+        - generic [ref=e9]: PaperSage
+      - generic [ref=e10]:
+        - img [ref=e11]
+        - searchbox "Search..." [ref=e14]
+      - generic [ref=e15]:
+        - button "New" [ref=e16]:
+          - img
+          - generic [ref=e17]: New
+        - button "0" [ref=e18]:
+          - img
+          - generic [ref=e19]: "0"
+        - button "U User" [ref=e20]:
+          - generic [ref=e21]: U
+          - generic [ref=e22]: User
+          - img
+    - generic [ref=e23]:
+      - complementary [ref=e24]:
+        - paragraph [ref=e26]: Navigation
+        - navigation [ref=e27]:
+          - link "Projects" [ref=e28] [cursor=pointer]:
+            - /url: /app/projects
+            - img [ref=e29]
+            - text: Projects
+          - link "Documents" [ref=e31] [cursor=pointer]:
+            - /url: /app/documents
+            - img [ref=e32]
+            - text: Documents
+          - link "Trash" [ref=e35] [cursor=pointer]:
+            - /url: /app/trash
+            - img [ref=e36]
+            - text: Trash
+        - link "Profile" [ref=e40] [cursor=pointer]:
+          - /url: /app/profile
+          - img
+          - text: Profile
+      - main [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - heading "My Projects" [level=1] [ref=e44]
+            - generic [ref=e45]:
+              - link "Trash" [ref=e46] [cursor=pointer]:
+                - /url: /app/trash
+                - img
+                - text: Trash
+              - button "New Project" [ref=e47]:
+                - img
+                - text: New Project
+          - generic [ref=e49]:
+            - img [ref=e51]
+            - generic [ref=e53]:
+              - paragraph [ref=e54]: No projects yet
+              - paragraph [ref=e55]: Create your first project to get started
+            - button "Create Project" [ref=e56]:
+              - img
+              - text: Create Project
+  - region "Notifications alt+T"
