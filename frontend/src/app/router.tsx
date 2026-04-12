@@ -12,6 +12,7 @@ import { MainLayout } from '@/views/layout/MainLayout'
 import { WorkspaceLayout } from '@/views/layout/WorkspaceLayout'
 import { hasSessionToken } from '@/store/session-store'
 import { ProjectListPage } from '@/views/projects/ProjectListPage'
+import { WritingPage } from '@/views/projects/WritingPage'
 import { TrashPage } from '@/views/trash/TrashPage'
 import { UnderConstruction } from '@/components/shared/UnderConstruction'
 
@@ -183,18 +184,11 @@ const projectUploadingRoute = createRoute({
   },
 })
 
-// Project coding route
-const projectCodingRoute = createRoute({
+// Project writing route
+const projectWritingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
-  path: '/project/$projectId/coding',
-  component: function ProjectCoding() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Coding</h1>
-        <p className="mt-2 text-muted-foreground">Coding module placeholder</p>
-      </div>
-    )
-  },
+  path: '/project/$projectId/writing',
+  component: WritingPage,
 })
 
 // Project classifying route
@@ -247,7 +241,7 @@ const routeTree = rootRoute.addChildren([
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectUploadingRoute,
-    projectCodingRoute,
+    projectWritingRoute,
     projectClassifyingRoute,
     projectLogicChainRoute,
     projectGeneratingRoute,
@@ -281,7 +275,7 @@ export function getPlannedRouteGroups() {
     project: [
       '/project/:projectId',
       '/project/:projectId/uploading',
-      '/project/:projectId/coding',
+      '/project/:projectId/writing',
       '/project/:projectId/classifying',
       '/project/:projectId/logic-chain',
       '/project/:projectId/generating',

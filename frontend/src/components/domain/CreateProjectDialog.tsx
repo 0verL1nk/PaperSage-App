@@ -1,9 +1,18 @@
-/**
- * CreateProjectDialog - dialog for creating a new project
- */
+import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { useCreateProject } from '@/services/projects-api'
 import type { ProjectGroup } from '@/types/projects'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
 
 interface CreateProjectDialogProps {
   /** Whether the dialog is open */
@@ -23,8 +32,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
   const createProject = useCreateProject()
   const isPending = createProject.isPending
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const handleSubmit = async (e: any) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!name.trim()) return
 
@@ -42,7 +50,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
       setGroupId(null)
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project')
+      setError(err instanceof Error ? err.message : '创建项目失败')
     }
   }
 
@@ -57,69 +65,62 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
     onOpenChange(isOpen)
   }
 
-  if (!open) return null
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 animate-dialog-overlay"
-      onClick={() => handleOpenChange(false)}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="w-full max-w-md p-6 rounded-lg border bg-card animate-dialog-content shadow-lg"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <h2 className="text-lg font-semibold mb-4">Create New Project</h2>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent className="sm:max-w-[440px] p-6 overflow-hidden rounded-2xl border border-border/40 shadow-strong bg-background gap-6">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-semibold tracking-tight text-foreground">新建项目</DialogTitle>
+        </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5">
           {error && (
-            <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+            <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-[13px] font-medium">
               {error}
             </div>
           )}
-          <div>
-            <label htmlFor="name" className="block text-sm font-medium mb-1">
-              Name <span className="text-destructive">*</span>
-            </label>
-            <input
+
+          <div className="space-y-2">
+            <Label htmlFor="name" className="text-[13px] font-medium text-foreground">
+              项目名称
+            </Label>
+            <Input
               id="name"
-              type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="My Project"
-              className="w-full px-3 py-2 rounded-md border bg-background"
+              placeholder="例如：市场调研分析"
+              className="h-10 text-[14px] bg-muted/40 border-border/40 focus-visible:ring-1 focus-visible:ring-foreground/20 focus-visible:bg-background"
               required
               autoFocus
             />
           </div>
 
-          <div>
-            <label htmlFor="description" className="block text-sm font-medium mb-1">
-              Description
-            </label>
-            <textarea
+          <div className="space-y-2">
+            <Label htmlFor="description" className="text-[13px] font-medium text-foreground">
+              描述 <span className="text-muted-foreground font-normal">(可选)</span>
+            </Label>
+            <Textarea
               id="description"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Project description (optional)"
-              className="w-full px-3 py-2 rounded-md border bg-background resize-none"
-              rows={3}
+              placeholder="简要说明这个项目的目标..."
+              className="min-h-[80px] resize-none text-[14px] bg-muted/40 border-border/40 focus-visible:ring-1 focus-visible:ring-foreground/20 focus-visible:bg-background"
             />
           </div>
 
           {groups.length > 0 && (
-            <div>
-              <label htmlFor="group" className="block text-sm font-medium mb-1">
-                Group
-              </label>
+            <div className="space-y-2">
+              <Label htmlFor="group" className="text-[13px] font-medium text-foreground">
+                分组
+              </Label>
               <select
                 id="group"
                 value={groupId ?? ''}
                 onChange={(e) => setGroupId(e.target.value || null)}
-                className="w-full px-3 py-2 rounded-md border bg-background"
+                className={cn(
+                  "flex h-10 w-full items-center justify-between rounded-lg border border-border/40 bg-muted/40 px-3 py-2 text-[14px] ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20 focus:bg-background disabled:cursor-not-allowed disabled:opacity-50 appearance-none transition-all cursor-pointer"
+                )}
               >
-                <option value="">No group</option>
+                <option value="">无分组</option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.name}
@@ -129,25 +130,27 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
             </div>
           )}
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button
+          <DialogFooter className="pt-2 sm:justify-end gap-2">
+            <Button
               type="button"
+              variant="ghost"
               onClick={() => handleOpenChange(false)}
-              className="px-4 py-2 rounded-md border hover:bg-accent"
               disabled={isPending}
+              className="font-medium text-[13px] rounded-lg"
             >
-              Cancel
-            </button>
-            <button
+              取消
+            </Button>
+            <Button
               type="submit"
-              className="px-4 py-2 rounded-md bg-primary text-primary-foreground hover:bg-primary/90"
+              variant="default"
               disabled={isPending || !name.trim()}
+              className="font-medium text-[13px] rounded-lg px-6"
             >
-              {isPending ? 'Creating...' : 'Create'}
-            </button>
-          </div>
+              {isPending ? '创建中...' : '创建项目'}
+            </Button>
+          </DialogFooter>
         </form>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
