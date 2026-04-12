@@ -605,3 +605,518 @@ export const selectionListener = (setEditorSelection: SetEditorSelection) => {
 - **前端框架**: React + TypeScript
 - **状态管理**: CodeMirror StateField + ViewPlugin
 - **会话存储**: Redis
+
+---
+
+## 9. CodeMirror 扩展详解
+
+### 9.1 扩展注册机制
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/index.ts`
+
+Overleaf 使用模块化扩展系统，所有扩展通过 `createExtensions()` 函数组合：
+
+```typescript
+export const createExtensions = (options: Record<string, any>): Extension[] => [
+  lineNumbers(),
+  highlightSpecialChars(options.visual.visual),
+  history({ newGroupDelay: 250 }),
+  foldGutter({ openText: '▾', closedText: '▸' }),
+  drawSelection(),
+  EditorState.allowMultipleSelections.of(true),
+  EditorView.lineWrapping,
+  indentOnInput(),
+]
+```
+
+扩展通过 `importOverleafModules` 宏动态加载：
+
+```typescript
+const moduleExtensions: Array<(options: Record<string, any>) => Extension> =
+  importOverleafModules('sourceEditorExtensions').map(
+    (item: { import: { extension: Extension } }) => item.import.extension
+  )
+```
+
+### 9.2 主要扩展分类
+
+| 扩展文件 | 功能描述 |
+|---------|---------|
+| `realtime.ts` | OT 实时协作核心 |
+| `history-ot.ts` | Track Changes 变更追踪 |
+| `auto-complete.ts` | 自动补全 UI |
+| `cursor-position.ts` | 光标位置同步 |
+| `cursor-highlights.ts` | 远程用户光标显示 |
+| `symbol-palette.ts` | 符号面板 |
+| `search.ts` | 搜索功能 |
+
+### 9.3 StateField 与 ViewPlugin 模式
+
+**StateField** - 用于持久状态管理：
+
+```typescript
+export const rangesState = StateField.define<{
+  comments: CommentList
+  trackedChanges: TrackedChangeList
+  decorations: DecorationSet
+}>({
+  create() {
+    return { trackedChanges, comments, decorations }
+  },
+
+  update(value, transaction) {
+    if (transaction.docChanged) {
+      const shareDoc = transaction.state.field(shareDocState)
+      return buildRangesDecorations(...)
+    }
+    return value
+  },
+
+  provide(field) {
+    return EditorView.decorations.from(field, value => value.decorations)
+  },
+})
+```
+
+**ViewPlugin** - 用于视图相关逻辑：
+
+```typescript
+export const realtime = ({ currentDoc }, handleError) => {
+  return ViewPlugin.define(view => {
+    const editor = new EditorFacade(view)
+    currentDoc.attachToCM6(editor)
+
+    return {
+      update(update) {
+        if (update.docChanged) {
+          editor.handleUpdateFromCM(update.transactions, currentDoc.ranges)
+        }
+      },
+      destroy() {
+        currentDoc.detachFromCM6()
+      },
+    }
+  })
+}
+```
+
+### 9.4 Transaction Extender 模式
+
+用于拦截和转换事务：
+
+```typescript
+const updateSender = EditorState.transactionExtender.of(tr => {
+  if (!tr.docChanged || tr.annotation(Transaction.remote)) {
+    return {}
+  }
+
+  const opBuilder = new OperationBuilder(...)
+  tr.changes.iterChanges((fromA, toA, fromB, toB, inserted) => {
+    // 处理插入和删除
+  })
+
+  const op = opBuilder.finish()
+  const shareDoc = tr.startState.field(shareDocState)
+  if (shareDoc != null) {
+    shareDoc.submitOp([op])
+  }
+
+  return {}
+})
+```
+
+---
+
+## 10. 自动补全详细机制
+
+### 10.1 补全扩展架构
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/auto-complete.ts`
+
+```typescript
+const createAutoComplete = ({ enabled, ...rest }) => {
+  if (!enabled) return []
+
+  return [
+    autocompleteTheme,
+    autocompletion({
+      icons: false,
+      defaultKeymap: false,
+      interactionDelay: 0,
+      optionClass: (completion: Completion) => `ol-cm-completion-${completion.type}`,
+      addToOptions: [{
+        render: completion => {
+          const span = document.createElement('span')
+          span.classList.add('ol-cm-completionType')
+          span.textContent = completion.type || ''
+          return span
+        },
+        position: 400,
+      }],
+    }),
+    Prec.highest(keymap.of([
+      { key: 'Escape', run: closeCompletion },
+      { key: 'Enter', run: acceptCompletion },
+      { key: 'Tab', run: acceptCompletion },
+    ])),
+  ]
+}
+```
+
+### 10.2 补全源分类
+
+1. **命令补全** (`inCommandCompletionSource`)
+   - 触发条件：在 `$CtrlSeq` 节点类型中
+
+2. **环境名称补全** (`environmentNameCompletionSource`)
+   - 触发条件：在 `EnvNameGroup` 节点中
+
+3. **引用补全** (`refArgumentCompletionSource`)
+   - 触发条件：在 `RefArgument` 节点中
+
+4. **包/类补全** (`packageArgumentCompletionSource`)
+   - 触发条件：在 `PackageArgument` 节点中
+
+### 10.3 补全匹配算法
+
+**`getCompletionMatches`** 函数处理文本匹配：
+
+```typescript
+export function getCompletionMatches(context: CompletionContext) {
+  const matchBefore = context.explicit
+    ? context.matchBefore(/(?:^|\\)[^\\]*(\[[^\]]*])?[^\\]*/)
+    : context.matchBefore(/\\?\\[^\\]*(\[[^\]]*])?[^\\]*/)
+
+  if (!matchBefore) return null
+
+  // 忽略某些匹配
+  if (!context.explicit) {
+    if (/\\\\$/.test(matchBefore.text)) return null
+    if (/[^,\s]\s+$/.test(matchBefore.text)) return null
+  }
+
+  // 多参数匹配
+  const multipleArgumentMatcher =
+    /^(?<before>\\(?<command>\w+)\*?(?<arguments>(\[[^\]]*?]|\{[^}]*?})+)?{)(?<existing>([^}]+\s*,\s*)+)?(?<prefix>[^}]+)?$/
+
+  const match = matchBefore.text.match(multipleArgumentMatcher)
+  return { match, matchBefore }
+}
+```
+
+### 10.4 buildAllCompletions 流程
+
+**文件**: `services/web/frontend/js/features/source-editor/languages/latex/completions/`
+
+```typescript
+export const buildAllCompletions = (completions, context) => {
+  buildSnippetCompletions(completions)      // Snippet 补全
+  buildEnvironmentCompletions(completions)  // 环境补全
+  buildClassCompletions(completions)        // 文档类补全
+  buildBibliographyStyleCompletions(completions)
+  buildIncludeCompletions(completions, context)  // 文件引用
+  buildReferenceCompletions(completions, context) // 引用
+  buildLabelCompletions(completions, context)    // 标签
+  buildPackageCompletions(completions, context) // 包
+  return completions
+}
+```
+
+---
+
+## 11. Snippet 模板系统
+
+### 11.1 Snippet 定义格式
+
+**文件**: `services/web/frontend/js/features/languages/latex/completions/data/environments.ts`
+
+```typescript
+export const snippet = (name: string) => `\\begin{${name}}
+\t$1
+\\end{${name}}`
+
+export const environments = new Map([
+  ['abstract', snippet('abstract')],
+  ['align', snippet('align')],
+  ['equation', snippet('equation')],
+  [
+    'figure',
+    `\\begin{figure}
+\t\\centering
+\t\\includegraphics[width=0.5\\linewidth]{$1}
+\t\\caption{\${2:Caption}}
+\t\\label{\${3:fig:placeholder}}
+\\end{figure}`,
+  ],
+])
+```
+
+### 11.2 Snippet 占位符格式
+
+Overleaf 使用两种占位符格式：
+
+1. **CodeMirror 原生格式**: `${1}`, `${2}`, `#{1}`
+2. **Ace 旧格式**: `$1`, `$2` (需转换)
+
+```typescript
+export const prepareSnippetTemplate = (template: string): string => {
+  return template.replace(/\$(\d+)/g, '#{$1}') + '${}'
+}
+```
+
+### 11.3 智能扩展机制
+
+**extendOverUnpairedClosingBrace** - 处理未闭合括号：
+
+```typescript
+export const extendOverUnpairedClosingBrace = (state, change) => {
+  if (nextChar(state.doc, change.to) === '}') {
+    const unclosedBraces = countUnclosedBraces(doc, change.from, change.to)
+    if (unclosedBraces < 0) {
+      change.to++
+    }
+  }
+  return change
+}
+```
+
+---
+
+## 12. 符号面板 (Symbol Palette)
+
+### 12.1 符号面板架构
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/symbol-palette.ts`
+
+```typescript
+export const symbolPalette = () => {
+  return ViewPlugin.define(view => {
+    const listener = (event: Event) => {
+      const symbol = (event as CustomEvent<{ command: string }>).detail
+      view.focus()
+
+      const spec = view.state.changeByRange(range => {
+        const changeSet = view.state.changes([
+          { from: range.from, to: range.to, insert: symbol.command },
+        ])
+        return {
+          range: EditorSelection.cursor(changeSet.mapPos(range.to, 1)),
+          changes: changeSet,
+        }
+      })
+
+      view.dispatch(spec, { scrollIntoView: true })
+    }
+
+    window.addEventListener('editor:insert-symbol', listener)
+
+    return {
+      destroy() {
+        window.removeEventListener('editor:insert-symbol', listener)
+      },
+    }
+  })
+}
+```
+
+### 12.2 符号插入事件
+
+UI 层通过自定义事件触发符号插入：
+
+```typescript
+const handleSymbolClick = (symbol: string) => {
+  window.dispatchEvent(new CustomEvent('editor:insert-symbol', {
+    detail: { command: symbol }
+  }))
+}
+```
+
+---
+
+## 13. 历史记录 (History)
+
+### 13.1 History 与 OT 的冲突处理
+
+**关键问题**：CodeMirror 的本地 undo/redo 与 OT 的远程操作可能冲突。
+
+**解决方案** - 远程操作标记：
+
+```typescript
+// services/web/frontend/js/features/source-editor/extensions/realtime.ts
+const onInsert = (pos: number, text: string) => {
+  editor.cmInsert(pos, text, 'remote')  // 'remote' origin
+}
+
+// cmChange 实现
+cmChange(changes: ChangeSpec, origin?: string) {
+  const isRemote = origin === 'remote'
+  this.view.dispatch({
+    changes,
+    annotations: [
+      Transaction.remote.of(isRemote),
+      Transaction.addToHistory.of(!isRemote),  // 远程操作不加入本地历史
+    ],
+  })
+}
+```
+
+### 13.2 OperationBuilder 类
+
+将 CodeMirror 变更转换为 OT 操作：
+
+```typescript
+class OperationBuilder {
+  private docLength: number
+  private pos: number
+  private op: TextOperation
+
+  constructor(docLength: number) {
+    this.docLength = docLength
+    this.op = new TextOperation()
+    this.pos = 0
+  }
+
+  insert(pos: number, text: string) {
+    this.retainUntil(pos)
+    this.op.insert(text)
+  }
+
+  delete(pos: number, length: number) {
+    this.retainUntil(pos)
+    this.op.remove(length)
+    this.pos += length
+  }
+
+  finish() {
+    this.retainUntil(this.docLength)
+    return this.op
+  }
+}
+```
+
+---
+
+## 14. 快捷键绑定
+
+### 14.1 快捷键配置
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/keymaps.ts`
+
+```typescript
+import { keymap } from '@codemirror/view'
+import { defaultKeymap, historyKeymap } from '@codemirror/commands'
+import { lintKeymap } from '@codemirror/lint'
+
+export const keymaps = keymap.of([
+  ...filteredDefaultKeymap,
+  ...historyKeymap,
+  ...lintKeymap,
+])
+```
+
+### 14.2 禁用某些默认快捷键
+
+```typescript
+const ignoredDefaultKeybindings = new Set([
+  'Mod-Enter',           // 用于编译
+  'Alt-ArrowLeft',       // Windows/Linux 特殊行为
+  'Alt-ArrowRight',
+  'Mod-Alt-\\',          // 与 AltGr 输入冲突
+])
+```
+
+### 14.3 第三方快捷键支持
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/keybindings.ts`
+
+支持 Vim 和 Emacs 模式：
+
+```typescript
+const options = [
+  { name: 'default', load: async () => [] },
+  {
+    name: 'vim',
+    load: () => import('@replit/codemirror-vim').then(m => {
+      customiseVimOnce(m.Vim, m.CodeMirror)
+      return m.vim()
+    }),
+  },
+  {
+    name: 'emacs',
+    load: () => import('@replit/codemirror-emacs').then(m => {
+      return [m.emacs()]
+    }),
+  },
+]
+```
+
+---
+
+## 15. 粘贴处理
+
+### 15.1 粘贴处理架构
+
+**文件**: `services/web/frontend/js/features/source-editor/extensions/visual/paste-html.ts`
+
+Overleaf 使用 DOM 事件处理器拦截粘贴：
+
+```typescript
+export const pasteHtml = [
+  Prec.highest(
+    EditorView.domEventHandlers({
+      paste(event, view) {
+        const { clipboardData } = event
+
+        if (!clipboardData.types.includes('text/html')) {
+          return false
+        }
+
+        const html = clipboardData.getData('text/html').trim()
+        const text = clipboardData.getData('text/plain').trim()
+
+        try {
+          const latex = convertHtmlStringToLatex(html, clipboardData.files.length)
+
+          if (latex === null || (latex === text && clipboardData.files.length === 0)) {
+            return false
+          }
+
+          view.dispatch(insertPastedContent(view, { latex, text }))
+          return true
+        } catch (error) {
+          return false
+        }
+      },
+    })
+  ),
+]
+```
+
+### 15.2 HTML 元素到 LaTeX 映射
+
+```typescript
+const selectors = [
+  // 粗体
+  { selector: 'b', start: () => '\\textbf{', end: () => '}' },
+  { selector: 'strong', start: () => '\\textbf{', end: () => '}' },
+  // 斜体
+  { selector: 'i', start: () => '\\textit{', end: () => '}' },
+  // 上标
+  { selector: 'sup', start: () => '\\textsuperscript{', end: () => '}' },
+  // 下标
+  { selector: 'sub', start: () => '\\textsubscript{', end: () => '}' },
+  // 链接
+  { selector: 'a', start: (el) => `\\href{${protectUrlCharacters(el.href)}}{`, end: () => '}' },
+  // 标题
+  { selector: 'h1', start: () => '\n\n\\section{', end: () => '}\n\n' },
+  { selector: 'h2', start: () => '\n\n\\subsection{', end: () => '}\n\n' },
+]
+```
+
+---
+
+## 16. 参考资料
+
+- CodeMirror 6: https://codemirror.net/
+- Lezer: https://lezer.handcrafted.email/
+- ShareJS OT: https://github.com/share/ShareJS

@@ -784,3 +784,240 @@ checkPath(basePath, resourcePath, callback) {
 | RequestParser | `services/clsi/app/js/RequestParser.js` | 请求解析 |
 | LatexMetrics | `services/clsi/app/js/LatexMetrics.js` | 指标解析 |
 | pdf-js-viewer | `services/web/frontend/js/features/pdf-preview/components/pdf-js-viewer.tsx` | 前端渲染 |
+
+---
+
+## 16. ChkTeX 集成详解
+
+### 16.1 ChkTeX 验证选项
+
+ChkTeX 是 LaTeX 文档的静态检查工具，在编译前运行以检测常见的书写错误。
+
+```javascript
+if (request.check != null && isLaTeXFile) {
+  env.CHKTEX_OPTIONS = '-nall -e9 -e10 -w15 -w16'
+  env.CHKTEX_ULIMIT_OPTIONS = '-t 5 -v 64000'
+
+  if (request.check === 'error') {
+    env.CHKTEX_EXIT_ON_ERROR = 1  // 发现错误时终止编译
+  }
+  if (request.check === 'validate') {
+    env.CHKTEX_VALIDATE = 1       // 仅验证模式
+  }
+}
+```
+
+| 选项 | 含义 |
+|------|------|
+| `-e9` | 启用 LaTeX 命令参数数量不匹配的警告 |
+| `-e10` | 启用数学模式下禁用文本命令的警告 |
+| `-w15` | 启用行长度超过 79 字符的警告 |
+| `-w16` | 启用未转义特殊字符的警告 |
+
+---
+
+## 17. TikZ 外部化支持
+
+### 17.1 TikzManager 实现
+
+TikZ 外部化用于缓存 TikZ 图片以避免重复渲染。
+
+```javascript
+const TikzManager = {
+  OUTPUT_TEX: 'output.tex',
+
+  usesTikzExternalize(content) {
+    return content.includes('\\tikzexternalize') || content.includes('{pstool}')
+  },
+
+  async injectOutputFile(compileDir, mainFile, callback) {
+    // 由于 latexmk 使用 -jobname=output，
+    // 需要创建 output.tex 副本以匹配 jobname
+    return fs.promises.writeFile(
+      Path.join(compileDir, TikzManager.OUTPUT_TEX),
+      content,
+      { flag: 'wx' }  // exclusive create
+    )
+  }
+}
+```
+
+---
+
+## 18. 草稿模式详解
+
+### 18.1 DraftModeManager 实现
+
+草稿模式通过注入 `\PassOptionsToPackage{draft}{graphicx}` 跳过图片渲染：
+
+```javascript
+const PREFIX = '\\PassOptionsToPackage{draft}{graphicx}\\PassOptionsToPackage{draft}{graphics}'
+
+async function injectDraftMode(filename) {
+  const content = await fsPromises.readFile(filename, { encoding: 'utf8' })
+  const modifiedContent = PREFIX + content
+  await fsPromises.writeFile(filename, modifiedContent, { encoding: 'utf8' })
+}
+```
+
+性能提升来自跳过图片渲染和后处理，适用于快速预览文档结构。
+
+---
+
+## 19. LaTeX 编译错误解析
+
+### 19.1 编译状态码
+
+| 状态 | HTTP 码 | 条件 |
+|------|---------|------|
+| `success` | 200 | output.pdf 生成且大小 > 0 |
+| `failure` | 200 | output.pdf 未生成 |
+| `error` | 500 | 编译异常 |
+| `timedout` | 200 | 编译超时 |
+| `terminated` | 200 | 被手动终止 |
+| `validation-error` | 200 | ChkTeX 验证失败 |
+| `conflict` | 409 | FilesOutOfSyncError |
+| `compile-in-progress` | 423 | AlreadyCompilingError |
+
+### 19.2 latexmk 统计信息
+
+**LatexMetrics.js** 解析 latexmk 输出中的关键指标：
+
+| 指标 | 正则表达式 | 说明 |
+|------|----------|------|
+| `latexmk-rule-times` | `'([^' ]+)': time = (\d+\.\d+)` | 每个规则的执行时间 |
+| `latexmk-time` | `Processing time = (\d+\.\d+)` | 总处理时间 |
+| `latexmk-img-times` | `Image written \((PNG\|JPG...), (\d+) ms\)` | 图片处理时间 |
+
+---
+
+## 20. PDF.js 渲染详解
+
+### 20.1 PDF.js 初始化
+
+```typescript
+export default class PDFJSWrapper {
+  constructor(public container: HTMLDivElement) {
+    this.eventBus = new EventBus()
+    this.linkService = new PDFLinkService({
+      eventBus: this.eventBus,
+      externalLinkTarget: LinkTarget.BLANK,
+    })
+    this.viewer = new PDFViewer({
+      container: this.container,
+      eventBus: this.eventBus,
+      linkService: this.linkService,
+      maxCanvasPixels: browser.safari ? 4096 * 4096 : 8192 * 8192,
+    })
+    this.linkService.setViewer(this.viewer)
+  }
+}
+```
+
+### 20.2 缩放控制
+
+```typescript
+const setZoom = useCallback((zoom: any) => {
+  switch (zoom) {
+    case 'zoom-in':
+      setScale(`${Math.min(pdfJsWrapper.viewer.currentScale * 1.25, 9.99)}`)
+      break
+    case 'zoom-out':
+      setScale(`${Math.max(pdfJsWrapper.viewer.currentScale / 1.25, 0.1)}`)
+      break
+    default:
+      setScale(zoom)  // 支持 'page-width', 'page-height', 'auto', 数值
+  }
+}, [pdfJsWrapper, setScale])
+```
+
+### 20.3 滚动位置管理
+
+```typescript
+get currentPosition() {
+  const containerRect = this.container.getBoundingClientRect()
+  let pageIndex = this.viewer.currentPageNumber - 1
+
+  const pageView = this.viewer.getPageView(pageIndex)
+  const pageRect = pageView.div.getBoundingClientRect()
+  const dy = containerRect.top - pageRect.top
+  const dx = containerRect.left - pageRect.left
+  const [left, top] = pageView.viewport.convertToPdfPoint(dx, dy)
+  const [, , width, height] = pageView.viewport.viewBox
+
+  return { page: pageIndex, offset: { top, left }, pageSize: { height, width } }
+}
+```
+
+---
+
+## 21. SyncTeX 双向同步详解
+
+### 21.1 代码到 PDF 同步
+
+```javascript
+async function syncFromCode(projectId, userId, filename, line, column, opts) {
+  const compileName = getCompileName(projectId, userId)
+  const baseDir = Settings.path.synctexBaseDir(compileName)
+  const inputFilePath = Path.join(baseDir, filename)
+  const outputFilePath = Path.join(baseDir, 'output.pdf')
+
+  const command = [
+    'synctex', 'view',
+    '-i', `${line}:${column}:${inputFilePath}`,
+    '-o', outputFilePath
+  ]
+
+  const { stdout } = await _runSynctex(projectId, userId, command, opts)
+  return { codePositions: SynctexOutputParser.parseViewOutput(stdout) }
+}
+```
+
+### 21.2 PDF 到代码同步
+
+```javascript
+async function syncFromPdf(projectId, userId, page, h, v, opts) {
+  const command = [
+    'synctex', 'edit',
+    '-o', `${page}:${h}:${v}:${outputFilePath}`
+  ]
+
+  const { stdout } = await _runSynctex(projectId, userId, command, opts)
+  return { pdfPositions: SynctexOutputParser.parseEditOutput(stdout, baseDir) }
+}
+```
+
+---
+
+## 22. 多版本 TeX Live 支持
+
+### 22.1 DockerRunner 镜像管理
+
+```javascript
+if ((Settings.clsi != null ? Settings.clsi.dockerRunner : undefined) === true) {
+  commandRunnerPath = './DockerRunner.js'
+} else {
+  commandRunnerPath = './LocalCommandRunner.js'
+}
+```
+
+### 22.2 支持的镜像配置
+
+```javascript
+Settings.clsi = {
+  docker: {
+    image: 'texlive:2022',
+    allowedImages: ['texlive:2022', 'texlive:2023']
+  }
+}
+```
+
+客户端可以通过 `imageName` 参数指定要使用的 TeX Live 版本。
+
+---
+
+## 23. 参考资料
+
+- CLSI 服务: `services/clsi/`
+- PDF.js: https://mozilla.github.io/pdf.js/
+- SyncTeX: https://www.tug.org/texinfo/synctex/

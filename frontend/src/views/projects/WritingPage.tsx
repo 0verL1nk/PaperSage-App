@@ -2,14 +2,9 @@ import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef } from 'react'
 import { 
   MessageSquareText, 
-  History, 
-  Library, 
   Search, 
-  ChevronLeft, 
-  ChevronRight, 
   Play, 
   Download, 
-  Maximize2,
   Sparkles,
   Loader2,
   FileText,
@@ -27,11 +22,7 @@ import {
 import { Button } from '@/components/ui/button'
 import Editor from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
-import { 
-  Panel, 
-  PanelGroup, 
-  PanelResizeHandle 
-} from 'react-resizable-panels'
+import * as Resizable from 'react-resizable-panels'
 
 // Set up worker for react-pdf
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -44,28 +35,35 @@ type SidebarTab = 'files' | 'ai'
 export function WritingPage() {
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
   const [numPages, setNumPages] = useState<number>(0)
-  const [scale, setScale] = useState<number>(0.9)
+  
+  // Anti-flicker scale state
+  const [displayScale, setDisplayScale] = useState<number>(0.9) // Fast CSS scale
+  const [renderScale, setRenderScale] = useState<number>(0.9)   // Debounced PDF render scale
+  
   const [isCompiling, setIsCompiling] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const previewContainerRef = useRef<HTMLDivElement>(null)
+  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
   
   const [latexContent, setLatexContent] = useState(`\\documentclass{article}
 \\usepackage[utf8]{inputenc}
 
-\\title{Professional LaTeX Environment}
-\\author{PaperSage Developer}
+\\title{Anti-Flicker LaTeX Preview}
+\\author{PaperSage Pro}
 \\date{\\today}
 
 \\begin{document}
 
 \\maketitle
 
-\\section{Introduction}
-This is a professional LaTeX editing environment. 
-You can resize panels by dragging the handles between them.
+\\section{Flicker-Free Zoom}
+We implemented a dual-scale strategy:
+1. CSS Transform for immediate feedback (No flickering).
+2. Debounced High-res rendering for crisp text.
 
-\\section{Zoom Controls}
-Try the + and - buttons in the preview header to adjust the scale.
+\\section{Instructions}
+Hold CTRL and scroll fast. You'll see the scale changes 
+instantly without any white flashes.
 
 \\end{document}`)
 
@@ -78,6 +76,40 @@ Try the + and - buttons in the preview header to adjust the scale.
     return () => window.removeEventListener('resize', checkMobile)
   }, [])
 
+  // Sync renderScale with displayScale after a short delay
+  useEffect(() => {
+    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    
+    debounceTimerRef.current = setTimeout(() => {
+      setRenderScale(displayScale)
+    }, 400) // Render high-res only after 400ms of inactivity
+
+    return () => {
+      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    }
+  }, [displayScale])
+
+  // Handle Ctrl + Wheel Zoom
+  useEffect(() => {
+    const container = previewContainerRef.current
+    if (!container) return
+
+    const handleWheel = (e: WheelEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault()
+        const delta = -e.deltaY
+        const factor = delta > 0 ? 1.08 : 0.92
+        setDisplayScale(prev => {
+          const nextScale = prev * factor
+          return Math.max(0.4, Math.min(nextScale, 3.0))
+        })
+      }
+    }
+
+    container.addEventListener('wheel', handleWheel, { passive: false })
+    return () => container.removeEventListener('wheel', handleWheel)
+  }, [])
+
   const handleEditorChange = (value: string | undefined) => {
     if (value !== undefined) setLatexContent(value)
   }
@@ -87,15 +119,15 @@ Try the + and - buttons in the preview header to adjust the scale.
     setTimeout(() => {
       setPdfFile('https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf')
       setIsCompiling(false)
-    }, 1000)
+    }, 800)
   }
 
-  const zoomIn = () => setScale(prev => Math.min(prev + 0.1, 2.5))
-  const zoomOut = () => setScale(prev => Math.max(prev - 0.1, 0.4))
+  const zoomIn = () => setDisplayScale(prev => Math.min(prev + 0.15, 3.0))
+  const zoomOut = () => setDisplayScale(prev => Math.max(prev - 0.15, 0.4))
   const resetZoom = () => {
     if (previewContainerRef.current) {
       const containerWidth = previewContainerRef.current.clientWidth
-      setScale((containerWidth - 80) / 600)
+      setDisplayScale((containerWidth - 100) / 600)
     }
   }
 
@@ -103,22 +135,10 @@ Try the + and - buttons in the preview header to adjust the scale.
     <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
       {/* 1. Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <button 
-          onClick={() => setActiveTab('files')}
-          className={cn(
-            "p-2 rounded-xl transition-all hover:scale-110",
-            activeTab === 'files' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground"
-          )}
-        >
+        <button onClick={() => setActiveTab('files')} className={cn("p-2 rounded-xl transition-all hover:scale-110", activeTab === 'files' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
           <Files size={20} />
         </button>
-        <button 
-          onClick={() => setActiveTab('ai')}
-          className={cn(
-            "p-2 rounded-xl transition-all hover:scale-110",
-            activeTab === 'ai' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground"
-          )}
-        >
+        <button onClick={() => setActiveTab('ai')} className={cn("p-2 rounded-xl transition-all hover:scale-110", activeTab === 'ai' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
           <Sparkles size={20} />
         </button>
         <div className="mt-auto flex flex-col gap-4">
@@ -128,11 +148,10 @@ Try the + and - buttons in the preview header to adjust the scale.
       </aside>
 
       <div className="flex-1 min-w-0">
-        <PanelGroup direction="horizontal" autoSaveId="writing-layout-v4">
-          {/* 2. Side Pane */}
+        <Resizable.Group orientation="horizontal" id="writing-layout-v9">
           {!isMobile && (
             <>
-              <Panel defaultSize={18} minSize={12} collapsible>
+              <Resizable.Panel defaultSize={18} minSize={12} collapsible>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
                   {activeTab === 'files' ? (
                     <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -148,9 +167,6 @@ Try the + and - buttons in the preview header to adjust the scale.
                         <FileTreeItem icon={<FileCode size={14} className="text-orange-500" />} label="references.bib" />
                         <FileTreeFolder label="sections">
                           <FileTreeItem icon={<FileText size={14} />} label="intro.tex" indent />
-                        </FileTreeFolder>
-                        <FileTreeFolder label="images">
-                          <FileTreeItem icon={<ImageIcon size={14} className="text-blue-500" />} label="arch.pdf" indent />
                         </FileTreeFolder>
                       </div>
                     </div>
@@ -176,105 +192,79 @@ Try the + and - buttons in the preview header to adjust the scale.
                     </div>
                   )}
                 </aside>
-              </Panel>
+              </Resizable.Panel>
               <ResizeHandle />
             </>
           )}
 
-          {/* 3. Middle: Editor */}
-          <Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
+          <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <EditToolbar />
                 <div className="flex items-center gap-1">
-                  <Button 
-                    variant="ghost" 
-                    size="icon-xs" 
-                    className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90"
-                    onClick={handleCompile}
-                    disabled={isCompiling}
-                  >
+                  <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
                     {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
                   </Button>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground"><Download size={14} /></Button>
                 </div>
               </div>
               <div className="flex-1 relative overflow-hidden">
-                <Editor
-                  height="100%"
-                  defaultLanguage="latex"
-                  theme="vs-light"
-                  value={latexContent}
-                  onChange={handleEditorChange}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    lineHeight: 1.6,
-                    padding: { top: 20 },
-                    wordWrap: 'on',
-                    automaticLayout: true,
-                    folding: true,
-                    lineNumbers: 'on',
-                    scrollbar: { vertical: 'visible', useShadows: false }
-                  }}
-                />
+                <Editor height="100%" defaultLanguage="latex" theme="vs-light" value={latexContent} onChange={handleEditorChange} options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }} />
               </div>
             </section>
-          </Panel>
+          </Resizable.Panel>
 
-          {/* 4. Right: Continuous Preview Renderer with Lazy Loading */}
-          {!isMobile && (
-            <>
-              <ResizeHandle />
-              <Panel defaultSize={40} minSize={20}>
-                <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
-                  <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
-                    <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Preview</span>
-                    <div className="flex items-center gap-1">
-                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
-                      <span className="text-[10px] font-bold text-muted-foreground w-10 text-center">{Math.round(scale * 100)}%</span>
-                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
-                      <div className="w-px h-3 bg-border mx-1" />
-                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
-                    </div>
-                  </div>
-                  
+          <Resizable.Panel defaultSize={40} minSize={20}>
+            <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
+              <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
+                <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Preview</span>
+                <div className="flex items-center gap-1">
+                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
+                  <span className="text-[10px] font-bold text-muted-foreground w-10 text-center">{Math.round(displayScale * 100)}%</span>
+                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
+                  <div className="w-px h-3 bg-border mx-1" />
+                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
+                </div>
+              </div>
+              
+              <div 
+                ref={previewContainerRef}
+                className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20"
+              >
+                {pdfFile ? (
                   <div 
-                    ref={previewContainerRef}
-                    className="flex-1 overflow-y-auto p-8 flex flex-col items-center bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20"
+                    className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out"
+                    style={{ transform: `scale(${displayScale / renderScale})` }}
                   >
-                    {pdfFile ? (
-                      <Document
-                        file={pdfFile}
-                        onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-                        loading={<div className="flex flex-col items-center justify-center p-20 gap-4"><Loader2 className="h-8 w-8 animate-spin text-primary/40" /><p className="text-sm text-muted-foreground font-medium uppercase tracking-tighter">Rendering...</p></div>}
-                        className="flex flex-col gap-6"
-                      >
-                        {Array.from(new Array(numPages), (el, index) => (
-                          <div key={`p_${index + 1}`} className="shadow-2xl rounded-sm bg-white overflow-hidden transition-transform duration-300">
-                            <Page 
-                              pageNumber={index + 1} 
-                              scale={scale} 
-                              renderTextLayer={true} 
-                              renderAnnotationLayer={true}
-                              loading={<div className="w-[500px] h-[700px] bg-white flex items-center justify-center text-xs text-muted-foreground italic">Page {index + 1} Loading...</div>}
-                            />
-                          </div>
-                        ))}
-                      </Document>
-                    ) : (
-                      <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32">
-                        <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6"><Play className="h-6 w-6 text-primary fill-primary/10" /></div>
-                        <h4 className="text-sm font-bold mb-2">Ready to Compile</h4>
-                        <p className="text-[12px] text-muted-foreground leading-relaxed">Click the Compile button to preview your PDF.</p>
-                      </div>
-                    )}
+                    <Document
+                      file={pdfFile}
+                      onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                      loading={<div className="flex flex-col items-center justify-center p-20 gap-4"><Loader2 className="h-8 w-8 animate-spin text-primary/40" /><p className="text-sm text-muted-foreground font-medium uppercase tracking-tighter">Rendering...</p></div>}
+                      className="flex flex-col gap-6"
+                    >
+                      {Array.from(new Array(numPages), (_, index) => (
+                        <div key={`p_${index + 1}`} className="shadow-2xl rounded-sm bg-white overflow-hidden">
+                          <Page 
+                            pageNumber={index + 1} 
+                            scale={renderScale} 
+                            renderTextLayer={true} 
+                            renderAnnotationLayer={true}
+                            loading={null}
+                          />
+                        </div>
+                      ))}
+                    </Document>
                   </div>
-                </aside>
-              </Panel>
-            </>
-          )}
-        </PanelGroup>
+                ) : (
+                  <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32 mx-auto">
+                    <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6"><Play className="h-6 w-6 text-primary fill-primary/10" /></div>
+                    <h4 className="text-sm font-bold mb-2 text-muted-foreground">Ready to Compile</h4>
+                  </div>
+                )}
+              </div>
+            </aside>
+          </Resizable.Panel>
+        </Resizable.Group>
       </div>
     </div>
   )
@@ -282,20 +272,16 @@ Try the + and - buttons in the preview header to adjust the scale.
 
 function ResizeHandle() {
   return (
-    <PanelResizeHandle className="w-1 bg-transparent hover:bg-primary/20 active:bg-primary/40 transition-colors relative z-50">
+    <Resizable.Separator className="w-1 bg-transparent hover:bg-primary/20 active:bg-primary/40 transition-colors relative z-50">
       <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border/40" />
-    </PanelResizeHandle>
+    </Resizable.Separator>
   )
 }
 
 function FileTreeItem({ icon, label, active = false, indent = false }: { icon: React.ReactNode, label: string, active?: boolean, indent?: boolean }) {
   return (
     <div className="px-2 w-full mb-0.5">
-      <div className={cn(
-        "flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-all duration-200 rounded-lg group relative",
-        indent ? "ml-4 w-[calc(100%-1rem)]" : "w-full",
-        active ? "bg-primary/10 text-primary font-bold shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-      )}>
+      <div className={cn("flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-all duration-200 rounded-lg group relative", indent ? "ml-4 w-[calc(100%-1rem)]" : "w-full", active ? "bg-primary/10 text-primary font-bold shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
         <span className="shrink-0 transition-transform group-hover:scale-110">{icon}</span>
         <span className="truncate">{label}</span>
         {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full" />}
@@ -308,12 +294,7 @@ function FileTreeFolder({ label, children }: { label: string, children: React.Re
   const [open, setOpen] = useState(true)
   return (
     <div className="mb-0.5">
-      <div className="px-2">
-        <div onClick={() => setOpen(!open)} className="flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 hover:bg-muted transition-all rounded-lg font-bold group">
-          <FolderOpen size={14} className={cn("text-yellow-500/80 transition-transform duration-300", !open && "-rotate-90", "group-hover:scale-110")} />
-          <span>{label}</span>
-        </div>
-      </div>
+      <div className="px-2"><div onClick={() => setOpen(!open)} className="flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 hover:bg-muted transition-all rounded-lg font-bold group"><FolderOpen size={14} className={cn("text-yellow-500/80 transition-transform duration-300", !open && "-rotate-90", "group-hover:scale-110")} /><span>{label}</span></div></div>
       {open && children}
     </div>
   )
@@ -321,13 +302,6 @@ function FileTreeFolder({ label, children }: { label: string, children: React.Re
 
 function EditToolbar() {
   return (
-    <div className="flex items-center gap-3 opacity-50">
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors font-bold text-[13px]">B</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors italic font-serif text-[13px]">I</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors underline underline-offset-4 text-[13px]">U</span>
-      <div className="h-3 w-px bg-border" />
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\cite</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\ref</span>
-    </div>
+    <div className="flex items-center gap-3 opacity-50"><span className="hover:text-primary cursor-pointer px-1 transition-colors font-bold text-[13px]">B</span><span className="hover:text-primary cursor-pointer px-1 transition-colors italic font-serif text-[13px]">I</span><span className="hover:text-primary cursor-pointer px-1 transition-colors underline underline-offset-4 text-[13px]">U</span><div className="h-3 w-px bg-border" /><span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\cite</span><span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\ref</span></div>
   )
 }

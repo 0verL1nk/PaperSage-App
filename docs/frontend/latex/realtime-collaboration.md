@@ -751,3 +751,242 @@ Overleaf 的实时协作系统是一个复杂的分布式架构，核心组件�
 - **权限分层**: 项目级 + 文档级双重权限检查
 
 这套架构通过版本向量、房间隔离和权限分层，实现了高效且安全的实时协作编辑体验。
+
+---
+
+## 15. OT 算法的数学证明
+
+### 15.1 收敛性不变量（Convergence Invariant）
+
+OT 算法的核心数学不变量为**交换律**：
+
+```
+apply(apply(S, A), B') = apply(apply(S, B), A')
+```
+
+其中：
+- `S` 为共享文档的初始状态
+- `A`, `B` 为两个并发操作
+- `A' = transform(B, A)` — 将 `A` 相对于 `B` 转换后的结果
+- `B' = transform(A, B)` — 将 `B` 相对于 `A` 转换后的结果
+
+### 15.2 操作转换算法
+
+| 组合 | 处理策略 |
+|------|---------|
+| Insert vs Insert | 优先处理 `op1`（本地优先），对 `op2` 执行 `retain(ins.length)` |
+| Insert vs Delete | 插入位置不受删除影响 |
+| Delete vs Insert | 删除操作需调整位置以反映并发插入 |
+| Delete vs Delete | 相同位置删除需去重 |
+
+---
+
+## 16. 冲突解决策略
+
+### 16.1 三类冲突场景
+
+| 冲突类型 | 示例 | 解决策略 |
+|---------|------|---------|
+| **文本操作冲突** | 两用户同时在位置 P 插入不同文本 | 位置优先 + 游标调整 |
+| **文本-注释冲突** | 用户 A 编辑文本，用户 B 在同一位置添加评论 | 注释随文本移动 |
+| **评论状态冲突** | 两用户同时 resolve 同一评论 | 后到者的 `SetCommentState` 被转为 `NoOp` |
+
+### 16.2 版本过旧（Stale Version）处理
+
+当客户端请求一个已经过期的文档版本时，服务器返回 `ClientRequestedMissingOpsError`：
+
+```javascript
+if (error instanceof ClientRequestedMissingOpsError) {
+  emitJoinDocCatchUpMetrics('missing', error.info)
+  return callback(error)
+}
+```
+
+客户端收到错误后需要重新 `joinDoc` 获取最新快照。
+
+---
+
+## 17. Cursor 渲染细节
+
+### 17.1 光标颜色分配算法
+
+Overleaf 使用基于用户 ID 的 **HSL 色相（Hue）分配**：
+
+```typescript
+const ANONYMOUS_HUE = 100
+const OWN_HUE = 200
+
+export function getHueForUserId(userId?: string): number {
+  if (userId == null || userId === 'anonymous-user') {
+    return ANONYMOUS_HUE
+  }
+  if (getMeta('ol-user_id') === userId) {
+    return OWN_HUE
+  }
+  let hue = getHueForId(userId)
+  if (hue > OWN_HUE - OWN_HUE_BLOCKED_SIZE &&
+      hue < OWN_HUE + OWN_HUE_BLOCKED_SIZE) {
+    hue = hue - OWN_HUE + TOTAL_HUES - OWN_HUE_BLOCKED_SIZE
+  }
+  return hue
+}
+```
+
+颜色通过 MD5 哈希从用户 ID 派生，保证同一用户每次访问获得相同颜色。
+
+### 17.2 光标节流
+
+```typescript
+const cursorUpdateInterval =
+  onlineUsersArray.length > 0 ? 500 : 60 * 1000 * 5
+// 多用户协作时每 500ms 发送一次
+// 独自编辑时每 5 分钟才检查一次
+```
+
+---
+
+## 18. 离线支持
+
+### 18.1 客户端本地操作队列
+
+Overleaf 的 OT 客户端在断网时将操作缓存：
+
+```javascript
+this.handleLocalOperation = function(operation) {
+  switch (_state) {
+    case STATE_READY:
+      sendLocalOperation(operation)  // 在线：直接发送
+      break
+    case STATE_WAITING:
+      queueLocalOperation(operation)  // 离线：加入 pending
+      break
+  }
+}
+```
+
+### 18.2 离线恢复流程
+
+```
+1. 客户端断线  → OtClient._state = STATE_DISCONNECTED
+2. 网络恢复    → ConnectionManager.onOnline()
+3. 重连成功    → socket.emit('authenticate')
+                → socket.on('load')  重新加载文档快照
+                → socket.on('ack')   按顺序确认 _outstanding 和 _pending 中的操作
+```
+
+---
+
+## 19. 性能优化
+
+### 19.1 批量更新处理
+
+Document Updater 使用 `MAX_OPS_PER_ITERATION = 8` 限制每次循环处理的操作数：
+
+```javascript
+const MAX_OPS_PER_ITERATION = 8
+
+getPendingUpdatesForDoc(docId, callback) {
+  multi.lrange(
+    Keys.pendingUpdates({ doc_id: docId }),
+    0,
+    MAX_OPS_PER_ITERATION - 1  // 每次最多取 8 条
+  )
+}
+```
+
+### 19.2 光标更新节流
+
+```typescript
+const cursorUpdateInterval =
+  onlineUsersArray.length > 0 ? 500 : 60 * 1000 * 5
+```
+
+---
+
+## 20. 断线重连
+
+### 20.1 重连策略
+
+| 策略 | 触发条件 | 行为 |
+|------|---------|------|
+| **自动倒计时重连** | 任意断线 | 3-10 秒随机延迟后重连 |
+| **用户活动触发的重连** | 用户在编辑器中活动 | 5 秒后尝试重连 |
+| **立即重连** | 用户点击重连按钮 | `tryReconnectNow()` |
+| **优雅重连** | 服务端发送 `reconnectGracefully` | 分段延迟重连 |
+
+### 20.2 WebSocket 传输升级
+
+重连时优先使用 WebSocket，失败 3 次后降级到 XHR 轮询：
+
+```typescript
+this.socket.socket.transports = ['xhr-polling']
+if (this.websocketFailureCount < RETRY_WEBSOCKET) {
+  this.socket.socket.transports.unshift('websocket')  // 优先 websocket
+}
+```
+
+---
+
+## 21. 聊天系统
+
+### 21.1 Thread 模型
+
+```
+Project
+  │
+  ├── GLOBAL_THREAD (room_id: null)  — 项目级全局聊天
+  │
+  └── Comment Thread (room_id: ObjectId)  — 每个评论一个 thread
+       │
+       └── Messages[]  — 该 thread 下的消息列表
+```
+
+### 21.2 Thread 生命周期
+
+```javascript
+// 解决（Resolve）Thread
+export async function resolveThread(projectId, threadId, userId) {
+  await db.rooms.updateOne(
+    { project_id, thread_id: threadId },
+    { $set: { resolved: { user_id: userId, ts: new Date() } } }
+  )
+}
+
+// 重新打开（Reopen）Thread
+export async function reopenThread(projectId, threadId) {
+  await db.rooms.updateOne(
+    { project_id, thread_id: threadId },
+    { $unset: { resolved: true } }
+  )
+}
+```
+
+### 21.3 消息存储结构
+
+```javascript
+// MongoDB: db.messages
+{
+  _id: ObjectId,
+  content: String,       // 消息内容（最大 10KB）
+  room_id: ObjectId,    // 关联的 Thread room
+  user_id: ObjectId,    // 发送者
+  timestamp: Date,
+  edited_at: Date
+}
+
+// MongoDB: db.rooms
+{
+  _id: ObjectId,
+  project_id: ObjectId,
+  thread_id: ObjectId,  // GLOBAL_THREAD 为 null
+  resolved: { user_id: ObjectId, ts: Date }
+}
+```
+
+---
+
+## 22. 参考资料
+
+- ShareJS OT: https://github.com/share/ShareJS
+- Socket.IO: https://socket.io/
+- Overleaf Editor Core: `libraries/overleaf-editor-core/`

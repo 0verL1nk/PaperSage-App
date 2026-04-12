@@ -1,4 +1,3 @@
-import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useTrash, useRestoreProject, usePermanentDeleteProject } from '@/services/projects-api'

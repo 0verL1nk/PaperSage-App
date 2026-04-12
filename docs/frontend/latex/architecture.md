@@ -391,7 +391,526 @@ LaTeX 编译在 Docker 容器中执行：
 
 ---
 
-## 9. 参考资料
+## 10. API 网关与路由设计
+
+### 10.1 Nginx 配置架构
+
+Overleaf 使用 Nginx 作为反向代理和 API 网关，主要配置文件位于 `server-ce/nginx/nginx.conf.template`。
+
+**核心配置结构**:
+```nginx
+# Nginx 主配置模板 (server-ce/nginx/nginx.conf.template)
+daemon off;
+user www-data;
+worker_processes ${NGINX_WORKER_PROCESSES};
+
+events {
+    worker_connections ${NGINX_WORKER_CONNECTIONS};
+}
+
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout ${NGINX_KEEPALIVE_TIMEOUT};
+
+    client_max_body_size 50m;  # 上传文件大小限制
+
+    gzip on;  # 启用压缩
+    gzip_proxied any;
+}
+```
+
+**关键特性**:
+
+| 配置项 | 用途 |
+|--------|------|
+| `client_max_body_size 50m` | 限制请求体大小，支持大文件上传 |
+| `gzip on` | 启用 HTTP 压缩，减少传输带宽 |
+| `worker_connections` | 控制并发连接数 |
+| `keepalive_timeout` | 保持连接超时设置 |
+
+### 10.2 CLSI 服务 Nginx 配置
+
+CLSI (编译服务) 有独立的 Nginx 配置 (`services/clsi/nginx.conf`)，负责 PDF 输出文件的访问控制。
+
+```nginx
+server {
+  listen 8080;
+  server_name clsi-nginx;
+  disable_symlinks on;  # 禁止符号链接，防止目录遍历
+
+  # PDF 范围请求缓存 (一天)
+  location ~ ^/project/([0-9a-f]+)/content/([0-9a-f-]+/[0-9a-f]+)$ {
+    expires 1d;
+    alias /output/$1/content/$2;
+  }
+
+  # 编译输出文件路由
+  location ~ ^/project/([0-9a-f]+)/build/([0-9a-f-]+)/output/(.+)$ {
+    root /output/$1/generated-files/$2/;
+  }
+}
+```
+
+### 10.3 路由规则设计
+
+**请求路由流程**:
+```
+客户端请求
+    │
+    ▼
+Nginx (端口 80/443)
+    │
+    ├──► 静态资源 → 直接返回
+    │
+    ├──► Web Service (端口 3000) → Express.js 应用
+    │
+    ├──► Real-time Service (端口 3001) → Socket.IO WebSocket
+    │
+    └──► CLSI Service (端口 3013) → LaTeX 编译
+```
+
+**Web Service 内部路由** (`services/web/app/src/router.mjs`):
+
+Overleaf 使用 Express Router 进行模块化路由:
+
+```javascript
+// 路由初始化 (router.mjs)
+const webRouter = express.Router()
+const privateApiRouter = express.Router()
+const publicApiRouter = express.Router()
+
+// 路由挂载
+app.use(publicApiRouter)  // 公共 API
+app.use(privateApiRouter) // 私有 API
+app.use(webRouter)        // Web 页面路由
+```
+
+**主要路由模块**:
+
+| 路由模块 | 路径 | 功能 |
+|---------|------|------|
+| `EditorRouter` | `/editor` | 富文本编辑器路由 |
+| `ProjectApiController` | `/api/project` | 项目 REST API |
+| `CompileController` | `/api/compile` | 编译控制 API |
+| `HistoryRouter` | `/history` | 版本历史路由 |
+| `ChatController` | `/api/chat` | 聊天消息 API |
+| `FileStoreController` | `/api/file` | 文件存储 API |
+
+---
+
+## 11. Docker 部署架构
+
+### 11.1 docker-compose.yml 分析
+
+主部署配置文件 (`docker-compose.yml`) 定义了完整的 Overleaf 服务栈:
+
+```yaml
+services:
+  sharelatex:           # 主应用服务
+    image: sharelatex/sharelatex
+    container_name: sharelatex
+    ports:
+      - "80:80"       # HTTP 端口映射
+    depends_on:
+      mongo:
+        condition: service_healthy  # 等待 MongoDB 就绪
+      redis:
+        condition: service_started
+    volumes:
+      - ~/sharelatex_data:/var/lib/overleaf  # 持久化数据卷
+    environment:
+      OVERLEAF_APP_NAME: Overleaf Community Edition
+      OVERLEAF_MONGO_URL: mongodb://mongo/sharelatex
+      OVERLEAF_REDIS_HOST: redis
+      SANDBOXED_COMPILES: "true"
+      DOCKER_RUNNER: "true"
+
+  mongo:               # MongoDB 6.0 副本集
+    image: mongo:6.0
+    command: "--replSet overleaf"
+
+  redis:               # Redis 6.2 会话和缓存
+    image: redis:6.2
+```
+
+### 11.2 服务级 docker-compose
+
+每个微服务都有独立的 `docker-compose.yml` (`services/*/docker-compose.yml`)，用于开发和 CI 环境:
+
+```yaml
+# services/web/docker-compose.yml (示例)
+services:
+  test_unit:
+    image: node:24.13.0
+    volumes:
+      - .:/overleaf/services/web
+    working_dir: /overleaf/services/web
+    env_file: docker-compose.common.env
+```
+
+### 11.3 数据卷管理
+
+| 宿主机路径 | 容器内路径 | 用途 |
+|-----------|----------|------|
+| `~/sharelatex_data` | `/var/lib/overleaf` | 主数据目录 |
+| `~/sharelatex_data/data/compiles` | `/var/lib/overleaf/data/compiles` | 编译临时文件 |
+| `~/sharelatex_data/data/output` | `/var/lib/overleaf/data/output` | 编译输出 PDF |
+| `~/mongo_data` | `/data/db` | MongoDB 数据 |
+| `~/redis_data` | `/data` | Redis 持久化 |
+
+### 11.4 环境变量配置
+
+```bash
+# 核心环境变量
+OVERLEAF_APP_NAME          # 应用名称
+OVERLEAF_MONGO_URL         # MongoDB 连接字符串
+OVERLEAF_REDIS_HOST        # Redis 主机
+
+# 编译相关
+SANDBOXED_COMPILES         # 启用沙箱编译 "true"
+DOCKER_RUNNER              # Docker 运行器 "true"
+
+# 安全相关
+SESSION_SECRET             # 会话密钥 (必需)
+COOKIE_NAME               # Cookie 名称 "overleaf.sid"
+```
+
+---
+
+## 12. 服务间通信机制
+
+### 12.1 HTTP REST API
+
+**使用场景**:
+- 页面加载和模板渲染
+- 项目 CRUD 操作 (创建、读取、更新、删除)
+- 文件上传/下载
+- 用户认证 (登录、注册)
+
+**Web Service 内部 HTTP 调用**:
+```javascript
+// 服务间 API 调用配置 (services/web/config/settings.defaults.js)
+apis: {
+  web: {
+    url: `http://${process.env.WEB_API_HOST || '127.0.0.1'}:3000`,
+  },
+  documentupdater: {
+    url: `http://${process.env.DOCUMENT_UPDATER_HOST || '127.0.0.1'}:3003`,
+  },
+}
+```
+
+### 12.2 Socket.IO (WebSocket)
+
+**使用场景**:
+- 实时文档协作编辑
+- 光标位置同步
+- 聊天消息实时推送
+- 用户在线状态
+- 编译进度实时反馈
+
+**Real-time Service WebSocket 配置** (`services/real-time/config/settings.defaults.cjs`):
+
+```javascript
+{
+  redis: {
+    pubsub: { host, port, password },
+    realtime: {
+      host, port, password,
+      key_schema: {
+        clientsInProject: `clients_in_project:{${project_id}}`,
+        connectedUser: `connected_user:{${project_id}}:${client_id}`
+      }
+    },
+  },
+  gracefulReconnectTimeoutMs: 75000,  // 优雅重连超时
+  shutdownDrainTimeWindow: 9,        // 关闭排空时间窗口
+}
+```
+
+**主要 WebSocket 事件**:
+
+```javascript
+// 客户端 → 服务端
+socket.emit('joinDoc', { doc_id, fromVersion, options })      // 加入文档
+socket.emit('applyOtUpdate', { doc_id, update })             // 提交 OT 更新
+socket.emit('getCursor', { doc_id })                         // 获取光标位置
+
+// 服务端 → 客户端
+socket.on('otUpdateApplied', callback)   // OT 更新已应用
+socket.on('cursorUpdate', callback)      // 光标位置更新
+socket.on('clientTracking.refresh', callback)  // 客户端追踪刷新
+socket.on('otUpdateError', callback)      // OT 错误
+```
+
+### 12.3 Redis Pub/Sub
+
+**使用场景**:
+- Real-time Service 与 Document Updater 之间的文档更新同步
+- 跨服务事件分发
+- 消息队列 (pending updates)
+
+**RealTimeRedisManager 实现** (`services/document-updater/app/js/RealTimeRedisManager.js`):
+
+```javascript
+const RealTimeRedisManager = {
+  sendData(data) {
+    const messageId = `doc:${HOST}:${RND}-${COUNT++}`
+    data._id = messageId
+    const blob = JSON.stringify(data)
+
+    // 发布到 applied-ops 频道
+    if (Settings.publishOnIndividualChannels) {
+      return pubsubClient.publish(`applied-ops:${data.doc_id}`, blob)
+    } else {
+      return pubsubClient.publish('applied-ops', blob)
+    }
+  },
+}
+```
+
+### 12.4 通信机制对比
+
+| 机制 | 协议 | 特点 | 适用场景 |
+|------|------|------|---------|
+| HTTP REST | TCP | 同步请求/响应 | 页面加载、API 调用 |
+| Socket.IO | WebSocket | 实时双向、低延迟 | 协作编辑、聊天 |
+| Redis Pub/Sub | TCP | 发布/订阅、异步 | 服务间同步、事件分发 |
+| Redis 队列 | TCP | 消息持久化 | 异步任务、pending updates |
+
+---
+
+## 13. 数据流架构
+
+### 13.1 用户请求完整数据流
+
+**场景: 用户打开并编辑一个 LaTeX 项目**
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           用户请求流程                                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  1. 页面加载阶段
+  ┌──────────┐     ┌──────────┐     ┌──────────────┐     ┌─────────────┐
+  │ 浏览器    │────►│  Nginx    │────►│  Web Service  │────►│  MongoDB    │
+  │          │     │ (反向代理) │     │  (Express)   │     │  (文档存储)  │
+  └──────────┘     └──────────┘     └──────────────┘     └─────────────┘
+       │                                      │
+       │                                      │ 渲染页面，初始化 Socket.IO
+       │                                      ▼
+       │                             ┌──────────────┐
+       │                             │ Real-time    │
+       │                             │ Service      │
+       │                             └──────────────┘
+
+  2. WebSocket 连接建立
+  ┌──────────┐     ┌──────────────┐     ┌──────────────┐
+  │ 浏览器    │────►│ Real-time    │────►│ Redis        │
+  │ Socket.IO│     │ Service      │     │ (订阅频道)    │
+  └──────────┘     └──────────────┘     └──────────────┘
+                         │
+                         │ 加载文档内容
+                         ▼
+                 ┌──────────────┐
+                 │ Document     │
+                 │ Updater      │
+                 └──────────────┘
+
+  3. 文档编辑阶段 (OT 协作)
+  ┌──────────┐     ┌──────────────┐     ┌──────────────┐
+  │ 浏览器    │────►│ Real-time    │────►│ Document     │
+  │          │     │ Service      │     │ Updater      │
+  │ 发送 OT  │     │              │     │ (OT 处理)    │
+  │ Update   │     │              │     │              │
+  └──────────┘     └──────────────┘     └──────────────┘
+                         │                    │
+                         │                    │ Redis Pub/Sub
+                         │                    │ 发布更新
+                         │◄───────────────────┘
+                         │
+                         │ 广播更新到所有客户端
+                         ▼
+  ┌──────────┐     ┌──────────────┐
+  │ 其他用户  │◄────│ Real-time    │
+  │ 浏览器    │     │ Service      │
+  └──────────┘     └──────────────┘
+```
+
+---
+
+## 14. Session 管理
+
+### 14.1 Redis Session 存储
+
+Overleaf 使用 `connect-redis` 结合自定义 `CustomSessionStore` 实现会话管理。
+
+**CustomSessionStore 特性** (`services/web/app/src/infrastructure/CustomSessionStore.mjs`):
+
+```javascript
+class CustomSessionStore extends RedisStore {
+  constructor({ client }) {
+    super({ client })
+    this.#updateInPlaceStore = new RedisStore({
+      client: new CustomSetRedisClient(client, 'XX'),
+    })
+    this.#initialSetStore = new RedisStore({
+      client: new CustomSetRedisClient(client, 'NX'),
+    })
+  }
+
+  set(sid, sess, cb) {
+    // 刷新验证令牌
+    sess.validationToken = computeValidationToken(sid)
+
+    if (sid === originalId || sid === sess.req.newSessionId) {
+      this.#updateInPlaceStore.set(sid, sess, cb)  // XX
+    } else {
+      this.#initialSetStore.set(sid, sess, cb)     // NX
+    }
+  }
+}
+```
+
+**Redis 会话键结构**:
+```
+overleaf.sid:{sessionId}  →  会话数据 (JSON)
+```
+
+**会话数据结构**:
+```javascript
+{
+  "cookie": { "maxAge": 86400000, "secure": true, "httpOnly": true },
+  "user": { "id": "user_id", "email": "user@example.com" },
+  "validationToken": "v1:xxxx",  // 安全验证令牌
+  "loginToken": { "hashedToken": "...", "createdAt": "..." }
+}
+```
+
+### 14.2 Validation Token 机制
+
+验证令牌防止会话固定攻击:
+
+```javascript
+function computeValidationToken(sid) {
+  return 'v1:' + sid.slice(-4)  // 基于 sessionID 的确定性函数
+}
+
+function checkValidationToken(sid, sess) {
+  const sessionToken = sess.validationToken
+  if (sessionToken) {
+    const clientToken = computeValidationToken(sid)
+    if (sessionToken === clientToken) {
+      return true
+    }
+  }
+  return false
+}
+```
+
+---
+
+## 15. 错误处理与监控
+
+### 15.1 错误处理架构
+
+Overleaf 使用 `OError` (Overleaf Error) 类提供结构化错误处理:
+
+**OError 特性** (`libraries/o-error/index.cjs`):
+
+```javascript
+class OError extends Error {
+  constructor(message, info, cause) {
+    super(message)
+    this.name = this.constructor.name
+    this.info = info    // 额外上下文信息
+    this.cause = cause   // 底层错误
+  }
+
+  withInfo(info) {
+    this.info = info
+    return this
+  }
+
+  withCause(cause) {
+    this.cause = cause
+    return this
+  }
+}
+```
+
+### 15.2 日志系统
+
+**Bunyan Logger 配置** (`libraries/logger/logging-manager.js`):
+
+```javascript
+const LoggingManager = {
+  initialize(name, options = {}) {
+    this.isProduction = process.env.NODE_ENV === 'production'
+    this.defaultLevel = process.env.LOG_LEVEL ||
+      (this.isProduction ? 'info' : 'debug')
+
+    this.logger = bunyan.createLogger({
+      name,
+      serializers: { err: Serializers.err, req: Serializers.req },
+      streams: options.streams ?? [this._getOutputStreamConfig()],
+    })
+  },
+}
+```
+
+**日志级别**:
+| 级别 | 用途 |
+|------|------|
+| `fatal` | 进程即将终止的错误 |
+| `error` | 操作失败的错误 |
+| `warn` | 潜在问题警告 |
+| `info` | 一般信息 |
+| `debug` | 调试信息 |
+
+### 15.3 Prometheus 指标
+
+**Metrics 模块** (`libraries/metrics/index.js`):
+
+```javascript
+// 指标类型
+metrics.inc('counter_name', value, labels)      // 计数器
+metrics.count('counter_name', value, labels)    // 批量计数
+metrics.summary('metric_name', value, labels)   // 摘要
+metrics.histogram('metric_name', value, buckets, labels)  // 直方图
+metrics.timing('metric_name', timeMs, labels)   // 计时
+
+// 定时器
+const timer = new metrics.Timer('operation_name')
+timer.done()  // 记录耗时
+```
+
+**指标端点**:
+```
+GET /metrics  # Prometheus 格式指标
+```
+
+---
+
+## 16. 关键配置文件索引
+
+| 配置文件 | 路径 |
+|---------|------|
+| 主 docker-compose | `/docker-compose.yml` |
+| Nginx 配置 | `/server-ce/nginx/nginx.conf.template` |
+| CLSI Nginx | `/services/clsi/nginx.conf` |
+| Web Service 配置 | `/services/web/config/settings.defaults.js` |
+| Real-time 配置 | `/services/real-time/config/settings.defaults.cjs` |
+| Document Updater 配置 | `/services/document-updater/config/settings.defaults.js` |
+| Redis 配置 | `/libraries/redis-wrapper/index.js` |
+| Logger 配置 | `/libraries/logger/logging-manager.js` |
+| Metrics 配置 | `/libraries/metrics/initialize.js` |
+
+---
+
+## 17. 参考资料
 
 - 官方仓库: https://github.com/overleaf/overleaf
 - CLSI 服务文档: `services/clsi/README.md`
