@@ -43,7 +43,7 @@ async def list_projects(
         query = query.where(Project.group_id == group_id)
 
     if not include_deleted:
-        query = query.where(Project.is_deleted == False)
+        query = query.where(Project.is_deleted == False)  # noqa: E712
 
     query = query.options(selectinload(Project.group)).order_by(Project.updated_at.desc())
 

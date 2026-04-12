@@ -9,9 +9,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
 from api.response import ApiResponse, api_success
+from app.config import get_settings
+from core.redis import get_refresh_token_user, revoke_refresh_token, store_refresh_token
 from core.token import create_access_token, create_refresh_token, verify_token
 from models import User
 from schemas import TokenResponse
+
+settings = get_settings()
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
@@ -79,6 +83,14 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
             detail="Invalid or expired refresh token",
         ) from None
 
+    # Check if refresh token exists in Redis (not revoked)
+    stored_user_id = await get_refresh_token_user(request.refresh_token)
+    if stored_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+
     # Convert string to UUID for database query
     user_uuid = uuid.UUID(user_id)
 
@@ -96,6 +108,10 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
     access_token = create_access_token(data={"sub": str(user.id)})
     new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
+    # Update refresh token in Redis
+    ttl_seconds = settings.refresh_token_expire_days * 24 * 60 * 60
+    await store_refresh_token(new_refresh_token, str(user.id), ttl_seconds)
+
     return api_success(
         TokenResponse(
             accessToken=access_token,
@@ -104,7 +120,22 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
     )
 
 
+class LogoutRequest(BaseModel):
+    """Logout request schema."""
+
+    refresh_token: str
+
+
 @router.post("/logout")
-async def logout() -> ApiResponse[None]:
-    """Logout endpoint. JWT tokens are stateless, so we just acknowledge the request."""
+async def logout(request: LogoutRequest) -> ApiResponse[None]:
+    """Logout endpoint. Revokes the refresh token in Redis."""
+    try:
+        payload = verify_token(request.refresh_token, "refresh")
+        if payload is None:
+            return api_success(None)
+    except ValueError:
+        pass  # Token invalid, already unusable
+
+    # Revoke refresh token in Redis
+    await revoke_refresh_token(request.refresh_token)
     return api_success(None)

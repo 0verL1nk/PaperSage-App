@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
 from api.response import ApiResponse, api_success
+from app.config import get_settings
+from core.redis import get_refresh_token_user, store_refresh_token
 from core.security import hash_password, verify_password
 from core.token import create_access_token, create_refresh_token, verify_token
 from models import User
@@ -16,6 +18,8 @@ from schemas import (
     TokenResponse,
     UserResponse,
 )
+
+settings = get_settings()
 
 router = APIRouter()
 security = HTTPBearer(auto_error=False)
@@ -123,6 +127,10 @@ async def login(
     access_token = create_access_token(data={"sub": str(user.id)})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
+    # Store refresh token in Redis with 7-day expiry
+    ttl_seconds = settings.refresh_token_expire_days * 24 * 60 * 60
+    await store_refresh_token(refresh_token, str(user.id), ttl_seconds)
+
     return api_success(
         TokenResponse(
             accessToken=access_token,
@@ -148,6 +156,14 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
             detail="Invalid or expired refresh token",
         ) from None
 
+    # Check if refresh token exists in Redis (not revoked)
+    stored_user_id = await get_refresh_token_user(request.refresh_token)
+    if stored_user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token has been revoked",
+        )
+
     # Verify user still exists and is active
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
@@ -161,6 +177,10 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
     # Generate new tokens
     access_token = create_access_token(data={"sub": str(user.id)})
     new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
+
+    # Update refresh token in Redis
+    ttl_seconds = settings.refresh_token_expire_days * 24 * 60 * 60
+    await store_refresh_token(new_refresh_token, str(user.id), ttl_seconds)
 
     return api_success(
         TokenResponse(
