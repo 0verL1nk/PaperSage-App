@@ -26,7 +26,6 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleSubmit = async (e: any) => {
     e.preventDefault()
-    e.preventDefault()
     if (!name.trim()) return
 
     setError(null)

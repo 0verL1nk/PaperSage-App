@@ -7,10 +7,12 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
 // Mock router
+const mockNavigate = vi.fn()
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string; [key: string]: unknown }) => (
     <a href={to} {...props}>{children}</a>
   ),
+  useNavigate: () => mockNavigate,
 }))
 
 // Mock the API hooks
@@ -160,5 +162,50 @@ describe('ProjectListPage', () => {
 
     // Loading state shows skeletons
     expect(document.querySelector('.animate-pulse')).toBeInTheDocument()
+  })
+
+  it('should navigate to project when card is clicked', async () => {
+    const projectId = 'proj-123'
+    vi.mocked(useProjects).mockReturnValue({
+      data: [
+        {
+          id: projectId,
+          name: 'Test Project',
+          description: 'Test Description',
+          owner_id: 'user-1',
+          group_id: null,
+          status: 'active',
+          is_deleted: false,
+          deleted_at: null,
+          created_at: '2024-01-01T00:00:00Z',
+          updated_at: '2024-01-01T00:00:00Z',
+        },
+      ],
+      isLoading: false,
+      error: null,
+    } as never)
+    vi.mocked(useGroups).mockReturnValue({
+      data: [],
+      isLoading: false,
+    } as never)
+
+    render(
+      <TestWrapper>
+        <ProjectListPage />
+      </TestWrapper>
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Test Project')).toBeInTheDocument()
+    })
+
+    // Click on the project card
+    const card = screen.getByRole('button', { name: /test project/i })
+    card.click()
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/project/$projectId',
+      params: { projectId },
+    })
   })
 })

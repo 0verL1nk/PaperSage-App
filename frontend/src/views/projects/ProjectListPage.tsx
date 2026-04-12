@@ -2,7 +2,7 @@
  * ProjectListPage - displays list of projects with filtering and actions
  */
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { useProjects, useGroups } from '@/services/projects-api'
 import { ProjectCard } from '@/components/domain/ProjectCard'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
@@ -12,6 +12,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Trash2, Plus, FolderOpen } from 'lucide-react'
 
 export function ProjectListPage() {
+  const navigate = useNavigate()
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
 
@@ -115,7 +116,7 @@ export function ProjectListPage() {
             <ProjectCard
               key={project.id}
               project={project}
-              onClick={() => {/* Navigate to project */}}
+              onClick={() => navigate({ to: '/project/$projectId', params: { projectId: project.id } })}
             />
           ))}
         </div>
