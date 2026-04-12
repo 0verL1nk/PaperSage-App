@@ -263,6 +263,27 @@ export function downloadBlob(url: string, config?: ApiRequestConfig) {
   })
 }
 
+export function putJson<TResponse, TBody = unknown>(
+  url: string,
+  data?: TBody,
+  config?: ApiRequestConfig<TBody>,
+) {
+  return requestApi<TResponse, TBody>({
+    ...config,
+    method: 'put',
+    url,
+    data,
+  })
+}
+
+export function deleteFetch(url: string, config?: ApiRequestConfig) {
+  return requestApi<void>({
+    ...config,
+    method: 'delete',
+    url,
+  })
+}
+
 // Export for testing
 export const tokenRefresh = {
   refreshAccessToken,

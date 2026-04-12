@@ -16,6 +16,7 @@ graph TB
         Classify[论文分类]
         Logic[逻辑链]
         Generate[内容生成]
+        Latex[LaTeX 编辑]
         Profile[个人中心]
     end
 
@@ -25,12 +26,14 @@ graph TB
         ProjS[项目服务]
         DocS[文档服务]
         AIS[AI 服务]
+        TexS[LaTeX 服务]
     end
 
     subgraph 数据层
         DB[(SQLite 开发 / MySQL 生产)]
         S3[(S3 兼容存储)]
         LLM[大模型 API]
+        Tex[TeX 编译引擎]
     end
 
     Auth --> API
@@ -40,18 +43,22 @@ graph TB
     Classify --> API
     Logic --> API
     Generate --> API
+    Latex --> API
     Profile --> API
 
     API --> AuthS
     API --> ProjS
     API --> DocS
     API --> AIS
+    API --> TexS
 
     AuthS --> DB
     ProjS --> DB
     DocS --> DB
     DocS --> S3
     AIS --> LLM
+    TexS --> Tex
+    Tex --> S3
 ```
 
 ## 2. 用户认证模块
@@ -186,8 +193,8 @@ sequenceDiagram
 
 | 需求编号 | 描述 | 优先级 | 备注 |
 |----------|------|--------|------|
-| UPLOAD-001 | 用户可以上传 PDF 文件 | P0 | 支持大文件分片 |
-| UPLOAD-002 | 用户可以上传 Word 文件 | P1 | |
+| UPLOAD-001 | 用户可以上传 PDF/Word 参考文献 | P0 | 支持大文件分片 |
+| UPLOAD-002 | 用户可以上传 LaTeX 模板文件 | P1 | .tex 导入 |
 | UPLOAD-003 | 用户可以创建文件夹 | P0 | |
 | UPLOAD-004 | 用户可以查看文件夹树形结构 | P0 | |
 | UPLOAD-005 | 用户可以移动文件/文件夹 | P0 | |
@@ -347,11 +354,95 @@ graph LR
 
 | 需求编号 | 描述 | 优先级 | 备注 |
 |----------|------|--------|------|
-| GEN-001 | 基于上传文献生成摘要 | P2 | |
-| GEN-002 | 生成论文大纲建议 | P2 | |
-| GEN-003 | 基于大纲生成正文内容 | P2 | |
-| GEN-004 | 提供写作风格建议 | P2 | |
-| GEN-005 | 语法和表达润色 | P2 | |
+| GEN-001 | 基于上传文献生成摘要 | P1 | |
+| GEN-002 | 生成论文大纲建议 | P1 | |
+| GEN-003 | 基于大纲生成正文内容 | P1 | |
+| GEN-004 | 提供写作风格建议 | P1 | |
+| GEN-005 | 语法和表达润色 | P1 | |
+| GEN-006 | AI 生成内容可一键填入 LaTeX 模板 | P1 | |
+
+### 8.1 LaTeX 编辑模块
+
+#### 8.1.1 功能描述
+
+LaTeX 编辑模块提供 LaTeX 文档编辑和编译功能，用户可以在 PaperSage 中完成从文献阅读到论文输出的完整流程。
+
+#### 8.1.2 功能需求
+
+| 需求编号 | 描述 | 优先级 | 备注 |
+|----------|------|--------|------|
+| TEX-001 | 用户可以创建 LaTeX 文档 | P1 | 支持模板创建 |
+| TEX-002 | 用户可以编辑 LaTeX 源码 | P1 | 支持公式输入 |
+| TEX-003 | 用户可以实时预览编译结果 | P1 | 1-2 秒延迟 |
+| TEX-004 | 用户可以下载编译后的 PDF | P1 | |
+| TEX-005 | 用户可以使用论文模板 | P1 | 本科论文、学术小论文 |
+| TEX-006 | 用户可以管理版本历史 | P1 | 支持回滚 |
+| TEX-007 | 用户可以将 AI 生成内容填入模板 | P1 | 与 AI 模块集成 |
+| TEX-008 | 支持多文件编译（include） | P2 | |
+| TEX-009 | 支持参考文献（bibtex） | P2 | |
+
+#### 8.1.3 数据模型
+
+```typescript
+interface TexDocument {
+  id: string;
+  projectId: string;
+  name: string;
+  content: string;              // LaTeX 源码
+
+  // 编译状态
+  status: 'draft' | 'compiling' | 'success' | 'error';
+  compiledPdfKey?: string;      // MinIO 存储路径
+  errorMessage?: string;
+
+  // 模板
+  template?: 'thesis' | 'paper' | 'custom';
+
+  // 版本管理
+  version: number;
+
+  createdAt: string;
+  updatedAt: string;
+}
+```
+
+#### 8.1.4 编辑器界面布局
+
+```mermaid
+graph LR
+    subgraph LaTeX 编辑器
+        Editor[编辑器 + 公式工具栏]
+        Preview[PDF 预览面板]
+        Toolbar[模板选择 / 版本管理]
+    end
+
+    Editor --> Preview
+    Editor --> Toolbar
+```
+
+#### 8.1.5 编译流程
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Editor as 前端编辑器
+    participant API as 后端 API
+    participant Queue as 编译队列
+    participant Tex as TeX 引擎
+    participant MinIO as 存储
+
+    User->>Editor: 输入 LaTeX 源码
+    Editor->>Editor: debounce 1-2s
+    Editor->>API: POST /tex/{id}
+    API->>Queue: 入队编译
+    Queue->>Tex: 执行 pdflatex
+    Tex->>Tex: bibtex（如有参考文献）
+    Tex->>Tex: 多遍编译
+    Tex->>MinIO: 存储 PDF
+    MinIO-->>API: 返回存储路径
+    API-->>Editor: 编译完成
+    Editor->>User: 刷新 PDF 预览
+```
 
 ## 9. 回收站模块
 

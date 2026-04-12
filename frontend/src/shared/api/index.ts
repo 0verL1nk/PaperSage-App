@@ -7,10 +7,14 @@ export {
 } from '@/shared/api/errors'
 export {
   apiClient,
+  deleteFetch,
   downloadBlob,
+  getJson as get,
   getJson,
+  postJson as post,
   postJson,
   postMultipart,
+  putJson as put,
   requestApi,
   requestBlob,
   unwrapApiEnvelope,

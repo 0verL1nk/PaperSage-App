@@ -28,8 +28,8 @@
           │                       │                       │
           ▼                       ▼                       ▼
 ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│  PostgreSQL     │   │      Redis      │   │   File System   │
-│  (Primary DB)   │   │  (Cache/Session)│   │  (Uploaded API) │
+│  PostgreSQL     │   │      Redis      │   │   Cloudflare R2  │
+│  (Primary DB)   │   │  (Cache/Session)│   │   (S3 Object)  │
 └─────────────────┘   └─────────────────┘   └─────────────────┘
 ```
 
@@ -400,4 +400,103 @@ class AppException(HTTPException):
 示例：
 ```
 [2024-01-15 10:30:45] INFO [api.routes.account:23] User login successful
+```
+
+---
+
+## 9. 对象存储 (Cloudflare R2)
+
+### 9.1 概述
+
+项目使用 Cloudflare R2 作为对象存储服务，用于存储用户上传的文档、PDF 等文件。
+
+**为什么选择 R2：**
+- **S3 兼容**: 可使用任何 S3 SDK/库
+- **无 egress 费用**: 流出流量免费（相比 AWS S3 节省成本）
+- **免费额度**: 每月 1GB 存储 + 1GB 流出
+
+### 9.2 S3 兼容性
+
+R2 提供 S3-compatible API，支持以下操作：
+
+| 操作 | 支持 |
+|------|------|
+| PutObject (上传) | ✅ |
+| GetObject (下载) | ✅ |
+| DeleteObject (删除) | ✅ |
+| ListObjects (列表) | ✅ |
+| 预签名 URL | ✅ |
+
+### 9.3 配置
+
+环境变量配置：
+
+| 变量 | 说明 | 必填 |
+|------|------|------|
+| `R2_ENDPOINT` | R2 endpoint URL | 是 |
+| `R2_ACCESS_KEY_ID` | Access Key ID | 是 |
+| `R2_SECRET_ACCESS_KEY` | Secret Access Key | 是 |
+| `R2_BUCKET_NAME` | Bucket 名称 | 是 |
+| `R2_PUBLIC_URL` | 公开访问 URL（可选） | 否 |
+
+### 9.4 Python boto3 配置示例
+
+```python
+import boto3
+from botocore.config import Config
+
+# R2 配置
+r2_config = Config(
+    region_name='auto',
+    signature_version='s3v4'
+)
+
+s3_client = boto3.client(
+    's3',
+    endpoint_url='https://<account-id>.r2.cloudflarestorage.com',
+    aws_access_key_id='<your-access-key-id>',
+    aws_secret_access_key='<your-secret-key>',
+    config=r2_config
+)
+```
+
+### 9.5 使用示例
+
+```python
+# 上传文件
+s3_client.upload_file('local.pdf', 'my-bucket', 'papers/doc.pdf')
+
+# 下载文件
+s3_client.download_file('my-bucket', 'papers/doc.pdf', 'local.pdf')
+
+# 生成预签名 URL (供前端直接上传/下载)
+url = s3_client.generate_presigned_url(
+    'put_object',
+    Params={'Bucket': 'my-bucket', 'Key': 'papers/doc.pdf'},
+    ExpiresIn=3600
+)
+```
+
+### 9.6 R2 API Token 创建步骤
+
+1. 登录 [Cloudflare Dashboard](https://dash.cloudflare.com)
+2. 进入 **R2** → **Manage API Tokens**
+3. 点击 **Create API Token**
+4. 配置权限：
+   - **Permissions**: Admin Read & Write
+   - **Specify buckets**: 选择对应 bucket（可选）
+5. 复制生成的 `Access Key ID` 和 `Secret Access Key`
+
+### 9.7 CORS 配置
+
+如果前端需要直接从浏览器上传到 R2，需要在 Bucket 设置中配置 CORS：
+
+```json
+[
+  {
+    "AllowedOrigins": ["http://localhost:5173"],
+    "AllowedMethods": ["GET", "PUT", "DELETE"],
+    "AllowedHeaders": ["*"]
+  }
+]
 ```

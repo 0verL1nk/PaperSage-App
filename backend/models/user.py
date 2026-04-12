@@ -3,12 +3,12 @@ import uuid
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, String
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from core.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
-    from sqlalchemy import Integer
+    from models.project import Project, ProjectGroup
 
 
 class User(Base, UUIDMixin, TimestampMixin):
@@ -39,6 +39,14 @@ class User(Base, UUIDMixin, TimestampMixin):
         Boolean,
         default=False,
         nullable=False,
+    )
+
+    # Relationships
+    projects: Mapped[list["Project"]] = relationship(
+        "Project", back_populates="owner", cascade="all, delete-orphan"
+    )
+    project_groups: Mapped[list["ProjectGroup"]] = relationship(
+        "ProjectGroup", back_populates="owner", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
