@@ -61,6 +61,20 @@ async def create_project(
     db: AsyncSession = Depends(get_db),
 ) -> ApiResponse[ProjectWithGroupResponse]:
     """Create a new project."""
+    # Check for duplicate name under the same user
+    existing = await db.execute(
+        select(Project).where(
+            Project.owner_id == current_user.id,
+            Project.name == project_data.name,
+            Project.is_deleted == False,
+        )
+    )
+    if existing.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Project with this name already exists",
+        )
+
     # Verify group belongs to user if provided
     if project_data.group_id:
         result = await db.execute(
@@ -354,6 +368,22 @@ async def update_project(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found",
         )
+
+    # Check for duplicate name under the same user (excluding current project)
+    if project_data.name is not None and project_data.name != project.name:
+        existing = await db.execute(
+            select(Project).where(
+                Project.owner_id == current_user.id,
+                Project.name == project_data.name,
+                Project.id != project_id,
+                Project.is_deleted == False,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Project with this name already exists",
+            )
 
     # Verify group belongs to user if provided
     if project_data.group_id is not None:

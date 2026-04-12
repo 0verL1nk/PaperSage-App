@@ -18,8 +18,8 @@ export function useProjects(groupId?: string, includeDeleted = false) {
       const baseUrl = '/api/projects/'
       const url = queryString ? `${baseUrl}?${queryString}` : baseUrl
 
-      const data = await get<{ data: Project[] }>(url)
-      return data?.data ?? []
+      const data = await get<Project[]>(url)
+      return data ?? []
     },
   })
 }
@@ -28,8 +28,8 @@ export function useProject(projectId: string) {
   return useQuery({
     queryKey: ['project', projectId],
     queryFn: async () => {
-      const data = await get<{ data: Project }>(`/api/projects/${projectId}`)
-      return data?.data
+      const data = await get<Project>(`/api/projects/${projectId}`)
+      return data
     },
   })
 }
@@ -39,8 +39,8 @@ export function useCreateProject() {
 
   return useMutation({
     mutationFn: async (payload: { name: string; description?: string; group_id?: string }) => {
-      const data = await post<{ data: Project }>('/api/projects/', payload)
-      return data?.data
+      const data = await post<Project>('/api/projects/', payload)
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -53,8 +53,8 @@ export function useUpdateProject(projectId: string) {
 
   return useMutation({
     mutationFn: async (payload: { name?: string; description?: string; group_id?: string; status?: string }) => {
-      const data = await put<{ data: Project }>(`/api/projects/${projectId}`, payload)
-      return data?.data
+      const data = await put<Project>(`/api/projects/${projectId}`, payload)
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['projects'] })
@@ -83,8 +83,8 @@ export function useGroups() {
   return useQuery({
     queryKey: ['groups'],
     queryFn: async () => {
-      const data = await get<{ data: ProjectGroup[] }>('/api/projects/groups')
-      return data?.data ?? []
+      const data = await get<ProjectGroup[]>('/api/projects/groups')
+      return data ?? []
     },
   })
 }
@@ -94,8 +94,8 @@ export function useCreateGroup() {
 
   return useMutation({
     mutationFn: async (payload: { name: string }) => {
-      const data = await post<{ data: ProjectGroup }>('/api/projects/groups', payload)
-      return data?.data
+      const data = await post<ProjectGroup>('/api/projects/groups', payload)
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] })
@@ -108,8 +108,8 @@ export function useUpdateGroup(groupId: string) {
 
   return useMutation({
     mutationFn: async (payload: { name?: string; sort_order?: number }) => {
-      const data = await put<{ data: ProjectGroup }>(`/api/projects/groups/${groupId}`, payload)
-      return data?.data
+      const data = await put<ProjectGroup>(`/api/projects/groups/${groupId}`, payload)
+      return data
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['groups'] })
@@ -138,8 +138,8 @@ export function useTrash() {
   return useQuery({
     queryKey: ['trash'],
     queryFn: async () => {
-      const data = await get<{ data: TrashItem[] }>('/api/projects/trash')
-      return data?.data ?? []
+      const data = await get<TrashItem[]>('/api/projects/trash')
+      return data ?? []
     },
   })
 }
