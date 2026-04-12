@@ -2,7 +2,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,6 @@ from core.security import hash_password, verify_password
 from core.token import create_access_token, create_refresh_token, verify_token
 from models import User
 from schemas import (
-    LoginRequest,
     RefreshTokenRequest,
     TokenResponse,
     UserResponse,
@@ -23,8 +22,8 @@ security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> User:
     """Get current authenticated user."""
     if not credentials:
@@ -45,7 +44,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from None
 
     # Convert string to UUID for database query
     user_uuid = uuid.UUID(user_id)
@@ -66,7 +65,7 @@ async def register(
     account: str = Form(...),
     password: str = Form(...),
     email: str | None = Form(None),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[UserResponse]:
     """Register a new user account."""
     # Check if username exists
@@ -100,7 +99,7 @@ async def register(
 async def login(
     account: str = Form(...),
     password: str = Form(...),
-    db: AsyncSession = Depends(get_db),
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[TokenResponse]:
     """Login with username and password."""
     # Find user
@@ -133,7 +132,7 @@ async def login(
 
 
 @router.post("/refresh", response_model=ApiResponse[TokenResponse])
-async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)) -> ApiResponse[TokenResponse]:
+async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends(get_db)) -> ApiResponse[TokenResponse]:  # noqa: B008
     """Refresh access token using refresh token."""
     try:
         payload = verify_token(request.refresh_token, "refresh")
@@ -147,7 +146,7 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
-        )
+        ) from None
 
     # Verify user still exists and is active
     result = await db.execute(select(User).where(User.id == user_id))
@@ -172,6 +171,6 @@ async def refresh_token(request: RefreshTokenRequest, db: AsyncSession = Depends
 
 
 @router.get("/me", response_model=ApiResponse[UserResponse])
-async def get_me(current_user: User = Depends(get_current_user)) -> ApiResponse[UserResponse]:
+async def get_me(current_user: User = Depends(get_current_user)) -> ApiResponse[UserResponse]:  # noqa: B008
     """Get current user information."""
     return api_success(UserResponse.model_validate(current_user))

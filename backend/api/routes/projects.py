@@ -16,7 +16,6 @@ from schemas import (
     ProjectGroupCreate,
     ProjectGroupResponse,
     ProjectGroupUpdate,
-    ProjectResponse,
     ProjectUpdate,
     ProjectWithGroupResponse,
     TrashItemResponse,
@@ -34,8 +33,8 @@ router = APIRouter()
 async def list_projects(
     group_id: uuid.UUID | None = None,
     include_deleted: bool = False,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[list[ProjectWithGroupResponse]]:
     """List all projects for the current user."""
     query = select(Project).where(Project.owner_id == current_user.id)
@@ -44,7 +43,7 @@ async def list_projects(
         query = query.where(Project.group_id == group_id)
 
     if not include_deleted:
-        query = query.where(Project.is_deleted == False)
+        query = query.where(not Project.is_deleted)
 
     query = query.options(selectinload(Project.group)).order_by(Project.updated_at.desc())
 
@@ -57,8 +56,8 @@ async def list_projects(
 @router.post("/", response_model=ApiResponse[ProjectWithGroupResponse])
 async def create_project(
     project_data: ProjectCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[ProjectWithGroupResponse]:
     """Create a new project."""
     # Check for duplicate name under the same user
@@ -66,7 +65,7 @@ async def create_project(
         select(Project).where(
             Project.owner_id == current_user.id,
             Project.name == project_data.name,
-            Project.is_deleted == False,
+            not Project.is_deleted,
         )
     )
     if existing.scalar_one_or_none():
@@ -118,8 +117,8 @@ async def create_project(
 
 @router.get("/groups", response_model=ApiResponse[list[ProjectGroupResponse]])
 async def list_groups(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[list[ProjectGroupResponse]]:
     """List all project groups for the current user."""
     result = await db.execute(
@@ -135,8 +134,8 @@ async def list_groups(
 @router.post("/groups", response_model=ApiResponse[ProjectGroupResponse])
 async def create_group(
     group_data: ProjectGroupCreate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[ProjectGroupResponse]:
     """Create a new project group."""
     # Get max sort_order
@@ -163,8 +162,8 @@ async def create_group(
 async def update_group(
     group_id: uuid.UUID,
     group_data: ProjectGroupUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[ProjectGroupResponse]:
     """Update a project group."""
     result = await db.execute(
@@ -195,8 +194,8 @@ async def update_group(
 @router.delete("/groups/{group_id}")
 async def delete_group(
     group_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[dict]:
     """Delete a project group (moves projects to ungrouped)."""
     result = await db.execute(
@@ -218,7 +217,7 @@ async def delete_group(
         select(Project).where(
             Project.group_id == group_id,
             Project.owner_id == current_user.id,
-            Project.is_deleted == False,
+            not Project.is_deleted,
         )
     )
     projects = result.scalars().all()
@@ -237,14 +236,14 @@ async def delete_group(
 
 @router.get("/trash", response_model=ApiResponse[list[TrashItemResponse]])
 async def list_trash(
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[list[TrashItemResponse]]:
     """List all deleted projects in trash."""
     result = await db.execute(
         select(Project).where(
             Project.owner_id == current_user.id,
-            Project.is_deleted == True,
+            Project.is_deleted,
         )
     )
     projects = result.scalars().all()
@@ -266,15 +265,15 @@ async def list_trash(
 @router.post("/trash/project/{project_id}/restore")
 async def restore_project(
     project_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[dict]:
     """Restore a deleted project from trash."""
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
             Project.owner_id == current_user.id,
-            Project.is_deleted == True,
+            Project.is_deleted,
         )
     )
     project = result.scalar_one_or_none()
@@ -296,15 +295,15 @@ async def restore_project(
 @router.delete("/trash/project/{project_id}")
 async def permanently_delete_project(
     project_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[dict]:
     """Permanently delete a project from trash."""
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
             Project.owner_id == current_user.id,
-            Project.is_deleted == True,
+            Project.is_deleted,
         )
     )
     project = result.scalar_one_or_none()
@@ -328,8 +327,8 @@ async def permanently_delete_project(
 @router.get("/{project_id}", response_model=ApiResponse[ProjectWithGroupResponse])
 async def get_project(
     project_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[ProjectWithGroupResponse]:
     """Get a project by ID."""
     result = await db.execute(
@@ -352,8 +351,8 @@ async def get_project(
 async def update_project(
     project_id: uuid.UUID,
     project_data: ProjectUpdate,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[ProjectWithGroupResponse]:
     """Update a project."""
     result = await db.execute(
@@ -376,7 +375,7 @@ async def update_project(
                 Project.owner_id == current_user.id,
                 Project.name == project_data.name,
                 Project.id != project_id,
-                Project.is_deleted == False,
+                not Project.is_deleted,
             )
         )
         if existing.scalar_one_or_none():
@@ -417,15 +416,15 @@ async def update_project(
 @router.delete("/{project_id}")
 async def delete_project(
     project_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
-    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[dict]:
     """Soft delete a project (move to trash)."""
     result = await db.execute(
         select(Project).where(
             Project.id == project_id,
             Project.owner_id == current_user.id,
-            Project.is_deleted == False,
+            not Project.is_deleted,
         )
     )
     project = result.scalar_one_or_none()

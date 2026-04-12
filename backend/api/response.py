@@ -14,7 +14,7 @@ class ApiEnvelope(BaseModel):
     info: str = ""
 
 
-class ApiResponse(BaseModel, Generic[T]):
+class ApiResponse(BaseModel, Generic[T]):  # noqa: UP046
     """Generic API response."""
 
     code: int = 200
@@ -22,7 +22,7 @@ class ApiResponse(BaseModel, Generic[T]):
     info: str = ""
 
 
-def api_success(data: T, info: str = "") -> ApiResponse[T]:
+def api_success(data: T, info: str = "") -> ApiResponse[T]:  # noqa: UP047
     """Create a success response."""
     return ApiResponse(code=200, data=data, info=info)
 

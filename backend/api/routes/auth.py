@@ -20,12 +20,12 @@ security = HTTPBearer(auto_error=False)
 class RefreshRequest(BaseModel):
     """Refresh token request schema."""
 
-    refreshToken: str
+    refresh_token: str
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: AsyncSession = Depends(get_db),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> User:
     """Get current authenticated user."""
     if not credentials:
@@ -46,7 +46,7 @@ async def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
-        )
+        ) from None
 
     # Convert string to UUID for database query
     user_uuid = uuid.UUID(user_id)
@@ -63,10 +63,10 @@ async def get_current_user(
 
 
 @router.post("/refresh", response_model=ApiResponse[TokenResponse])
-async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_db)) -> ApiResponse[TokenResponse]:
+async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_db)) -> ApiResponse[TokenResponse]:  # noqa: B008
     """Refresh access token using refresh token."""
     try:
-        payload = verify_token(request.refreshToken, "refresh")
+        payload = verify_token(request.refresh_token, "refresh")
         user_id: str = payload.get("sub")
         if not user_id:
             raise HTTPException(
@@ -77,7 +77,7 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired refresh token",
-        )
+        ) from None
 
     # Convert string to UUID for database query
     user_uuid = uuid.UUID(user_id)
