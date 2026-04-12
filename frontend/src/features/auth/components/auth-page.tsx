@@ -44,6 +44,13 @@ export function AuthPage() {
   const [authError, setAuthError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
+  // Redirect if already logged in
+  useEffect(() => {
+    if (accessToken) {
+      navigate({ to: '/app/projects' })
+    }
+  }, [accessToken, navigate])
+
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {

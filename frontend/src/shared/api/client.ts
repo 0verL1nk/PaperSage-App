@@ -172,8 +172,13 @@ apiClient.interceptors.response.use(
     }
 
     const normalized = normalizeApiError(error)
-    if (normalized.status === 401) {
+    if (normalized.status === 401 || normalized.status === 403) {
       clearSessionTokens()
+      // Redirect to auth page
+      if (typeof window !== 'undefined') {
+        const currentPath = window.location.pathname
+        window.location.href = `/auth?redirect=${encodeURIComponent(currentPath)}`
+      }
     }
 
     return Promise.reject(normalized)
