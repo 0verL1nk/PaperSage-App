@@ -18,13 +18,18 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [groupId, setGroupId] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const createProject = useCreateProject()
   const isPending = createProject.isPending
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const handleSubmit = async (e: any) => {
+    e.preventDefault()
     e.preventDefault()
     if (!name.trim()) return
+
+    setError(null)
 
     try {
       await createProject.mutateAsync({
@@ -37,9 +42,8 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
       setDescription('')
       setGroupId(null)
       onOpenChange(false)
-    } catch (error) {
-      // Error is handled by the mutation
-      console.error('Failed to create project:', error)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create project')
     }
   }
 
@@ -49,6 +53,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
       setName('')
       setDescription('')
       setGroupId(null)
+      setError(null)
     }
     onOpenChange(isOpen)
   }
@@ -69,6 +74,11 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
         <h2 className="text-lg font-semibold mb-4">Create New Project</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="p-3 rounded-md bg-destructive/10 text-destructive text-sm">
+              {error}
+            </div>
+          )}
           <div>
             <label htmlFor="name" className="block text-sm font-medium mb-1">
               Name <span className="text-destructive">*</span>
