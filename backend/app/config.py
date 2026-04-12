@@ -1,6 +1,5 @@
 """Application configuration using Pydantic Settings."""
 from functools import lru_cache
-from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -29,12 +28,10 @@ class EmailSettings:
 
     def validate_config(self) -> None:
         """Validate that required config exists for the chosen provider."""
-        if self.provider == "resend":
-            if not self.resend_api_key:
-                raise ValueError("RESEND_API_KEY is required when provider is 'resend'")
-        elif self.provider == "smtp":
-            if not self.smtp_host:
-                raise ValueError("SMTP_HOST is required when provider is 'smtp'")
+        if self.provider == "resend" and not self.resend_api_key:
+            raise ValueError("RESEND_API_KEY is required when provider is 'resend'")
+        elif self.provider == "smtp" and not self.smtp_host:
+            raise ValueError("SMTP_HOST is required when provider is 'smtp'")
 
 
 class Settings(BaseSettings):
