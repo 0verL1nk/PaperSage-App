@@ -9,7 +9,6 @@ import {
   Loader2,
   FileText,
   FolderOpen,
-  Image as ImageIcon,
   FileCode,
   Plus,
   Upload,
@@ -43,7 +42,7 @@ export function WritingPage() {
   const [isCompiling, setIsCompiling] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
   const previewContainerRef = useRef<HTMLDivElement>(null)
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   
   const [latexContent, setLatexContent] = useState(`\\documentclass{article}
 \\usepackage[utf8]{inputenc}
