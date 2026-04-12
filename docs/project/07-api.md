@@ -327,6 +327,13 @@ Content-Type: application/json
 }
 ```
 
+### 4.2.1 删除文件夹
+
+```
+DELETE /api/folders/:folderId
+Authorization: Bearer <access_token>
+```
+
 ### 4.3 获取文档列表
 
 ```
@@ -409,6 +416,20 @@ Content-Type: application/json
 ```json
 {
   "folderId": "folder_xxx"
+}
+```
+
+### 4.8 编辑文档备注
+
+```
+PUT /api/documents/:documentId/remark
+Authorization: Bearer <access_token>
+Content-Type: application/json
+```
+
+```json
+{
+  "remark": "新的备注内容"
 }
 ```
 
