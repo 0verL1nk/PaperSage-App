@@ -241,6 +241,8 @@ REDIS_URL=redis://:password@host:6379/0
 | SECRET_KEY | 32+ 字符随机字符串 | JWT 签名密钥 |
 | DATABASE_URL | 包含用户名密码 | 数据库连接 |
 | REDIS_URL | 包含密码 | Redis 连接 |
+| RESEND_API_KEY | Resend API 密钥 | 邮件发送服务 |
+| SMTP_PASSWORD | SMTP 认证密码 | 邮件发送服务 |
 
 ### 6.3 日志脱敏
 
@@ -252,9 +254,28 @@ logger.info("User login", extra={"user_id": user.id})  # 正确
 
 ---
 
-## 7. HTTPS 配置
+## 7. 邮件服务安全
 
-### 7.1 生产环境
+### 7.1 邮件配置
+
+系统支持多种邮件服务后端，通过 `email.provider` 配置切换：
+
+| Provider | 配置项 | 说明 |
+|----------|--------|------|
+| resend | RESEND_API_KEY, RESEND_DOMAIN | Resend SMTP API |
+| smtp | SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD | 通用 SMTP |
+
+### 7.2 邮件发送安全
+
+- 邮件内容不包含敏感用户数据
+- 验证链接使用签名 token，含时效性
+- SMTP 使用 TLS 加密连接
+
+---
+
+## 8. HTTPS 配置
+
+### 8.1 生产环境
 
 Nginx 配置 HTTPS：
 
@@ -278,7 +299,7 @@ server {
 }
 ```
 
-### 7.2 重定向 HTTP 到 HTTPS
+### 8.2 重定向 HTTP 到 HTTPS
 
 ```nginx
 server {
@@ -290,7 +311,7 @@ server {
 
 ---
 
-## 8. 安全检查清单
+## 9. 安全检查清单
 
 ### 开发阶段
 

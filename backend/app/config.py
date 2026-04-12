@@ -1,8 +1,40 @@
 """Application configuration using Pydantic Settings."""
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class EmailSettings:
+    """Email service configuration loaded from environment variables."""
+
+    def __init__(self) -> None:
+        import os
+
+        self.provider: str = os.getenv("EMAIL_PROVIDER", "resend")
+        self.from_email: str = os.getenv("FROM_EMAIL", "noreply@papersage.dev")
+        self.from_name: str = os.getenv("FROM_NAME", "PaperSage")
+
+        # Resend specific
+        self.resend_api_key: str | None = os.getenv("RESEND_API_KEY")
+        self.resend_domain: str | None = os.getenv("RESEND_DOMAIN")
+
+        # Generic SMTP specific
+        self.smtp_host: str | None = os.getenv("SMTP_HOST")
+        self.smtp_port: int = int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_user: str | None = os.getenv("SMTP_USER")
+        self.smtp_password: str | None = os.getenv("SMTP_PASSWORD")
+        self.smtp_tls: bool = os.getenv("SMTP_TLS", "true").lower() == "true"
+
+    def validate_config(self) -> None:
+        """Validate that required config exists for the chosen provider."""
+        if self.provider == "resend":
+            if not self.resend_api_key:
+                raise ValueError("RESEND_API_KEY is required when provider is 'resend'")
+        elif self.provider == "smtp":
+            if not self.smtp_host:
+                raise ValueError("SMTP_HOST is required when provider is 'smtp'")
 
 
 class Settings(BaseSettings):
@@ -33,6 +65,9 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
     reload: bool = False
+
+    # Email
+    email: EmailSettings = EmailSettings()
 
     @field_validator("allowed_hosts", mode="after")
     @classmethod
