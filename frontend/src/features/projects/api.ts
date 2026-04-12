@@ -15,7 +15,8 @@ export function useProjects(groupId?: string, includeDeleted = false) {
       if (includeDeleted) params.set('includeDeleted', 'true')
 
       const queryString = params.toString()
-      const url = `/api/projects${queryString ? `?${queryString}` : ''}`
+      const baseUrl = '/api/projects/'
+      const url = queryString ? `${baseUrl}?${queryString}` : baseUrl
 
       const data = await get<{ data: Project[] }>(url)
       return data?.data ?? []
@@ -38,7 +39,7 @@ export function useCreateProject() {
 
   return useMutation({
     mutationFn: async (payload: { name: string; description?: string; group_id?: string }) => {
-      const data = await post<{ data: Project }>('/api/projects', payload)
+      const data = await post<{ data: Project }>('/api/projects/', payload)
       return data?.data
     },
     onSuccess: () => {
