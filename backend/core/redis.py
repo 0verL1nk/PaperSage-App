@@ -100,3 +100,31 @@ async def cache_set(
 async def cache_delete(key: str) -> int:
     """Delete cached value."""
     return await redis_client.delete(key)
+
+
+# Refresh token storage keys
+REFRESH_TOKEN_PREFIX = "refresh_token:"
+
+
+async def store_refresh_token(token: str, user_id: str, ttl_seconds: int) -> bool:
+    """Store refresh token in Redis with expiry."""
+    key = f"{REFRESH_TOKEN_PREFIX}{token}"
+    return await redis_client.set(key, user_id, ex=ttl_seconds)
+
+
+async def get_refresh_token_user(token: str) -> str | None:
+    """Get user_id for a refresh token."""
+    key = f"{REFRESH_TOKEN_PREFIX}{token}"
+    return await redis_client.get(key)
+
+
+async def revoke_refresh_token(token: str) -> int:
+    """Revoke a refresh token (add to blacklist)."""
+    key = f"{REFRESH_TOKEN_PREFIX}{token}"
+    return await redis_client.delete(key)
+
+
+async def is_refresh_token_valid(token: str) -> bool:
+    """Check if a refresh token is valid (exists in Redis)."""
+    user_id = await get_refresh_token_user(token)
+    return user_id is not None
