@@ -1,20 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Sparkles, Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from '@/components/ui/card'
-import { Field, FieldError, FieldGroup, FieldLabel } from '@/components/ui/field'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useLoginMutation, useRegisterMutation } from '@/features/auth/hooks'
 import {
@@ -24,6 +21,7 @@ import {
   type RegisterFormValues,
 } from '@/features/auth/schema'
 import { setSessionTokens, useSessionStore } from '@/shared/stores'
+import { Typography } from '@/shared/design-system'
 
 type AuthMode = 'login' | 'register'
 
@@ -31,7 +29,6 @@ function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message
   }
-
   return '操作失败，请稍后重试。'
 }
 
@@ -44,7 +41,6 @@ export function AuthPage() {
   const [authError, setAuthError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
-  // Redirect if already logged in
   useEffect(() => {
     if (accessToken) {
       navigate({ to: '/app/projects' })
@@ -53,308 +49,190 @@ export function AuthPage() {
 
   const loginForm = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      username: '',
-      password: '',
-    },
+    defaultValues: { username: '', password: '' },
   })
 
   const registerForm = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
-    defaultValues: {
-      username: '',
-      password: '',
-      confirmPassword: '',
-    },
+    defaultValues: { username: '', password: '', confirmPassword: '' },
   })
-
-  useEffect(() => {
-    if (accessToken) {
-      void navigate({
-        to: '/',
-        replace: true,
-      })
-    }
-  }, [accessToken, navigate])
-
-  const handleModeChange = (nextMode: string) => {
-    if (nextMode !== 'login' && nextMode !== 'register') {
-      return
-    }
-
-    setMode(nextMode)
-    setAuthError('')
-    setShowPassword(false)
-  }
 
   const handleLoginSubmit = loginForm.handleSubmit(async (values) => {
     setAuthError('')
-
     try {
       const tokens = await loginMutation.mutateAsync(values)
-
       setSessionTokens(tokens)
-      toast.success('登录成功', {
-        description: 'PaperSage 会话已建立。',
-      })
-      await navigate({
-        to: '/',
-        replace: true,
-      })
+      toast.success('登录成功', { description: '欢迎回来，PaperSage 会话已建立。' })
+      await navigate({ to: '/app/projects' })
     } catch (error) {
-      const message = getErrorMessage(error)
-
-      setAuthError(message)
-      toast.error('登录失败', {
-        description: message,
-      })
+      setAuthError(getErrorMessage(error))
     }
   })
 
   const handleRegisterSubmit = registerForm.handleSubmit(async (values) => {
     setAuthError('')
-
     try {
       await registerMutation.mutateAsync({
         username: values.username,
         password: values.password,
       })
-
-      toast.success('注册成功', {
-        description: '账号已创建，请使用新密码登录。',
-      })
+      toast.success('注册成功', { description: '账号已创建，请使用新账号登录。' })
       setMode('login')
-      loginForm.reset({
-        username: values.username,
-        password: '',
-      })
-      registerForm.reset({
-        username: values.username,
-        password: '',
-        confirmPassword: '',
-      })
     } catch (error) {
-      const message = getErrorMessage(error)
-
-      setAuthError(message)
-      toast.error('注册失败', {
-        description: message,
-      })
+      setAuthError(getErrorMessage(error))
     }
   })
 
-  const loginErrors = loginForm.formState.errors
-  const registerErrors = registerForm.formState.errors
-
   return (
-    <main className="relative flex h-screen items-center justify-center overflow-hidden bg-[#f8f6f2] px-6 py-8 text-foreground">
-      {/* Dynamic Background Elements - Enhanced Visibility */}
-      <div className="auth-grid absolute inset-0 bg-[linear-gradient(rgba(36,52,89,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(36,52,89,0.08)_1px,transparent_1px)] bg-[size:40px_40px]" />
-      
-      <div className="auth-mesh absolute -left-20 -top-40 size-[35rem] rounded-full bg-[radial-gradient(circle,rgba(239,188,91,0.4)_0%,rgba(239,188,91,0.15)_45%,transparent_70%)] blur-3xl" />
-      <div className="auth-mesh-reverse absolute -right-10 top-20 size-[30rem] rounded-full bg-[radial-gradient(circle,rgba(119,145,220,0.3)_0%,rgba(119,145,220,0.1)_45%,transparent_70%)] blur-3xl" />
-      <div className="auth-mesh absolute bottom-[-8rem] left-[15%] size-[28rem] rounded-full bg-[radial-gradient(circle,rgba(255,255,255,0.95)_0%,rgba(255,255,255,0.6)_50%,transparent_80%)] blur-3xl" />
-      <div className="auth-mesh-reverse absolute bottom-[-12rem] right-[10%] size-[30rem] rounded-full bg-[radial-gradient(circle,rgba(204,215,236,0.35)_0%,rgba(204,215,236,0.15)_45%,transparent_75%)] blur-3xl" />
-
-      <div className="relative z-10 w-full max-w-[28rem] animate-in fade-in slide-in-from-bottom-8 duration-700 ease-out">
-        {/* Shadow Bloom */}
-        <div className="absolute inset-x-8 -bottom-8 h-24 rounded-[3rem] bg-slate-900/15 blur-3xl" />
+    <div className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-background font-sans">
+      {/* 银灰色系 Mesh 背景 (适配明暗主题) */}
+      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        {/* 光斑 1: 银白色/浅灰色 */}
+        <div className="absolute top-[-10%] left-[-10%] h-[80%] w-[80%] rounded-full bg-zinc-400/10 dark:bg-zinc-600/10 blur-[120px] animate-mesh" />
+        {/* 光斑 2: 暖色调银色/琥珀色提示 */}
+        <div className="absolute bottom-[10%] right-[-5%] h-[70%] w-[70%] rounded-full bg-amber-200/5 dark:bg-amber-500/5 blur-[100px] animate-mesh" style={{ animationDelay: '-5s' }} />
+        {/* 光斑 3: 中灰色 */}
+        <div className="absolute top-[20%] right-[10%] h-[60%] w-[60%] rounded-full bg-zinc-300/10 dark:bg-zinc-800/10 blur-[80px] animate-mesh" style={{ animationDelay: '-10s' }} />
         
-        <Card className="overflow-hidden border-white/60 bg-white/80 shadow-2xl backdrop-blur-2xl dark:border-white/10 dark:bg-slate-950/80">
-          <CardHeader className="space-y-6 pb-6 pt-8">
-            <div className="flex flex-col items-center justify-center space-y-4 text-center">
-              <div className="relative">
-                <div className="absolute -inset-2 rounded-2xl bg-gradient-to-tr from-primary/50 to-accent/50 blur-xl opacity-50" />
-                <div className="relative flex size-14 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-xl ring-1 ring-white/30">
-                  <Sparkles className="size-7" />
-                </div>
+        {/* 微弱噪点层提升质感 */}
+        <div className="absolute inset-0 bg-noise opacity-[0.03] dark:opacity-[0.05] mix-blend-overlay" />
+      </div>
+
+      <div className="relative z-10 w-full max-w-[420px] px-6 animate-in fade-in zoom-in-95 duration-700">
+        {/* Branding */}
+        <div className="mb-10 flex flex-col items-center text-center">
+          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-foreground shadow-xl">
+            <span className="text-3xl font-bold italic tracking-tighter text-background">S</span>
+          </div>
+          <Typography.Display className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
+            PaperSage
+          </Typography.Display>
+          <p className="mt-2 text-[15px] font-medium text-muted-foreground">
+            智能化科研文献管理工作台
+          </p>
+        </div>
+
+        {/* 统一风格的 Auth Card */}
+        <Card className="apple-popover overflow-hidden rounded-[2rem]">
+          <CardContent className="p-0">
+            <Tabs value={mode} onValueChange={(v) => setMode(v as AuthMode)} className="w-full">
+              <div className="px-8 pt-8">
+                <TabsList className="grid w-full grid-cols-2 rounded-xl bg-secondary/50 p-1">
+                  <TabsTrigger value="login" className="rounded-lg text-sm font-semibold transition-all duration-200">
+                    账号登录
+                  </TabsTrigger>
+                  <TabsTrigger value="register" className="rounded-lg text-sm font-semibold transition-all duration-200">
+                    注册新账号
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              
-              <div className="space-y-1.5">
-                <CardTitle className="bg-gradient-to-br from-slate-950 via-slate-800 to-slate-600 bg-clip-text text-3xl font-extrabold tracking-tight text-transparent dark:from-white dark:to-slate-400">
-                  PaperSage
-                </CardTitle>
-                <CardDescription className="text-balance text-sm font-semibold text-slate-500 dark:text-slate-400">
-                  智能文献工作台，开启你的科研新视界
-                </CardDescription>
-              </div>
-            </div>
 
-            <Tabs value={mode} onValueChange={handleModeChange} className="w-full">
-              <TabsList className="grid h-12 w-full grid-cols-2 rounded-xl bg-slate-200/50 p-1 dark:bg-slate-800/50">
-                <TabsTrigger 
-                  value="login" 
-                  className="rounded-lg text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md dark:data-[state=active]:bg-slate-950"
-                >
-                  登录
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="register" 
-                  className="rounded-lg text-sm font-bold transition-all data-[state=active]:bg-white data-[state=active]:text-primary data-[state=active]:shadow-md dark:data-[state=active]:bg-slate-950"
-                >
-                  注册
-                </TabsTrigger>
-              </TabsList>
-            </Tabs>
-          </CardHeader>
+              <div className="p-8">
+                {authError && (
+                  <Alert variant="destructive" className="mb-6 border-none bg-destructive/10 text-destructive rounded-xl py-3">
+                    <ShieldCheck className="mr-2 h-4 w-4" />
+                    <AlertDescription className="text-xs font-bold leading-none">{authError}</AlertDescription>
+                  </Alert>
+                )}
 
-          <CardContent className="px-8 pb-7 pt-2">
-            {authError ? (
-              <Alert variant="destructive" className="mb-6 animate-in fade-in zoom-in-95 duration-300">
-                <ShieldCheck className="size-4" />
-                <AlertTitle className="ml-2">提交失败</AlertTitle>
-                <AlertDescription className="ml-2">{authError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <Tabs value={mode}>
-              <TabsContent value="login" className="mt-0 focus-visible:outline-none animate-in fade-in slide-in-from-left-4 duration-500">
-                <form className="flex flex-col gap-5" onSubmit={handleLoginSubmit}>
-                  <FieldGroup className="space-y-4">
-                    <Field data-invalid={Boolean(loginErrors.username)}>
-                      <FieldLabel htmlFor="login-username" className="text-xs font-semibold uppercase tracking-wider text-slate-500/80">用户名</FieldLabel>
+                <TabsContent value="login" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
+                  <form onSubmit={handleLoginSubmit} className="space-y-5">
+                    <div className="space-y-2.5">
+                      <Label htmlFor="username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">用户名</Label>
                       <Input
-                        id="login-username"
-                        autoComplete="username"
-                        placeholder="请输入用户名"
-                        className="h-11 rounded-xl border-slate-200/60 bg-white/50 px-4 transition-all focus:bg-white focus:ring-4 focus:ring-primary/10 dark:border-slate-800/60 dark:bg-slate-900/50"
-                        disabled={loginMutation.isPending}
+                        id="username"
                         {...loginForm.register('username')}
+                        placeholder="请输入您的账号"
+                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
                       />
-                      {loginErrors.username?.message ? (
-                        <FieldError className="text-[11px] font-medium">{loginErrors.username.message}</FieldError>
-                      ) : null}
-                    </Field>
-
-                    <Field data-invalid={Boolean(loginErrors.password)}>
-                      <div className="flex items-center justify-between">
-                      <FieldLabel htmlFor="login-password" className="text-xs font-semibold uppercase tracking-wider text-slate-500/80">密码</FieldLabel>
-                        <button type="button" className="text-xs font-medium text-primary/80 hover:text-primary hover:underline underline-offset-4">
-                          忘记密码?
-                        </button>
+                    </div>
+                    <div className="space-y-2.5">
+                      <div className="flex items-center justify-between px-1">
+                        <Label htmlFor="password" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">密码</Label>
+                        <button type="button" className="text-[11px] font-bold text-primary hover:opacity-80 transition-opacity">忘记密码？</button>
                       </div>
                       <div className="relative">
                         <Input
-                          id="login-password"
+                          id="password"
                           type={showPassword ? 'text' : 'password'}
-                          autoComplete="current-password"
-                          aria-label="密码"
-                          placeholder="请输入密码"
-                          className="h-11 rounded-xl border-slate-200/60 bg-white/50 pl-4 pr-11 transition-all focus:bg-white focus:ring-4 focus:ring-primary/10 dark:border-slate-800/60 dark:bg-slate-900/50"
-                          disabled={loginMutation.isPending}
                           {...loginForm.register('password')}
+                          placeholder="••••••••"
+                          className="h-12 bg-secondary/30 border-none px-4 pr-12 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
                         />
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
                         >
-                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
-                      {loginErrors.password?.message ? (
-                        <FieldError className="text-[11px] font-medium">{loginErrors.password.message}</FieldError>
-                      ) : null}
-                    </Field>
-
+                    </div>
                     <Button 
                       type="submit" 
-                      aria-label="登录"
-                      className="mt-2 h-11 w-full rounded-xl bg-primary text-sm font-semibold shadow-lg shadow-primary/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/30 active:translate-y-0" 
-                      size="lg" 
+                      variant="apple"
+                      rounded="full"
                       disabled={loginMutation.isPending}
+                      className="h-12 w-full font-bold text-[15px] mt-4"
                     >
-                      {loginMutation.isPending ? '登录中...' : '登录'}
-                      {loginMutation.isPending ? null : <ArrowRight className="ml-2 size-4" />}
+                      {loginMutation.isPending ? '正在连接...' : '立即登录'}
+                      {!loginMutation.isPending && <ArrowRight className="ml-2 h-4 w-4" />}
                     </Button>
-                  </FieldGroup>
-                </form>
-              </TabsContent>
+                  </form>
+                </TabsContent>
 
-              <TabsContent value="register" className="mt-0 focus-visible:outline-none animate-in fade-in zoom-in-95 duration-500">
-                <form className="flex flex-col gap-5" onSubmit={handleRegisterSubmit}>
-                  <FieldGroup className="space-y-4">
-                    <Field data-invalid={Boolean(registerErrors.username)}>
-                      <FieldLabel htmlFor="register-username" className="text-xs font-semibold uppercase tracking-wider text-slate-500/80">用户名</FieldLabel>
+                <TabsContent value="register" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
+                  <form onSubmit={handleRegisterSubmit} className="space-y-5">
+                    <div className="space-y-2.5">
+                      <Label htmlFor="reg-username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">创建用户名</Label>
                       <Input
-                        id="register-username"
-                        autoComplete="username"
-                        placeholder="请创建用户名"
-                        className="h-11 rounded-xl border-slate-200/60 bg-white/50 px-4 transition-all focus:bg-white focus:ring-4 focus:ring-primary/10 dark:border-slate-800/60 dark:bg-slate-900/50"
-                        disabled={registerMutation.isPending}
+                        id="reg-username"
                         {...registerForm.register('username')}
+                        placeholder="建议使用常用 ID"
+                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
-                      {registerErrors.username?.message ? (
-                        <FieldError className="text-[11px] font-medium">{registerErrors.username.message}</FieldError>
-                      ) : null}
-                    </Field>
-
-                    <Field data-invalid={Boolean(registerErrors.password)}>
-                      <FieldLabel htmlFor="register-password" className="text-xs font-semibold uppercase tracking-wider text-slate-500/80">密码</FieldLabel>
-                      <div className="relative">
-                        <Input
-                          id="register-password"
-                          type={showPassword ? 'text' : 'password'}
-                          autoComplete="new-password"
-                          aria-label="密码"
-                          placeholder="至少 8 位，包含字母和数字"
-                          className="h-11 rounded-xl border-slate-200/60 bg-white/50 pl-4 pr-11 transition-all focus:bg-white focus:ring-4 focus:ring-primary/10 dark:border-slate-800/60 dark:bg-slate-900/50"
-                          disabled={registerMutation.isPending}
-                          {...registerForm.register('password')}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-300"
-                        >
-                          {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-                        </button>
-                      </div>
-                      {registerErrors.password?.message ? (
-                        <FieldError className="text-[11px] font-medium">{registerErrors.password.message}</FieldError>
-                      ) : null}
-                    </Field>
-
-                    <Field data-invalid={Boolean(registerErrors.confirmPassword)}>
-                      <FieldLabel htmlFor="register-confirm-password" className="text-xs font-semibold uppercase tracking-wider text-slate-500/80">确认密码</FieldLabel>
+                    </div>
+                    <div className="space-y-2.5">
+                      <Label htmlFor="reg-password" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">设置密码</Label>
                       <Input
-                        id="register-confirm-password"
+                        id="reg-password"
                         type="password"
-                        autoComplete="new-password"
-                        aria-label="确认密码"
-                        placeholder="请再次输入密码"
-                        className="h-11 rounded-xl border-slate-200/60 bg-white/50 px-4 transition-all focus:bg-white focus:ring-4 focus:ring-primary/10 dark:border-slate-800/60 dark:bg-slate-900/50"
-                        disabled={registerMutation.isPending}
-                        {...registerForm.register('confirmPassword')}
+                        {...registerForm.register('password')}
+                        placeholder="至少 8 位，包含字母与数字"
+                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
-                      {registerErrors.confirmPassword?.message ? (
-                        <FieldError className="text-[11px] font-medium">{registerErrors.confirmPassword.message}</FieldError>
-                      ) : null}
-                    </Field>
-
-                    <Button
-                      type="submit"
-                      aria-label="创建账号"
-                      className="mt-2 h-11 w-full rounded-xl bg-primary text-sm font-semibold shadow-lg shadow-primary/20 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-primary/30 active:translate-y-0"
-                      size="lg"
+                    </div>
+                    <div className="space-y-2.5">
+                      <Label htmlFor="reg-confirm" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">确认密码</Label>
+                      <Input
+                        id="reg-confirm"
+                        type="password"
+                        {...registerForm.register('confirmPassword')}
+                        placeholder="请再次输入密码"
+                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
+                      />
+                    </div>
+                    <Button 
+                      type="submit" 
+                      variant="apple"
+                      rounded="full"
                       disabled={registerMutation.isPending}
+                      className="h-12 w-full font-bold text-[15px] mt-4"
                     >
-                      {registerMutation.isPending ? '创建中...' : '创建账号'}
-                      {registerMutation.isPending ? null : <ArrowRight className="ml-2 size-4" />}
+                      {registerMutation.isPending ? '正在创建...' : '创建我的账号'}
                     </Button>
-                  </FieldGroup>
-                </form>
-              </TabsContent>
+                  </form>
+                </TabsContent>
+              </div>
             </Tabs>
           </CardContent>
-          
-          <div className="border-t border-slate-100/50 bg-slate-50/50 px-8 py-4 text-center dark:border-slate-800/50 dark:bg-slate-900/50">
-            <p className="text-xs text-slate-400">
-              继续即代表您同意我们的 <a href="#" className="underline underline-offset-4 hover:text-primary">服务协议</a> 和 <a href="#" className="underline underline-offset-4 hover:text-primary">隐私政策</a>
+          <div className="border-t border-border/20 bg-secondary/20 px-8 py-5 text-center">
+            <p className="text-[11px] font-medium text-muted-foreground">
+              继续操作即代表您同意我们的 <a href="#" className="text-foreground font-semibold hover:underline transition-all">服务条款</a> 和 <a href="#" className="text-foreground font-semibold hover:underline transition-all">隐私政策</a>
             </p>
           </div>
         </Card>
       </div>
-    </main>
+    </div>
   )
 }
