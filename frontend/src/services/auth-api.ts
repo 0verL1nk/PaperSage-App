@@ -31,7 +31,7 @@ async function buildAuthFormData(payload: AuthPayload) {
 export async function loginWithPassword(payload: AuthPayload) {
   const formData = await buildAuthFormData(payload)
   const data = await postMultipart<LoginResponse>(
-    '/api/account/login',
+    '/api/v1/auth/login',
     formData,
     {
       skipGlobalLoading: true,
@@ -54,7 +54,7 @@ export async function loginWithPassword(payload: AuthPayload) {
 
 export async function registerWithPassword(payload: AuthPayload) {
   const formData = await buildAuthFormData(payload)
-  await postMultipart<null>('/api/account/register', formData, {
+  await postMultipart<null>('/api/v1/auth/register', formData, {
     skipGlobalLoading: true,
   })
 }

@@ -54,7 +54,7 @@ async function refreshAccessToken(): Promise<SessionTokens> {
   try {
     const response = await refreshClient.post<ApiEnvelope<SessionTokens>>(
       '/api/v1/auth/refresh',
-      { refreshToken },
+      { refresh_token: refreshToken },
       { headers: { 'Content-Type': 'application/json' } }
     )
 

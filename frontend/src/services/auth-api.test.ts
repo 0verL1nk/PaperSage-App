@@ -44,7 +44,7 @@ describe('auth api', () => {
 
     expect(postMultipart).toHaveBeenCalledTimes(1)
     expect(postMultipart).toHaveBeenCalledWith(
-      '/api/account/login',
+      '/api/v1/auth/login',
       expect.any(FormData),
       expect.objectContaining({
         skipGlobalLoading: true,
@@ -87,7 +87,7 @@ describe('auth api', () => {
 
     expect(postMultipart).toHaveBeenCalledTimes(1)
     expect(postMultipart).toHaveBeenCalledWith(
-      '/api/account/register',
+      '/api/v1/auth/register',
       expect.any(FormData),
       expect.objectContaining({
         skipGlobalLoading: true,

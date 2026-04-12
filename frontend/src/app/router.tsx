@@ -71,7 +71,7 @@ const authRoute = createRoute({
   path: '/auth',
   beforeLoad: () => {
     if (hasSessionToken()) {
-      throw redirect({ to: '/app/documents' })
+      throw redirect({ to: '/app/projects' })
     }
   },
   component: AuthPage,

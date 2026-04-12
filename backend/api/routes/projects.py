@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from api.dependencies import get_db
 from api.response import ApiResponse, api_success
-from api.routes.account import get_current_user
+from api.routes.auth import get_current_user
 from models import Project, ProjectGroup, User
 from schemas import (
     ProjectCreate,

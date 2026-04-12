@@ -24,6 +24,8 @@ import {
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { logout } from '@/services/auth-api'
+import { useGroups } from '@/services/projects-api'
+import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -39,6 +41,8 @@ export function MainLayout({ children }: MainLayoutProps) {
   const location = useLocation()
   const currentPath = location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
+  const [createProjectOpen, setCreateProjectOpen] = useState(false)
+  const { data: groups = [] } = useGroups()
 
   return (
     <div className="flex h-screen flex-col bg-background font-sans tracking-tight overflow-hidden">
@@ -59,7 +63,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                   <span className="px-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
                     Library
                   </span>
-                  <Button variant="ghost" size="icon-xs" className="rounded-md">
+                  <Button variant="ghost" size="icon-xs" className="rounded-md" onClick={() => { setMobileMenuOpen(false); setCreateProjectOpen(true); }}>
                     <Plus className="size-3" />
                   </Button>
                 </div>
@@ -176,7 +180,7 @@ export function MainLayout({ children }: MainLayoutProps) {
             <span className="px-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
               Library
             </span>
-            <Button variant="ghost" size="icon-xs" className="rounded-md">
+            <Button variant="ghost" size="icon-xs" className="rounded-md" onClick={() => setCreateProjectOpen(true)}>
               <Plus className="size-3" />
             </Button>
           </div>
@@ -219,6 +223,12 @@ export function MainLayout({ children }: MainLayoutProps) {
           {children}
         </main>
       </div>
+
+      <CreateProjectDialog
+        open={createProjectOpen}
+        onOpenChange={setCreateProjectOpen}
+        groups={groups}
+      />
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useParams } from '@tanstack/react-router'
 import { ArrowLeft, Home, FileUp, FileCode, Tags, GitBranch, Sparkles } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -17,14 +17,10 @@ const projectTabs = [
 
 export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   const navigate = useNavigate()
-  const currentPath = typeof window !== 'undefined' ? window.location.pathname : ''
-
-  // Extract projectId from current path
-  const projectIdMatch = currentPath.match(/\/project\/([^/]+)/)
-  const projectId = projectIdMatch ? projectIdMatch[1] : 'default'
+  const { projectId = 'default' } = useParams({ strict: false })
 
   // Find active tab based on current path
-  const activeTab = projectTabs.find((tab) => currentPath.includes(tab.path.replace('/$projectId/', '/')))?.
+  const activeTab = projectTabs.find((tab) => window.location.pathname.includes(tab.path.replace('/$projectId/', '/')))?.
 key || 'uploading'
 
   const handleNavigate = (path: string) => {
@@ -37,7 +33,7 @@ key || 'uploading'
       {/* Header */}
       <header className="sticky top-0 z-50 flex h-16 items-center border-b bg-background/95 px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div className="flex items-center gap-4">
-          <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/app/documents' })}>
+          <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/app/projects' })}>
             <ArrowLeft className="size-4" />
           </Button>
           <Button variant="ghost" size="sm" onClick={() => navigate({ to: '/project/$projectId', params: { projectId } })}>
