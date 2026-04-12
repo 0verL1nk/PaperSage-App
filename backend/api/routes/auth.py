@@ -2,7 +2,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -102,3 +102,9 @@ async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_
             refreshToken=new_refresh_token,
         )
     )
+
+
+@router.post("/logout")
+async def logout() -> ApiResponse[None]:
+    """Logout endpoint. JWT tokens are stateless, so we just acknowledge the request."""
+    return api_success(None)

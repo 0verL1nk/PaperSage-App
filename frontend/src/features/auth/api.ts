@@ -1,4 +1,5 @@
 import { FrontendApiError, postMultipart } from '@/shared/api'
+import { clearSessionTokens } from '@/shared/stores/session-store'
 import type { SessionTokens } from '@/shared/stores/session-store'
 
 type AuthPayload = {
@@ -56,4 +57,15 @@ export async function registerWithPassword(payload: AuthPayload) {
   await postMultipart<null>('/api/account/register', formData, {
     skipGlobalLoading: true,
   })
+}
+
+export async function logout() {
+  try {
+    await postMultipart<null>('/api/v1/auth/logout', new FormData(), {
+      skipGlobalLoading: true,
+      skipAuthRefresh: true,
+    })
+  } finally {
+    clearSessionTokens()
+  }
 }

@@ -33,6 +33,14 @@ vi.mock('lucide-react', () => ({
   Plus: () => <span>Plus</span>,
   Trash2: () => <span>Trash2</span>,
   FileText: () => <span>FileText</span>,
+  AlertTriangle: () => <span>AlertTriangle</span>,
+  XIcon: () => <span>XIcon</span>,
+  ChevronRight: () => <span>ChevronRight</span>,
+}))
+
+// Mock ConfirmDialog
+vi.mock('@/components/ui/confirm-dialog', () => ({
+  ConfirmDialog: () => null,
 }))
 
 import { useProjects, useGroups } from '../api'

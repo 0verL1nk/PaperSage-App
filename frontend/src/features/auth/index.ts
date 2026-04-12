@@ -1,4 +1,4 @@
-export { loginWithPassword, registerWithPassword } from '@/features/auth/api'
+export { loginWithPassword, logout, registerWithPassword } from '@/features/auth/api'
 export { AuthPage } from '@/features/auth/components'
 export { useLoginMutation, useRegisterMutation } from '@/features/auth/hooks'
 export {
