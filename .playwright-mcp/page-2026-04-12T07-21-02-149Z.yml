@@ -1,0 +1,40 @@
+- generic [ref=e2]:
+  - main [ref=e3]:
+    - generic [ref=e11]:
+      - generic [ref=e12]:
+        - generic [ref=e13]:
+          - img [ref=e17]
+          - generic [ref=e20]:
+            - generic [ref=e21]: PaperSage
+            - generic [ref=e22]: 智能文献工作台，开启你的科研新视界
+        - tablist [ref=e24]:
+          - tab "登录" [ref=e25]
+          - tab "注册" [active] [selected] [ref=e26]
+      - tabpanel [ref=e50]:
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - generic [ref=e54]: 用户名
+            - textbox "用户名" [ref=e55]:
+              - /placeholder: 请创建用户名
+          - generic [ref=e56]:
+            - generic [ref=e57]: 密码
+            - generic [ref=e58]:
+              - textbox "密码" [ref=e59]:
+                - /placeholder: 至少 8 位，包含字母和数字
+              - button [ref=e60]:
+                - img [ref=e61]
+          - generic [ref=e64]:
+            - generic [ref=e65]: 确认密码
+            - textbox "确认密码" [ref=e66]:
+              - /placeholder: 请再次输入密码
+          - button "创建账号" [ref=e67]:
+            - text: 创建账号
+            - img
+      - paragraph [ref=e47]:
+        - text: 继续即代表您同意我们的
+        - link "服务协议" [ref=e48] [cursor=pointer]:
+          - /url: "#"
+        - text: 和
+        - link "隐私政策" [ref=e49] [cursor=pointer]:
+          - /url: "#"
+  - region "Notifications alt+T"
