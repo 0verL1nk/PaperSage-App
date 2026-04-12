@@ -29,7 +29,37 @@ interface ApiResponse<T> {
 }
 ```
 
-### 1.4 状态码说明
+### 1.4 前后端约定
+
+#### URL 必须使用 trailing slash
+
+后端 FastAPI 路由定义使用 trailing slash（如 `@router.get("/")`），前端 API 调用**必须使用 trailing slash**：
+
+```typescript
+// ✅ 正确
+const url = '/api/projects/'
+
+// ❌ 错误 - 会触发 307 重定向
+const url = '/api/projects'
+```
+
+原因：FastAPI 的 `redirect_slashes` 默认为 `True`，访问 `/api/projects` 会重定向到 `/api/projects/`。
+
+#### 前端类型定义
+
+前端 `unwrapApiEnvelope` 已自动解包 `data` 字段，直接返回 `T`。因此 TanStack Query hooks 应直接使用数据类型：
+
+```typescript
+// ✅ 正确 - unwrapApiEnvelope 返回 T[]
+const data = await get<Project[]>('/api/projects/')
+return data ?? []
+
+// ❌ 错误 - 重复解包导致 undefined
+const data = await get<{ data: Project[] }>('/api/projects/')
+return data?.data ?? [] // data 已经是数组，data.data 是 undefined
+```
+
+### 1.5 状态码说明
 
 | 状态码 | 说明 |
 |--------|------|

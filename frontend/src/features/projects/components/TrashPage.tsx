@@ -1,18 +1,21 @@
 /**
  * TrashPage - displays deleted projects
  */
+import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useTrash, useRestoreProject, usePermanentDeleteProject } from '../api'
 import type { TrashItem } from '../api'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Trash2, RotateCcw, AlertTriangle, ArrowLeft } from 'lucide-react'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { Trash2, RotateCcw, ArrowLeft } from 'lucide-react'
 
 export function TrashPage() {
   const { data: items = [], isLoading, error } = useTrash()
   const restoreProject = useRestoreProject()
   const permanentDelete = usePermanentDeleteProject()
+  const [deleteTarget, setDeleteTarget] = useState<TrashItem | null>(null)
 
   const handleRestore = async (item: TrashItem) => {
     if (item.type === 'project') {
@@ -20,12 +23,11 @@ export function TrashPage() {
     }
   }
 
-  const handlePermanentDelete = async (item: TrashItem) => {
-    if (item.type === 'project') {
-      if (window.confirm(`Permanently delete "${item.name}"? This cannot be undone.`)) {
-        await permanentDelete.mutateAsync(item.id)
-      }
+  const handlePermanentDelete = async () => {
+    if (deleteTarget?.type === 'project') {
+      await permanentDelete.mutateAsync(deleteTarget.id)
     }
+    setDeleteTarget(null)
   }
 
   if (isLoading) {
@@ -63,7 +65,7 @@ export function TrashPage() {
           Trash
         </h1>
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/app/documents">
+          <Link to="/app/projects">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back to Projects
           </Link>
@@ -109,16 +111,16 @@ export function TrashPage() {
                     disabled={restoreProject.isPending}
                   >
                     <RotateCcw className="mr-2 h-4 w-4" />
-                    {restoreProject.isPending ? 'Restoring...' : 'Restore'}
+                    {restoreProject.isPending ? '恢复中...' : '恢复'}
                   </Button>
                   <Button
                     variant="destructive"
                     size="sm"
-                    onClick={() => handlePermanentDelete(item)}
+                    onClick={() => setDeleteTarget(item)}
                     disabled={permanentDelete.isPending}
                   >
-                    <AlertTriangle className="mr-2 h-4 w-4" />
-                    {permanentDelete.isPending ? 'Deleting...' : 'Delete'}
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    {permanentDelete.isPending ? '删除中...' : '删除'}
                   </Button>
                 </div>
               </div>
@@ -126,6 +128,21 @@ export function TrashPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title="永久删除"
+        description={
+          deleteTarget
+            ? `确定要永久删除 "${deleteTarget.name}" 吗？此操作不可撤销。`
+            : ""
+        }
+        confirmText="永久删除"
+        variant="destructive"
+        onConfirm={handlePermanentDelete}
+        isPending={permanentDelete.isPending}
+      />
     </div>
   )
 }

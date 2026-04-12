@@ -110,7 +110,7 @@ export function ProjectListPage() {
           </div>
         </Card>
       ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 items-start">
           {projects.map((project) => (
             <ProjectCard
               key={project.id}
@@ -118,19 +118,6 @@ export function ProjectListPage() {
               onClick={() => {/* Navigate to project */}}
             />
           ))}
-          {/* Add Project Card */}
-          <Card
-            role="button"
-            tabIndex={0}
-            onClick={() => setIsCreateDialogOpen(true)}
-            onKeyDown={(e) => e.key === 'Enter' && setIsCreateDialogOpen(true)}
-            className="p-4 cursor-pointer hover:border-primary hover:shadow-md transition-all border-dashed"
-          >
-            <div className="flex flex-col items-center justify-center h-full min-h-[100px] gap-2 text-muted-foreground">
-              <Plus className="h-6 w-6" />
-              <span className="text-sm">New Project</span>
-            </div>
-          </Card>
         </div>
       )}
 
