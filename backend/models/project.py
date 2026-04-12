@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.base import Base, TimestampMixin, UUIDMixin
+from core.base import Base, TimestampMixin, UUID, UUIDMixin
 
 if TYPE_CHECKING:
     from models.user import User
@@ -18,6 +18,7 @@ class ProjectGroup(Base, UUIDMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(50), nullable=False)
     owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -38,10 +39,12 @@ class Project(Base, UUIDMixin, TimestampMixin):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
     group_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(),
         ForeignKey("project_groups.id", ondelete="SET NULL"),
         nullable=True,
     )
