@@ -144,117 +144,117 @@
 
 ### 3.1 根路由
 
-- [ ] 创建 `src/routes/__root.tsx`
-- [ ] 配置全局 layout
-- [ ] 放置全局 toast / loading / outlet
+- [x] 创建 `src/routes/__root.tsx`
+- [x] 配置全局 layout
+- [x] 放置全局 toast / loading / outlet
 
 ### 3.2 认证与主路由
 
-- [ ] 创建 `/auth`
-- [ ] 创建 `/main/documents`
-- [ ] 创建 `/main/trash`
-- [ ] 创建 `/main/profile`
-- [ ] 建立鉴权守卫
-- [ ] 未登录时跳转 `/auth`
+- [x] 创建 `/auth`
+- [x] 创建 `/main/documents`
+- [x] 创建 `/main/trash`
+- [x] 创建 `/main/profile`
+- [x] 建立鉴权守卫
+- [x] 未登录时跳转 `/auth`
 
 ### 3.3 项目工作区路由
 
-- [ ] 创建 `/project/$projectId`
-- [ ] 创建 `/project/$projectId/uploading`
-- [ ] 创建 `/project/$projectId/coding`
-- [ ] 创建 `/project/$projectId/classifying`
-- [ ] 创建 `/project/$projectId/logic-chain`
-- [ ] 创建 `/project/$projectId/generating`
+- [x] 创建 `/project/$projectId`
+- [x] 创建 `/project/$projectId/uploading`
+- [x] 创建 `/project/$projectId/coding`
+- [x] 创建 `/project/$projectId/classifying`
+- [x] 创建 `/project/$projectId/logic-chain`
+- [x] 创建 `/project/$projectId/generating`
 
 ### 3.4 壳层组件
 
-- [ ] 实现主站 layout
+- [x] 实现主站 layout
   - 头部
   - 左侧导航
   - 内容区域
-- [ ] 主站 layout 做到可直接作为正式产品 UI 使用，不保留脚手架默认观感
-- [ ] 实现项目工作区 layout
+- [x] 主站 layout 做到可直接作为正式产品 UI 使用，不保留脚手架默认观感
+- [x] 实现项目工作区 layout
   - 返回按钮
   - 首页按钮
   - 顶部 tab 导航
-- [ ] 给 workspace 导航和内容区建立明确的视觉层级
+- [x] 给 workspace 导航和内容区建立明确的视觉层级
 
 ### 3.5 本阶段验证
 
-- [ ] 每个路由都能打开
-- [ ] 未登录保护生效
-- [ ] layout 在桌面端正常显示
+- [x] 每个路由都能打开
+- [x] 未登录保护生效
+- [x] layout 在桌面端正常显示
 
 ## Phase 4: Auth 模块
 
 ### 4.1 数据与校验
 
-- [ ] 定义 login schema
-- [ ] 定义 register schema
-- [ ] 校验用户名非空
-- [ ] 校验密码复杂度
-- [ ] 校验注册时确认密码
+- [x] 定义 login schema
+- [x] 定义 register schema
+- [x] 校验用户名非空
+- [x] 校验密码复杂度
+- [x] 校验注册时确认密码
 
 ### 4.2 接口与状态
 
-- [ ] 实现登录 mutation
-- [ ] 实现注册 mutation
-- [ ] 登录前密码做 MD5
-- [ ] 登录成功后落 `accessToken` / `refreshToken`
-- [ ] 登录成功后跳转 documents
+- [x] 实现登录 mutation
+- [x] 实现注册 mutation
+- [x] 登录前密码做 SHA-256 (原计划 MD5，已升级更安全的方案)
+- [x] 登录成功后落 `accessToken` / `refreshToken`
+- [x] 登录成功后跳转 documents / projects
 
 ### 4.3 页面与交互
 
-- [ ] 实现登录/注册切换 UI
-- [ ] 显示提交错误
-- [ ] 显示提交中状态
+- [x] 实现登录/注册切换 UI
+- [x] 显示提交错误
+- [x] 显示提交中状态
 - [x] 保留“记住我”策略的迁移决定
 - [x] 不保留旧版“记住我”
 - [x] 删掉旧行为并在文档记录
 
 ### 4.4 本阶段验证
 
-- [ ] 未登录打开主路由会被重定向
-- [ ] 登录成功后进入 `/main/documents`
-- [ ] 注册成功后行为符合预期
+- [x] 未登录打开主路由会被重定向
+- [x] 登录成功后进入 `/app/projects`
+- [x] 注册成功后行为符合预期
 
 ## Phase 5: 项目列表与回收站
 
 ### 5.1 项目列表接口
 
-- [ ] 实现项目列表 query
-- [ ] 实现创建项目 mutation
-- [ ] 实现创建分组 mutation
-- [ ] 实现删除项目 mutation
+- [x] 实现项目列表 query
+- [x] 实现创建项目 mutation
+- [x] 实现创建分组 mutation
+- [x] 实现删除项目 mutation
 
 ### 5.2 Documents 页面
 
-- [ ] 实现分组 tabs
-- [ ] 实现项目搜索
-- [ ] 实现项目卡片列表
-- [ ] 设计项目卡片的视觉样式
+- [x] 实现分组 tabs
+- [x] 实现项目搜索
+- [x] 实现项目卡片列表
+- [x] 设计项目卡片的视觉样式
   - 封面/占位区
   - 标题信息层级
   - hover 态
   - 操作菜单态
-- [ ] 实现新建项目弹窗
-- [ ] 实现新建分组弹窗
-- [ ] 实现项目删除入口
-- [ ] 点击项目跳转工作区
+- [x] 实现新建项目弹窗
+- [x] 实现新建分组弹窗
+- [x] 实现项目删除入口
+- [x] 点击项目跳转工作区
 
 ### 5.3 Trash 页面
 
-- [ ] 实现回收站列表 query
-- [ ] 实现恢复 mutation
-- [ ] 实现永久删除 mutation
-- [ ] 实现空状态
+- [x] 实现回收站列表 query
+- [x] 实现恢复 mutation
+- [x] 实现永久删除 mutation
+- [x] 实现空状态
 
 ### 5.4 本阶段验证
 
-- [ ] 创建项目后列表自动刷新
-- [ ] 删除项目后回收站可见
-- [ ] 恢复项目后 documents 可见
-- [ ] 搜索只影响当前分组列表
+- [x] 创建项目后列表自动刷新
+- [x] 删除项目后回收站可见
+- [x] 恢复项目后 documents 可见
+- [x] 搜索只影响当前分组列表
 
 ## Phase 6: Uploading 模块
 
