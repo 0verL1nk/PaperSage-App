@@ -7,13 +7,13 @@ import {
   createRouter,
   redirect,
 } from '@tanstack/react-router'
-import { AuthPage } from '@/features/auth'
-import { MainLayout } from '@/features/layout/MainLayout'
-import { WorkspaceLayout } from '@/features/layout/WorkspaceLayout'
-import { hasSessionToken } from '@/shared/stores/session-store'
-import { ProjectListPage } from '@/features/projects/components/ProjectListPage'
-import { TrashPage } from '@/features/projects/components/TrashPage'
-import { UnderConstruction } from '@/shared/components/UnderConstruction'
+import { AuthPage } from '@/views/auth/auth-page'
+import { MainLayout } from '@/views/layout/MainLayout'
+import { WorkspaceLayout } from '@/views/layout/WorkspaceLayout'
+import { hasSessionToken } from '@/store/session-store'
+import { ProjectListPage } from '@/views/projects/ProjectListPage'
+import { TrashPage } from '@/views/trash/TrashPage'
+import { UnderConstruction } from '@/components/shared/UnderConstruction'
 
 export type AppRouterContext = {
   queryClient: QueryClient

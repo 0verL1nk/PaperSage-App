@@ -71,7 +71,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { EmptyState, ErrorState, LoadingState } from '@/shared/components'
+import { EmptyState, ErrorState, LoadingState } from '@/components/shared'
 
 const foundationFormSchema = z.object({
   workspaceName: z.string().min(3, '请输入至少 3 个字符'),

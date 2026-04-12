@@ -13,6 +13,7 @@ help:
 	@echo "$(BLUE)PaperSage Makefile$(NC)"
 	@echo ""
 	@echo "$(GREEN)Available commands:$(NC)"
+	@echo "  make dev          - Start both frontend and backend concurrently with hot-reload"
 	@echo "  make run          - Start both frontend and backend"
 	@echo "  make backend     - Start backend only"
 	@echo "  make frontend    - Start frontend only"
@@ -41,6 +42,11 @@ run:
 	(cd backend && uv run uvicorn app.main:app --reload --port 5478) & \
 	(cd frontend && pnpm dev)
 	@wait
+
+# Run development servers concurrently with hot-reloading
+dev:
+	@echo "$(GREEN)Starting development servers with hot-reload...$(NC)"
+	@$(MAKE) -j2 backend frontend
 
 # Run individual servers
 backend:
