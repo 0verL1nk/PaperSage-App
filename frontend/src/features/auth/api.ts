@@ -67,5 +67,9 @@ export async function logout() {
     })
   } finally {
     clearSessionTokens()
+    // Redirect to auth page after logout
+    if (typeof window !== 'undefined') {
+      window.location.href = '/auth'
+    }
   }
 }
