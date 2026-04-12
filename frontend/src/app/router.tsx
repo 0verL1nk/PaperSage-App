@@ -11,6 +11,9 @@ import { AuthPage } from '@/features/auth'
 import { MainLayout } from '@/features/layout/MainLayout'
 import { WorkspaceLayout } from '@/features/layout/WorkspaceLayout'
 import { hasSessionToken } from '@/shared/stores/session-store'
+import { ProjectListPage } from '@/features/projects/components/ProjectListPage'
+import { TrashPage } from '@/features/projects/components/TrashPage'
+import { UnderConstruction } from '@/shared/components/UnderConstruction'
 
 export type AppRouterContext = {
   queryClient: QueryClient
@@ -36,14 +39,14 @@ const rootRoute = createRootRouteWithContext<AppRouterContext>()({
   },
 })
 
-// Index/home route - redirect to documents or auth
+// Index/home route - redirect to projects or auth
 const indexRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/',
   beforeLoad: () => {
-    // Redirect to documents if logged in, otherwise go to auth
+    // Redirect to projects if logged in, otherwise go to auth
     if (hasSessionToken()) {
-      throw redirect({ to: '/app/documents' })
+      throw redirect({ to: '/app/projects' })
     } else {
       throw redirect({ to: '/auth' })
     }
@@ -90,17 +93,26 @@ const appLayoutRoute = createRoute({
   },
 })
 
-// /app/documents route
+// /app/documents route - under construction
 const documentsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/app/documents',
   component: function Documents() {
     return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Documents</h1>
-        <p className="mt-2 text-muted-foreground">Project list placeholder</p>
-      </div>
+      <UnderConstruction
+        title="Documents"
+        description="Reference management coming soon"
+      />
     )
+  },
+})
+
+// /app/projects route
+const projectsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/app/projects',
+  component: function Projects() {
+    return <ProjectListPage />
   },
 })
 
@@ -109,12 +121,7 @@ const trashRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/app/trash',
   component: function Trash() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Trash</h1>
-        <p className="mt-2 text-muted-foreground">Trash placeholder</p>
-      </div>
-    )
+    return <TrashPage />
   },
 })
 
@@ -236,7 +243,7 @@ const projectGeneratingRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
-  appLayoutRoute.addChildren([documentsRoute, trashRoute, profileRoute]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, profileRoute]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectUploadingRoute,

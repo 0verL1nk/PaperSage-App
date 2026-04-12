@@ -83,6 +83,29 @@ erDiagram
         PK
     }
 
+    TEX_DOCUMENT {
+        string id PK
+        string project_id FK
+        string name
+        text content
+        string template
+        string status
+        string compiled_pdf_key
+        string error_message
+        int version
+        datetime created_at
+        datetime updated_at
+    }
+
+    TEX_VERSION {
+        string id PK
+        string tex_document_id FK
+        int version
+        text content
+        string compiled_pdf_key
+        datetime created_at
+    }
+
     USER ||--o{ PROJECT : creates
     USER ||--o{ PROJECT_GROUP : owns
     USER ||--o{ TAG : creates
@@ -92,6 +115,7 @@ erDiagram
 
     PROJECT ||--o{ FOLDER : contains
     PROJECT ||--o{ DOCUMENT : contains
+    PROJECT ||--o{ TEX_DOCUMENT : contains
 
     FOLDER ||--o{ FOLDER : contains
     FOLDER ||--o{ DOCUMENT : contains
@@ -99,6 +123,8 @@ erDiagram
     DOCUMENT ||--o{ HIGHLIGHT : has
 
     TAG }o--o{ DOCUMENT : tags
+
+    TEX_DOCUMENT ||--o{ TEX_VERSION : has
 ```
 
 ## 2. 表结构详情
@@ -319,6 +345,65 @@ CREATE TABLE document_tags (
 );
 
 CREATE INDEX idx_document_tags_tag ON document_tags(tag_id);
+```
+
+### 2.9 tex_documents - LaTeX 文档表
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | VARCHAR(36) | PK | UUID 主键 |
+| project_id | VARCHAR(36) | FK -> projects.id | 所属项目 |
+| name | VARCHAR(100) | NOT NULL | 文档名称 |
+| content | TEXT | NOT NULL | LaTeX 源码 |
+| template | VARCHAR(20) | | 模板类型: thesis, paper, custom |
+| status | VARCHAR(20) | DEFAULT 'draft' | 编译状态: draft, compiling, success, error |
+| compiled_pdf_key | VARCHAR(500) | | MinIO 存储的 PDF 路径 |
+| error_message | TEXT | | 编译错误信息 |
+| version | INTEGER | DEFAULT 1 | 版本号 |
+| created_at | TIMESTAMP | DEFAULT now() | 创建时间 |
+| updated_at | TIMESTAMP | DEFAULT now() | 更新时间 |
+
+```sql
+CREATE TABLE tex_documents (
+    id VARCHAR(36) PRIMARY KEY,
+    project_id VARCHAR(36) NOT NULL REFERENCES projects(id),
+    name VARCHAR(100) NOT NULL,
+    content TEXT NOT NULL,
+    template VARCHAR(20),
+    status VARCHAR(20) DEFAULT 'draft',
+    compiled_pdf_key VARCHAR(500),
+    error_message TEXT,
+    version INTEGER DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_tex_documents_project ON tex_documents(project_id);
+CREATE INDEX idx_tex_documents_status ON tex_documents(status);
+```
+
+### 2.10 tex_versions - LaTeX 文档版本历史表
+
+| 字段 | 类型 | 约束 | 说明 |
+|------|------|------|------|
+| id | VARCHAR(36) | PK | UUID 主键 |
+| tex_document_id | VARCHAR(36) | FK -> tex_documents.id | 所属文档 |
+| version | INTEGER | NOT NULL | 版本号 |
+| content | TEXT | NOT NULL | 源码内容 |
+| compiled_pdf_key | VARCHAR(500) | | PDF 存储路径 |
+| created_at | TIMESTAMP | DEFAULT now() | 创建时间 |
+
+```sql
+CREATE TABLE tex_versions (
+    id VARCHAR(36) PRIMARY KEY,
+    tex_document_id VARCHAR(36) NOT NULL REFERENCES tex_documents(id),
+    version INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    compiled_pdf_key VARCHAR(500),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_tex_versions_document ON tex_versions(tex_document_id);
 ```
 
 ## 3. 数据库配置
