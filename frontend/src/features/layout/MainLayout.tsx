@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { logout } from '@/features/auth'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -95,11 +96,12 @@ export function MainLayout({ children }: MainLayoutProps) {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild className="text-red-500 focus:text-red-500">
-                <Link to="/auth">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  <span>Logout</span>
-                </Link>
+              <DropdownMenuItem
+                className="text-red-500 focus:text-red-500 cursor-pointer"
+                onClick={() => logout()}
+              >
+                <LogOut className="mr-2 h-4 w-4" />
+                <span>Logout</span>
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
