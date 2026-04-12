@@ -70,8 +70,7 @@ describe('AuthPage', () => {
 
     await waitFor(() => {
       expect(navigateMock).toHaveBeenCalledWith({
-        to: '/',
-        replace: true,
+        to: '/app/projects',
       })
     })
   })
@@ -115,8 +114,7 @@ describe('AuthPage', () => {
     expect(useSessionStore.getState().accessToken).toBe('access-token')
     expect(useSessionStore.getState().refreshToken).toBe('refresh-token')
     expect(navigateMock).toHaveBeenCalledWith({
-      to: '/',
-      replace: true,
+      to: '/app/projects',
     })
   })
 })
