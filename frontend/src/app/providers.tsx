@@ -2,8 +2,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Toaster } from '@/components/ui/sonner'
 import { AppRouterProvider } from '@/app/router'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { LoadingOverlay } from '@/shared/components'
-import { restoreSessionState } from '@/shared/stores'
+import { LoadingOverlay } from '@/components/shared'
+import { restoreSessionState } from '@/store'
 
 const queryClient = new QueryClient({
   defaultOptions: {
