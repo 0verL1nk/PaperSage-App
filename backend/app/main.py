@@ -22,6 +22,17 @@ async def lifespan(app: FastAPI):
     # Startup - create tables
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Check Redis connection
+    from core.redis import redis_client
+    try:
+        await redis_client.connect()
+        await redis_client.ping()
+        print("✓ Redis connection OK")
+    except Exception as e:
+        print(f"✗ Redis connection failed: {e}")
+        raise
+
     yield
     # Shutdown
 
