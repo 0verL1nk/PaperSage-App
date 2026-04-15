@@ -1,4 +1,5 @@
 """Projects routes."""
+
 import uuid
 from datetime import UTC, datetime
 
@@ -102,9 +103,7 @@ async def create_project(
 
     # Load group relationship
     result = await db.execute(
-        select(Project)
-        .where(Project.id == project.id)
-        .options(selectinload(Project.group))
+        select(Project).where(Project.id == project.id).options(selectinload(Project.group))
     )
     project = result.scalar_one()
 
@@ -139,9 +138,7 @@ async def create_group(
 ) -> ApiResponse[ProjectGroupResponse]:
     """Create a new project group."""
     # Get max sort_order
-    result = await db.execute(
-        select(ProjectGroup).where(ProjectGroup.owner_id == current_user.id)
-    )
+    result = await db.execute(select(ProjectGroup).where(ProjectGroup.owner_id == current_user.id))
     groups = result.scalars().all()
     max_order = max((g.sort_order for g in groups), default=-1)
 

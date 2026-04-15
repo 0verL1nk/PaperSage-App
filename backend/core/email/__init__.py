@@ -16,6 +16,7 @@ Usage:
         variables={"username": "John"},
     )
 """
+
 from core.email.base import EmailBackend
 from core.email.service import EmailService
 

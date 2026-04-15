@@ -1,4 +1,5 @@
 """Database connection and session management."""
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -19,12 +20,14 @@ engine_kwargs = {
 if is_sqlite:
     engine_kwargs["poolclass"] = NullPool
 else:
-    engine_kwargs.update({
-        "pool_pre_ping": True,
-        "pool_size": 20,
-        "max_overflow": 30,
-        "pool_recycle": 3600,
-    })
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_size": 20,
+            "max_overflow": 30,
+            "pool_recycle": 3600,
+        }
+    )
 
 # Create async engine
 engine = create_async_engine(settings.database_url, **engine_kwargs)

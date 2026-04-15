@@ -1,4 +1,5 @@
 """JWT token utilities."""
+
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -14,7 +15,9 @@ ALGORITHM = "HS256"
 def create_access_token(data: dict[str, Any], expires_delta: timedelta | None = None) -> str:
     """Create an access token."""
     to_encode = data.copy()
-    expire = datetime.now(UTC) + (expires_delta or timedelta(minutes=settings.access_token_expire_minutes))
+    expire = datetime.now(UTC) + (
+        expires_delta or timedelta(minutes=settings.access_token_expire_minutes)
+    )
     to_encode.update({"exp": expire, "type": "access"})
     return jwt.encode(to_encode, settings.secret_key, algorithm=ALGORITHM)
 
@@ -40,4 +43,6 @@ def verify_token(token: str, token_type: str = "access") -> dict[str, Any]:
 
 def decode_token(token: str) -> dict[str, Any]:
     """Decode token without verification (for debugging)."""
-    return jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM], options={"verify_signature": False})
+    return jwt.decode(
+        token, settings.secret_key, algorithms=[ALGORITHM], options={"verify_signature": False}
+    )

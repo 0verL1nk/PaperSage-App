@@ -1,4 +1,5 @@
 """API routes."""
+
 from fastapi import APIRouter
 
 from api.routes import auth, documents, projects

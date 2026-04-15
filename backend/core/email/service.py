@@ -1,4 +1,5 @@
 """Email service with template support."""
+
 import logging
 import re
 from typing import Any
@@ -85,6 +86,7 @@ class EmailService:
         Raises:
             KeyError: If a placeholder has no corresponding variable.
         """
+
         def replacer(match: re.Match[str]) -> str:
             var_name = match.group(1)
             if var_name not in variables:

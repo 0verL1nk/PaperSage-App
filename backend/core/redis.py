@@ -1,4 +1,5 @@
 """Redis connection and cache utilities."""
+
 from typing import NotRequired, TypedDict
 
 from redis import asyncio as redis

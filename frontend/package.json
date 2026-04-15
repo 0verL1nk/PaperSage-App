@@ -11,11 +11,21 @@
     "test": "vitest run --exclude '**/e2e/**'",
     "test:e2e": "playwright test",
     "test:watch": "vitest",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "lezer-latex:generate": "lezer-generator src/lib/lezer-latex/latex.grammar -o src/lib/lezer-latex/latex.mjs"
   },
   "dependencies": {
+    "@codemirror/autocomplete": "^6.20.1",
+    "@codemirror/commands": "^6.10.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/search": "^6.6.0",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.41.0",
     "@fontsource-variable/geist": "^5.2.8",
     "@hookform/resolvers": "^5.2.2",
+    "@lezer/common": "^1.5.2",
+    "@lezer/highlight": "^1.2.3",
+    "@lezer/lr": "^1.4.8",
     "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-query": "^5.95.2",
     "@tanstack/react-router": "^1.168.7",
@@ -24,6 +34,7 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.7.0",
     "md5": "^2.3.0",
+    "monaco-editor": "^0.55.1",
     "pdfjs-dist": "^5.5.207",
     "radix-ui": "^1.4.3",
     "react": "^19.2.4",
@@ -39,6 +50,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@lezer/generator": "^1.8.0",
     "@playwright/test": "^1.59.1",
     "@tailwindcss/vite": "^4.2.2",
     "@testing-library/jest-dom": "^6.9.1",

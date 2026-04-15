@@ -19,9 +19,10 @@ import {
   Maximize
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import Editor from '@monaco-editor/react'
+import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
+import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
 
 // Set up worker for react-pdf
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -67,6 +68,13 @@ instantly without any white flashes.
 \\end{document}`)
 
   const [pdfFile, setPdfFile] = useState<string | null>(null)
+  const monaco = useMonaco()
+
+  useEffect(() => {
+    if (monaco) {
+      registerLatexLsp()
+    }
+  }, [monaco])
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(window.innerWidth < 1024)

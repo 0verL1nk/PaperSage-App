@@ -1,4 +1,5 @@
 """Email backend interface definition."""
+
 from abc import ABC, abstractmethod
 
 

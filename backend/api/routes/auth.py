@@ -1,4 +1,5 @@
 """Auth routes for token refresh (frontend compatibility)."""
+
 import uuid
 
 from fastapi import APIRouter, Depends, Form, HTTPException, status
@@ -143,7 +144,9 @@ async def login(
 
 
 @router.post("/refresh", response_model=ApiResponse[TokenResponse])
-async def refresh_token(request: RefreshRequest, db: AsyncSession = Depends(get_db)) -> ApiResponse[TokenResponse]:  # noqa: B008
+async def refresh_token(
+    request: RefreshRequest, db: AsyncSession = Depends(get_db)
+) -> ApiResponse[TokenResponse]:
     """Refresh access token using refresh token."""
     try:
         payload = verify_token(request.refresh_token, "refresh")

@@ -1,4 +1,5 @@
 """SQLAlchemy base model."""
+
 import uuid as uuid_lib
 from datetime import UTC, datetime
 

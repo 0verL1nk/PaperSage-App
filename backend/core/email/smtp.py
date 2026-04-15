@@ -1,4 +1,5 @@
 """Generic SMTP email backend implementation."""
+
 import asyncio
 import logging
 import smtplib

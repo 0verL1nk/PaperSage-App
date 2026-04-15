@@ -1,4 +1,5 @@
 """Application configuration using Pydantic Settings."""
+
 from functools import lru_cache
 
 from pydantic import field_validator
@@ -44,7 +45,9 @@ class Settings(BaseSettings):
     )
 
     # Database
-    database_url: str = "postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage"
+    database_url: str = (
+        "postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage"
+    )
 
     # Redis
     redis_url: str = "redis://:papersage_dev_password@localhost:6379/0"

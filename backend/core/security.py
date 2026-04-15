@@ -1,6 +1,8 @@
 """Password hashing utilities."""
-import bcrypt
+
 import logging
+
+import bcrypt
 
 logger = logging.getLogger(__name__)
 
