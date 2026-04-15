@@ -1,4 +1,5 @@
 """FastAPI application entry point."""
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
 
     # Check Redis connection
     from core.redis import redis_client
+
     try:
         await redis_client.connect()
         await redis_client.ping()

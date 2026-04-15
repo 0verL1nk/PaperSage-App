@@ -1,4 +1,5 @@
 """Resend email backend implementation."""
+
 import logging
 
 import resend
@@ -12,7 +13,9 @@ logger = logging.getLogger(__name__)
 class ResendBackend(EmailBackend):
     """Email backend using Resend API."""
 
-    def __init__(self, api_key: str, domain: str, from_email: str, from_name: str = "PaperSage") -> None:
+    def __init__(
+        self, api_key: str, domain: str, from_email: str, from_name: str = "PaperSage"
+    ) -> None:
         """Initialize Resend backend.
 
         Args:

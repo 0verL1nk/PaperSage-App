@@ -1,4 +1,5 @@
 """API dependencies."""
+
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,5 +22,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
 async def get_redis_dep() -> RedisClient:
     """Get Redis client."""
     from core.redis import redis_client
+
     await redis_client.connect()
     return redis_client
