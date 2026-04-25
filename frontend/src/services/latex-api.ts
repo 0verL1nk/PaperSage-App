@@ -1,5 +1,8 @@
 import JSZip from 'jszip'
 import { getJson, postJson, putJson, deleteFetch, downloadBlob } from './client'
+import { getAccessToken } from '@/store'
+import { LATEX } from './api-routes'
+import { createPdfSource } from '@/lib/pdf/range-transport'
 
 // --- Types ---
 
@@ -21,38 +24,43 @@ export interface CompileResponse {
   build_id: string | null
   output_files: Array<{ path: string; url: string; type: string }>
   error: string | null
+  logs: string | null
 }
+
+/** Range transport source for react-pdf (avoids IDM interception). */
+export type PdfRangeSource = { range: unknown }
 
 // --- API Functions ---
 
+interface LatexFileListEnvelope {
+  files: LatexFileItem[]
+}
+
 export function fetchLatexFiles(projectId: string) {
-  return getJson<LatexFileItem[]>(`/api/v1/projects/${projectId}/latex-files`)
+  return getJson<LatexFileListEnvelope>(LATEX.files(projectId))
+    .then((res) => res.files)
 }
 
 export function fetchLatexFileContent(projectId: string, filePath: string) {
-  return getJson<LatexFileContent>(
-    `/api/v1/projects/${projectId}/latex-files/${encodeURIComponent(filePath)}`,
-  )
+  return getJson<LatexFileContent>(LATEX.fileContent(projectId, filePath))
 }
 
 export function saveLatexFile(projectId: string, filePath: string, content: string) {
   return putJson<void, { content: string }>(
-    `/api/v1/projects/${projectId}/latex-files/${encodeURIComponent(filePath)}`,
+    LATEX.fileContent(projectId, filePath),
     { content },
   )
 }
 
 export function createLatexFile(projectId: string, path: string, content?: string) {
   return postJson<LatexFileItem, { path: string; content?: string }>(
-    `/api/v1/projects/${projectId}/latex-files`,
+    LATEX.files(projectId),
     { path, content },
   )
 }
 
 export function deleteLatexFile(projectId: string, filePath: string) {
-  return deleteFetch(
-    `/api/v1/projects/${projectId}/latex-files/${encodeURIComponent(filePath)}`,
-  )
+  return deleteFetch(LATEX.fileContent(projectId, filePath))
 }
 
 export function compileLatex(
@@ -65,7 +73,7 @@ export function compileLatex(
     root_file: string
     compiler: string
     files: Array<{ path: string; content: string }>
-  }>(`/api/v1/projects/${projectId}/latex/compile`, {
+  }>(LATEX.compile(projectId), {
     root_file: rootFile,
     compiler,
     files,
@@ -73,9 +81,23 @@ export function compileLatex(
 }
 
 export function getOutputZip(projectId: string, buildId: string) {
-  return downloadBlob(
-    `/api/v1/projects/${projectId}/latex/output/${buildId}/output.zip`,
-  )
+  return downloadBlob(LATEX.outputZip(projectId, buildId))
+}
+
+/**
+ * Create a PDF range transport source for react-pdf.
+ * Uses Overleaf-style PDFDataRangeTransport that makes HTTP Range requests,
+ * returning 206 Partial Content. IDM does not intercept range requests.
+ */
+export async function getPdfRangeSource(
+  projectId: string,
+  buildId: string,
+): Promise<PdfRangeSource> {
+  const token = getAccessToken()
+  const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
+  const relativeUrl = LATEX.outputPdf(projectId, buildId)
+  const url = new URL(relativeUrl, window.location.origin).href
+  return createPdfSource(url, headers, buildId)
 }
 
 export async function extractPdfFromZip(blob: Blob): Promise<string> {
@@ -83,11 +105,7 @@ export async function extractPdfFromZip(blob: Blob): Promise<string> {
   const pdfEntry = Object.values(zip.files).find(
     (f) => !f.dir && f.name.toLowerCase().endsWith('.pdf'),
   )
-
-  if (!pdfEntry) {
-    throw new Error('No PDF file found in output zip')
-  }
-
+  if (!pdfEntry) throw new Error('No PDF file found in output zip')
   const pdfBlob = await pdfEntry.async('blob')
   return URL.createObjectURL(pdfBlob)
 }

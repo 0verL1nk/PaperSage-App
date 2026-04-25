@@ -32,6 +32,7 @@ vi.mock('@/services/projects-api', () => ({
 // Mock lucide icons
 vi.mock('lucide-react', () => ({
   FolderOpen: () => <span>FolderOpen</span>,
+  FolderGit2: () => <span>FolderGit2</span>,
   Plus: () => <span>Plus</span>,
   Trash2: () => <span>Trash2</span>,
   FileText: () => <span>FileText</span>,
@@ -83,7 +84,7 @@ describe('ProjectListPage', () => {
       </TestWrapper>
     )
 
-    expect(screen.getByText('My Projects')).toBeInTheDocument()
+    expect(screen.getByText('所有项目')).toBeInTheDocument()
   })
 
   it('should display projects when loaded', async () => {
@@ -139,7 +140,7 @@ describe('ProjectListPage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('No projects yet')).toBeInTheDocument()
+      expect(screen.getByText('暂无项目')).toBeInTheDocument()
     })
   })
 

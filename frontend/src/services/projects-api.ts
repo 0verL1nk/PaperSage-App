@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import { deleteFetch, get, post, put } from '@/services'
 import type { Project, ProjectGroup } from '@/types/projects'
+import { PROJECTS } from './api-routes'
 
 // Projects
 
@@ -14,10 +15,8 @@ export function useProjects(groupId?: string, includeDeleted = false) {
       if (groupId) params.set('groupId', groupId)
       if (includeDeleted) params.set('includeDeleted', 'true')
 
-      const queryString = params.toString()
-      const baseUrl = '/api/projects/'
-      const url = queryString ? `${baseUrl}?${queryString}` : baseUrl
-
+      const qs = params.toString()
+      const url = qs ? `${PROJECTS.list}?${qs}` : PROJECTS.list
       const data = await get<Project[]>(url)
       return data ?? []
     },
@@ -27,53 +26,36 @@ export function useProjects(groupId?: string, includeDeleted = false) {
 export function useProject(projectId: string) {
   return useQuery({
     queryKey: ['project', projectId],
-    queryFn: async () => {
-      const data = await get<Project>(`/api/projects/${projectId}`)
-      return data
-    },
+    queryFn: () => get<Project>(PROJECTS.detail(projectId)),
   })
 }
 
 export function useCreateProject() {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string; description?: string; group_id?: string }) => {
-      const data = await post<Project>('/api/projects/', payload)
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-    },
+    mutationFn: (payload: { name: string; description?: string; group_id?: string }) =>
+      post<Project>(PROJECTS.list, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
 }
 
 export function useUpdateProject(projectId: string) {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name?: string; description?: string; group_id?: string; status?: string }) => {
-      const data = await put<Project>(`/api/projects/${projectId}`, payload)
-      return data
-    },
+    mutationFn: (payload: { name?: string; description?: string; group_id?: string; status?: string }) =>
+      put<Project>(PROJECTS.detail(projectId), payload),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['project', projectId] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project', projectId] })
     },
   })
 }
 
 export function useDeleteProject(projectId: string) {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async () => {
-      await deleteFetch(`/api/projects/${projectId}`)
-      return { id: projectId }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-    },
+    mutationFn: () => deleteFetch(PROJECTS.detail(projectId)).then(() => ({ id: projectId })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['projects'] }),
   })
 }
 
@@ -83,51 +65,37 @@ export function useGroups() {
   return useQuery({
     queryKey: ['groups'],
     queryFn: async () => {
-      const data = await get<ProjectGroup[]>('/api/projects/groups')
+      const data = await get<ProjectGroup[]>(PROJECTS.groups)
       return data ?? []
     },
   })
 }
 
 export function useCreateGroup() {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name: string }) => {
-      const data = await post<ProjectGroup>('/api/projects/groups', payload)
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
-    },
+    mutationFn: (payload: { name: string }) =>
+      post<ProjectGroup>(PROJECTS.groups, payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
   })
 }
 
 export function useUpdateGroup(groupId: string) {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name?: string; sort_order?: number }) => {
-      const data = await put<ProjectGroup>(`/api/projects/groups/${groupId}`, payload)
-      return data
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
-    },
+    mutationFn: (payload: { name?: string; sort_order?: number }) =>
+      put<ProjectGroup>(PROJECTS.groupDetail(groupId), payload),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['groups'] }),
   })
 }
 
 export function useDeleteGroup(groupId: string) {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async () => {
-      await deleteFetch(`/api/projects/groups/${groupId}`)
-      return { id: groupId }
-    },
+    mutationFn: () => deleteFetch(PROJECTS.groupDetail(groupId)).then(() => ({ id: groupId })),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['groups'] })
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['groups'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
     },
   })
 }
@@ -138,38 +106,30 @@ export function useTrash() {
   return useQuery({
     queryKey: ['trash'],
     queryFn: async () => {
-      const data = await get<TrashItem[]>('/api/projects/trash')
+      const data = await get<TrashItem[]>(PROJECTS.trash)
       return data ?? []
     },
   })
 }
 
 export function useRestoreProject() {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (projectId: string) => {
-      await post(`/api/projects/trash/project/${projectId}/restore`, {})
-      return { id: projectId }
-    },
+    mutationFn: (projectId: string) =>
+      post(PROJECTS.restoreProject(projectId), {}).then(() => ({ id: projectId })),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['projects'] })
-      queryClient.invalidateQueries({ queryKey: ['trash'] })
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['trash'] })
     },
   })
 }
 
 export function usePermanentDeleteProject() {
-  const queryClient = useQueryClient()
-
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async (projectId: string) => {
-      await deleteFetch(`/api/projects/trash/project/${projectId}`)
-      return { id: projectId }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['trash'] })
-    },
+    mutationFn: (projectId: string) =>
+      deleteFetch(PROJECTS.deleteProjectPermanently(projectId)).then(() => ({ id: projectId })),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['trash'] }),
   })
 }
 
@@ -177,7 +137,7 @@ export function usePermanentDeleteProject() {
 
 export interface TrashItem {
   type: string
-  id: string // UUID as string
+  id: string
   name: string
   deleted_at: string
   original_data?: Record<string, unknown>

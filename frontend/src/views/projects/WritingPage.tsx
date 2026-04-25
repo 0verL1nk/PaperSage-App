@@ -3,21 +3,20 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
 import {
   MessageSquareText, Search, Play, Download, Sparkles, Loader2,
-  Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, ChevronDown, AlertCircle,
+  Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
 import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
-import {
-  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
-} from '@/components/ui/dropdown-menu'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
-  useCreateLatexFile, useDeleteLatexFile, useLatexCompile, useLatexOutputZip,
+  useCreateLatexFile, useDeleteLatexFile, useLatexCompile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
+import type { PdfRangeSource } from '@/services/latex-api'
+import { LATEX } from '@/services/api-routes'
 import { WritingFileTree } from './writing-file-tree'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -39,6 +38,21 @@ const COMPILER_OPTIONS = [
   { value: 'xelatex', label: 'XeLaTeX' },
   { value: 'lualatex', label: 'LuaLaTeX' },
 ] as const
+
+const XELATEX_PACKAGES = ['ctex', 'fontspec', 'xeCJK', 'polyglossia']
+const XELATEX_RE = new RegExp(`\\\\usepackage(?:\\[[^\\]]*\\])?\\{(?:${XELATEX_PACKAGES.join('|')})\\}`)
+
+function detectCompiler(content: string): string {
+  return XELATEX_RE.test(content) ? 'xelatex' : 'pdflatex'
+}
+
+function getLanguageByExt(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  if (['tex', 'cls', 'sty', 'bst', 'def', 'lof', 'lot', 'toc'].includes(ext)) return 'latex'
+  if (ext === 'bib') return 'bibtex'
+  if (ext === 'md') return 'markdown'
+  return 'plaintext'
+}
 
 type SidebarTab = 'files' | 'ai'
 
@@ -75,12 +89,15 @@ export function WritingPage() {
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
   const compileMutation = useLatexCompile()
-  const outputZipMutation = useLatexOutputZip()
+  const outputPdfMutation = useLatexOutputPdf()
 
   // Derived state
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
+  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null)
   const [compileError, setCompileError] = useState<string | null>(null)
-  const isCompiling = compileMutation.isPending || outputZipMutation.isPending
+  const [compileLogs, setCompileLogs] = useState<string | null>(null)
+  const [showFullLogs, setShowFullLogs] = useState(false)
+  const isCompiling = compileMutation.isPending || outputPdfMutation.isPending
 
   // Monaco LaTeX LSP
   useEffect(() => {
@@ -100,8 +117,12 @@ export function WritingPage() {
     if (fileContent?.content !== undefined) {
       setEditorContent(fileContent.content)
       lastSavedContentRef.current = fileContent.content
+      // Auto-detect compiler from main.tex content
+      if (activeFilePath === 'main.tex') {
+        setCompiler(detectCompiler(fileContent.content))
+      }
     }
-  }, [fileContent])
+  }, [fileContent, activeFilePath])
 
   // Debounced render scale sync
   useEffect(() => {
@@ -124,13 +145,6 @@ export function WritingPage() {
     container.addEventListener('wheel', handleWheel, { passive: false })
     return () => container.removeEventListener('wheel', handleWheel)
   }, [])
-
-  // Cleanup PDF blob URL on unmount or change
-  useEffect(() => {
-    return () => {
-      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
-    }
-  }, [pdfUrl])
 
   // Debounced auto-save
   const scheduleAutoSave = useCallback((content: string) => {
@@ -156,6 +170,8 @@ export function WritingPage() {
 
   const handleCompile = async () => {
     setCompileError(null)
+    setCompileLogs(null)
+    setShowFullLogs(false)
     try {
       // Auto-save current file before compiling
       if (activeFilePath && editorContent !== lastSavedContentRef.current) {
@@ -169,29 +185,36 @@ export function WritingPage() {
 
       if (!rootFile) return
 
+      // Backend loads files from storage — no need to send file contents
       const result = await compileMutation.mutateAsync({
         projectId, files: [], rootFile, compiler,
       })
 
-      if (result.status === 'error' || result.error) {
+      if (result.status === 'error' || result.status === 'failure' || result.error) {
         setCompileError(result.error || 'Compilation failed')
+        if (result.logs) setCompileLogs(result.logs)
         return
       }
 
       if (result.build_id) {
-        const pdfBlobUrl = await outputZipMutation.mutateAsync({ projectId, buildId: result.build_id })
-        setPdfUrl(pdfBlobUrl)
+        const source = await outputPdfMutation.mutateAsync({ projectId, buildId: result.build_id })
+        setPdfFileSource(source)
+        setPdfDownloadUrl(LATEX.outputPdf(projectId, result.build_id))
       }
     } catch (err) {
-      setCompileError(err instanceof Error ? err.message : 'Compile failed')
+      setCompileError(err instanceof Error ? err.message : '编译失败')
     }
   }
 
   const handleCreateFile = () => {
-    if (!newFileName.trim()) { setIsCreatingFile(false); return }
+    const name = newFileName.trim()
+    if (!name) { setIsCreatingFile(false); return }
     createMutation.mutate(
-      { path: newFileName.trim(), content: '' },
-      { onSuccess: () => { setActiveFilePath(newFileName.trim()); setNewFileName(''); setIsCreatingFile(false) } },
+      { path: name, content: '' },
+      {
+        onSuccess: () => { setActiveFilePath(name); setNewFileName(''); setIsCreatingFile(false) },
+        onError: () => setIsCreatingFile(false),
+      },
     )
   }
 
@@ -281,26 +304,13 @@ export function WritingPage() {
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <EditToolbar />
                 <div className="flex items-center gap-1">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground gap-1 text-[10px] font-mono">
-                        {compilerLabel} <ChevronDown size={10} />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {COMPILER_OPTIONS.map((opt) => (
-                        <DropdownMenuItem key={opt.value} onClick={() => setCompiler(opt.value)} className={cn(compiler === opt.value && "font-bold")}>
-                          {opt.label}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <span className="text-[10px] font-mono text-muted-foreground mr-1">{compilerLabel}</span>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
                     {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
                   </Button>
-                  {pdfUrl && (
+                  {pdfDownloadUrl && (
                     <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" asChild>
-                      <a href={pdfUrl} download="output.pdf"><Download size={14} /></a>
+                      <a href={pdfDownloadUrl} download="output.pdf"><Download size={14} /></a>
                     </Button>
                   )}
                 </div>
@@ -308,7 +318,7 @@ export function WritingPage() {
               <div className="flex-1 relative overflow-hidden">
                 {activeFilePath ? (
                   <Editor
-                    height="100%" defaultLanguage="latex" theme="vs-light"
+                    height="100%" language={getLanguageByExt(activeFilePath)} theme="vs-light"
                     value={editorContent} onChange={handleEditorChange}
                     options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
@@ -337,16 +347,36 @@ export function WritingPage() {
 
               <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
                 {compileError ? (
-                  <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6">
+                  <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6 select-text">
                     <div className="flex items-center gap-2 mb-3 text-destructive">
                       <AlertCircle size={16} />
                       <h4 className="text-sm font-bold">编译错误</h4>
                     </div>
                     <pre className="text-[11px] text-destructive/80 whitespace-pre-wrap font-mono leading-relaxed">{compileError}</pre>
+                    {compileLogs && (
+                      <div className="mt-3">
+                        <button
+                          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                          onClick={() => setShowFullLogs(!showFullLogs)}
+                        >
+                          {showFullLogs ? '收起完整日志' : '查看完整日志'}
+                        </button>
+                        {showFullLogs && (
+                          <pre className="mt-2 text-[10px] text-muted-foreground/70 whitespace-pre-wrap font-mono leading-relaxed max-h-80 overflow-y-auto bg-muted/30 rounded-lg p-3">
+                            {compileLogs}
+                          </pre>
+                        )}
+                      </div>
+                    )}
                   </div>
-                ) : pdfUrl ? (
+                ) : pdfFileSource ? (
                   <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
-                    <Document file={pdfUrl} onLoadSuccess={({ numPages }) => setNumPages(numPages)} loading={<LoadingSpinner text="Rendering..." />} className="flex flex-col gap-6">
+                    <Document
+                      file={pdfFileSource as any}
+                      onLoadSuccess={({ numPages }) => setNumPages(numPages)}
+                      loading={<LoadingSpinner text="Rendering..." />}
+                      className="flex flex-col gap-6"
+                    >
                       {Array.from({ length: numPages }, (_, i) => (
                         <div key={`p_${i + 1}`} className="shadow-2xl rounded-sm bg-white overflow-hidden">
                           <Page pageNumber={i + 1} scale={renderScale} renderTextLayer renderAnnotationLayer loading={null} />

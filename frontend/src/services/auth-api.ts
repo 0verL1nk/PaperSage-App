@@ -1,6 +1,7 @@
 import { FrontendApiError, postMultipart } from '@/services'
 import { clearSessionTokens } from '@/store/session-store'
 import type { SessionTokens } from '@/store/session-store'
+import { AUTH } from './api-routes'
 
 type AuthPayload = {
   username: string
@@ -9,9 +10,6 @@ type AuthPayload = {
 
 type LoginResponse = Partial<SessionTokens>
 
-/**
- * SHA-256 hash using Web Crypto API
- */
 async function sha256(message: string): Promise<string> {
   const msgBuffer = new TextEncoder().encode(message)
   const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer)
@@ -21,21 +19,17 @@ async function sha256(message: string): Promise<string> {
 
 async function buildAuthFormData(payload: AuthPayload) {
   const formData = new FormData()
-
   formData.append('account', payload.username)
   formData.append('password', await sha256(payload.password))
-
   return formData
 }
 
 export async function loginWithPassword(payload: AuthPayload) {
   const formData = await buildAuthFormData(payload)
   const data = await postMultipart<LoginResponse>(
-    '/api/v1/auth/login',
+    AUTH.login,
     formData,
-    {
-      skipGlobalLoading: true,
-    },
+    { skipGlobalLoading: true },
   )
 
   if (!data?.accessToken || !data.refreshToken) {
@@ -54,20 +48,19 @@ export async function loginWithPassword(payload: AuthPayload) {
 
 export async function registerWithPassword(payload: AuthPayload) {
   const formData = await buildAuthFormData(payload)
-  await postMultipart<null>('/api/v1/auth/register', formData, {
+  await postMultipart<null>(AUTH.register, formData, {
     skipGlobalLoading: true,
   })
 }
 
 export async function logout() {
   try {
-    await postMultipart<null>('/api/v1/auth/logout', new FormData(), {
+    await postMultipart<null>(AUTH.logout, new FormData(), {
       skipGlobalLoading: true,
       skipAuthRefresh: true,
     })
   } finally {
     clearSessionTokens()
-    // Redirect to auth page after logout
     if (typeof window !== 'undefined') {
       window.location.href = '/auth'
     }

@@ -1,10 +1,12 @@
-"""LaTeX file management service."""
+"""LaTeX file management service with in-memory content cache."""
 
 from __future__ import annotations
 
 import logging
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
+from threading import Lock
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,12 +19,46 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = (".tex", ".bib", ".cls", ".sty", ".bst")
 
+# In-memory LRU cache for file contents
+_MAX_CACHE_SIZE = 512
+
+
+class _ContentCache:
+    """Thread-safe LRU cache keyed by s3_key."""
+
+    def __init__(self, maxsize: int = _MAX_CACHE_SIZE) -> None:
+        self._maxsize = maxsize
+        self._cache: OrderedDict[str, str] = OrderedDict()
+        self._lock = Lock()
+
+    def get(self, key: str) -> str | None:
+        with self._lock:
+            val = self._cache.get(key)
+            if val is not None:
+                self._cache.move_to_end(key)
+            return val
+
+    def put(self, key: str, content: str) -> None:
+        with self._lock:
+            self._cache[key] = content
+            self._cache.move_to_end(key)
+            while len(self._cache) > self._maxsize:
+                self._cache.popitem(last=False)
+
+    def invalidate(self, key: str) -> None:
+        with self._lock:
+            self._cache.pop(key, None)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+
+_cache = _ContentCache()
+
 
 def _validate_path(file_path: str) -> str:
-    """Validate and normalize a file path.
-
-    Raises ValueError for paths with directory traversal or disallowed extensions.
-    """
+    """Validate and normalize a file path."""
     if ".." in file_path:
         raise ValueError("Path traversal is not allowed")
 
@@ -61,6 +97,32 @@ class LatexFileService:
     def __init__(self, storage: S3Storage | None = None) -> None:
         self._storage = storage or S3Storage()
 
+    async def load_all_contents(
+        self,
+        project_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> list[tuple[str, str]]:
+        """Load all file (path, content) pairs for a project, using cache."""
+        result = await db.execute(
+            select(LatexFile).where(LatexFile.project_id == project_id)
+        )
+        db_files = list(result.scalars().all())
+
+        pairs: list[tuple[str, str]] = []
+        for f in db_files:
+            s3_key = f.s3_key or ""
+            cached = _cache.get(s3_key)
+            if cached is not None:
+                pairs.append((f.file_path, cached))
+            else:
+                try:
+                    content = self._storage.get_object(s3_key).decode("utf-8")
+                    _cache.put(s3_key, content)
+                    pairs.append((f.file_path, content))
+                except Exception:
+                    continue
+        return pairs
+
     async def list_files(
         self,
         project_id: uuid.UUID,
@@ -84,7 +146,7 @@ class LatexFileService:
         user_id: uuid.UUID,
         db: AsyncSession,
     ) -> str:
-        """Get file content from S3."""
+        """Get file content (from cache or S3)."""
         await _verify_project_access(project_id, user_id, db)
 
         result = await db.execute(
@@ -97,8 +159,16 @@ class LatexFileService:
         if not latex_file:
             raise ValueError("File not found")
 
-        content = self._storage.get_object(latex_file.s3_key or "")
-        return content.decode("utf-8")
+        s3_key = latex_file.s3_key or ""
+
+        # Check cache first
+        cached = _cache.get(s3_key)
+        if cached is not None:
+            return cached
+
+        content = self._storage.get_object(s3_key).decode("utf-8")
+        _cache.put(s3_key, content)
+        return content
 
     async def create_file(
         self,
@@ -112,7 +182,6 @@ class LatexFileService:
         project = await _verify_project_access(project_id, user_id, db)
         validated_path = _validate_path(path)
 
-        # Check for duplicate
         existing = await db.execute(
             select(LatexFile).where(
                 LatexFile.project_id == project.id,
@@ -124,6 +193,7 @@ class LatexFileService:
 
         s3_key = S3Storage.build_key(str(project.id), validated_path)
         self._storage.put_object(s3_key, content)
+        _cache.put(s3_key, content)
 
         now = datetime.now(UTC)
         latex_file = LatexFile(
@@ -162,6 +232,7 @@ class LatexFileService:
             raise ValueError("File not found")
 
         self._storage.put_object(latex_file.s3_key or "", content)
+        _cache.put(latex_file.s3_key or "", content)
 
         latex_file.size_bytes = len(content.encode("utf-8"))
         latex_file.last_saved_at = datetime.now(UTC)
@@ -192,6 +263,7 @@ class LatexFileService:
 
         if latex_file.s3_key:
             self._storage.delete_object(latex_file.s3_key)
+            _cache.invalidate(latex_file.s3_key)
 
         await db.delete(latex_file)
         await db.commit()

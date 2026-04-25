@@ -199,6 +199,19 @@ class ClsiClient:
             )
         return resp
 
+    async def get_output_file(
+        self,
+        project_id: str,
+        build_id: str,
+        file_path: str,
+    ) -> httpx.Response:
+        """Get a single output file from CLSI build."""
+        async with self._client() as client:
+            resp = await client.get(
+                f"/project/{project_id}/build/{build_id}/output/{file_path}",
+            )
+        return resp
+
 
 def _parse_compile_response(status_code: int, data: dict[str, Any]) -> ClsiCompileResult:
     """Parse a CLSI compile response into a structured result."""

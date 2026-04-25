@@ -1,6 +1,13 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { FileText, FileCode, FolderOpen, FolderClosed } from 'lucide-react'
+import { FileText, FileCode, FolderOpen, FolderClosed, Trash2, Pencil } from 'lucide-react'
+import {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+} from '@/components/ui/context-menu'
 import type { LatexFileItem } from '@/services/latex-api'
 
 // --- Tree structure builder ---
@@ -46,7 +53,9 @@ function sortTree(nodes: TreeNode[]) {
 }
 
 function getFileIcon(name: string) {
-  if (name.endsWith('.bib')) return <FileCode size={14} className="text-orange-500" />
+  const ext = name.split('.').pop()?.toLowerCase() ?? ''
+  if (['.bib', '.cls', '.sty', '.bst'].includes(`.${ext}`))
+    return <FileCode size={14} className="text-orange-500" />
   return <FileText size={14} className="text-primary" />
 }
 
@@ -57,6 +66,7 @@ interface FileTreeProps {
   activeFilePath: string | null
   onSelect: (filePath: string) => void
   onDeleteFile: (filePath: string) => void
+  onRenameFile?: (filePath: string) => void
 }
 
 export function WritingFileTree({
@@ -64,6 +74,7 @@ export function WritingFileTree({
   activeFilePath,
   onSelect,
   onDeleteFile,
+  onRenameFile,
 }: FileTreeProps) {
   const tree = buildTree(files)
 
@@ -77,6 +88,7 @@ export function WritingFileTree({
           activeFilePath={activeFilePath}
           onSelect={onSelect}
           onDeleteFile={onDeleteFile}
+          onRenameFile={onRenameFile}
         />
       ))}
       {files.length === 0 && (
@@ -94,15 +106,17 @@ function TreeNodeView({
   activeFilePath,
   onSelect,
   onDeleteFile,
+  onRenameFile,
 }: {
   node: TreeNode
   depth: number
   activeFilePath: string | null
   onSelect: (path: string) => void
   onDeleteFile: (path: string) => void
+  onRenameFile?: (path: string) => void
 }) {
   if (node.isDir) {
-    return <FolderNode node={node} depth={depth} activeFilePath={activeFilePath} onSelect={onSelect} onDeleteFile={onDeleteFile} />
+    return <FolderNode node={node} depth={depth} activeFilePath={activeFilePath} onSelect={onSelect} onDeleteFile={onDeleteFile} onRenameFile={onRenameFile} />
   }
   return (
     <FileNode
@@ -111,6 +125,7 @@ function TreeNodeView({
       active={activeFilePath === node.fullPath}
       onSelect={onSelect}
       onDelete={onDeleteFile}
+      onRename={onRenameFile}
     />
   )
 }
@@ -121,12 +136,14 @@ function FolderNode({
   activeFilePath,
   onSelect,
   onDeleteFile,
+  onRenameFile,
 }: {
   node: TreeNode
   depth: number
   activeFilePath: string | null
   onSelect: (path: string) => void
   onDeleteFile: (path: string) => void
+  onRenameFile?: (path: string) => void
 }) {
   const [open, setOpen] = useState(true)
 
@@ -155,6 +172,7 @@ function FolderNode({
             activeFilePath={activeFilePath}
             onSelect={onSelect}
             onDeleteFile={onDeleteFile}
+            onRenameFile={onRenameFile}
           />
         ))}
     </div>
@@ -167,48 +185,55 @@ function FileNode({
   active,
   onSelect,
   onDelete,
+  onRename,
 }: {
   node: TreeNode
   depth: number
   active: boolean
   onSelect: (path: string) => void
   onDelete: (path: string) => void
+  onRename?: (path: string) => void
 }) {
-  const [showActions, setShowActions] = useState(false)
-
   return (
     <div className="px-2 w-full mb-0.5">
-      <div
-        className={cn(
-          "flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-all duration-200 rounded-lg group relative",
-          active ? "bg-primary/10 text-primary font-bold shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground",
-        )}
-        style={{ paddingLeft: `${depth * 16 + 8}px` }}
-        onClick={() => onSelect(node.fullPath)}
-        onContextMenu={(e) => {
-          e.preventDefault()
-          setShowActions(!showActions)
-        }}
-        onMouseEnter={() => setShowActions(true)}
-        onMouseLeave={() => setShowActions(false)}
-      >
-        <span className="shrink-0 transition-transform group-hover:scale-110">
-          {getFileIcon(node.name)}
-        </span>
-        <span className="truncate flex-1">{node.name}</span>
-        {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full" />}
-        {showActions && !active && (
-          <button
-            className="shrink-0 p-0.5 rounded hover:bg-destructive/10 hover:text-destructive transition-colors"
-            onClick={(e) => {
-              e.stopPropagation()
-              onDelete(node.fullPath)
-            }}
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-all duration-200 rounded-lg group relative",
+              active ? "bg-primary/10 text-primary font-bold shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+            style={{ paddingLeft: `${depth * 16 + 8}px` }}
+            onClick={() => onSelect(node.fullPath)}
           >
-            <span className="text-[10px]">x</span>
-          </button>
-        )}
-      </div>
+            <span className="shrink-0 transition-transform group-hover:scale-110">
+              {getFileIcon(node.name)}
+            </span>
+            <span className="truncate flex-1">{node.name}</span>
+            {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full" />}
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="w-40">
+          <ContextMenuItem onClick={() => onSelect(node.fullPath)}>
+            <Pencil size={14} className="mr-2" />
+            打开
+          </ContextMenuItem>
+          {onRename && (
+            <ContextMenuItem onClick={() => onRename(node.fullPath)}>
+              <Pencil size={14} className="mr-2" />
+              重命名
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
+          <ContextMenuItem
+            className="text-destructive focus:text-destructive"
+            onClick={() => onDelete(node.fullPath)}
+          >
+            <Trash2 size={14} className="mr-2" />
+            删除
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
     </div>
   )
 }

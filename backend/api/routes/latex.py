@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,6 +13,7 @@ from api.dependencies import get_db
 from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import User
+from models.latex_file import LatexFile
 from schemas.latex import (
     LatexCompileRequest,
     LatexCompileResponse,
@@ -29,6 +31,8 @@ from services.latex.service import LaTeXService, LaTeXServiceError
 
 router = APIRouter()
 
+_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
 
 def _get_service() -> LaTeXService:
     return LaTeXService()
@@ -36,6 +40,18 @@ def _get_service() -> LaTeXService:
 
 def _project_id_str(project_id: uuid.UUID) -> str:
     return str(project_id).replace("-", "")
+
+
+async def _load_project_files_from_storage(
+    project_id: uuid.UUID,
+    db: AsyncSession,
+) -> list[ProjectFile]:
+    """Load all project files from storage (with cache)."""
+    from services.latex.file_service import LatexFileService
+
+    file_svc = LatexFileService()
+    pairs = await file_svc.load_all_contents(project_id, db)
+    return [ProjectFile(path=path, content=content) for path, content in pairs]
 
 
 @router.post("/compile", response_model=ApiResponse[LatexCompileResponse])
@@ -55,15 +71,25 @@ async def compile_project(
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
 
-    files = [
-        ProjectFile(
-            path=f.path,
-            content=f.content,
-            url=f.url,
-            is_binary=f.is_binary,
+    # Use files from request if provided, otherwise load from storage
+    if body.files:
+        files = [
+            ProjectFile(
+                path=f.path,
+                content=f.content,
+                url=f.url,
+                is_binary=f.is_binary,
+            )
+            for f in body.files
+        ]
+    else:
+        files = await _load_project_files_from_storage(project_id, db)
+
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="项目没有可编译的文件",
         )
-        for f in body.files
-    ]
 
     try:
         result = await service.compile_project(
@@ -85,6 +111,7 @@ async def compile_project(
             for f in result.output_files
         ],
         error=result.error,
+        logs=result.logs,
     )
     return api_success(response)
 
@@ -177,9 +204,90 @@ async def get_output_zip(
     """Proxy output ZIP archive from CLSI."""
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
-    clsi_resp = await service.get_output_zip(_project_id_str(project_id), build_id)
+    try:
+        clsi_resp = await service.get_output_zip(_project_id_str(project_id), build_id)
+    except Exception as e:
+        raise LaTeXServiceError(f"无法获取编译输出: {e}", status_code=502) from e
     return Response(
         content=clsi_resp.content,
         status_code=clsi_resp.status_code,
         media_type="application/zip",
+    )
+
+
+@router.api_route("/output/{build_id}/pdf", methods=["GET", "HEAD"])
+async def get_output_pdf(
+    project_id: uuid.UUID,
+    build_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> Response:
+    """Proxy compiled PDF from CLSI with Range and HEAD request support."""
+    service = _get_service()
+    await service.verify_project_access(project_id, current_user, db)
+    try:
+        pdf_bytes = await service.get_output_pdf(
+            _project_id_str(project_id), build_id,
+        )
+    except LaTeXServiceError:
+        raise
+    except Exception as e:
+        raise LaTeXServiceError(
+            f"无法获取编译输出: {e}", status_code=502,
+        ) from e
+
+    total_size = len(pdf_bytes)
+
+    # HEAD request — return metadata only, no body
+    if request.method == "HEAD":
+        return Response(
+            content=b"",
+            status_code=200,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(total_size),
+            },
+        )
+
+    # Parse Range header
+    range_header = request.headers.get("range", "")
+    match = _RANGE_RE.match(range_header)
+
+    if not match:
+        # Full response
+        return Response(
+            content=pdf_bytes,
+            status_code=200,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "inline",
+                "Accept-Ranges": "bytes",
+                "Content-Length": str(total_size),
+            },
+        )
+
+    start_str, end_str = match.group(1), match.group(2)
+    start = int(start_str) if start_str else 0
+    end = int(end_str) if end_str else total_size - 1
+    end = min(end, total_size - 1)
+
+    if start > end or start >= total_size:
+        raise HTTPException(
+            status_code=status.HTTP_416_REQUESTED_RANGE_NOT_SATISFIABLE,
+            detail="Requested range not satisfiable",
+        )
+
+    chunk = pdf_bytes[start : end + 1]
+    return Response(
+        content=chunk,
+        status_code=206,
+        media_type="application/pdf",
+        headers={
+            "Content-Range": f"bytes {start}-{end}/{total_size}",
+            "Accept-Ranges": "bytes",
+            "Content-Length": str(len(chunk)),
+        },
     )

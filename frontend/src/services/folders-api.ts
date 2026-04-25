@@ -1,35 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getJson, postJson, deleteFetch } from './client'
 import type { Folder, CreateFolderInput } from '@/types/files'
+import { FOLDERS } from './api-routes'
 
-// Queries
 export function useProjectFolders(projectId: string) {
   return useQuery({
     queryKey: ['folders', projectId],
-    queryFn: () => getJson<Folder[]>(`/api/projects/${projectId}/folders`),
+    queryFn: () => getJson<Folder[]>(FOLDERS.listByProject(projectId)),
     enabled: !!projectId,
   })
 }
 
-// Mutations
 export function useCreateFolder() {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: CreateFolderInput) => postJson<Folder>('/api/folders', data),
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ['folders', variables.projectId] })
-    },
+    mutationFn: (data: CreateFolderInput) => postJson<Folder>(FOLDERS.create, data),
+    onSuccess: (_, variables) =>
+      qc.invalidateQueries({ queryKey: ['folders', variables.projectId] }),
   })
 }
 
 export function useDeleteFolder(projectId: string) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (folderId: string) => deleteFetch(`/api/folders/${folderId}`),
+    mutationFn: (folderId: string) => deleteFetch(FOLDERS.delete(folderId)),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['folders', projectId] })
-      // If we are deleting a folder, its documents also disappear
-      queryClient.invalidateQueries({ queryKey: ['documents'] })
+      qc.invalidateQueries({ queryKey: ['folders', projectId] })
+      qc.invalidateQueries({ queryKey: ['documents'] })
     },
   })
 }

@@ -11,8 +11,17 @@ vi.mock('@/services/latex-api', () => ({
   createLatexFile: vi.fn(),
   deleteLatexFile: vi.fn(),
   compileLatex: vi.fn(),
-  getOutputZip: vi.fn(),
-  extractPdfFromZip: vi.fn(),
+  getPdfRangeSource: vi.fn(),
+}))
+
+// Mock react-pdf to avoid DOMMatrix errors in test env
+vi.mock('react-pdf', () => ({
+  pdfjs: {
+    getDocument: vi.fn(),
+    GlobalWorkerOptions: {},
+    PDFDataRangeTransport: class PDFDataRangeTransport {},
+    version: '5.4.296',
+  },
 }))
 
 import {
@@ -22,7 +31,7 @@ import {
   useCreateLatexFile,
   useDeleteLatexFile,
   useLatexCompile,
-  useLatexOutputZip,
+  useLatexOutputPdf,
 } from '../use-latex'
 import {
   fetchLatexFiles,
@@ -31,8 +40,7 @@ import {
   createLatexFile,
   deleteLatexFile,
   compileLatex,
-  getOutputZip,
-  extractPdfFromZip,
+  getPdfRangeSource,
 } from '@/services/latex-api'
 
 const mockedFetchLatexFiles = vi.mocked(fetchLatexFiles)
@@ -41,8 +49,7 @@ const mockedSaveLatexFile = vi.mocked(saveLatexFile)
 const mockedCreateLatexFile = vi.mocked(createLatexFile)
 const mockedDeleteLatexFile = vi.mocked(deleteLatexFile)
 const mockedCompileLatex = vi.mocked(compileLatex)
-const mockedGetOutputZip = vi.mocked(getOutputZip)
-const mockedExtractPdfFromZip = vi.mocked(extractPdfFromZip)
+const mockedGetPdfRangeSource = vi.mocked(getPdfRangeSource)
 
 function createWrapper() {
   const queryClient = new QueryClient({
@@ -144,7 +151,7 @@ describe('use-latex hooks', () => {
 
   describe('useLatexCompile', () => {
     it('calls compileLatex with correct params', async () => {
-      const mockResponse = { status: 'success', build_id: 'b1', output_files: [], error: null }
+      const mockResponse = { status: 'success', build_id: 'b1', output_files: [], error: null, logs: null }
       mockedCompileLatex.mockResolvedValue(mockResponse)
 
       const { result } = renderHook(() => useLatexCompile(), { wrapper: createWrapper() })
@@ -161,20 +168,18 @@ describe('use-latex hooks', () => {
     })
   })
 
-  describe('useLatexOutputZip', () => {
-    it('downloads zip and extracts PDF', async () => {
-      const mockBlob = new Blob(['zip'])
-      mockedGetOutputZip.mockResolvedValue(mockBlob)
-      mockedExtractPdfFromZip.mockResolvedValue('blob:http://localhost/pdf')
+  describe('useLatexOutputPdf', () => {
+    it('creates range transport source for PDF', async () => {
+      const mockRangeSource = { range: {} }
+      mockedGetPdfRangeSource.mockResolvedValue(mockRangeSource)
 
-      const { result } = renderHook(() => useLatexOutputZip(), { wrapper: createWrapper() })
+      const { result } = renderHook(() => useLatexOutputPdf(), { wrapper: createWrapper() })
 
       result.current.mutate({ projectId: 'proj-1', buildId: 'b1' })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockedGetOutputZip).toHaveBeenCalledWith('proj-1', 'b1')
-      expect(mockedExtractPdfFromZip).toHaveBeenCalledWith(mockBlob)
-      expect(result.current.data).toBe('blob:http://localhost/pdf')
+      expect(mockedGetPdfRangeSource).toHaveBeenCalledWith('proj-1', 'b1')
+      expect(result.current.data).toEqual(mockRangeSource)
     })
   })
 })

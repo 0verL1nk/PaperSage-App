@@ -6,9 +6,9 @@ import {
   createLatexFile,
   deleteLatexFile,
   compileLatex,
-  getOutputZip,
-  extractPdfFromZip,
+  getPdfRangeSource,
   type CompileResponse,
+  type PdfRangeSource,
 } from '@/services/latex-api'
 
 // Query keys
@@ -89,15 +89,14 @@ export function useLatexCompile() {
   })
 }
 
-export function useLatexOutputZip() {
+export function useLatexOutputPdf() {
   return useMutation<
-    string,
+    PdfRangeSource,
     Error,
     { projectId: string; buildId: string }
   >({
-    mutationFn: async ({ projectId, buildId }) => {
-      const blob = await getOutputZip(projectId, buildId)
-      return extractPdfFromZip(blob)
+    mutationFn: ({ projectId, buildId }) => {
+      return getPdfRangeSource(projectId, buildId)
     },
   })
 }
