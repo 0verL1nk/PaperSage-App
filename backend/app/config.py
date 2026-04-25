@@ -71,12 +71,12 @@ class Settings(BaseSettings):
     latex_clsi_base_url: str = "http://localhost:3013"
     latex_clsi_timeout_seconds: int = 120
 
-    # S3 Storage (MinIO)
-    s3_endpoint: str = "http://localhost:9000"
-    s3_access_key: str = "minioadmin"
-    s3_secret_key: str = "minioadmin"
+    # S3 Storage (Cloudflare R2 / S3-compatible)
+    s3_endpoint: str = "https://account_id.r2.cloudflarestorage.com"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
     s3_bucket: str = "papersage"
-    s3_region: str = "us-east-1"
+    s3_region: str = "auto"
 
     # Email
     email: EmailSettings = EmailSettings()

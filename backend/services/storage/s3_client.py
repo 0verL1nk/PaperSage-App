@@ -7,6 +7,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError
 
 from app.config import get_settings
@@ -15,27 +16,41 @@ logger = logging.getLogger(__name__)
 
 
 class S3Storage:
-    """S3-compatible storage client (works with MinIO)."""
+    """S3-compatible storage client (Cloudflare R2 / MinIO / AWS S3)."""
 
     def __init__(self, client: Any | None = None) -> None:
         settings = get_settings()
         self._bucket = settings.s3_bucket
+        # R2 requires "us-east-1" as region regardless of actual location
+        region = settings.s3_region
+        if region == "auto":
+            region = "us-east-1"
         self._client = client or boto3.client(
             "s3",
             endpoint_url=settings.s3_endpoint,
             aws_access_key_id=settings.s3_access_key,
             aws_secret_access_key=settings.s3_secret_key,
-            region_name=settings.s3_region,
+            region_name=region,
+            config=BotoConfig(signature_version="s3v4"),
         )
         self._ensure_bucket()
 
     def _ensure_bucket(self) -> None:
-        """Create bucket if it does not exist."""
+        """Verify bucket exists. R2 buckets must be created via dashboard."""
         try:
             self._client.head_bucket(Bucket=self._bucket)
         except ClientError:
-            self._client.create_bucket(Bucket=self._bucket)
-            logger.info("Created S3 bucket: %s", self._bucket)
+            # Try creating for local MinIO dev; R2 will fail gracefully
+            try:
+                self._client.create_bucket(Bucket=self._bucket)
+                logger.info("Created S3 bucket: %s", self._bucket)
+            except ClientError:
+                logger.warning(
+                    "Bucket %s not found and cannot be auto-created. "
+                    "Create it manually in your S3 provider dashboard.",
+                    self._bucket,
+                )
+                raise
 
     def put_object(self, key: str, data: bytes | str) -> None:
         """Upload an object to S3."""
