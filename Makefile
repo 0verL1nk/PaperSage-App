@@ -1,6 +1,5 @@
-.PHONY: help run backend frontend check test install install-backend install-frontend
-
-help:
+.PHONY: help dev run backend frontend check test install install-backend install-frontend \
+       install-clsi check-clsi clsi-dev
 
 # Colors
 GREEN := \033[0;32m
@@ -13,17 +12,20 @@ help:
 	@echo "$(BLUE)PaperSage Makefile$(NC)"
 	@echo ""
 	@echo "$(GREEN)Available commands:$(NC)"
-	@echo "  make dev          - Start both frontend and backend concurrently with hot-reload"
+	@echo "  make dev          - Start frontend, backend, and CLSI render service concurrently"
 	@echo "  make run          - Start both frontend and backend"
 	@echo "  make backend     - Start backend only"
 	@echo "  make frontend    - Start frontend only"
 	@echo "  make check       - Run code quality checks"
 	@echo "  make test         - Run tests"
 	@echo "  make install     - Install all dependencies"
+	@echo "  make install-clsi  - Install CLSI LaTeX service dependencies"
+	@echo "  make check-clsi    - Verify CLSI prerequisites"
+	@echo "  make clsi-dev      - Start vendored CLSI service"
 	@echo ""
 
 # Install dependencies
-install: install-backend install-frontend
+install: install-backend install-frontend install-clsi
 	@echo "$(GREEN)All dependencies installed$(NC)"
 
 install-backend:
@@ -45,8 +47,11 @@ run:
 
 # Run development servers concurrently with hot-reloading
 dev:
-	@echo "$(GREEN)Starting development servers with hot-reload...$(NC)"
-	@$(MAKE) -j2 backend frontend
+	@echo "$(GREEN)Starting all development services...$(NC)"
+	@echo "$(BLUE)Frontend: http://localhost:5173$(NC)"
+	@echo "$(BLUE)Backend:  http://localhost:5478$(NC)"
+	@echo "$(BLUE)CLSI:     http://localhost:3013$(NC)"
+	@$(MAKE) -j3 backend frontend clsi-dev
 
 # Run individual servers
 backend:
@@ -84,3 +89,15 @@ test-backend:
 test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
 	cd frontend && pnpm test
+
+# CLSI LaTeX service
+install-clsi:
+	@echo "$(YELLOW)Installing CLSI host-mode prerequisites...$(NC)"
+	./scripts/clsi/install.sh
+
+check-clsi:
+	@echo "$(YELLOW)Checking CLSI prerequisites...$(NC)"
+	./scripts/clsi/check.sh
+
+clsi-dev:
+	./scripts/clsi/dev.sh

@@ -4,7 +4,7 @@
 
 **Goal:** Vendor Overleaf `clsi` into PaperSage as the full-featured LaTeX compilation service, support local host-mode development through `make install`, and expose stable FastAPI endpoints that the frontend can use without coupling to vendor APIs.
 
-**Architecture:** Keep Overleaf `clsi` as an isolated vendor service under `vendor/overleaf`, preserving its multi-file compile, output artifact, wordcount, and SyncTeX capabilities. Run it locally in host mode with `LocalCommandRunner` and TeX Live installed on the developer machine, while production deploys the same vendor service separately. FastAPI becomes the system boundary: it maps PaperSage project files into `clsi` resources, forwards compile and output requests, and hides vendor-specific details from the frontend.
+**Architecture:** Keep Overleaf `clsi` as an isolated vendor service under `latex_vender`, preserving its multi-file compile, output artifact, wordcount, and SyncTeX capabilities. Run it locally in host mode with `LocalCommandRunner` and TeX Live installed on the developer machine, while production deploys the same vendor service separately. FastAPI becomes the system boundary: it maps PaperSage project files into `clsi` resources, forwards compile and output requests, and hides vendor-specific details from the frontend.
 
 **Tech Stack:** FastAPI, Python 3.12+, HTTPX, Node.js 24, npm 11, Overleaf CLSI, TeX Live, `latexmk`, Makefile, shell scripts, Homebrew, `apt`, macOS, Ubuntu/Debian
 
@@ -24,8 +24,7 @@
 Keep the upstream layout intact enough that `clsi` can still run with minimal patching.
 
 ```text
-vendor/
-  overleaf/
+latex_vender/
     package.json
     package-lock.json
     patches/
@@ -54,7 +53,7 @@ vendor/
 ### Local Development
 
 ```text
-frontend -> PaperSage FastAPI -> vendor/overleaf/services/clsi (host mode) -> local latexmk/TeX Live
+frontend -> PaperSage FastAPI -> latex_vender/services/clsi (host mode) -> local latexmk/TeX Live
 ```
 
 - `SANDBOXED_COMPILES` remains unset or `false`.
@@ -92,8 +91,7 @@ Vendor `clsi` should own these responsibilities:
 ## Target File Structure
 
 ```text
-vendor/
-  overleaf/
+latex_vender/
     package.json
     package-lock.json
     patches/
@@ -187,7 +185,7 @@ Response envelope payload should include:
 ### Vendor Isolation
 
 - Do not mix vendor code into `backend/`.
-- Treat `vendor/overleaf` as third-party code with a narrow patch surface.
+- Treat `latex_vender` as third-party code with a narrow patch surface.
 - Any PaperSage-specific behavior should live in shell scripts, env files, and FastAPI wrappers before modifying vendor internals.
 
 ### Local Install Strategy
@@ -272,18 +270,18 @@ Notes:
 ### Task 1: Vendor The Upstream CLSI Tree
 
 **Files:**
-- Create: `vendor/overleaf/package.json`
-- Create: `vendor/overleaf/package-lock.json`
-- Create: `vendor/overleaf/patches/*`
-- Create: `vendor/overleaf/libraries/*`
-- Create: `vendor/overleaf/services/clsi/*`
-- Create: `vendor/overleaf/README.md`
+- Create: `latex_vender/package.json`
+- Create: `latex_vender/package-lock.json`
+- Create: `latex_vender/patches/*`
+- Create: `latex_vender/libraries/*`
+- Create: `latex_vender/services/clsi/*`
+- Create: `latex_vender/PAPERSAGE_VENDOR.md`
 
 - [ ] **Step 1: Copy the minimal runtime workspace from `.ref/overleaf`**
 
 Copy only the required root files, workspace libraries, and `services/clsi`, preserving directory structure exactly.
 
-- [ ] **Step 2: Record provenance in `vendor/overleaf/README.md`**
+- [ ] **Step 2: Record provenance in `latex_vender/PAPERSAGE_VENDOR.md`**
 
 Document:
 - source path in `.ref`
@@ -293,7 +291,7 @@ Document:
 
 - [ ] **Step 3: Install Node workspace dependencies**
 
-Run: `cd vendor/overleaf && npm ci`
+Run: `cd latex_vender && npm ci`
 
 Expected: workspace install completes and applies `patch-package`.
 
@@ -302,7 +300,7 @@ Expected: workspace install completes and applies `patch-package`.
 Run:
 
 ```bash
-cd vendor/overleaf
+cd latex_vender
 LISTEN_ADDRESS=127.0.0.1 DOWNLOAD_HOST=http://127.0.0.1:3013 node services/clsi/app.js
 ```
 
@@ -311,7 +309,7 @@ Expected: service binds successfully, even if compile commands fail until TeX Li
 - [ ] **Step 5: Commit vendor import**
 
 ```bash
-git add vendor/overleaf
+git add latex_vender
 git commit -m "chore: vendor overleaf clsi service"
 ```
 
@@ -338,7 +336,7 @@ Keep `make install` delegating to the new target so developers can bootstrap eve
 Responsibilities:
 - detect OS
 - install or instruct for host packages
-- run `npm ci` under `vendor/overleaf`
+- run `npm ci` under `latex_vender`
 - create writable directories for compiles, output, cache, and uploads
 
 - [ ] **Step 3: Implement `scripts/clsi/check.sh`**
@@ -635,7 +633,7 @@ git commit -m "test: verify latex compile with multi-file fixture"
 
 ## Verification Checklist
 
-- `cd vendor/overleaf && npm ci`
+- `cd latex_vender && npm ci`
 - `make install-clsi`
 - `make check-clsi`
 - `make clsi-dev`
