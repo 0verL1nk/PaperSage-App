@@ -66,6 +66,11 @@ class Settings(BaseSettings):
     port: int = 8000
     reload: bool = False
 
+    # LaTeX CLSI
+    latex_clsi_enabled: bool = True
+    latex_clsi_base_url: str = "http://localhost:3013"
+    latex_clsi_timeout_seconds: int = 120
+
     # Email
     email: EmailSettings = EmailSettings()
 

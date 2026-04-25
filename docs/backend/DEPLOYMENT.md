@@ -483,3 +483,95 @@ async def readiness_check():
 - [ ] 错误率正常
 - [ ] 响应时间正常
 - [ ] 资源使用正常
+
+---
+
+## 8. LaTeX 编译服务 (CLSI)
+
+PaperSage 集成了 Overleaf CLSI (Common LaTeX Service Interface) 作为 LaTeX 编译后端。该服务以 vendor 形式存放在 `latex_vender/` 目录。
+
+### 8.1 本地宿主机模式 (开发)
+
+本地开发使用宿主机模式，不启用沙箱编译。CLSI 直接在开发者机器上运行 Node.js 进程和 TeX 引擎。
+
+**前提条件：**
+- Node.js >= 20
+- TeX Live (pdflatex, xelatex, lualatex)
+- latexmk, biber, qpdf, inkscape
+
+**快速开始：**
+```bash
+# 安装全部依赖（包括 CLSI 前提）
+make install
+
+# 或单独安装 CLSI 依赖
+make install-clsi
+
+# 验证环境
+make check-clsi
+
+# 启动 CLSI 服务（默认 0.0.0.0:3013）
+make clsi-dev
+```
+
+**目录结构：**
+```
+.clsi/              # 运行时目录（git 已忽略）
+├── compiles/       # 编译工作区
+├── output/         # 编译输出
+├── cache/          # 缓存
+├── uploads/        # 上传文件
+└── texmf-var/      # TeX 变量
+```
+
+### 8.2 生产独立部署模式
+
+生产环境建议将 CLSI 作为独立服务部署，PaperSage 后端通过 HTTP API 调用。
+
+**配置：**
+```env
+LATEX_CLSI_ENABLED=true
+LATEX_CLSI_BASE_URL=http://clsi-service:3013
+LATEX_CLSI_TIMEOUT_SECONDS=120
+```
+
+**架构区别：**
+
+| 特性 | 本地宿主机模式 | 生产独立部署 |
+|------|--------------|-------------|
+| 运行方式 | 直接在宿主机运行 Node.js | 独立容器/进程 |
+| 沙箱 | 关闭 (`SANDBOXED_COMPILES=false`) | 建议开启 |
+| 文件系统 | 直接访问本地目录 | 通过 API 传输 |
+| 端口 | localhost:3013 | 内部网络 |
+| 隔离性 | 无（开发用途） | 完全隔离 |
+
+### 8.3 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `LATEX_CLSI_ENABLED` | `false` | 是否启用 CLSI 集成 |
+| `LATEX_CLSI_BASE_URL` | `http://localhost:3013` | CLSI 服务地址 |
+| `LATEX_CLSI_TIMEOUT_SECONDS` | `120` | 编译请求超时 |
+
+### 8.4 Overleaf 依赖边界
+
+第一阶段保留以下 Overleaf 依赖：
+
+**核心服务（vendor 内）：**
+- `services/clsi` — LaTeX 编译服务主体
+- `libraries/logger` — 日志库
+- `libraries/metrics` — 指标收集
+- `libraries/settings` — 配置管理
+- `libraries/o-error` — 错误处理
+- `libraries/fetch-utils` — HTTP 工具
+- `libraries/promise-utils` — Promise 工具
+- `libraries/stream-utils` — 流处理工具
+
+**编译工具链依赖：**
+- `latexmk` — LaTeX 编译编排
+- `pdflatex`, `xelatex`, `lualatex` — TeX 引擎
+- `biber` — 参考文献处理
+- `qpdf` — PDF 处理
+- `inkscape` — SVG 转换（可选）
+
+**预期替换路径：** 第二阶段将评估是否用自研轻量编译服务替换 CLSI，以减少 Overleaf 依赖体积。

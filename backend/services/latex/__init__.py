@@ -1,0 +1,1 @@
+"""LaTeX compilation service package."""
