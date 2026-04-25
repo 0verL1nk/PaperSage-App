@@ -44,13 +44,13 @@ async def validation_exception_handler(
     request: Request,
     exc: RequestValidationError,
 ) -> JSONResponse:
-    """Handle validation errors."""
+    """Handle validation errors without exposing internal details."""
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
             "code": 422,
             "data": None,
-            "info": str(exc),
+            "info": "请求参数验证失败，请检查输入",
         },
     )
 

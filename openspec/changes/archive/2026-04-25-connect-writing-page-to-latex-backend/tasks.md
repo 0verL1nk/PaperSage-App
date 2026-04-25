@@ -44,7 +44,7 @@
 
 ## 7. 端到端验证
 
-- [ ] 7.1 启动全栈（make dev），验证创建项目后 WritingPage 自动有 main.tex 模板
-- [ ] 7.2 验证编辑 → 编译 → PDF 预览完整流程
-- [ ] 7.3 验证多文件工程：新建 sections/intro.tex，\input 引用，编译成功
-- [ ] 7.4 验证编译错误场景：故意写错误 LaTeX，确认错误信息显示
+- [x] 7.1 启动全栈（make dev），验证创建项目后 WritingPage 自动有 main.tex 模板
+- [x] 7.2 验证编辑 → 编译 → PDF 预览完整流程
+- [x] 7.3 验证多文件工程：新建 sections/intro.tex，\input 引用，编译成功
+- [x] 7.4 验证编译错误场景：故意写错误 LaTeX，确认错误信息显示

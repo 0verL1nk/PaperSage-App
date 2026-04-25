@@ -1,5 +1,6 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { getOptionalApiBaseUrl, getRequiredApiBaseUrl } from '@/lib/env'
+import { AUTH } from '@/services/api-routes'
 import { clearSessionTokens, getAccessToken, getRefreshToken, setSessionTokens, type SessionTokens } from '@/store'
 import { hideGlobalLoading, showGlobalLoading } from '@/store'
 import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
@@ -8,6 +9,7 @@ import {
   normalizeApiError,
   type FrontendApiError,
 } from '@/services/errors'
+import { toast } from 'sonner'
 
 export type ApiRequestConfig<TData = unknown> = AxiosRequestConfig<TData> & {
   skipGlobalLoading?: boolean
@@ -53,7 +55,7 @@ async function refreshAccessToken(): Promise<SessionTokens> {
 
   try {
     const response = await refreshClient.post<ApiEnvelope<SessionTokens>>(
-      '/api/v1/auth/refresh',
+      AUTH.refresh,
       { refresh_token: refreshToken },
       { headers: { 'Content-Type': 'application/json' } }
     )
@@ -206,7 +208,13 @@ export async function requestApi<TResponse, TBody = unknown>(
     )
     return unwrapApiEnvelope(response)
   } catch (error) {
-    throw normalizeApiError(error)
+    const normalized = normalizeApiError(error)
+    // Auto-show error toast unless suppressed
+    if (!(config as ApiRequestConfig).skipGlobalLoading) {
+      const msg = normalized.info || normalized.message
+      toast.error('请求失败', { description: msg, duration: 4000 })
+    }
+    throw normalized
   }
 }
 

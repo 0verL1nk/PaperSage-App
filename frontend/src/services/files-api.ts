@@ -1,16 +1,16 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { getJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
+import { DOCUMENTS } from './api-routes'
 
-// Queries
 export function useDocuments(projectId: string, folderId: string | null) {
   return useQuery({
     queryKey: ['documents', projectId, folderId],
     queryFn: () => {
-      if (folderId) {
-        return getJson<ProjectDocument[]>(`/api/folders/${folderId}/documents`)
-      }
-      return getJson<ProjectDocument[]>(`/api/projects/${projectId}/documents`)
+      const url = folderId
+        ? DOCUMENTS.listByFolder(folderId)
+        : DOCUMENTS.listByProject(projectId)
+      return getJson<ProjectDocument[]>(url)
     },
     enabled: !!projectId,
   })
@@ -19,65 +19,53 @@ export function useDocuments(projectId: string, folderId: string | null) {
 export function useDocumentPreview(documentId: string | null) {
   return useQuery({
     queryKey: ['document-preview', documentId],
-    queryFn: () => getJson<{ url: string }>(`/api/documents/${documentId}/preview`),
+    queryFn: () => getJson<{ url: string }>(DOCUMENTS.preview(documentId!)),
     enabled: !!documentId,
   })
 }
 
-// Mutations
 export function useDeleteDocument(projectId: string, folderId: string | null) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: (documentId: string) => deleteFetch(`/api/documents/${documentId}`),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['documents', projectId, folderId] })
-    },
+    mutationFn: (documentId: string) => deleteFetch(DOCUMENTS.delete(documentId)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }
 
 export function useMoveDocument(projectId: string, currentFolderId: string | null) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ documentId, data }: { documentId: string; data: MoveDocumentInput }) => 
-      putJson<ProjectDocument>(`/api/documents/${documentId}/move`, data),
+    mutationFn: ({ documentId, data }: { documentId: string; data: MoveDocumentInput }) =>
+      putJson<ProjectDocument>(DOCUMENTS.move(documentId), data),
     onSuccess: (_, variables) => {
-      // Invalidate current folder
-      queryClient.invalidateQueries({ queryKey: ['documents', projectId, currentFolderId] })
-      // Invalidate target folder
-      queryClient.invalidateQueries({ queryKey: ['documents', projectId, variables.data.folderId] })
+      qc.invalidateQueries({ queryKey: ['documents', projectId, currentFolderId] })
+      qc.invalidateQueries({ queryKey: ['documents', projectId, variables.data.folderId] })
     },
   })
 }
 
 export function useUpdateRemark(projectId: string, folderId: string | null) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({ documentId, data }: { documentId: string; data: UpdateRemarkInput }) => 
-      putJson<ProjectDocument>(`/api/documents/${documentId}/remark`, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['documents', projectId, folderId] })
-    },
+    mutationFn: ({ documentId, data }: { documentId: string; data: UpdateRemarkInput }) =>
+      putJson<ProjectDocument>(DOCUMENTS.remark(documentId), data),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }
 
 export function useUploadDocument(projectId: string, folderId: string | null) {
-  const queryClient = useQueryClient()
+  const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ file, remark, onUploadProgress }: { file: File; remark?: string; onUploadProgress?: (progressEvent: any) => void }) => {
+    mutationFn: async ({ file, remark, onUploadProgress }: {
+      file: File; remark?: string; onUploadProgress?: (e: any) => void
+    }) => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('projectId', projectId)
-      if (folderId) {
-        formData.append('folderId', folderId)
-      }
-      if (remark) {
-        formData.append('remark', remark)
-      }
-      
-      return postMultipart<ProjectDocument>('/api/documents/upload', formData, { onUploadProgress })
+      if (folderId) formData.append('folderId', folderId)
+      if (remark) formData.append('remark', remark)
+      return postMultipart<ProjectDocument>(DOCUMENTS.upload, formData, { onUploadProgress })
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['documents', projectId, folderId] })
-    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }

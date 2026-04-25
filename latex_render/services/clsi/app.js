@@ -117,6 +117,20 @@ app.get(
   OutputController.createOutputZip
 )
 
+// Serve individual output files (e.g. output.pdf) from the generated-files cache
+app.get(
+  '/project/:project_id/build/:build_id/output/:file(*)',
+  bodyParser.json(),
+  OutputController.getOutputFile
+)
+
+// Serve individual output files for per-user containers
+app.get(
+  '/project/:project_id/user/:user_id/build/:build_id/output/:file(*)',
+  bodyParser.json(),
+  OutputController.getOutputFile
+)
+
 // This needs to be before GET /project/:project_id/user/:user_id/build/:build_id/output/*
 app.get(
   '/project/:project_id/user/:user_id/build/:build_id/output/output.zip',

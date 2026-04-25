@@ -77,6 +77,7 @@ class Settings(BaseSettings):
     s3_secret_key: str = ""
     s3_bucket: str = "papersage"
     s3_region: str = "auto"
+    s3_public_url: str = ""  # R2 custom domain for public file access
 
     # Email
     email: EmailSettings = EmailSettings()

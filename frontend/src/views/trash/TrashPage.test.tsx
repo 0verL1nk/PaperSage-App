@@ -31,7 +31,9 @@ vi.mock('lucide-react', () => ({
   Trash2: () => <span>Trash2</span>,
   RotateCcw: () => <span>RotateCcw</span>,
   AlertTriangle: () => <span>AlertTriangle</span>,
+  AlertCircle: () => <span>AlertCircle</span>,
   ArrowLeft: () => <span>ArrowLeft</span>,
+  FolderGit2: () => <span>FolderGit2</span>,
   XIcon: () => <span>XIcon</span>,
 }))
 
@@ -74,7 +76,7 @@ describe('TrashPage', () => {
       </TestWrapper>
     )
 
-    expect(screen.getByText('Trash')).toBeInTheDocument()
+    expect(screen.getByText('回收站')).toBeInTheDocument()
   })
 
   it('should display deleted items when loaded', async () => {
@@ -116,7 +118,7 @@ describe('TrashPage', () => {
     )
 
     await waitFor(() => {
-      expect(screen.getByText('Trash is empty')).toBeInTheDocument()
+      expect(screen.getByText('回收站是空的')).toBeInTheDocument()
     })
   })
 })

@@ -1,5 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+// Mock react-pdf to avoid DOMMatrix errors in test env
+vi.mock('react-pdf', () => ({
+  pdfjs: {
+    getDocument: vi.fn(),
+    GlobalWorkerOptions: {},
+    PDFDataRangeTransport: class PDFDataRangeTransport {},
+    version: '5.4.296',
+  },
+}))
+
+// Mock store for getAccessToken used in getPdfRangeSource
+vi.mock('@/store', () => ({
+  getAccessToken: vi.fn().mockReturnValue('test-token'),
+}))
+
 // Mock client module
 vi.mock('../client', () => ({
   getJson: vi.fn(),
@@ -49,13 +64,13 @@ describe('latex-api', () => {
 
   describe('fetchLatexFiles', () => {
     it('calls GET /api/v1/projects/{id}/latex-files', async () => {
-      const mockData = [{ id: '1', file_path: 'main.tex', content_type: 'text/x-tex', size_bytes: 100, last_saved_at: '2024-01-01' }]
-      mockedGetJson.mockResolvedValue(mockData)
+      const mockFiles = [{ id: '1', file_path: 'main.tex', content_type: 'text/x-tex', size_bytes: 100, last_saved_at: '2024-01-01' }]
+      mockedGetJson.mockResolvedValue({ files: mockFiles })
 
       const result = await fetchLatexFiles('proj-1')
 
       expect(mockedGetJson).toHaveBeenCalledWith('/api/v1/projects/proj-1/latex-files')
-      expect(result).toEqual(mockData)
+      expect(result).toEqual(mockFiles)
     })
   })
 
@@ -122,7 +137,7 @@ describe('latex-api', () => {
 
   describe('compileLatex', () => {
     it('calls POST compile with correct payload', async () => {
-      const mockResponse = { status: 'success', build_id: 'build-1', output_files: [], error: null }
+      const mockResponse = { status: 'success', build_id: 'build-1', output_files: [], error: null, logs: null }
       mockedPostJson.mockResolvedValue(mockResponse)
 
       const files = [{ path: 'main.tex', content: '\\documentclass{article}' }]

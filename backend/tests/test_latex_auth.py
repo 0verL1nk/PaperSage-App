@@ -51,11 +51,12 @@ class TestLatexSchemas:
         with pytest.raises(ValidationError):
             LatexSyncPdfRequest(page=0, h=1.0, v=1.0)
 
-    def test_compile_request_requires_files(self) -> None:
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
-            LatexCompileRequest()
+    def test_compile_request_allows_empty_files(self) -> None:
+        # Empty files is allowed — backend loads from storage
+        req = LatexCompileRequest()
+        assert req.files == []
+        assert req.root_file == "main.tex"
+        assert req.compiler == "pdflatex"
 
 
 class TestLatexRouteImports:
