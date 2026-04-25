@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.dependencies import get_db
 from api.response import ApiResponse, api_success
 from app.config import get_settings
-from core.redis import get_refresh_token_user, revoke_refresh_token, store_refresh_token
+from core.cache import get_refresh_token_user, revoke_refresh_token, store_refresh_token
 from core.security import hash_password, verify_password
 from core.token import create_access_token, create_refresh_token, verify_token
 from models import User

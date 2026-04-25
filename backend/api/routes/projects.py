@@ -101,6 +101,27 @@ async def create_project(
     await db.commit()
     await db.refresh(project)
 
+    # Create default main.tex template
+    from services.latex.file_service import LatexFileService
+
+    default_tex = (
+        "\\documentclass{article}\n"
+        "\\usepackage[utf8]{inputenc}\n\n"
+        "\\title{New Project}\n"
+        "\\author{}\n"
+        "\\date{\\today}\n\n"
+        "\\begin{document}\n\n"
+        "\\maketitle\n\n"
+        "\\section{Introduction}\n\n"
+        "Write your content here.\n\n"
+        "\\end{document}"
+    )
+    try:
+        file_service = LatexFileService()
+        await file_service.create_file(project.id, "main.tex", default_tex, current_user.id, db)
+    except Exception:
+        pass  # Non-critical: template creation failure should not block project creation
+
     # Load group relationship
     result = await db.execute(
         select(Project).where(Project.id == project.id).options(selectinload(Project.group))

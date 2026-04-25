@@ -4,8 +4,8 @@ from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from core.cache import CacheStore, get_cache
 from core.database import async_session_factory
-from core.redis import RedisClient
 
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
@@ -19,9 +19,6 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
             raise
 
 
-async def get_redis_dep() -> RedisClient:
-    """Get Redis client."""
-    from core.redis import redis_client
-
-    await redis_client.connect()
-    return redis_client
+async def get_cache_dep() -> CacheStore:
+    """Get cache store."""
+    return await get_cache()

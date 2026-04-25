@@ -1,153 +1,230 @@
 import { cn } from '@/lib/utils'
-import { useState, useEffect, useRef } from 'react'
-import { 
-  MessageSquareText, 
-  Search, 
-  Play, 
-  Download, 
-  Sparkles,
-  Loader2,
-  FileText,
-  FolderOpen,
-  FileCode,
-  Plus,
-  Upload,
-  Files,
-  Monitor,
-  ZoomIn,
-  ZoomOut,
-  Maximize
+import { useState, useEffect, useRef, useCallback } from 'react'
+import { useParams } from '@tanstack/react-router'
+import {
+  MessageSquareText, Search, Play, Download, Sparkles, Loader2,
+  Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, ChevronDown, AlertCircle,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
 import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
+import {
+  DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem,
+} from '@/components/ui/dropdown-menu'
+import { useConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  useLatexFiles, useLatexFileContent, useSaveLatexFile,
+  useCreateLatexFile, useDeleteLatexFile, useLatexCompile, useLatexOutputZip,
+} from '@/hooks/use-latex'
+import { WritingFileTree } from './writing-file-tree'
 
-// Set up worker for react-pdf
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
-
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 
+// --- Constants ---
+
+const AUTO_SAVE_DELAY_MS = 1500
+const ZOOM_RENDER_DEBOUNCE_MS = 400
+const ZOOM_MIN = 0.4
+const ZOOM_MAX = 3.0
+const ZOOM_STEP = 0.15
+const ZOOM_WHEEL_FACTOR_UP = 1.08
+const ZOOM_WHEEL_FACTOR_DOWN = 0.92
+
+const COMPILER_OPTIONS = [
+  { value: 'pdflatex', label: 'pdfLaTeX' },
+  { value: 'xelatex', label: 'XeLaTeX' },
+  { value: 'lualatex', label: 'LuaLaTeX' },
+] as const
+
 type SidebarTab = 'files' | 'ai'
 
+// --- Main Component ---
+
 export function WritingPage() {
+  const { projectId = '' } = useParams({ strict: false })
+
+  // UI state
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
-  const [numPages, setNumPages] = useState<number>(0)
-  
-  // Anti-flicker scale state
-  const [displayScale, setDisplayScale] = useState<number>(0.9) // Fast CSS scale
-  const [renderScale, setRenderScale] = useState<number>(0.9)   // Debounced PDF render scale
-  
-  const [isCompiling, setIsCompiling] = useState(false)
+  const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
+  const [compiler, setCompiler] = useState('pdflatex')
+  const [numPages, setNumPages] = useState(0)
+  const [displayScale, setDisplayScale] = useState(0.9)
+  const [renderScale, setRenderScale] = useState(0.9)
   const [isMobile, setIsMobile] = useState(false)
+  const [editorContent, setEditorContent] = useState('')
+  const [isCreatingFile, setIsCreatingFile] = useState(false)
+  const [newFileName, setNewFileName] = useState('')
+
+  // Refs
   const previewContainerRef = useRef<HTMLDivElement>(null)
-  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  
-  const [latexContent, setLatexContent] = useState(`\\documentclass{article}
-\\usepackage[utf8]{inputenc}
+  const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastSavedContentRef = useRef('')
 
-\\title{Anti-Flicker LaTeX Preview}
-\\author{PaperSage Pro}
-\\date{\\today}
-
-\\begin{document}
-
-\\maketitle
-
-\\section{Flicker-Free Zoom}
-We implemented a dual-scale strategy:
-1. CSS Transform for immediate feedback (No flickering).
-2. Debounced High-res rendering for crisp text.
-
-\\section{Instructions}
-Hold CTRL and scroll fast. You'll see the scale changes 
-instantly without any white flashes.
-
-\\end{document}`)
-
-  const [pdfFile, setPdfFile] = useState<string | null>(null)
   const monaco = useMonaco()
+  const { confirm, ConfirmDialog: DeleteConfirmDialog } = useConfirmDialog()
 
+  // Data hooks
+  const { data: files = [] } = useLatexFiles(projectId)
+  const { data: fileContent } = useLatexFileContent(projectId, activeFilePath)
+  const saveMutation = useSaveLatexFile(projectId)
+  const createMutation = useCreateLatexFile(projectId)
+  const deleteMutation = useDeleteLatexFile(projectId)
+  const compileMutation = useLatexCompile()
+  const outputZipMutation = useLatexOutputZip()
+
+  // Derived state
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [compileError, setCompileError] = useState<string | null>(null)
+  const isCompiling = compileMutation.isPending || outputZipMutation.isPending
+
+  // Monaco LaTeX LSP
   useEffect(() => {
-    if (monaco) {
-      registerLatexLsp()
-    }
+    if (monaco) registerLatexLsp()
   }, [monaco])
 
+  // Mobile detection
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 1024)
-    checkMobile()
-    window.addEventListener('resize', checkMobile)
-    return () => window.removeEventListener('resize', checkMobile)
+    const check = () => setIsMobile(window.innerWidth < 1024)
+    check()
+    window.addEventListener('resize', check)
+    return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Sync renderScale with displayScale after a short delay
+  // Sync editor with loaded file content
   useEffect(() => {
-    if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
-    
-    debounceTimerRef.current = setTimeout(() => {
-      setRenderScale(displayScale)
-    }, 400) // Render high-res only after 400ms of inactivity
-
-    return () => {
-      if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current)
+    if (fileContent?.content !== undefined) {
+      setEditorContent(fileContent.content)
+      lastSavedContentRef.current = fileContent.content
     }
+  }, [fileContent])
+
+  // Debounced render scale sync
+  useEffect(() => {
+    if (renderDebounceRef.current) clearTimeout(renderDebounceRef.current)
+    renderDebounceRef.current = setTimeout(() => setRenderScale(displayScale), ZOOM_RENDER_DEBOUNCE_MS)
+    return () => { if (renderDebounceRef.current) clearTimeout(renderDebounceRef.current) }
   }, [displayScale])
 
-  // Handle Ctrl + Wheel Zoom
+  // Ctrl+Wheel zoom
   useEffect(() => {
     const container = previewContainerRef.current
     if (!container) return
-
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
-        const delta = -e.deltaY
-        const factor = delta > 0 ? 1.08 : 0.92
-        setDisplayScale(prev => {
-          const nextScale = prev * factor
-          return Math.max(0.4, Math.min(nextScale, 3.0))
-        })
+        const factor = -e.deltaY > 0 ? ZOOM_WHEEL_FACTOR_UP : ZOOM_WHEEL_FACTOR_DOWN
+        setDisplayScale((prev) => Math.max(ZOOM_MIN, Math.min(prev * factor, ZOOM_MAX)))
       }
     }
-
     container.addEventListener('wheel', handleWheel, { passive: false })
     return () => container.removeEventListener('wheel', handleWheel)
   }, [])
 
+  // Cleanup PDF blob URL on unmount or change
+  useEffect(() => {
+    return () => {
+      if (pdfUrl) URL.revokeObjectURL(pdfUrl)
+    }
+  }, [pdfUrl])
+
+  // Debounced auto-save
+  const scheduleAutoSave = useCallback((content: string) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = setTimeout(() => {
+      if (activeFilePath && content !== lastSavedContentRef.current) {
+        saveMutation.mutate({ filePath: activeFilePath, content })
+        lastSavedContentRef.current = content
+      }
+    }, AUTO_SAVE_DELAY_MS)
+  }, [activeFilePath, saveMutation])
+
   const handleEditorChange = (value: string | undefined) => {
-    if (value !== undefined) setLatexContent(value)
+    if (value === undefined) return
+    setEditorContent(value)
+    scheduleAutoSave(value)
   }
 
-  const handleCompile = () => {
-    setIsCompiling(true)
-    setTimeout(() => {
-      setPdfFile('https://raw.githubusercontent.com/mozilla/pdf.js/ba2edeae/web/compressed.tracemonkey-pldi-09.pdf')
-      setIsCompiling(false)
-    }, 800)
+  const handleSelectFile = (filePath: string) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setActiveFilePath(filePath)
   }
 
-  const zoomIn = () => setDisplayScale(prev => Math.min(prev + 0.15, 3.0))
-  const zoomOut = () => setDisplayScale(prev => Math.max(prev - 0.15, 0.4))
-  const resetZoom = () => {
-    if (previewContainerRef.current) {
-      const containerWidth = previewContainerRef.current.clientWidth
-      setDisplayScale((containerWidth - 100) / 600)
+  const handleCompile = async () => {
+    setCompileError(null)
+    try {
+      // Auto-save current file before compiling
+      if (activeFilePath && editorContent !== lastSavedContentRef.current) {
+        await saveMutation.mutateAsync({ filePath: activeFilePath, content: editorContent })
+        lastSavedContentRef.current = editorContent
+      }
+
+      const rootFile = files.find((f) => f.file_path === 'main.tex')?.file_path
+        || activeFilePath
+        || files[0]?.file_path
+
+      if (!rootFile) return
+
+      const result = await compileMutation.mutateAsync({
+        projectId, files: [], rootFile, compiler,
+      })
+
+      if (result.status === 'error' || result.error) {
+        setCompileError(result.error || 'Compilation failed')
+        return
+      }
+
+      if (result.build_id) {
+        const pdfBlobUrl = await outputZipMutation.mutateAsync({ projectId, buildId: result.build_id })
+        setPdfUrl(pdfBlobUrl)
+      }
+    } catch (err) {
+      setCompileError(err instanceof Error ? err.message : 'Compile failed')
     }
   }
 
+  const handleCreateFile = () => {
+    if (!newFileName.trim()) { setIsCreatingFile(false); return }
+    createMutation.mutate(
+      { path: newFileName.trim(), content: '' },
+      { onSuccess: () => { setActiveFilePath(newFileName.trim()); setNewFileName(''); setIsCreatingFile(false) } },
+    )
+  }
+
+  const handleDeleteFile = (filePath: string) => {
+    confirm({
+      title: '删除文件',
+      description: `确定删除 "${filePath}" 吗？此操作不可撤销。`,
+      confirmText: '删除',
+      variant: 'destructive',
+      onConfirm: () => {
+        deleteMutation.mutate(filePath, {
+          onSuccess: () => { if (activeFilePath === filePath) setActiveFilePath(null) },
+        })
+      },
+    })
+  }
+
+  const zoomIn = () => setDisplayScale((p) => Math.min(p + ZOOM_STEP, ZOOM_MAX))
+  const zoomOut = () => setDisplayScale((p) => Math.max(p - ZOOM_STEP, ZOOM_MIN))
+  const resetZoom = () => {
+    if (previewContainerRef.current) {
+      setDisplayScale((previewContainerRef.current.clientWidth - 100) / 600)
+    }
+  }
+
+  const compilerLabel = COMPILER_OPTIONS.find((c) => c.value === compiler)?.label ?? compiler
+
   return (
     <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
-      {/* 1. Activity Bar */}
+      {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <button onClick={() => setActiveTab('files')} className={cn("p-2 rounded-xl transition-all hover:scale-110", activeTab === 'files' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
-          <Files size={20} />
-        </button>
-        <button onClick={() => setActiveTab('ai')} className={cn("p-2 rounded-xl transition-all hover:scale-110", activeTab === 'ai' ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
-          <Sparkles size={20} />
-        </button>
+        <TabButton icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => setActiveTab('files')} />
+        <TabButton icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} />
         <div className="mt-auto flex flex-col gap-4">
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
@@ -165,38 +242,32 @@ instantly without any white flashes.
                       <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
                         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md"><Plus size={14} /></Button>
+                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={() => { setIsCreatingFile(true); setNewFileName('') }}><Plus size={14} /></Button>
                           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md"><Upload size={14} /></Button>
                         </div>
                       </div>
-                      <div className="flex-1 overflow-y-auto py-3 scrollbar-none">
-                        <FileTreeItem icon={<FileText size={14} className="text-primary" />} label="main.tex" active />
-                        <FileTreeItem icon={<FileCode size={14} className="text-orange-500" />} label="references.bib" />
-                        <FileTreeFolder label="sections">
-                          <FileTreeItem icon={<FileText size={14} />} label="intro.tex" indent />
-                        </FileTreeFolder>
-                      </div>
+                      {isCreatingFile && (
+                        <div className="px-2 py-2 border-b border-border/40">
+                          <input
+                            autoFocus
+                            className="w-full px-2 py-1 text-[12px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                            placeholder="filename.tex"
+                            value={newFileName}
+                            onChange={(e) => setNewFileName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setIsCreatingFile(false) }}
+                            onBlur={() => { if (!newFileName.trim()) setIsCreatingFile(false) }}
+                          />
+                        </div>
+                      )}
+                      <WritingFileTree
+                        files={files}
+                        activeFilePath={activeFilePath}
+                        onSelect={handleSelectFile}
+                        onDeleteFile={handleDeleteFile}
+                      />
                     </div>
                   ) : (
-                    <div className="flex-1 flex flex-col h-full overflow-hidden">
-                      <div className="p-4 h-14 border-b border-border/40 flex items-center flex-none bg-card/50">
-                        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-                          <Sparkles size={14} className="text-primary" /> AI Assistant
-                        </h3>
-                      </div>
-                      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                        <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
-                          <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">AI</div>
-                          Ask me to refine your paragraphs.
-                        </div>
-                      </div>
-                      <div className="p-4 border-t border-border/40 bg-muted/5 flex-none">
-                        <div className="relative group">
-                          <textarea placeholder="Ask AI..." className="w-full rounded-2xl border border-border/60 bg-background p-4 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28" />
-                          <Button size="icon-xs" className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"><MessageSquareText size={14} /></Button>
-                        </div>
-                      </div>
-                    </div>
+                    <AIPanel />
                   )}
                 </aside>
               </Resizable.Panel>
@@ -204,23 +275,53 @@ instantly without any white flashes.
             </>
           )}
 
+          {/* Editor Panel */}
           <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <EditToolbar />
                 <div className="flex items-center gap-1">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground gap-1 text-[10px] font-mono">
+                        {compilerLabel} <ChevronDown size={10} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                      {COMPILER_OPTIONS.map((opt) => (
+                        <DropdownMenuItem key={opt.value} onClick={() => setCompiler(opt.value)} className={cn(compiler === opt.value && "font-bold")}>
+                          {opt.label}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
                     {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
                   </Button>
-                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground"><Download size={14} /></Button>
+                  {pdfUrl && (
+                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" asChild>
+                      <a href={pdfUrl} download="output.pdf"><Download size={14} /></a>
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="flex-1 relative overflow-hidden">
-                <Editor height="100%" defaultLanguage="latex" theme="vs-light" value={latexContent} onChange={handleEditorChange} options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }} />
+                {activeFilePath ? (
+                  <Editor
+                    height="100%" defaultLanguage="latex" theme="vs-light"
+                    value={editorContent} onChange={handleEditorChange}
+                    options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    选择一个文件开始编辑
+                  </div>
+                )}
               </div>
             </section>
           </Resizable.Panel>
 
+          {/* Preview Panel */}
           <Resizable.Panel defaultSize={40} minSize={20}>
             <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
@@ -233,49 +334,40 @@ instantly without any white flashes.
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
                 </div>
               </div>
-              
-              <div 
-                ref={previewContainerRef}
-                className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20"
-              >
-                {pdfFile ? (
-                  <div 
-                    className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out"
-                    style={{ transform: `scale(${displayScale / renderScale})` }}
-                  >
-                    <Document
-                      file={pdfFile}
-                      onLoadSuccess={({ numPages }) => setNumPages(numPages)}
-                      loading={<div className="flex flex-col items-center justify-center p-20 gap-4"><Loader2 className="h-8 w-8 animate-spin text-primary/40" /><p className="text-sm text-muted-foreground font-medium uppercase tracking-tighter">Rendering...</p></div>}
-                      className="flex flex-col gap-6"
-                    >
-                      {Array.from(new Array(numPages), (_, index) => (
-                        <div key={`p_${index + 1}`} className="shadow-2xl rounded-sm bg-white overflow-hidden">
-                          <Page 
-                            pageNumber={index + 1} 
-                            scale={renderScale} 
-                            renderTextLayer={true} 
-                            renderAnnotationLayer={true}
-                            loading={null}
-                          />
+
+              <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+                {compileError ? (
+                  <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6">
+                    <div className="flex items-center gap-2 mb-3 text-destructive">
+                      <AlertCircle size={16} />
+                      <h4 className="text-sm font-bold">编译错误</h4>
+                    </div>
+                    <pre className="text-[11px] text-destructive/80 whitespace-pre-wrap font-mono leading-relaxed">{compileError}</pre>
+                  </div>
+                ) : pdfUrl ? (
+                  <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
+                    <Document file={pdfUrl} onLoadSuccess={({ numPages }) => setNumPages(numPages)} loading={<LoadingSpinner text="Rendering..." />} className="flex flex-col gap-6">
+                      {Array.from({ length: numPages }, (_, i) => (
+                        <div key={`p_${i + 1}`} className="shadow-2xl rounded-sm bg-white overflow-hidden">
+                          <Page pageNumber={i + 1} scale={renderScale} renderTextLayer renderAnnotationLayer loading={null} />
                         </div>
                       ))}
                     </Document>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32 mx-auto">
-                    <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6"><Play className="h-6 w-6 text-primary fill-primary/10" /></div>
-                    <h4 className="text-sm font-bold mb-2 text-muted-foreground">Ready to Compile</h4>
-                  </div>
+                  <EmptyPreview />
                 )}
               </div>
             </aside>
           </Resizable.Panel>
         </Resizable.Group>
       </div>
+      <DeleteConfirmDialog />
     </div>
   )
 }
+
+// --- Sub-components ---
 
 function ResizeHandle() {
   return (
@@ -285,30 +377,67 @@ function ResizeHandle() {
   )
 }
 
-function FileTreeItem({ icon, label, active = false, indent = false }: { icon: React.ReactNode, label: string, active?: boolean, indent?: boolean }) {
+function TabButton({ icon, active, onClick }: { icon: React.ReactNode; active: boolean; onClick: () => void }) {
   return (
-    <div className="px-2 w-full mb-0.5">
-      <div className={cn("flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-all duration-200 rounded-lg group relative", indent ? "ml-4 w-[calc(100%-1rem)]" : "w-full", active ? "bg-primary/10 text-primary font-bold shadow-sm" : "text-muted-foreground hover:bg-muted hover:text-foreground")}>
-        <span className="shrink-0 transition-transform group-hover:scale-110">{icon}</span>
-        <span className="truncate">{label}</span>
-        {active && <div className="absolute left-0 top-1.5 bottom-1.5 w-0.5 bg-primary rounded-full" />}
-      </div>
-    </div>
-  )
-}
-
-function FileTreeFolder({ label, children }: { label: string, children: React.ReactNode }) {
-  const [open, setOpen] = useState(true)
-  return (
-    <div className="mb-0.5">
-      <div className="px-2"><div onClick={() => setOpen(!open)} className="flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 hover:bg-muted transition-all rounded-lg font-bold group"><FolderOpen size={14} className={cn("text-yellow-500/80 transition-transform duration-300", !open && "-rotate-90", "group-hover:scale-110")} /><span>{label}</span></div></div>
-      {open && children}
-    </div>
+    <button onClick={onClick} className={cn("p-2 rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
+      {icon}
+    </button>
   )
 }
 
 function EditToolbar() {
   return (
-    <div className="flex items-center gap-3 opacity-50"><span className="hover:text-primary cursor-pointer px-1 transition-colors font-bold text-[13px]">B</span><span className="hover:text-primary cursor-pointer px-1 transition-colors italic font-serif text-[13px]">I</span><span className="hover:text-primary cursor-pointer px-1 transition-colors underline underline-offset-4 text-[13px]">U</span><div className="h-3 w-px bg-border" /><span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\cite</span><span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">\\ref</span></div>
+    <div className="flex items-center gap-3 opacity-50">
+      <span className="hover:text-primary cursor-pointer px-1 transition-colors font-bold text-[13px]">B</span>
+      <span className="hover:text-primary cursor-pointer px-1 transition-colors italic font-serif text-[13px]">I</span>
+      <span className="hover:text-primary cursor-pointer px-1 transition-colors underline underline-offset-4 text-[13px]">U</span>
+      <div className="h-3 w-px bg-border" />
+      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">{'\\cite'}</span>
+      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">{'\\ref'}</span>
+    </div>
+  )
+}
+
+function AIPanel() {
+  return (
+    <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="p-4 h-14 border-b border-border/40 flex items-center flex-none bg-card/50">
+        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
+          <Sparkles size={14} className="text-primary" /> AI Assistant
+        </h3>
+      </div>
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
+          <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">AI</div>
+          Ask me to refine your paragraphs.
+        </div>
+      </div>
+      <div className="p-4 border-t border-border/40 bg-muted/5 flex-none">
+        <div className="relative group">
+          <textarea placeholder="Ask AI..." className="w-full rounded-2xl border border-border/60 bg-background p-4 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28" />
+          <Button size="icon-xs" className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"><MessageSquareText size={14} /></Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function LoadingSpinner({ text }: { text: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center p-20 gap-4">
+      <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
+      <p className="text-sm text-muted-foreground font-medium uppercase tracking-tighter">{text}</p>
+    </div>
+  )
+}
+
+function EmptyPreview() {
+  return (
+    <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32 mx-auto">
+      <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6">
+        <Play className="h-6 w-6 text-primary fill-primary/10" />
+      </div>
+      <h4 className="text-sm font-bold mb-2 text-muted-foreground">Ready to Compile</h4>
+    </div>
   )
 }
