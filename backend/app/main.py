@@ -24,19 +24,20 @@ async def lifespan(app: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Check Redis connection
-    from core.redis import redis_client
+    # Connect cache store
+    from core.cache import MemoryCacheStore, RedisCacheStore, cache_store
 
-    try:
-        await redis_client.connect()
-        await redis_client.ping()
-        print("✓ Redis connection OK")
-    except Exception as e:
-        print(f"✗ Redis connection failed: {e}")
-        raise
+    if isinstance(cache_store, RedisCacheStore):
+        await cache_store.connect()
+        await cache_store.ping()
+        print("✓ Cache: Redis connected")
+    else:
+        await cache_store.connect()
+        print("✓ Cache: in-memory store active")
 
     yield
     # Shutdown
+    await cache_store.disconnect()
 
 
 settings = get_settings()

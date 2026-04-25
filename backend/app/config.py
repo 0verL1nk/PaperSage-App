@@ -49,8 +49,8 @@ class Settings(BaseSettings):
         "postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage"
     )
 
-    # Redis
-    redis_url: str = "redis://:papersage_dev_password@localhost:6379/0"
+    # Redis (leave empty to use in-memory cache)
+    redis_url: str = ""
 
     # Security
     secret_key: str = "dev-secret-key-change-in-production"
@@ -70,6 +70,13 @@ class Settings(BaseSettings):
     latex_clsi_enabled: bool = True
     latex_clsi_base_url: str = "http://localhost:3013"
     latex_clsi_timeout_seconds: int = 120
+
+    # S3 Storage (MinIO)
+    s3_endpoint: str = "http://localhost:9000"
+    s3_access_key: str = "minioadmin"
+    s3_secret_key: str = "minioadmin"
+    s3_bucket: str = "papersage"
+    s3_region: str = "us-east-1"
 
     # Email
     email: EmailSettings = EmailSettings()

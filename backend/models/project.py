@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from core.base import Base, TimestampMixin, UUID, UUIDMixin
 
 if TYPE_CHECKING:
+    from models.latex_file import LatexFile
     from models.user import User
 
 
@@ -58,6 +59,9 @@ class Project(Base, UUIDMixin, TimestampMixin):
     owner: Mapped["User"] = relationship("User", back_populates="projects")
     group: Mapped["ProjectGroup | None"] = relationship(
         "ProjectGroup", back_populates="projects"
+    )
+    latex_files: Mapped[list["LatexFile"]] = relationship(
+        "LatexFile", back_populates="project", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

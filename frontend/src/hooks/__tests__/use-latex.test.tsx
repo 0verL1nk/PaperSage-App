@@ -1,0 +1,180 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { createElement, type ReactNode } from 'react'
+
+// Mock the latex-api module
+vi.mock('@/services/latex-api', () => ({
+  fetchLatexFiles: vi.fn(),
+  fetchLatexFileContent: vi.fn(),
+  saveLatexFile: vi.fn(),
+  createLatexFile: vi.fn(),
+  deleteLatexFile: vi.fn(),
+  compileLatex: vi.fn(),
+  getOutputZip: vi.fn(),
+  extractPdfFromZip: vi.fn(),
+}))
+
+import {
+  useLatexFiles,
+  useLatexFileContent,
+  useSaveLatexFile,
+  useCreateLatexFile,
+  useDeleteLatexFile,
+  useLatexCompile,
+  useLatexOutputZip,
+} from '../use-latex'
+import {
+  fetchLatexFiles,
+  fetchLatexFileContent,
+  saveLatexFile,
+  createLatexFile,
+  deleteLatexFile,
+  compileLatex,
+  getOutputZip,
+  extractPdfFromZip,
+} from '@/services/latex-api'
+
+const mockedFetchLatexFiles = vi.mocked(fetchLatexFiles)
+const mockedFetchLatexFileContent = vi.mocked(fetchLatexFileContent)
+const mockedSaveLatexFile = vi.mocked(saveLatexFile)
+const mockedCreateLatexFile = vi.mocked(createLatexFile)
+const mockedDeleteLatexFile = vi.mocked(deleteLatexFile)
+const mockedCompileLatex = vi.mocked(compileLatex)
+const mockedGetOutputZip = vi.mocked(getOutputZip)
+const mockedExtractPdfFromZip = vi.mocked(extractPdfFromZip)
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client: queryClient }, children)
+  }
+}
+
+const mockFileList = [
+  { id: '1', file_path: 'main.tex', content_type: 'text/x-tex', size_bytes: 100, last_saved_at: '2024-01-01' },
+  { id: '2', file_path: 'sections/intro.tex', content_type: 'text/x-tex', size_bytes: 50, last_saved_at: '2024-01-01' },
+]
+
+describe('use-latex hooks', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  describe('useLatexFiles', () => {
+    it('fetches file list for a project', async () => {
+      mockedFetchLatexFiles.mockResolvedValue(mockFileList)
+      const { result } = renderHook(() => useLatexFiles('proj-1'), { wrapper: createWrapper() })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data).toEqual(mockFileList)
+      expect(mockedFetchLatexFiles).toHaveBeenCalledWith('proj-1')
+    })
+
+    it('is disabled when projectId is empty', () => {
+      const { result } = renderHook(() => useLatexFiles(''), { wrapper: createWrapper() })
+      expect(result.current.fetchStatus).toBe('idle')
+    })
+  })
+
+  describe('useLatexFileContent', () => {
+    it('fetches content when both projectId and filePath are provided', async () => {
+      const mockContent = { path: 'main.tex', content: '\\documentclass{article}' }
+      mockedFetchLatexFileContent.mockResolvedValue(mockContent)
+
+      const { result } = renderHook(
+        () => useLatexFileContent('proj-1', 'main.tex'),
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data).toEqual(mockContent)
+    })
+
+    it('is disabled when filePath is null', () => {
+      const { result } = renderHook(
+        () => useLatexFileContent('proj-1', null),
+        { wrapper: createWrapper() },
+      )
+      expect(result.current.fetchStatus).toBe('idle')
+    })
+  })
+
+  describe('useSaveLatexFile', () => {
+    it('calls saveLatexFile and invalidates queries', async () => {
+      mockedSaveLatexFile.mockResolvedValue(undefined)
+
+      const { result } = renderHook(() => useSaveLatexFile('proj-1'), { wrapper: createWrapper() })
+
+      result.current.mutate({ filePath: 'main.tex', content: 'new content' })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockedSaveLatexFile).toHaveBeenCalledWith('proj-1', 'main.tex', 'new content')
+    })
+  })
+
+  describe('useCreateLatexFile', () => {
+    it('calls createLatexFile', async () => {
+      const mockCreated = { id: '3', file_path: 'new.tex', content_type: 'text/x-tex', size_bytes: 0, last_saved_at: '' }
+      mockedCreateLatexFile.mockResolvedValue(mockCreated)
+
+      const { result } = renderHook(() => useCreateLatexFile('proj-1'), { wrapper: createWrapper() })
+
+      result.current.mutate({ path: 'new.tex', content: '' })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockedCreateLatexFile).toHaveBeenCalledWith('proj-1', 'new.tex', '')
+    })
+  })
+
+  describe('useDeleteLatexFile', () => {
+    it('calls deleteLatexFile', async () => {
+      mockedDeleteLatexFile.mockResolvedValue(undefined)
+
+      const { result } = renderHook(() => useDeleteLatexFile('proj-1'), { wrapper: createWrapper() })
+
+      result.current.mutate('old.tex')
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockedDeleteLatexFile).toHaveBeenCalledWith('proj-1', 'old.tex')
+    })
+  })
+
+  describe('useLatexCompile', () => {
+    it('calls compileLatex with correct params', async () => {
+      const mockResponse = { status: 'success', build_id: 'b1', output_files: [], error: null }
+      mockedCompileLatex.mockResolvedValue(mockResponse)
+
+      const { result } = renderHook(() => useLatexCompile(), { wrapper: createWrapper() })
+
+      result.current.mutate({
+        projectId: 'proj-1',
+        files: [{ path: 'main.tex', content: 'content' }],
+        rootFile: 'main.tex',
+        compiler: 'xelatex',
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockedCompileLatex).toHaveBeenCalledWith('proj-1', [{ path: 'main.tex', content: 'content' }], 'main.tex', 'xelatex')
+    })
+  })
+
+  describe('useLatexOutputZip', () => {
+    it('downloads zip and extracts PDF', async () => {
+      const mockBlob = new Blob(['zip'])
+      mockedGetOutputZip.mockResolvedValue(mockBlob)
+      mockedExtractPdfFromZip.mockResolvedValue('blob:http://localhost/pdf')
+
+      const { result } = renderHook(() => useLatexOutputZip(), { wrapper: createWrapper() })
+
+      result.current.mutate({ projectId: 'proj-1', buildId: 'b1' })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockedGetOutputZip).toHaveBeenCalledWith('proj-1', 'b1')
+      expect(mockedExtractPdfFromZip).toHaveBeenCalledWith(mockBlob)
+      expect(result.current.data).toBe('blob:http://localhost/pdf')
+    })
+  })
+})

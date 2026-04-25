@@ -187,6 +187,9 @@ tags
 
 .ref
 
+# Runtime (PID files)
+.pids/
+
 # CLSI build artifacts and output
 .clsi/
 output/
