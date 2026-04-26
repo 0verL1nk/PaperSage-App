@@ -1,0 +1,147 @@
+# PaperSage — Docker Compose (production-like)
+#
+# Usage:
+#   docker compose up -d          # Start all services
+#   docker compose logs -f        # Follow logs
+#   docker compose down           # Stop and remove containers
+#   docker compose down -v        # Stop and remove containers + volumes
+
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  # ── Backend (FastAPI) ─────────────────────────────────────
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-5478}:5478"
+    env_file:
+      - ../backend/.env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://papersage:${DB_PASSWORD:-papersage}@db:5432/papersage
+      - REDIS_URL=redis://redis:6379/0
+      - LATEX_CLSI_BASE_URL=http://clsi:3013
+      - LATEX_CLSI_ENABLED=true
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+  # ── Frontend (Vite SPA + Nginx) ──────────────────────────
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+        reservations:
+          memory: 32M
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+  # ── CLSI (Overleaf LaTeX compilation) ────────────────────
+  clsi:
+    build:
+      context: ../latex_render
+      dockerfile: Dockerfile
+    ports:
+      - "${CLSI_PORT:-3013}:3013"
+    volumes:
+      - clsi-compiles:/tmp/clsi/compiles
+      - clsi-output:/tmp/clsi/output
+      - clsi-cache:/tmp/clsi/cache
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 2G
+        reservations:
+          memory: 512M
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+  # ── PostgreSQL ───────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: papersage
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-papersage}
+      POSTGRES_DB: papersage
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U papersage"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+        reservations:
+          memory: 128M
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+  # ── Redis ────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redisdata:/data
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+        reservations:
+          memory: 32M
+    logging: *default-logging
+    restart: unless-stopped
+    networks:
+      - backend-net
+
+volumes:
+  pgdata:
+  redisdata:
+  clsi-compiles:
+  clsi-output:
+  clsi-cache:
+
+networks:
+  backend-net:
