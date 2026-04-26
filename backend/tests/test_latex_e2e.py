@@ -25,8 +25,11 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures" / "latex_template"
 def _clsi_available() -> bool:
     import socket
 
-    with socket.create_connection(("localhost", 3013), timeout=2):
-        return True
+    try:
+        with socket.create_connection(("localhost", 3013), timeout=2):
+            return True
+    except OSError:
+        return False
 
 
 skip_no_clsi = pytest.mark.skipif(

@@ -77,7 +77,7 @@ describe('use-latex hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(result.current.data).toEqual(mockFileList)
-      expect(mockedFetchLatexFiles).toHaveBeenCalledWith('proj-1')
+      expect(mockedFetchLatexFiles).toHaveBeenCalledWith('proj-1', { skipGlobalLoading: true })
     })
 
     it('is disabled when projectId is empty', () => {
@@ -118,7 +118,7 @@ describe('use-latex hooks', () => {
       result.current.mutate({ filePath: 'main.tex', content: 'new content' })
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      expect(mockedSaveLatexFile).toHaveBeenCalledWith('proj-1', 'main.tex', 'new content')
+      expect(mockedSaveLatexFile).toHaveBeenCalledWith('proj-1', 'main.tex', 'new content', { skipGlobalLoading: true })
     })
   })
 
