@@ -60,11 +60,16 @@ async def get_file_content(
     """Get content of a LaTeX file. Returns JSON by default for text, raw bytes if raw=true or file is binary."""
     service = _get_service()
     try:
-        content, content_type = await service.get_file_raw(project_id, file_path, current_user.id, db)
-        
+        content, content_type = await service.get_file_raw(
+            project_id, file_path, current_user.id, db
+        )
+
         # Determine if we should return raw binary or JSON
-        is_text = any(file_path.lower().endswith(ext) for ext in [".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md"])
-        
+        is_text = any(
+            file_path.lower().endswith(ext)
+            for ext in [".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md"]
+        )
+
         if raw or not is_text:
             filename = file_path.split("/")[-1]
             encoded_filename = urllib.parse.quote(filename)
@@ -72,17 +77,21 @@ async def get_file_content(
                 content=content,
                 media_type=content_type,
                 headers={
-                    "Content-Disposition": f'inline; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+                    "Content-Disposition": f"inline; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
                 },
             )
 
         # Default: return JSON envelope for the editor
-        return api_success(LatexFileContentResponse(path=file_path, content=content.decode("utf-8")))
+        return api_success(
+            LatexFileContentResponse(path=file_path, content=content.decode("utf-8"))
+        )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
     except UnicodeDecodeError:
         # Fallback for files that failed to decode but were thought to be text
-        content, content_type = await service.get_file_raw(project_id, file_path, current_user.id, db)
+        content, content_type = await service.get_file_raw(
+            project_id, file_path, current_user.id, db
+        )
         return Response(content=content, media_type=content_type)
 
 

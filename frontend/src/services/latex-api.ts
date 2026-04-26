@@ -45,7 +45,7 @@ export function fetchLatexFileContent(projectId: string, filePath: string, confi
   return getJson<LatexFileContent>(LATEX.fileContent(projectId, filePath), config)
 }
 
-export function saveLatexFile(projectId: string, filePath: string, content: string, config?: ApiRequestConfig) {
+export function saveLatexFile(projectId: string, filePath: string, content: string, config?: ApiRequestConfig<{ content: string }>) {
   return putJson<void, { content: string }>(
     LATEX.fileContent(projectId, filePath),
     { content },

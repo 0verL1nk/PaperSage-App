@@ -8,7 +8,6 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
-import { useQuery, useMutation } from '@tanstack/react-query'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
@@ -20,7 +19,6 @@ import {
 } from '@/hooks/use-latex'
 import type { PdfRangeSource } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
-import { appEnv } from '@/lib/env'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
 
@@ -118,15 +116,6 @@ export function WritingPage() {
   const compileMutation = useLatexCompile()
   const outputPdfMutation = useLatexOutputPdf()
 
-  // Auto-save mutation with global loading disabled
-  const { mutate: performSave, isPending: isSaving } = useMutation({
-    mutationFn: (variables: { filePath: string; content: string }) =>
-      saveMutation.mutateAsync(variables, { 
-        // We'll pass extra options through if needed, 
-        // but the key is how we call it in scheduleAutoSave
-      }),
-  })
-
   // Derived state
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
   const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null)
@@ -141,12 +130,15 @@ export function WritingPage() {
   }, [monaco])
 
   // Auto-select first file or main.tex
+  const initializedRef = useRef(false)
   useEffect(() => {
-    if (files.length > 0 && !activeFilePath) {
+    if (!initializedRef.current && files.length > 0) {
+      initializedRef.current = true
       const mainFile = files.find((f) => f.file_path === 'main.tex')
-      setActiveFilePath(mainFile?.file_path || files[0].file_path)
+      const target = mainFile?.file_path || files[0].file_path
+      setTimeout(() => setActiveFilePath(target), 0)
     }
-  }, [files, activeFilePath])
+  }, [files])
 
   // Mobile detection
   useEffect(() => {
@@ -642,9 +634,9 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
 
   useEffect(() => {
     if (lastSaving.current && !isSaving) {
-      setShowSaved(true)
-      const timer = setTimeout(() => setShowSaved(false), 2000)
-      return () => clearTimeout(timer)
+      const showTimer = setTimeout(() => setShowSaved(true), 0)
+      const hideTimer = setTimeout(() => setShowSaved(false), 2000)
+      return () => { clearTimeout(showTimer); clearTimeout(hideTimer) }
     }
     lastSaving.current = isSaving
   }, [isSaving])

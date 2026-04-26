@@ -168,7 +168,7 @@ class LatexFileService:
                 return cached.encode("utf-8"), content_type
 
         content = self._storage.get_object(s3_key)
-        
+
         # Cache text contents
         if any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
             try:
@@ -228,7 +228,7 @@ class LatexFileService:
 
         s3_key = S3Storage.build_key(str(project.id), validated_path)
         self._storage.put_object(s3_key, content)
-        
+
         # Only cache if it's likely text
         if content_type and "text" in content_type:
             try:

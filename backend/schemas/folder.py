@@ -13,7 +13,9 @@ class FolderCreate(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100, description="Folder name")
     project_id: UUID = Field(..., alias="projectId", description="Project ID")
-    parent_id: UUID | None = Field(None, alias="parentId", description="Parent folder ID (null for root)")
+    parent_id: UUID | None = Field(
+        None, alias="parentId", description="Parent folder ID (null for root)"
+    )
 
 
 class FolderResponse(BaseModel):
