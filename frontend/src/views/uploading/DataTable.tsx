@@ -25,6 +25,7 @@ export function DataTable({ data, actions, globalFilter }: DataTableProps) {
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([])
   const columns = createColumns(actions)
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table cannot be safely memoized
   const table = useReactTable({
     data,
     columns,

@@ -1,7 +1,6 @@
 """Document service and model tests."""
 
 
-
 class TestDocumentModel:
     def test_imports(self):
         from models.document import Document

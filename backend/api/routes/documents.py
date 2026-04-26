@@ -64,7 +64,9 @@ async def preview_document(
     return Response(
         content=content,
         media_type=content_type,
-        headers={"Content-Disposition": f'inline; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}'},
+        headers={
+            "Content-Disposition": f"inline; filename=\"{encoded_filename}\"; filename*=UTF-8''{encoded_filename}"
+        },
     )
 
 
