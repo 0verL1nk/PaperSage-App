@@ -618,7 +618,7 @@ async function fetchChunk({
   cachedUrls: Map<string, { url: string; init: RequestInit }>
   metrics: PdfCachingMetricsFull
   cachedUrlLookupEnabled: boolean
-  canTryFromCache: (error: any) => boolean
+  canTryFromCache: (error: unknown) => boolean
   fallbackToCacheURL: string
   file: ProcessedPDFFile
   authHeaders?: Record<string, string>
@@ -654,7 +654,7 @@ async function fetchChunk({
           metrics.oldUrlMissCount += 1
         }
         // Fallback to the latest url.
-      } catch (e) {
+      } catch {
         // Fallback to the latest url.
       }
       cachedUrls.delete(chunk.hash) // clear cached state
@@ -693,7 +693,7 @@ async function fetchChunk({
       try {
         response = await fetchWithBrowserCacheFallback(url, init)
         checkChunkResponse(response, estimatedSize, init)
-      } catch (err2) {
+      } catch {
         throw err1
       }
     } else {
@@ -867,7 +867,7 @@ export async function fetchRange({
   prefetchLargeEnabled: boolean
   cachedUrlLookupEnabled: boolean
   abortSignal: AbortSignal
-  canTryFromCache: (error: any) => boolean
+  canTryFromCache: (error: unknown) => boolean
   fallbackToCacheURL: string
   authHeaders?: Record<string, string>
 }) {

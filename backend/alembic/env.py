@@ -10,6 +10,9 @@ from alembic import context
 from app.config import get_settings
 from core.base import Base
 
+# Import all models so Alembic can detect them
+import models  # noqa: F401
+
 # this is the Alembic Config object
 config = context.config
 

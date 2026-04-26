@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import time
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.config import get_settings
+
+if TYPE_CHECKING:
+    from redis import asyncio as redis
 
 settings = get_settings()
 
@@ -83,7 +86,7 @@ class RedisCacheStore:
 
     def __init__(self, url: str) -> None:
         self._url = url
-        self._client: "redis.asyncio.Redis | None" = None
+        self._client: redis.asyncio.Redis | None = None
 
     async def connect(self) -> None:
         if self._client is None:

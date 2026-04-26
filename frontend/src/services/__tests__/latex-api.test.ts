@@ -179,10 +179,9 @@ describe('latex-api', () => {
     it('throws when no PDF found in zip', async () => {
       const JSZip = (await import('jszip')).default
       // Override static loadAsync to return zip with no PDF
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       vi.mocked(JSZip.loadAsync).mockResolvedValueOnce({
         files: { 'output.log': { dir: false, name: 'output.log', async: vi.fn() } },
-      } as any)
+      } as never)
 
       await expect(extractPdfFromZip(new Blob(['zip']))).rejects.toThrow('No PDF file found in output zip')
     })

@@ -17,9 +17,7 @@ class LatexFile(Base, UUIDMixin, TimestampMixin):
     """LaTeX file metadata model."""
 
     __tablename__ = "latex_files"
-    __table_args__ = (
-        UniqueConstraint("project_id", "file_path", name="uq_project_file_path"),
-    )
+    __table_args__ = (UniqueConstraint("project_id", "file_path", name="uq_project_file_path"),)
 
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(),

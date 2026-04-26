@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import type { AxiosProgressEvent } from 'axios'
 import { getJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
 import { DOCUMENTS } from './api-routes'
@@ -57,7 +58,7 @@ export function useUploadDocument(projectId: string, folderId: string | null) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: async ({ file, remark, onUploadProgress }: {
-      file: File; remark?: string; onUploadProgress?: (e: any) => void
+      file: File; remark?: string; onUploadProgress?: (e: AxiosProgressEvent) => void
     }) => {
       const formData = new FormData()
       formData.append('file', file)

@@ -13,8 +13,8 @@ from api.dependencies import get_db
 from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import User
-from models.latex_file import LatexFile
 from schemas.latex import (
+    VALID_COMPILERS,
     LatexCompileRequest,
     LatexCompileResponse,
     LatexOutputFileResponse,
@@ -24,7 +24,6 @@ from schemas.latex import (
     LatexSyncPdfResponse,
     LatexSyncPosition,
     LatexWordcountResponse,
-    VALID_COMPILERS,
 )
 from services.latex.resource_builder import ProjectFile
 from services.latex.service import LaTeXService, LaTeXServiceError
@@ -106,7 +105,11 @@ async def compile_project(
         build_id=result.build_id,
         output_files=[
             LatexOutputFileResponse(
-                path=f.path, url=f.url, type=f.type, build=f.build, size=f.size,
+                path=f.path,
+                url=f.url,
+                type=f.type,
+                build=f.build,
+                size=f.size,
             )
             for f in result.output_files
         ],
@@ -168,11 +171,16 @@ async def sync_code_to_pdf(
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
     result = await service.sync_code_to_pdf(
-        _project_id_str(project_id), body.file, body.line, body.column,
+        _project_id_str(project_id),
+        body.file,
+        body.line,
+        body.column,
     )
-    return api_success(LatexSyncCodeResponse(
-        pdf=[LatexSyncPosition(**p.model_dump()) for p in result.pdf],
-    ))
+    return api_success(
+        LatexSyncCodeResponse(
+            pdf=[LatexSyncPosition(**p.model_dump()) for p in result.pdf],
+        )
+    )
 
 
 @router.post("/sync/pdf", response_model=ApiResponse[LatexSyncPdfResponse])
@@ -186,11 +194,16 @@ async def sync_pdf_to_code(
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
     result = await service.sync_pdf_to_code(
-        _project_id_str(project_id), body.page, body.h, body.v,
+        _project_id_str(project_id),
+        body.page,
+        body.h,
+        body.v,
     )
-    return api_success(LatexSyncPdfResponse(
-        code=[LatexSyncPosition(**p.model_dump()) for p in result.code],
-    ))
+    return api_success(
+        LatexSyncPdfResponse(
+            code=[LatexSyncPosition(**p.model_dump()) for p in result.code],
+        )
+    )
 
 
 # NOTE: output.zip must come before {file_path:path} to avoid route shadowing
@@ -228,13 +241,15 @@ async def get_output_pdf(
     await service.verify_project_access(project_id, current_user, db)
     try:
         pdf_bytes = await service.get_output_pdf(
-            _project_id_str(project_id), build_id,
+            _project_id_str(project_id),
+            build_id,
         )
     except LaTeXServiceError:
         raise
     except Exception as e:
         raise LaTeXServiceError(
-            f"无法获取编译输出: {e}", status_code=502,
+            f"无法获取编译输出: {e}",
+            status_code=502,
         ) from e
 
     total_size = len(pdf_bytes)

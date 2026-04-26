@@ -54,7 +54,7 @@ export function generatePdfCachingTransportFactory() {
     pdfFile: ProcessedPDFFile
     abortController: AbortController
     leanPdfRanges: PDFRange[]
-    handleFetchError: (error: any) => void
+    handleFetchError: (error: unknown) => void
     startTime: number
     queryForChunks: string
     authHeaders: Record<string, string>
@@ -69,7 +69,7 @@ export function generatePdfCachingTransportFactory() {
       url: string
       pdfFile: PDFFile
       abortController: AbortController
-      handleFetchError: (error: any) => void
+      handleFetchError: (error: unknown) => void
       authHeaders?: Record<string, string>
     }) {
       super(pdfFile.size, new Uint8Array())
@@ -120,9 +120,9 @@ export function generatePdfCachingTransportFactory() {
 
       const isStaleOutputRequest = () =>
         performance.now() - this.startTime > STALE_OUTPUT_REQUEST_THRESHOLD_MS
-      const is404 = (err: any) =>
+      const is404 = (err: unknown) =>
         (OError.getFullInfo(err) as { statusCode: number }).statusCode === 404
-      const isFromOutputPDFRequest = (err: any) =>
+      const isFromOutputPDFRequest = (err: unknown) =>
         (OError.getFullInfo(err) as { url?: string }).url?.includes?.(
           '/output.pdf'
         ) === true
@@ -134,8 +134,8 @@ export function generatePdfCachingTransportFactory() {
       //   Example: The user returns to a browser tab after 1h and scrolls.
       // - requests for the main output.pdf file
       //   A fallback request would not be able to retrieve the PDF either.
-      const isExpectedError = (err: any) =>
-        (is404(err) || isNetworkError(err)) &&
+      const isExpectedError = (err: unknown) =>
+        (is404(err) || (err instanceof Error && isNetworkError(err))) &&
         (isStaleOutputRequest() || isFromOutputPDFRequest(err))
 
       const usesCache = (url: string) => {
@@ -149,7 +149,7 @@ export function generatePdfCachingTransportFactory() {
             u.searchParams.get('clsiserverid')?.startsWith('clsi-cache-'))
         )
       }
-      const canTryFromCache = (err: any) => {
+      const canTryFromCache = (err: unknown) => {
         if (!canUseClsiCache) return false
         if (!is404(err)) return false
         return !usesCache((OError.getFullInfo(err) as { url: string }).url)
@@ -305,7 +305,7 @@ export function generatePdfCachingTransportFactory() {
     url: string
     pdfFile: PDFFile
     abortController: AbortController
-    handleFetchError: (error: any) => void
+    handleFetchError: (error: unknown) => void
     authHeaders?: Record<string, string>
   }) {
     if (metrics.failedOnce) {

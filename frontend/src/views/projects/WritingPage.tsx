@@ -17,6 +17,10 @@ import {
 } from '@/hooks/use-latex'
 import type { PdfRangeSource } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
+
+function toPdfFile(source: PdfRangeSource) {
+  return source as Parameters<typeof Document>[0]['file']
+}
 import { WritingFileTree } from './writing-file-tree'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
@@ -78,6 +82,7 @@ export function WritingPage() {
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedContentRef = useRef('')
+  const localEditsRef = useRef<string | null>(null)
 
   const monaco = useMonaco()
   const { confirm, ConfirmDialog: DeleteConfirmDialog } = useConfirmDialog()
@@ -115,12 +120,13 @@ export function WritingPage() {
   // Sync editor with loaded file content
   useEffect(() => {
     if (fileContent?.content !== undefined) {
-      setEditorContent(fileContent.content)
       lastSavedContentRef.current = fileContent.content
-      // Auto-detect compiler from main.tex content
-      if (activeFilePath === 'main.tex') {
-        setCompiler(detectCompiler(fileContent.content))
-      }
+      queueMicrotask(() => {
+        setEditorContent(fileContent.content)
+        if (activeFilePath === 'main.tex') {
+          setCompiler(detectCompiler(fileContent.content))
+        }
+      })
     }
   }, [fileContent, activeFilePath])
 
@@ -159,7 +165,7 @@ export function WritingPage() {
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined) return
-    setEditorContent(value)
+    localEditsRef.current = value
     scheduleAutoSave(value)
   }
 
@@ -372,7 +378,7 @@ export function WritingPage() {
                 ) : pdfFileSource ? (
                   <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
                     <Document
-                      file={pdfFileSource as any}
+                      file={pdfFileSource ? toPdfFile(pdfFileSource) : null}
                       onLoadSuccess={({ numPages }) => setNumPages(numPages)}
                       loading={<LoadingSpinner text="Rendering..." />}
                       className="flex flex-col gap-6"

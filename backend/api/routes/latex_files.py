@@ -40,9 +40,11 @@ async def list_files(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
 
-    return api_success(LatexFileListResponse(
-        files=[LatexFileResponse.model_validate(f) for f in files],
-    ))
+    return api_success(
+        LatexFileListResponse(
+            files=[LatexFileResponse.model_validate(f) for f in files],
+        )
+    )
 
 
 @router.get("/{file_path:path}", response_model=ApiResponse[LatexFileContentResponse])
@@ -73,7 +75,11 @@ async def create_file(
     service = _get_service()
     try:
         latex_file = await service.create_file(
-            project_id, body.path, body.content, current_user.id, db,
+            project_id,
+            body.path,
+            body.content,
+            current_user.id,
+            db,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
@@ -93,7 +99,11 @@ async def update_file(
     service = _get_service()
     try:
         latex_file = await service.update_file(
-            project_id, file_path, body.content, current_user.id, db,
+            project_id,
+            file_path,
+            body.content,
+            current_user.id,
+            db,
         )
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None

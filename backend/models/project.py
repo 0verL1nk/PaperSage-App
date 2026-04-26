@@ -1,4 +1,5 @@
 """Project models."""
+
 import uuid
 from typing import TYPE_CHECKING
 
@@ -57,9 +58,7 @@ class Project(Base, UUIDMixin, TimestampMixin):
 
     # Relationships
     owner: Mapped["User"] = relationship("User", back_populates="projects")
-    group: Mapped["ProjectGroup | None"] = relationship(
-        "ProjectGroup", back_populates="projects"
-    )
+    group: Mapped["ProjectGroup | None"] = relationship("ProjectGroup", back_populates="projects")
     latex_files: Mapped[list["LatexFile"]] = relationship(
         "LatexFile", back_populates="project", cascade="all, delete-orphan"
     )

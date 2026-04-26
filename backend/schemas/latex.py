@@ -27,7 +27,9 @@ class LatexCompileRequest(BaseModel):
 
     root_file: str = Field("main.tex", description="Root .tex file path")
     compiler: str = Field(COMPILER_PDFLATEX, description="TeX compiler to use")
-    files: list[LatexFileInput] = Field(default_factory=list, description="Project files (empty to use stored files)")
+    files: list[LatexFileInput] = Field(
+        default_factory=list, description="Project files (empty to use stored files)"
+    )
 
 
 class LatexOutputFileResponse(BaseModel):

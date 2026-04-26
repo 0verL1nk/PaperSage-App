@@ -10,9 +10,8 @@ import type { PDFFile } from './types'
 
 export type { PDFFile }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface RangeTransportResult {
-  range: any
+  range: unknown
 }
 
 /**

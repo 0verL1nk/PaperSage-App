@@ -1,4 +1,5 @@
 """Application entry point for running with uvicorn."""
+
 import uvicorn
 
 from app.config import get_settings

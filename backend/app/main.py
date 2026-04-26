@@ -25,7 +25,7 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
 
     # Connect cache store
-    from core.cache import MemoryCacheStore, RedisCacheStore, cache_store
+    from core.cache import RedisCacheStore, cache_store
 
     if isinstance(cache_store, RedisCacheStore):
         await cache_store.connect()
