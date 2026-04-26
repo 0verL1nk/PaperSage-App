@@ -21,6 +21,7 @@ def s3_client(_fresh_settings):
     """Provide an S3Storage instance with mocked S3."""
     with mock_aws():
         mock_client = boto3.client("s3", region_name="us-east-1")
+        mock_client.create_bucket(Bucket="test-bucket")
         yield S3Storage(client=mock_client)
 
 
@@ -29,6 +30,7 @@ class TestS3Storage:
         """Bucket is created automatically on init."""
         with mock_aws():
             mock_client = boto3.client("s3", region_name="us-east-1")
+            mock_client.create_bucket(Bucket="test-bucket")
             storage = S3Storage(client=mock_client)
             resp = storage._client.head_bucket(Bucket="test-bucket")
             assert resp is not None
