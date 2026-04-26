@@ -19,13 +19,16 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
+        working-directory: backend
         run: uv sync --extra dev
 
       - name: Run ruff check
-        run: uvx ruff check backend/app backend/api backend/core --fix
+        working-directory: backend
+        run: uvx ruff check app api core --fix
 
       - name: Run ruff format check
-        run: uvx ruff format --check backend/
+        working-directory: backend
+        run: uvx ruff format --check .
 
   test:
     name: Test
@@ -37,15 +40,17 @@ jobs:
         uses: astral-sh/setup-uv@v4
 
       - name: Install dependencies
+        working-directory: backend
         run: uv sync --extra dev
 
       - name: Run tests
-        run: uv run pytest backend/tests/ -v --tb=short
+        working-directory: backend
+        run: uv run pytest tests/ -v --tb=short
 
       - name: Upload coverage
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage
-          path: .coverage
+          path: backend/.coverage
           retention-days: 7
