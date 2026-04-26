@@ -119,13 +119,14 @@ check: check-backend check-frontend
 
 check-backend:
 	@echo "$(YELLOW)Running backend checks...$(NC)"
-	cd backend && uvx ruff check app/ api/ core/ --fix || true
-	-cd backend && uv run python -m py_compile app/ api/ || true
+	cd backend && uvx ruff check app api core --fix
+	cd backend && uvx ruff format --check .
+	cd backend && uv run python -m py_compile app/ api/ || true
 
 check-frontend:
 	@echo "$(YELLOW)Running frontend checks...$(NC)"
-	cd frontend && pnpm typecheck || true
-	cd frontend && pnpm lint || true
+	cd frontend && pnpm typecheck
+	cd frontend && pnpm lint
 
 # ─── Tests ───
 
