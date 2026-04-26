@@ -69,7 +69,7 @@ describe('latex-api', () => {
 
       const result = await fetchLatexFiles('proj-1')
 
-      expect(mockedGetJson).toHaveBeenCalledWith('/api/v1/projects/proj-1/latex-files')
+      expect(mockedGetJson).toHaveBeenCalledWith('/api/v1/projects/proj-1/latex-files/', undefined)
       expect(result).toEqual(mockFiles)
     })
   })
@@ -81,7 +81,7 @@ describe('latex-api', () => {
 
       const result = await fetchLatexFileContent('proj-1', 'sections/intro.tex')
 
-      expect(mockedGetJson).toHaveBeenCalledWith('/api/v1/projects/proj-1/latex-files/sections%2Fintro.tex')
+      expect(mockedGetJson).toHaveBeenCalledWith('/api/v1/projects/proj-1/latex-files/sections%2Fintro.tex', undefined)
       expect(result).toEqual(mockData)
     })
   })
@@ -95,6 +95,7 @@ describe('latex-api', () => {
       expect(mockedPutJson).toHaveBeenCalledWith(
         '/api/v1/projects/proj-1/latex-files/main.tex',
         { content: 'updated content' },
+        undefined,
       )
     })
   })
@@ -107,7 +108,7 @@ describe('latex-api', () => {
       const result = await createLatexFile('proj-1', 'new.tex', 'initial')
 
       expect(mockedPostJson).toHaveBeenCalledWith(
-        '/api/v1/projects/proj-1/latex-files',
+        '/api/v1/projects/proj-1/latex-files/',
         { path: 'new.tex', content: 'initial' },
       )
       expect(result).toEqual(mockResponse)
@@ -119,7 +120,7 @@ describe('latex-api', () => {
       await createLatexFile('proj-1', 'empty.tex')
 
       expect(mockedPostJson).toHaveBeenCalledWith(
-        '/api/v1/projects/proj-1/latex-files',
+        '/api/v1/projects/proj-1/latex-files/',
         { path: 'empty.tex', content: undefined },
       )
     })
@@ -144,7 +145,7 @@ describe('latex-api', () => {
       const result = await compileLatex('proj-1', files, 'main.tex', 'xelatex')
 
       expect(mockedPostJson).toHaveBeenCalledWith(
-        '/api/v1/projects/proj-1/latex/compile',
+        '/api/v1/projects/proj-1/latex/compile/',
         { root_file: 'main.tex', compiler: 'xelatex', files },
       )
       expect(result).toEqual(mockResponse)
