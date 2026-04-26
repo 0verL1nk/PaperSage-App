@@ -14,8 +14,8 @@ from services.latex.clsi_client import (
 )
 from services.latex.resource_builder import (
     ProjectFile,
-    build_resources,
     _is_binary_path,
+    build_resources,
 )
 from services.latex.service import LaTeXService, LaTeXServiceError
 

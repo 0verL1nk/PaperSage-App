@@ -1,14 +1,13 @@
 """Project models."""
 
 import uuid
-from typing import TYPE_CHECKING
-
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.base import Base, TimestampMixin, UUID, UUIDMixin
+from core.base import UUID, Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from models.latex_file import LatexFile
@@ -25,6 +24,7 @@ class ProjectGroup(Base, UUIDMixin, TimestampMixin):
         UUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     sort_order: Mapped[int] = mapped_column(default=0)
 
@@ -46,11 +46,13 @@ class Project(Base, UUIDMixin, TimestampMixin):
         UUID(),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     group_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(),
         ForeignKey("project_groups.id", ondelete="SET NULL"),
         nullable=True,
+        index=True,
     )
     status: Mapped[str] = mapped_column(String(20), default="active")
     is_deleted: Mapped[bool] = mapped_column(default=False)

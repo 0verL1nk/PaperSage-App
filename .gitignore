@@ -1,6 +1,7 @@
 # 常见 .gitignore 模板
 # 可根据项目语言/工具有选择地保留或删除条目
-
+# mcp
+.playwright-mcp
 # 操作系统
 .DS_Store
 .Trashes

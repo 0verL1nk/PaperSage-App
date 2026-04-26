@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from core.base import Base, TimestampMixin, UUID, UUIDMixin
+from core.base import UUID, Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
     from models.project import Project
@@ -23,10 +23,12 @@ class LatexFile(Base, UUIDMixin, TimestampMixin):
         UUID(),
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
     )
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
     content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
     size_bytes: Mapped[int] = mapped_column(default=0)
+    content_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     s3_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     last_saved_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),

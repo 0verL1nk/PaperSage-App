@@ -1,6 +1,5 @@
 """Test project creation auto-template."""
 
-import pytest
 
 from services.latex.file_service import _validate_path
 

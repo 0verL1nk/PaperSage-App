@@ -10,6 +10,7 @@ import {
   type CompileResponse,
   type PdfRangeSource,
 } from '@/services/latex-api'
+import { LATEX } from '@/services/api-routes'
 
 // Query keys
 const latexKeys = {
@@ -23,7 +24,7 @@ const latexKeys = {
 export function useLatexFiles(projectId: string) {
   return useQuery({
     queryKey: latexKeys.files(projectId),
-    queryFn: () => fetchLatexFiles(projectId),
+    queryFn: () => fetchLatexFiles(projectId, { skipGlobalLoading: true }),
     enabled: !!projectId,
   })
 }
@@ -31,7 +32,7 @@ export function useLatexFiles(projectId: string) {
 export function useLatexFileContent(projectId: string, filePath: string | null) {
   return useQuery({
     queryKey: latexKeys.content(projectId, filePath ?? ''),
-    queryFn: () => fetchLatexFileContent(projectId, filePath!),
+    queryFn: () => fetchLatexFileContent(projectId, filePath!, { skipGlobalLoading: true }),
     enabled: !!projectId && !!filePath,
   })
 }
@@ -42,7 +43,7 @@ export function useSaveLatexFile(projectId: string) {
   const queryClient = useQueryClient()
   return useMutation({
     mutationFn: ({ filePath, content }: { filePath: string; content: string }) =>
-      saveLatexFile(projectId, filePath, content),
+      saveLatexFile(projectId, filePath, content, { skipGlobalLoading: true }),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: latexKeys.content(projectId, variables.filePath),
@@ -55,8 +56,16 @@ export function useSaveLatexFile(projectId: string) {
 export function useCreateLatexFile(projectId: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: ({ path, content }: { path: string; content?: string }) =>
-      createLatexFile(projectId, path, content),
+    mutationFn: async ({ path, content, file }: { path: string; content?: string; file?: File }) => {
+      if (file) {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('path', path)
+        const { postMultipart } = await import('@/services/client')
+        return postMultipart(LATEX.files(projectId), formData)
+      }
+      return createLatexFile(projectId, path, content)
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
     },

@@ -170,7 +170,7 @@ describe('use-latex hooks', () => {
 
   describe('useLatexOutputPdf', () => {
     it('creates range transport source for PDF', async () => {
-      const mockRangeSource = { range: {} }
+      const mockRangeSource = { range: {} as unknown }
       mockedGetPdfRangeSource.mockResolvedValue(mockRangeSource)
 
       const { result } = renderHook(() => useLatexOutputPdf(), { wrapper: createWrapper() })
