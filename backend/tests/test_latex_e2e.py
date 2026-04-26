@@ -8,10 +8,8 @@ Skip automatically if CLSI is not available.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-import httpx
 import pytest
 
 from services.latex.clsi_client import (

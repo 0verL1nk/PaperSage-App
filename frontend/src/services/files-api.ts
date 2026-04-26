@@ -4,24 +4,32 @@ import { getJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
 import { DOCUMENTS } from './api-routes'
 
+function mapDocKeys(raw: Record<string, unknown>): ProjectDocument {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    type: raw.type as string,
+    size: raw.size as number,
+    status: raw.status as string,
+    projectId: (raw.project_id ?? raw.projectId) as string,
+    folderId: (raw.folder_id ?? raw.folderId) as string | null,
+    remark: (raw.remark ?? null) as string | null,
+    createdAt: (raw.created_at ?? raw.createdAt) as string,
+    updatedAt: (raw.updated_at ?? raw.updatedAt) as string,
+  }
+}
+
 export function useDocuments(projectId: string, folderId: string | null) {
   return useQuery({
     queryKey: ['documents', projectId, folderId],
-    queryFn: () => {
+    queryFn: async () => {
       const url = folderId
         ? DOCUMENTS.listByFolder(folderId)
         : DOCUMENTS.listByProject(projectId)
-      return getJson<ProjectDocument[]>(url)
+      const raw = await getJson<Record<string, unknown>[]>(url)
+      return raw.map(mapDocKeys)
     },
     enabled: !!projectId,
-  })
-}
-
-export function useDocumentPreview(documentId: string | null) {
-  return useQuery({
-    queryKey: ['document-preview', documentId],
-    queryFn: () => getJson<{ url: string }>(DOCUMENTS.preview(documentId!)),
-    enabled: !!documentId,
   })
 }
 
@@ -37,7 +45,7 @@ export function useMoveDocument(projectId: string, currentFolderId: string | nul
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ documentId, data }: { documentId: string; data: MoveDocumentInput }) =>
-      putJson<ProjectDocument>(DOCUMENTS.move(documentId), data),
+      putJson<ProjectDocument>(DOCUMENTS.move(documentId), { folder_id: data.folderId }),
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: ['documents', projectId, currentFolderId] })
       qc.invalidateQueries({ queryKey: ['documents', projectId, variables.data.folderId] })

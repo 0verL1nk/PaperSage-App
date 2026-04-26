@@ -19,11 +19,8 @@ def test_projects_schemas_imports():
     """Verify project schemas can be imported"""
     from schemas import (
         ProjectCreate,
-        ProjectUpdate,
         ProjectResponse,
-        ProjectGroupCreate,
-        ProjectGroupResponse,
-        TrashItemResponse,
+        ProjectUpdate,
     )
 
     # Verify schemas are properly defined
@@ -44,8 +41,9 @@ def test_projects_models_imports():
 @pytest.mark.asyncio
 async def test_create_project_rejects_empty_name():
     """Verify empty name is rejected"""
-    from schemas import ProjectCreate
     from pydantic import ValidationError
+
+    from schemas import ProjectCreate
 
     with pytest.raises(ValidationError):
         ProjectCreate(name="")

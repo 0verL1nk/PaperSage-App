@@ -2,7 +2,7 @@
 
 import pytest
 
-from services.latex.file_service import ALLOWED_EXTENSIONS, _validate_path
+from services.latex.file_service import BLOCKED_EXTENSIONS, _validate_path
 
 
 class TestPathValidation:
@@ -24,6 +24,24 @@ class TestPathValidation:
     def test_valid_bst_path(self):
         assert _validate_path("style.bst") == "style.bst"
 
+    def test_valid_txt_path(self):
+        assert _validate_path("notes.txt") == "notes.txt"
+
+    def test_valid_json_path(self):
+        assert _validate_path("config.json") == "config.json"
+
+    def test_valid_md_path(self):
+        assert _validate_path("readme.md") == "readme.md"
+
+    def test_valid_pdf_path(self):
+        assert _validate_path("output.pdf") == "output.pdf"
+
+    def test_valid_png_path(self):
+        assert _validate_path("image.png") == "image.png"
+
+    def test_valid_zip_path(self):
+        assert _validate_path("archive.zip") == "archive.zip"
+
     def test_reject_traversal(self):
         with pytest.raises(ValueError, match="traversal"):
             _validate_path("../etc/passwd")
@@ -35,14 +53,6 @@ class TestPathValidation:
     def test_reject_exe_extension(self):
         with pytest.raises(ValueError, match="not allowed"):
             _validate_path("malware.exe")
-
-    def test_reject_no_extension(self):
-        with pytest.raises(ValueError, match="not allowed"):
-            _validate_path("Makefile")
-
-    def test_reject_py_extension(self):
-        with pytest.raises(ValueError, match="not allowed"):
-            _validate_path("script.py")
 
     def test_strips_leading_slash(self):
         assert _validate_path("/main.tex") == "main.tex"
@@ -69,10 +79,7 @@ class TestLatexFilesRouter:
         assert LatexFileListResponse.model_fields is not None
         assert LatexFileContentResponse.model_fields is not None
 
-    def test_allowed_extensions(self):
-        assert ".tex" in ALLOWED_EXTENSIONS
-        assert ".bib" in ALLOWED_EXTENSIONS
-        assert ".cls" in ALLOWED_EXTENSIONS
-        assert ".sty" in ALLOWED_EXTENSIONS
-        assert ".bst" in ALLOWED_EXTENSIONS
-        assert len(ALLOWED_EXTENSIONS) == 5
+    def test_blocked_extensions(self):
+        assert ".exe" in BLOCKED_EXTENSIONS
+        assert ".dll" in BLOCKED_EXTENSIONS
+        assert ".so" in BLOCKED_EXTENSIONS

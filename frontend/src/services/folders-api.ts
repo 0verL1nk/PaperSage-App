@@ -3,10 +3,32 @@ import { getJson, postJson, deleteFetch } from './client'
 import type { Folder, CreateFolderInput } from '@/types/files'
 import { FOLDERS } from './api-routes'
 
+function toSnakeFolder(data: CreateFolderInput) {
+  return {
+    name: data.name,
+    project_id: data.projectId,
+    parent_id: data.parentId ?? null,
+  }
+}
+
+function mapFolderKeys(raw: Record<string, unknown>): Folder {
+  return {
+    id: raw.id as string,
+    name: raw.name as string,
+    parentId: (raw.parent_id ?? raw.parentId) as string | null,
+    projectId: (raw.project_id ?? raw.projectId) as string | undefined,
+    createdAt: (raw.created_at ?? raw.createdAt) as string | undefined,
+    updatedAt: (raw.updated_at ?? raw.updatedAt) as string | undefined,
+  }
+}
+
 export function useProjectFolders(projectId: string) {
   return useQuery({
     queryKey: ['folders', projectId],
-    queryFn: () => getJson<Folder[]>(FOLDERS.listByProject(projectId)),
+    queryFn: async () => {
+      const raw = await getJson<Record<string, unknown>[]>(FOLDERS.listByProject(projectId))
+      return raw.map(mapFolderKeys)
+    },
     enabled: !!projectId,
   })
 }
@@ -14,7 +36,7 @@ export function useProjectFolders(projectId: string) {
 export function useCreateFolder() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (data: CreateFolderInput) => postJson<Folder>(FOLDERS.create, data),
+    mutationFn: (data: CreateFolderInput) => postJson<Folder>(FOLDERS.create, toSnakeFolder(data)),
     onSuccess: (_, variables) =>
       qc.invalidateQueries({ queryKey: ['folders', variables.projectId] }),
   })

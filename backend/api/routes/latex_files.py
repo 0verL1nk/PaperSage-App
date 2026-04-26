@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import urllib.parse
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, UploadFile, status
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.dependencies import get_db
@@ -47,44 +49,74 @@ async def list_files(
     )
 
 
-@router.get("/{file_path:path}", response_model=ApiResponse[LatexFileContentResponse])
+@router.get("/{file_path:path}", response_model=None)
 async def get_file_content(
     project_id: uuid.UUID,
     file_path: str,
+    raw: bool = Query(False, description="Return raw binary content"),
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
-) -> ApiResponse[LatexFileContentResponse]:
-    """Get content of a LaTeX file."""
+) -> Response | ApiResponse[LatexFileContentResponse]:
+    """Get content of a LaTeX file. Returns JSON by default for text, raw bytes if raw=true or file is binary."""
     service = _get_service()
     try:
-        content = await service.get_file_content(project_id, file_path, current_user.id, db)
+        content, content_type = await service.get_file_raw(project_id, file_path, current_user.id, db)
+        
+        # Determine if we should return raw binary or JSON
+        is_text = any(file_path.lower().endswith(ext) for ext in [".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md"])
+        
+        if raw or not is_text:
+            filename = file_path.split("/")[-1]
+            encoded_filename = urllib.parse.quote(filename)
+            return Response(
+                content=content,
+                media_type=content_type,
+                headers={
+                    "Content-Disposition": f'inline; filename="{encoded_filename}"; filename*=UTF-8\'\'{encoded_filename}'
+                },
+            )
+
+        # Default: return JSON envelope for the editor
+        return api_success(LatexFileContentResponse(path=file_path, content=content.decode("utf-8")))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
-
-    return api_success(LatexFileContentResponse(path=file_path, content=content))
+    except UnicodeDecodeError:
+        # Fallback for files that failed to decode but were thought to be text
+        content, content_type = await service.get_file_raw(project_id, file_path, current_user.id, db)
+        return Response(content=content, media_type=content_type)
 
 
 @router.post("/", response_model=ApiResponse[LatexFileResponse])
 async def create_file(
     project_id: uuid.UUID,
-    body: LatexFileCreateRequest,
+    body: LatexFileCreateRequest | None = None,
+    file: UploadFile | None = None,
+    path: str | None = Form(None),
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> ApiResponse[LatexFileResponse]:
-    """Create a new LaTeX file."""
+    """Create a new LaTeX file. Supports JSON body (for text) or Multipart (for binary)."""
     service = _get_service()
     try:
-        latex_file = await service.create_file(
-            project_id,
-            body.path,
-            body.content,
-            current_user.id,
-            db,
-        )
+        # Handle Multipart Upload (for images, PDFs, etc.)
+        if file:
+            content = await file.read()
+            file_path = path or file.filename or "unnamed"
+            content_type = file.content_type
+            latex_file = await service.create_file_binary(
+                project_id, file_path, content, content_type, current_user.id, db
+            )
+        # Handle JSON Upload (for editor/text)
+        elif body:
+            latex_file = await service.create_file(
+                project_id, body.path, body.content, current_user.id, db
+            )
+        else:
+            raise HTTPException(status_code=400, detail="No file or content provided")
+
+        return api_success(LatexFileResponse.model_validate(latex_file))
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
-
-    return api_success(LatexFileResponse.model_validate(latex_file))
 
 
 @router.put("/{file_path:path}", response_model=ApiResponse[LatexFileResponse])

@@ -13,6 +13,8 @@ from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import Project, ProjectGroup, User
 from schemas import (
+    DocumentResponse,
+    FolderResponse,
     ProjectCreate,
     ProjectGroupCreate,
     ProjectGroupResponse,
@@ -21,8 +23,13 @@ from schemas import (
     ProjectWithGroupResponse,
     TrashItemResponse,
 )
+from services.documents.document_service import DocumentService
+from services.documents.folder_service import FolderService
 
 router = APIRouter()
+
+_document_service = DocumentService()
+_folder_service = FolderService()
 
 
 # ============ Projects ============
@@ -336,6 +343,31 @@ async def permanently_delete_project(
     await db.commit()
 
     return api_success({"id": str(project_id), "permanently_deleted": True})
+
+
+# ============ Project-scoped nested resources ============
+
+
+@router.get("/{project_id}/documents", response_model=ApiResponse[list[DocumentResponse]])
+async def list_project_documents(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> ApiResponse[list[DocumentResponse]]:
+    """List all documents in a project."""
+    docs = await _document_service.list_by_project(project_id, current_user.id, db)
+    return api_success([DocumentResponse.model_validate(d) for d in docs])
+
+
+@router.get("/{project_id}/folders", response_model=ApiResponse[list[FolderResponse]])
+async def list_project_folders(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> ApiResponse[list[FolderResponse]]:
+    """List all folders in a project."""
+    folders = await _folder_service.list_by_project(project_id, current_user.id, db)
+    return api_success([FolderResponse.model_validate(f) for f in folders])
 
 
 # ============ Project CRUD by ID ============

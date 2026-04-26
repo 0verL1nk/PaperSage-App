@@ -3,11 +3,11 @@
 import pytest
 
 from schemas.latex import (
+    VALID_COMPILERS,
     LatexCompileRequest,
     LatexFileInput,
     LatexSyncCodeRequest,
     LatexSyncPdfRequest,
-    VALID_COMPILERS,
 )
 
 

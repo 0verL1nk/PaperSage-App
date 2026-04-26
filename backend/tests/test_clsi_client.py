@@ -6,14 +6,13 @@ import httpx
 import pytest
 
 from services.latex.clsi_client import (
+    STATUS_SUCCESS,
     ClsiClient,
     ClsiCompileResult,
-    ClsiOutputFile,
     ClsiResource,
     ClsiSyncCodeResult,
     ClsiSyncPdfResult,
     ClsiWordcountResult,
-    STATUS_SUCCESS,
 )
 
 

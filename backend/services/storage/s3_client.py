@@ -33,7 +33,7 @@ class S3Storage:
             region_name=region,
             config=BotoConfig(signature_version="s3v4"),
         )
-        self._ensure_bucket()
+        # Removed self._ensure_bucket() to avoid blocking I/O on init
 
     def _ensure_bucket(self) -> None:
         """Verify bucket exists. R2 buckets must be created via dashboard."""

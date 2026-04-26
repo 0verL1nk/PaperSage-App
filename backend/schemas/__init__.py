@@ -8,8 +8,8 @@ from schemas.project import (
     ProjectGroupResponse,
     ProjectGroupUpdate,
     ProjectResponse,
-    ProjectWithGroupResponse,
     ProjectUpdate,
+    ProjectWithGroupResponse,
     TrashItemResponse,
 )
 from schemas.user import (

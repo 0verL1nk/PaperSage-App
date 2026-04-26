@@ -13,6 +13,7 @@ import { WorkspaceLayout } from '@/views/layout/WorkspaceLayout'
 import { hasSessionToken } from '@/store/session-store'
 import { ProjectListPage } from '@/views/projects/ProjectListPage'
 import { WritingPage } from '@/views/projects/WritingPage'
+import { UploadingPage } from '@/views/uploading/UploadingPage'
 import { TrashPage } from '@/views/trash/TrashPage'
 import { UnderConstruction } from '@/components/shared/UnderConstruction'
 
@@ -156,17 +157,12 @@ const projectLayoutRoute = createRoute({
   },
 })
 
-// Project root route
+// Project root route — auto-redirect to uploading tab
 const projectRootRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId',
-  component: function ProjectRoot() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Project</h1>
-        <p className="mt-2 text-muted-foreground">Select a module from the tabs above</p>
-      </div>
-    )
+  beforeLoad: ({ params }) => {
+    throw redirect({ to: '/project/$projectId/uploading', params })
   },
 })
 
@@ -174,14 +170,7 @@ const projectRootRoute = createRoute({
 const projectUploadingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/uploading',
-  component: function ProjectUploading() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Uploading</h1>
-        <p className="mt-2 text-muted-foreground">Uploading module placeholder</p>
-      </div>
-    )
-  },
+  component: UploadingPage,
 })
 
 // Project writing route

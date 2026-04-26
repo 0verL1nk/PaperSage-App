@@ -44,10 +44,10 @@ export const FOLDERS = {
 
 // --- LaTeX ---
 export const LATEX = {
-  files: (projectId: string) => `${V1}/projects/${projectId}/latex-files`,
+  files: (projectId: string) => `${V1}/projects/${projectId}/latex-files/`,
   fileContent: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}`,
-  compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile`,
+  compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/`,
   outputZip: (projectId: string, buildId: string) =>
     `${V1}/projects/${projectId}/latex/output/${buildId}/output.zip`,
   outputPdf: (projectId: string, buildId: string) =>

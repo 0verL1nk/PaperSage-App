@@ -14,14 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from models import Project, User
 from services.latex.clsi_client import (
+    STATUS_ERROR,
+    STATUS_FAILURE,
+    STATUS_TIMEDOUT,
     ClsiClient,
     ClsiCompileResult,
     ClsiSyncCodeResult,
     ClsiSyncPdfResult,
     ClsiWordcountResult,
-    STATUS_FAILURE,
-    STATUS_ERROR,
-    STATUS_TIMEDOUT,
 )
 from services.latex.resource_builder import ProjectFile, build_resources
 

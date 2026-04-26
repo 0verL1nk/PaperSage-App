@@ -4,8 +4,11 @@ import { useParams } from '@tanstack/react-router'
 import {
   MessageSquareText, Search, Play, Download, Sparkles, Loader2,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
+  Check, Cloud, CloudUpload,
 } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
@@ -17,16 +20,16 @@ import {
 } from '@/hooks/use-latex'
 import type { PdfRangeSource } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
+import { appEnv } from '@/lib/env'
+import { LoadingSpinner } from '@/components/shared/loading-spinner'
+import { downloadBlob } from '@/services/client'
 
 function toPdfFile(source: PdfRangeSource) {
   return source as Parameters<typeof Document>[0]['file']
 }
 import { WritingFileTree } from './writing-file-tree'
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  import.meta.url,
-).toString()
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
 
@@ -61,6 +64,20 @@ function getLanguageByExt(path: string): string {
   return 'plaintext'
 }
 
+function isEditableFile(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return ['tex', 'bib', 'cls', 'sty', 'bst', 'txt', 'md', 'lof', 'lot', 'toc'].includes(ext)
+}
+
+function isImageFile(path: string): boolean {
+  const ext = path.split('.').pop()?.toLowerCase() ?? ''
+  return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)
+}
+
+function isPdfFile(path: string): boolean {
+  return path.toLowerCase().endsWith('.pdf')
+}
+
 type SidebarTab = 'files' | 'ai'
 
 // --- Main Component ---
@@ -82,6 +99,7 @@ export function WritingPage() {
 
   // Refs
   const previewContainerRef = useRef<HTMLDivElement>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastSavedContentRef = useRef('')
@@ -92,12 +110,22 @@ export function WritingPage() {
 
   // Data hooks
   const { data: files = [] } = useLatexFiles(projectId)
-  const { data: fileContent } = useLatexFileContent(projectId, activeFilePath)
+  const isEditable = activeFilePath ? isEditableFile(activeFilePath) : false
+  const { data: fileContent, isPending: isContentLoading } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
   const saveMutation = useSaveLatexFile(projectId)
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
   const compileMutation = useLatexCompile()
   const outputPdfMutation = useLatexOutputPdf()
+
+  // Auto-save mutation with global loading disabled
+  const { mutate: performSave, isPending: isSaving } = useMutation({
+    mutationFn: (variables: { filePath: string; content: string }) =>
+      saveMutation.mutateAsync(variables, { 
+        // We'll pass extra options through if needed, 
+        // but the key is how we call it in scheduleAutoSave
+      }),
+  })
 
   // Derived state
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
@@ -111,6 +139,14 @@ export function WritingPage() {
   useEffect(() => {
     if (monaco) registerLatexLsp()
   }, [monaco])
+
+  // Auto-select first file or main.tex
+  useEffect(() => {
+    if (files.length > 0 && !activeFilePath) {
+      const mainFile = files.find((f) => f.file_path === 'main.tex')
+      setActiveFilePath(mainFile?.file_path || files[0].file_path)
+    }
+  }, [files, activeFilePath])
 
   // Mobile detection
   useEffect(() => {
@@ -241,6 +277,34 @@ export function WritingPage() {
     })
   }
 
+  const uploadFiles = useCallback((fileList: FileList | File[]) => {
+    const files = Array.from(fileList)
+    for (const file of files) {
+      createMutation.mutate(
+        { path: file.name, file },
+        {
+          onSuccess: () => { setActiveFilePath(file.name) },
+          onError: (err) => { toast.error(`上传失败: ${file.name}`, { description: err.message }) },
+        },
+      )
+    }
+  }, [createMutation])
+
+  const handleUploadClick = () => uploadInputRef.current?.click()
+  const handleUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files?.length) uploadFiles(e.target.files)
+    e.target.value = ''
+  }
+
+  const [isDragOver, setIsDragOver] = useState(false)
+  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true) }
+  const handleDragLeave = () => setIsDragOver(false)
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files)
+  }
+
   const zoomIn = () => setDisplayScale((p) => Math.min(p + ZOOM_STEP, ZOOM_MAX))
   const zoomOut = () => setDisplayScale((p) => Math.max(p - ZOOM_STEP, ZOOM_MIN))
   const resetZoom = () => {
@@ -270,12 +334,23 @@ export function WritingPage() {
               <Resizable.Panel defaultSize={18} minSize={12} collapsible>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
                   {activeTab === 'files' ? (
-                    <div className="flex-1 flex flex-col h-full overflow-hidden">
+                    <div
+                      className="flex-1 flex flex-col h-full overflow-hidden relative"
+                      onDragOver={handleDragOver}
+                      onDragLeave={handleDragLeave}
+                      onDrop={handleDrop}
+                    >
+                      {isDragOver && (
+                        <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center">
+                          <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
+                        </div>
+                      )}
                       <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
                         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
                         <div className="flex items-center gap-1">
                           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={() => { setIsCreatingFile(true); setNewFileName('') }}><Plus size={14} /></Button>
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md"><Upload size={14} /></Button>
+                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={handleUploadClick}><Upload size={14} /></Button>
+                          <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
                         </div>
                       </div>
                       {isCreatingFile && (
@@ -311,7 +386,16 @@ export function WritingPage() {
           <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
-                <EditToolbar />
+                <div className="flex items-center gap-3">
+                  <EditToolbar />
+                  <div className="w-px h-3 bg-border mx-1" />
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[120px]">
+                      {activeFilePath || '无文件'}
+                    </span>
+                    <SavingStatus isSaving={saveMutation.isPending} />
+                  </div>
+                </div>
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] font-mono text-muted-foreground mr-1">{compilerLabel}</span>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
@@ -325,16 +409,20 @@ export function WritingPage() {
                 </div>
               </div>
               <div className="flex-1 relative overflow-hidden">
-                {activeFilePath ? (
+                {!activeFilePath ? (
+                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    选择一个文件开始编辑
+                  </div>
+                ) : (isEditable && isContentLoading) ? (
+                  <LoadingSpinner text="正在获取文件内容" className="h-full" />
+                ) : isEditable ? (
                   <Editor
                     height="100%" language={getLanguageByExt(activeFilePath)} theme="vs-light"
                     value={editorContent} onChange={handleEditorChange}
                     options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
                 ) : (
-                  <div className="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    选择一个文件开始编辑
-                  </div>
+                  <BinaryFilePlaceholder path={activeFilePath} projectId={projectId} />
                 )}
               </div>
             </section>
@@ -461,15 +549,6 @@ function AIPanel() {
   )
 }
 
-function LoadingSpinner({ text }: { text: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center p-20 gap-4">
-      <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
-      <p className="text-sm text-muted-foreground font-medium uppercase tracking-tighter">{text}</p>
-    </div>
-  )
-}
-
 function EmptyPreview() {
   return (
     <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32 mx-auto">
@@ -477,6 +556,121 @@ function EmptyPreview() {
         <Play className="h-6 w-6 text-primary fill-primary/10" />
       </div>
       <h4 className="text-sm font-bold mb-2 text-muted-foreground">Ready to Compile</h4>
+    </div>
+  )
+}
+
+function BinaryFilePlaceholder({ path, projectId }: { path: string, projectId: string }) {
+  const isImg = isImageFile(path)
+  const isPdf = isPdfFile(path)
+  const [imgUrl, setImgUrl] = useState<string | null>(null)
+  const [loading, setLoading] = useState(isImg)
+
+  // Use the API client to fetch the file with Auth headers
+  useEffect(() => {
+    if (!isImg) return
+    let objectUrl: string | null = null
+
+    async function loadPreview() {
+      try {
+        const url = LATEX.fileContent(projectId, path) + '?raw=true'
+        const blob = await downloadBlob(url)
+        objectUrl = URL.createObjectURL(blob)
+        setImgUrl(objectUrl)
+      } catch (err) {
+        console.error('Failed to load image preview', err)
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadPreview()
+    return () => { if (objectUrl) URL.revokeObjectURL(objectUrl) }
+  }, [path, projectId, isImg])
+
+  const handleDownload = async () => {
+    try {
+      toast.info('正在准备下载...')
+      const url = LATEX.fileContent(projectId, path) + '?raw=true'
+      const blob = await downloadBlob(url)
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = path.split('/').pop() || 'file'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(blobUrl)
+    } catch (err) {
+      console.error('Download failed:', err)
+      toast.error('下载失败', { description: '无法获取文件内容，请检查网络或权限' })
+    }
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center h-full p-12 bg-muted/5 text-center">
+      <div className="w-20 h-20 rounded-3xl bg-background shadow-sm border border-border/40 flex items-center justify-center mb-6">
+        {isImg ? <Monitor className="h-8 w-8 text-primary/60" /> : <Files size={32} className="text-muted-foreground/40" />}
+      </div>
+      <h3 className="text-sm font-bold mb-1 truncate max-w-xs">{path.split('/').pop()}</h3>
+      <p className="text-xs text-muted-foreground mb-8">
+        {isImg ? '图像预览' : isPdf ? 'PDF 文档 (编译输出)' : '该文件格式不支持在编辑器中直接查看'}
+      </p>
+
+      {isImg ? (
+        <div className="max-w-md bg-white p-2 rounded-xl shadow-2xl border border-border/20 animate-in fade-in zoom-in duration-500 min-h-[100px] flex items-center justify-center">
+          {loading ? (
+            <Loader2 className="animate-spin text-muted-foreground/20" size={24} />
+          ) : imgUrl ? (
+            <img src={imgUrl} alt={path} className="max-h-[60vh] rounded-lg object-contain" />
+          ) : (
+            <div className="text-[10px] text-muted-foreground p-8">预览加载失败</div>
+          )}
+        </div>
+      ) : (
+        <Button variant="outline" size="sm" className="rounded-full px-8" onClick={handleDownload}>
+          下载文件
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function SavingStatus({ isSaving }: { isSaving: boolean }) {
+  const [showSaved, setShowSaved] = useState(false)
+  const lastSaving = useRef(isSaving)
+
+  useEffect(() => {
+    if (lastSaving.current && !isSaving) {
+      setShowSaved(true)
+      const timer = setTimeout(() => setShowSaved(false), 2000)
+      return () => clearTimeout(timer)
+    }
+    lastSaving.current = isSaving
+  }, [isSaving])
+
+  if (isSaving) {
+    return (
+      <div className="flex items-center gap-1 text-[10px] text-primary/60 animate-pulse">
+        <CloudUpload size={12} />
+        <span>Saving...</span>
+      </div>
+    )
+  }
+
+  if (showSaved) {
+    return (
+      <div className="flex items-center gap-1 text-[10px] text-green-600/70 animate-in fade-in zoom-in duration-300">
+        <Check size={12} />
+        <span>Saved</span>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40">
+      <Cloud size={12} />
+      <span>Synced</span>
     </div>
   )
 }

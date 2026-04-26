@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { getJson, postJson, putJson, deleteFetch, downloadBlob } from './client'
+import { getJson, postJson, putJson, deleteFetch, downloadBlob, type ApiRequestConfig } from './client'
 import { getAccessToken } from '@/store'
 import { LATEX } from './api-routes'
 import { createPdfSource } from '@/lib/pdf/range-transport'
@@ -36,19 +36,20 @@ interface LatexFileListEnvelope {
   files: LatexFileItem[]
 }
 
-export function fetchLatexFiles(projectId: string) {
-  return getJson<LatexFileListEnvelope>(LATEX.files(projectId))
+export function fetchLatexFiles(projectId: string, config?: ApiRequestConfig) {
+  return getJson<LatexFileListEnvelope>(LATEX.files(projectId), config)
     .then((res) => res.files)
 }
 
-export function fetchLatexFileContent(projectId: string, filePath: string) {
-  return getJson<LatexFileContent>(LATEX.fileContent(projectId, filePath))
+export function fetchLatexFileContent(projectId: string, filePath: string, config?: ApiRequestConfig) {
+  return getJson<LatexFileContent>(LATEX.fileContent(projectId, filePath), config)
 }
 
-export function saveLatexFile(projectId: string, filePath: string, content: string) {
+export function saveLatexFile(projectId: string, filePath: string, content: string, config?: ApiRequestConfig) {
   return putJson<void, { content: string }>(
     LATEX.fileContent(projectId, filePath),
     { content },
+    config,
   )
 }
 
