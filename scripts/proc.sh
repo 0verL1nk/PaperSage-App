@@ -16,7 +16,7 @@ SERVICES=(
     "frontend|http://localhost:5173|TCP|cd '${PROJECT_ROOT}/frontend' && pnpm dev"
 )
 
-HEALTH_TIMEOUT=30
+HEALTH_TIMEOUT=60
 SHUTDOWN_GRACE=8
 
 # ─── Colors ───
