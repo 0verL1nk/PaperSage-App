@@ -1,4 +1,5 @@
 """Tests for email service module."""
+
 import pytest
 
 from core.email.base import EmailBackend
@@ -31,7 +32,9 @@ class TestEmailService:
         return EmailService(backend=mock_backend)
 
     @pytest.mark.asyncio
-    async def test_send_basic_email(self, service: EmailService, mock_backend: MockEmailBackend) -> None:
+    async def test_send_basic_email(
+        self, service: EmailService, mock_backend: MockEmailBackend
+    ) -> None:
         """Test sending a basic email."""
         result = await service.send(
             to="user@example.com",
@@ -47,7 +50,9 @@ class TestEmailService:
         assert body == "Test Body"
 
     @pytest.mark.asyncio
-    async def test_send_template_email(self, service: EmailService, mock_backend: MockEmailBackend) -> None:
+    async def test_send_template_email(
+        self, service: EmailService, mock_backend: MockEmailBackend
+    ) -> None:
         """Test sending a templated email."""
         result = await service.send_template(
             to="user@example.com",
@@ -63,7 +68,9 @@ class TestEmailService:
         assert body == "Hello John, welcome to PaperSage."
 
     @pytest.mark.asyncio
-    async def test_send_template_missing_variable(self, service: EmailService, mock_backend: MockEmailBackend) -> None:
+    async def test_send_template_missing_variable(
+        self, service: EmailService, mock_backend: MockEmailBackend
+    ) -> None:
         """Test that missing template variable returns False."""
         result = await service.send_template(
             to="user@example.com",

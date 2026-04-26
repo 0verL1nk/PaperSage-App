@@ -103,9 +103,7 @@ class LatexFileService:
         db: AsyncSession,
     ) -> list[tuple[str, str]]:
         """Load all file (path, content) pairs for a project, using cache."""
-        result = await db.execute(
-            select(LatexFile).where(LatexFile.project_id == project_id)
-        )
+        result = await db.execute(select(LatexFile).where(LatexFile.project_id == project_id))
         db_files = list(result.scalars().all())
 
         pairs: list[tuple[str, str]] = []

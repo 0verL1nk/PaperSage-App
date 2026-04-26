@@ -119,7 +119,10 @@ class LaTeXService:
 
         logger.info(
             "Compiling project=%s root=%s compiler=%s resources=%d",
-            project_id, validated_root, compiler, len(resources),
+            project_id,
+            validated_root,
+            compiler,
+            len(resources),
         )
 
         result = await self._client.compile(
@@ -192,7 +195,8 @@ class LaTeXService:
         resp = await self._client.get_output_file(project_id, build_id, "output.pdf")
         if resp.status_code != 200:
             raise LaTeXServiceError(
-                f"CLSI returned {resp.status_code}", status_code=502,
+                f"CLSI returned {resp.status_code}",
+                status_code=502,
             )
         data = resp.content
         _pdf_cache.put(build_id, data)
@@ -223,8 +227,7 @@ async def _enrich_error_from_log(
         elif "fatal error" in raw_log.lower():
             # Fallback: grab lines mentioning fatal error
             summary = "\n".join(
-                line for line in raw_log.splitlines()
-                if "fatal error" in line.lower()
+                line for line in raw_log.splitlines() if "fatal error" in line.lower()
             )[:_MAX_LOG_SIZE]
         else:
             # Last resort: last 10 non-empty lines
@@ -233,7 +236,11 @@ async def _enrich_error_from_log(
 
         result.error = summary or result.error or "Compilation failed"
     except Exception:
-        logger.warning("Failed to fetch output.log for project=%s build=%s",
-                       project_id, result.build_id, exc_info=True)
+        logger.warning(
+            "Failed to fetch output.log for project=%s build=%s",
+            project_id,
+            result.build_id,
+            exc_info=True,
+        )
 
     return result

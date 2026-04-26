@@ -1,4 +1,5 @@
 """User schemas for request/response validation."""
+
 from uuid import UUID
 
 from pydantic import BaseModel, Field

@@ -7,12 +7,32 @@ from dataclasses import dataclass
 from services.latex.clsi_client import ClsiResource
 
 # Binary file extensions that should use URL references
-BINARY_EXTENSIONS = frozenset({
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".webp",
-    ".pdf", ".zip", ".tar", ".gz", ".bz2",
-    ".ttf", ".otf", ".woff", ".woff2",
-    ".bib", ".bst", ".sty", ".cls", ".fd", ".cfg",
-})
+BINARY_EXTENSIONS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".svg",
+        ".webp",
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".ttf",
+        ".otf",
+        ".woff",
+        ".woff2",
+        ".bib",
+        ".bst",
+        ".sty",
+        ".cls",
+        ".fd",
+        ".cfg",
+    }
+)
 
 
 @dataclass(frozen=True)

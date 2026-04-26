@@ -1,4 +1,5 @@
 """Projects API route tests - verification"""
+
 import pytest
 
 

@@ -1,4 +1,5 @@
 import * as monaco from 'monaco-editor'
+// @ts-expect-error lezer-generator output has no type declarations
 import { parser } from './lezer-latex/latex.mjs'
 
 export function registerLatexLsp() {
@@ -116,7 +117,7 @@ export function registerLatexLsp() {
           suggestions.push({
             label: env,
             kind: monaco.languages.CompletionItemKind.Struct,
-            insertText: `${env}\}\n\t$0\n\\end{${env}`,
+            insertText: `${env}}\n\t$0\n\\end{${env}`,
             insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             range: { ...range, startColumn: position.column - matchBegin[1].length }
           })

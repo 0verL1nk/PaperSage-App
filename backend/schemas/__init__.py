@@ -1,4 +1,7 @@
 """Schemas package."""
+
+from schemas.document import DocumentMoveRequest, DocumentRemarkRequest, DocumentResponse
+from schemas.folder import FolderCreate, FolderResponse
 from schemas.project import (
     ProjectCreate,
     ProjectGroupCreate,
@@ -31,4 +34,9 @@ __all__ = [
     "ProjectGroupUpdate",
     "ProjectGroupResponse",
     "TrashItemResponse",
+    "FolderCreate",
+    "FolderResponse",
+    "DocumentResponse",
+    "DocumentMoveRequest",
+    "DocumentRemarkRequest",
 ]

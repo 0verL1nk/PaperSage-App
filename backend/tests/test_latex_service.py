@@ -79,7 +79,9 @@ class TestLaTeXService:
 
     @pytest.mark.asyncio
     async def test_compile_project_success(
-        self, service: LaTeXService, mock_client: AsyncMock,
+        self,
+        service: LaTeXService,
+        mock_client: AsyncMock,
     ) -> None:
         expected = ClsiCompileResult(
             status="success",
@@ -103,7 +105,9 @@ class TestLaTeXService:
 
     @pytest.mark.asyncio
     async def test_compile_disabled(
-        self, service: LaTeXService, mock_client: AsyncMock,
+        self,
+        service: LaTeXService,
+        mock_client: AsyncMock,
     ) -> None:
         with patch(
             "services.latex.service.get_settings",

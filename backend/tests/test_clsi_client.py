@@ -46,16 +46,25 @@ class TestClsiResource:
 class TestCompile:
     @pytest.mark.asyncio
     async def test_compile_success(self, client: ClsiClient) -> None:
-        mock_resp = _mock_response(200, {
-            "compile": {
-                "status": "success",
-                "buildId": "build-abc123",
-                "outputFiles": [
-                    {"path": "output.pdf", "url": "/output.pdf", "type": "pdf", "build": "build-abc123", "size": 12345},
-                ],
-                "outputUrlPrefix": "/build/build-abc123/output",
+        mock_resp = _mock_response(
+            200,
+            {
+                "compile": {
+                    "status": "success",
+                    "buildId": "build-abc123",
+                    "outputFiles": [
+                        {
+                            "path": "output.pdf",
+                            "url": "/output.pdf",
+                            "type": "pdf",
+                            "build": "build-abc123",
+                            "size": 12345,
+                        },
+                    ],
+                    "outputUrlPrefix": "/build/build-abc123/output",
+                },
             },
-        })
+        )
 
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_resp
@@ -99,13 +108,16 @@ class TestCompile:
 
     @pytest.mark.asyncio
     async def test_compile_failure_status(self, client: ClsiClient) -> None:
-        mock_resp = _mock_response(200, {
-            "compile": {
-                "status": "failure",
-                "outputFiles": [],
-                "error": "Compilation failed",
+        mock_resp = _mock_response(
+            200,
+            {
+                "compile": {
+                    "status": "failure",
+                    "outputFiles": [],
+                    "error": "Compilation failed",
+                },
             },
-        })
+        )
         mock_client = AsyncMock()
         mock_client.post.return_value = mock_resp
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -151,9 +163,12 @@ class TestStopAndClear:
 class TestSyncTeX:
     @pytest.mark.asyncio
     async def test_sync_from_code(self, client: ClsiClient) -> None:
-        mock_resp = _mock_response(200, {
-            "pdf": [{"page": 1, "h": 100.0, "v": 200.0, "width": 50.0, "height": 10.0}],
-        })
+        mock_resp = _mock_response(
+            200,
+            {
+                "pdf": [{"page": 1, "h": 100.0, "v": 200.0, "width": 50.0, "height": 10.0}],
+            },
+        )
         mock_client = AsyncMock()
         mock_client.get.return_value = mock_resp
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -168,9 +183,12 @@ class TestSyncTeX:
 
     @pytest.mark.asyncio
     async def test_sync_from_pdf(self, client: ClsiClient) -> None:
-        mock_resp = _mock_response(200, {
-            "code": [{"file": "main.tex", "line": 42, "column": 1}],
-        })
+        mock_resp = _mock_response(
+            200,
+            {
+                "code": [{"file": "main.tex", "line": 42, "column": 1}],
+            },
+        )
         mock_client = AsyncMock()
         mock_client.get.return_value = mock_resp
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
@@ -188,9 +206,12 @@ class TestSyncTeX:
 class TestWordcount:
     @pytest.mark.asyncio
     async def test_wordcount(self, client: ClsiClient) -> None:
-        mock_resp = _mock_response(200, {
-            "texcount": {"textWords": 100, "headers": 10, "mathDisplay": 5},
-        })
+        mock_resp = _mock_response(
+            200,
+            {
+                "texcount": {"textWords": 100, "headers": 10, "mathDisplay": 5},
+            },
+        )
         mock_client = AsyncMock()
         mock_client.get.return_value = mock_resp
         mock_client.__aenter__ = AsyncMock(return_value=mock_client)
