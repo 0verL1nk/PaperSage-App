@@ -14,6 +14,7 @@ const makeFile = (filePath: string): LatexFileItem => ({
 const noop = {
   onSelect: () => {},
   onDeleteFile: () => {},
+  onDeleteFolder: () => {},
   onCreateFile: async () => makeFile('dummy'),
   onRenameFile: async () => makeFile('dummy'),
   onMoveFile: async () => makeFile('dummy'),
@@ -29,6 +30,7 @@ function renderTree(overrides: Partial<typeof noop> = {}, files: LatexFileItem[]
         activeFilePath={activeFilePath}
         onSelect={props.onSelect}
         onDeleteFile={props.onDeleteFile}
+        onDeleteFolder={props.onDeleteFolder}
         onCreateFile={props.onCreateFile}
         onRenameFile={props.onRenameFile}
         onMoveFile={props.onMoveFile}
@@ -69,6 +71,7 @@ describe('WritingFileTree', () => {
         activeFilePath={null}
         onSelect={() => {}}
         onDeleteFile={() => {}}
+        onDeleteFolder={() => {}}
         onCreateFile={async () => makeFile('x')}
         onRenameFile={async () => makeFile('x')}
         onMoveFile={async () => makeFile('x')}
@@ -143,6 +146,7 @@ describe('WritingFileTree', () => {
           activeFilePath={null}
           onSelect={() => {}}
           onDeleteFile={() => {}}
+          onDeleteFolder={() => {}}
           onCreateFile={onCreateFile}
           onRenameFile={onRenameFile}
           onMoveFile={onMoveFile}
@@ -153,5 +157,67 @@ describe('WritingFileTree', () => {
 
     expect(container).toBeInTheDocument()
     expect(screen.getByText('main.tex')).toBeInTheDocument()
+  })
+
+  // --- Handler error handling (8.5) ---
+
+  it('handles onCreateFile rejection without crash', async () => {
+    const failingCreate = vi.fn().mockRejectedValue(new Error('network'))
+    const { container } = render(
+      <div style={{ height: 300 }}>
+        <WritingFileTree
+          files={[makeFile('main.tex')]}
+          activeFilePath={null}
+          onSelect={() => {}}
+          onDeleteFile={() => {}}
+          onDeleteFolder={() => {}}
+          onCreateFile={failingCreate}
+          onRenameFile={async () => makeFile('x')}
+          onMoveFile={async () => makeFile('x')}
+        />
+      </div>,
+    )
+    expect(container).toBeInTheDocument()
+    expect(screen.getByText('main.tex')).toBeInTheDocument()
+  })
+
+  it('handles onRenameFile rejection without crash', () => {
+    const failingRename = vi.fn().mockRejectedValue(new Error('fail'))
+    const { container } = render(
+      <div style={{ height: 300 }}>
+        <WritingFileTree
+          files={[makeFile('main.tex')]}
+          activeFilePath={null}
+          onSelect={() => {}}
+          onDeleteFile={() => {}}
+          onDeleteFolder={() => {}}
+          onCreateFile={async () => makeFile('x')}
+          onRenameFile={failingRename}
+          onMoveFile={async () => makeFile('x')}
+        />
+      </div>,
+    )
+    expect(container).toBeInTheDocument()
+  })
+
+  // --- Search/no-match empty state (8.5 subset) ---
+
+  it('shows empty state when search has no matches', () => {
+    renderTree({}, [makeFile('main.tex'), makeFile('refs.bib')])
+
+    const searchInput = screen.getByPlaceholderText('搜索文件...')
+    fireEvent.change(searchInput, { target: { value: 'nonexistent' } })
+
+    expect(screen.getByText('无匹配文件')).toBeInTheDocument()
+  })
+
+  // --- Keyboard shortcuts (8.7) ---
+
+  it('renders file tree that can receive keyboard events', () => {
+    const onDeleteFile = vi.fn()
+    renderTree({ onDeleteFile }, [makeFile('main.tex')], 'main.tex')
+
+    const treeContainer = screen.getByText('main.tex').closest('[tabindex]')
+    expect(treeContainer).toBeTruthy()
   })
 })

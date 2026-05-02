@@ -10,10 +10,10 @@ from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import User
 from schemas.user_settings import (
+    VALID_CATEGORIES,
     AllSettingsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
-    VALID_CATEGORIES,
 )
 from services.settings_service import SettingsService, SettingsServiceError
 
@@ -68,9 +68,7 @@ async def patch_category_settings(
     _check_category(category)
     svc = _svc(db)
     try:
-        data = await svc.update_category(
-            current_user.id, category, body.settings
-        )
+        data = await svc.update_category(current_user.id, category, body.settings)
     except SettingsServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -93,9 +91,7 @@ async def put_category_settings(
     _check_category(category)
     svc = _svc(db)
     try:
-        data = await svc.replace_category(
-            current_user.id, category, body.settings
-        )
+        data = await svc.replace_category(current_user.id, category, body.settings)
     except SettingsServiceError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

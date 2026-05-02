@@ -19,8 +19,20 @@ export interface EditorSettings {
   word_wrap: boolean
 }
 
-export interface AgentSettings {
+export type ProviderType = 'openai_compatible' | 'anthropic'
+
+export interface ProviderConfig {
+  id: string
+  name: string
+  type: ProviderType
+  base_url: string
+  api_key: string
   model_name: string
+}
+
+export interface AgentSettings {
+  providers: ProviderConfig[]
+  active_provider_id: string
   temperature: number
   writing_style: string
   memory_enabled: boolean

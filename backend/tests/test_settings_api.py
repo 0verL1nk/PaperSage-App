@@ -55,10 +55,12 @@ class TestRouteStructure:
 
     def test_router_exists(self) -> None:
         from api.routes.settings import router
+
         assert router is not None
 
     def test_router_has_expected_routes(self) -> None:
         from api.routes.settings import router
+
         routes = [r.path for r in router.routes]
         assert "" in routes  # GET /settings (empty path relative to prefix)
         assert "/{category}" in routes

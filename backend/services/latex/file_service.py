@@ -458,3 +458,31 @@ class LatexFileService:
         filename = old_path.rsplit("/", 1)[-1] if "/" in old_path else old_path
         new_path = f"{new_dir}/{filename}" if new_dir else filename
         return await self.rename_file(project_id, old_path, new_path, user_id, db)
+
+    async def delete_folder(
+        self,
+        project_id: uuid.UUID,
+        folder_path: str,
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> int:
+        """Delete all files under a folder path. Returns count of deleted files."""
+        await _verify_project_access(project_id, user_id, db)
+
+        prefix = folder_path.rstrip("/") + "/"
+        result = await db.execute(
+            select(LatexFile).where(
+                LatexFile.project_id == project_id,
+                LatexFile.file_path.startswith(prefix),
+            )
+        )
+        files = list(result.scalars().all())
+
+        for f in files:
+            if f.s3_key:
+                self._storage.delete_object(f.s3_key)
+                _cache.invalidate(f.s3_key)
+            await db.delete(f)
+
+        await db.commit()
+        return len(files)
