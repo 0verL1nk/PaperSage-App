@@ -329,7 +329,41 @@ export function WritingPage() {
       variant: 'destructive',
       onConfirm: () => {
         deleteMutation.mutate(filePath, {
-          onSuccess: () => { if (activeFilePath === filePath) setActiveFilePath(null) },
+          onSuccess: () => {
+            if (activeFilePath === filePath) {
+              const dir = filePath.includes('/') ? filePath.substring(0, filePath.lastIndexOf('/')) : ''
+              const sibling = files.find((f) => {
+                if (f.file_path === filePath) return false
+                if (!dir) return !f.file_path.includes('/')
+                return f.file_path.startsWith(dir + '/') && !f.file_path.substring(dir.length + 1).includes('/')
+              })
+              const fallback = files.find((f) => f.file_path === 'main.tex' && f.file_path !== filePath)
+              const next = sibling?.file_path ?? fallback?.file_path ?? null
+              setActiveFilePath(next)
+              activeFilePathRef.current = next
+            }
+          },
+        })
+      },
+    })
+  }
+
+  const handleDeleteFolder = (folderPath: string) => {
+    confirm({
+      title: '删除文件夹',
+      description: `确定删除文件夹 "${folderPath}" 吗？该文件夹下所有文件及子文件夹将被永久删除。`,
+      confirmText: '删除',
+      variant: 'destructive',
+      onConfirm: () => {
+        deleteMutation.mutate(folderPath, {
+          onSuccess: () => {
+            if (activeFilePath?.startsWith(folderPath + '/') || activeFilePath === folderPath) {
+              const fallback = files.find((f) => f.file_path === 'main.tex' && !f.file_path.startsWith(folderPath + '/'))
+              const next = fallback?.file_path ?? null
+              setActiveFilePath(next)
+              activeFilePathRef.current = next
+            }
+          },
         })
       },
     })
@@ -421,6 +455,7 @@ export function WritingPage() {
                         activeFilePath={activeFilePath}
                         onSelect={handleSelectFile}
                         onDeleteFile={handleDeleteFile}
+                        onDeleteFolder={handleDeleteFolder}
                         onCreateFile={handleTreeCreateFile}
                         onRenameFile={handleTreeRenameFile}
                         onMoveFile={handleTreeMoveFile}
@@ -441,8 +476,6 @@ export function WritingPage() {
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <div className="flex items-center gap-3">
-                  <EditToolbar />
-                  <div className="w-px h-3 bg-border mx-1" />
                   <div className="flex items-center gap-1.5">
                     <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[120px]">
                       {activeFilePath || '无文件'}
@@ -579,19 +612,6 @@ function TabButton({ icon, active, onClick }: { icon: React.ReactNode; active: b
   )
 }
 
-function EditToolbar() {
-  return (
-    <div className="flex items-center gap-3 opacity-50">
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors font-bold text-[13px]">B</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors italic font-serif text-[13px]">I</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors underline underline-offset-4 text-[13px]">U</span>
-      <div className="h-3 w-px bg-border" />
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">{'\\cite'}</span>
-      <span className="hover:text-primary cursor-pointer px-1 transition-colors text-[9px] font-mono tracking-tighter">{'\\ref'}</span>
-    </div>
-  )
-}
-
 function AIPanel() {
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -644,8 +664,8 @@ function BinaryFilePlaceholder({ path, projectId }: { path: string, projectId: s
         const blob = await downloadBlob(url)
         objectUrl = URL.createObjectURL(blob)
         setImgUrl(objectUrl)
-      } catch (err) {
-        console.error('Failed to load image preview', err)
+      } catch {
+        toast.error('图片预览加载失败')
       } finally {
         setLoading(false)
       }
@@ -668,8 +688,7 @@ function BinaryFilePlaceholder({ path, projectId }: { path: string, projectId: s
       a.click()
       document.body.removeChild(a)
       URL.revokeObjectURL(blobUrl)
-    } catch (err) {
-      console.error('Download failed:', err)
+    } catch {
       toast.error('下载失败', { description: '无法获取文件内容，请检查网络或权限' })
     }
   }

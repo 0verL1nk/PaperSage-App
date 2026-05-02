@@ -2,7 +2,27 @@
 
 import pytest
 
+from schemas.latex_file import FolderDeleteRequest, FolderDeleteResponse
 from services.latex.file_service import BLOCKED_EXTENSIONS, _validate_path
+
+
+class TestFolderDeleteSchemas:
+    def test_folder_delete_request(self):
+        req = FolderDeleteRequest(folder_path="sections")
+        assert req.folder_path == "sections"
+
+    def test_folder_delete_request_strips_trailing_slash(self):
+        req = FolderDeleteRequest(folder_path="sections/")
+        assert req.folder_path == "sections"
+
+    def test_folder_delete_request_rejects_empty(self):
+        with pytest.raises(Exception):
+            FolderDeleteRequest(folder_path="")
+
+    def test_folder_delete_response(self):
+        resp = FolderDeleteResponse(deleted_count=3, folder_path="sections")
+        assert resp.deleted_count == 3
+        assert resp.folder_path == "sections"
 
 
 class TestMoveAndRenameSchemas:
@@ -92,6 +112,8 @@ class TestLatexFilesRouter:
 
     def test_schemas_imports(self):
         from schemas.latex_file import (
+            FolderDeleteRequest,
+            FolderDeleteResponse,
             LatexFileContentResponse,
             LatexFileCreateRequest,
             LatexFileListResponse,
@@ -108,6 +130,8 @@ class TestLatexFilesRouter:
         assert LatexFileContentResponse.model_fields is not None
         assert LatexFileRenameRequest.model_fields is not None
         assert LatexFileMoveRequest.model_fields is not None
+        assert FolderDeleteRequest.model_fields is not None
+        assert FolderDeleteResponse.model_fields is not None
 
     def test_blocked_extensions(self):
         assert ".exe" in BLOCKED_EXTENSIONS

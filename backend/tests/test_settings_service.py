@@ -36,7 +36,8 @@ class TestDefaultSettings:
 
     def test_agent_defaults(self) -> None:
         ag = DEFAULT_SETTINGS["agent"]
-        assert ag["model_name"] == "deepseek"
+        assert ag["active_provider_id"] == ""
+        assert ag["providers"] == []
         assert ag["temperature"] == 0.7
         assert ag["writing_style"] == "academic"
         assert ag["memory_enabled"] is True

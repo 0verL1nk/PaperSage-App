@@ -8,7 +8,6 @@ from uuid import UUID
 
 from pydantic import ValidationError
 from sqlalchemy import delete, select
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.user_settings import UserSettings
@@ -33,9 +32,7 @@ class SettingsService:
 
     async def get_all_settings(self, user_id: UUID) -> dict[str, dict[str, Any]]:
         """Read all categories, merging with defaults."""
-        result = await self._db.execute(
-            select(UserSettings).where(UserSettings.user_id == user_id)
-        )
+        result = await self._db.execute(select(UserSettings).where(UserSettings.user_id == user_id))
         rows = {row.category: row.settings for row in result.scalars().all()}
 
         merged: dict[str, dict[str, Any]] = {}
@@ -43,9 +40,7 @@ class SettingsService:
             merged[cat] = {**DEFAULT_SETTINGS[cat], **rows.get(cat, {})}
         return merged
 
-    async def get_category(
-        self, user_id: UUID, category: str
-    ) -> dict[str, Any] | None:
+    async def get_category(self, user_id: UUID, category: str) -> dict[str, Any] | None:
         """Read a single category, merged with defaults."""
         if category not in VALID_CATEGORIES:
             return None
@@ -106,16 +101,22 @@ class SettingsService:
         except ValidationError as exc:
             raise SettingsServiceError(str(exc)) from exc
 
-    async def _upsert(
-        self, user_id: UUID, category: str, settings: dict
-    ) -> None:
-        stmt = insert(UserSettings).values(
-            user_id=user_id,
-            category=category,
-            settings=settings,
+    async def _upsert(self, user_id: UUID, category: str, settings: dict) -> None:
+        """Insert or update a settings row (works on both SQLite and PostgreSQL)."""
+        result = await self._db.execute(
+            select(UserSettings).where(
+                UserSettings.user_id == user_id,
+                UserSettings.category == category,
+            )
         )
-        stmt = stmt.on_conflict_do_update(
-            index_elements=["user_id", "category"],
-            set_={"settings": stmt.excluded.settings},
-        )
-        await self._db.execute(stmt)
+        row = result.scalar_one_or_none()
+        if row:
+            row.settings = settings
+        else:
+            self._db.add(
+                UserSettings(
+                    user_id=user_id,
+                    category=category,
+                    settings=settings,
+                )
+            )

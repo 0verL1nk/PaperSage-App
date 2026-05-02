@@ -22,7 +22,8 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
         "word_wrap": True,
     },
     "agent": {
-        "model_name": "deepseek",
+        "providers": [],
+        "active_provider_id": "",
         "temperature": 0.7,
         "writing_style": "academic",
         "memory_enabled": True,
@@ -31,6 +32,7 @@ DEFAULT_SETTINGS: dict[str, dict[str, Any]] = {
 
 
 # --- Per-category Pydantic validation schemas ---
+
 
 class UISettings(BaseModel):
     """UI preference settings."""
@@ -50,10 +52,22 @@ class EditorSettings(BaseModel):
     word_wrap: bool = True
 
 
+class ProviderConfig(BaseModel):
+    """A single AI model provider configuration."""
+
+    id: str = Field(default="", min_length=1, max_length=64)
+    name: str = Field(default="", min_length=1, max_length=100)
+    type: Literal["openai_compatible", "anthropic"] = "openai_compatible"
+    base_url: str = Field(default="", min_length=1, max_length=500)
+    api_key: str = Field(default="", max_length=500)
+    model_name: str = Field(default="", min_length=1, max_length=200)
+
+
 class AgentSettings(BaseModel):
     """AI assistant settings."""
 
-    model_name: str = Field(default="deepseek", min_length=1, max_length=100)
+    providers: list[ProviderConfig] = Field(default_factory=list)
+    active_provider_id: str = Field(default="")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     writing_style: str = Field(default="academic", min_length=1, max_length=50)
     memory_enabled: bool = True
@@ -68,6 +82,7 @@ CATEGORY_SCHEMAS: dict[str, type[BaseModel]] = {
 
 
 # --- Request / Response schemas ---
+
 
 class SettingsUpdateRequest(BaseModel):
     """Partial update body for PATCH (any valid fields for the category)."""

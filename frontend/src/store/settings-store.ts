@@ -25,7 +25,7 @@ type SettingsState = {
 const DEFAULT_ALL_SETTINGS: AllSettings = {
   ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
   editor: { font_size: 14, tab_size: 2, auto_save: true, auto_save_interval: 30, word_wrap: true },
-  agent: { model_name: 'deepseek', temperature: 0.7, writing_style: 'academic', memory_enabled: true },
+  agent: { providers: [], active_provider_id: '', temperature: 0.7, writing_style: 'academic', memory_enabled: true },
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({

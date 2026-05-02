@@ -14,6 +14,8 @@ from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import User
 from schemas.latex_file import (
+    FolderDeleteRequest,
+    FolderDeleteResponse,
     LatexFileContentResponse,
     LatexFileCreateRequest,
     LatexFileListResponse,
@@ -155,6 +157,23 @@ async def update_file(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
 
     return api_success(LatexFileResponse.model_validate(latex_file))
+
+
+@router.delete("/folder", response_model=ApiResponse[FolderDeleteResponse])
+async def delete_folder(
+    project_id: uuid.UUID,
+    body: FolderDeleteRequest,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> ApiResponse[FolderDeleteResponse]:
+    """Delete all files under a folder recursively."""
+    service = _get_service()
+    try:
+        count = await service.delete_folder(project_id, body.folder_path, current_user.id, db)
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
+
+    return api_success(FolderDeleteResponse(deleted_count=count, folder_path=body.folder_path))
 
 
 @router.delete("/{file_path:path}", response_model=ApiResponse[dict])
