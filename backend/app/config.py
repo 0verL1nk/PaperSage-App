@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     latex_clsi_base_url: str = "http://localhost:3013"
     latex_clsi_timeout_seconds: int = 120
 
+    # Async Compile Queue
+    max_concurrent_compiles: int = 3
+    latex_compile_timeout: int = 120
+    compile_job_max_age_hours: int = 24
+    compile_history_limit: int = 20
+
     # S3 Storage (Cloudflare R2 / S3-compatible)
     s3_endpoint: str = "https://account_id.r2.cloudflarestorage.com"
     s3_access_key: str = ""
@@ -78,6 +84,11 @@ class Settings(BaseSettings):
     s3_bucket: str = "papersage"
     s3_region: str = "auto"
     s3_public_url: str = ""  # R2 custom domain for public file access
+    s3_parallel_fetch_concurrency: int = 8
+    s3_presigned_url_ttl_seconds: int = 300
+
+    # Incremental compile sync
+    compile_incremental_sync_enabled: bool = True
 
     # Email
     email: EmailSettings = EmailSettings()

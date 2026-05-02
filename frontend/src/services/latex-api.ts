@@ -27,6 +27,48 @@ export interface CompileResponse {
   logs: string | null
 }
 
+export type CompileJobStatus =
+  | 'pending'
+  | 'running'
+  | 'success'
+  | 'failed'
+  | 'timeout'
+  | 'cancelled'
+
+export interface CompileJobSubmitResponse {
+  job_id: string
+  status: CompileJobStatus
+}
+
+export interface CompileJobStatusResponse {
+  job_id: string
+  status: CompileJobStatus
+  build_id: string | null
+  error: string | null
+  logs: string | null
+  root_file: string
+  compiler: string
+  elapsed_seconds: number | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CompileJobListItem {
+  job_id: string
+  status: CompileJobStatus
+  root_file: string
+  compiler: string
+  build_id: string | null
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface CompileJobHistoryResponse {
+  items: CompileJobListItem[]
+  total: number
+}
+
 /** Range transport source for react-pdf (avoids IDM interception). */
 export type PdfRangeSource = { range: unknown }
 
@@ -64,13 +106,21 @@ export function deleteLatexFile(projectId: string, filePath: string) {
   return deleteFetch(LATEX.fileContent(projectId, filePath))
 }
 
+export function renameLatexFile(projectId: string, oldPath: string, newPath: string) {
+  return postJson<LatexFileItem>(LATEX.renameFile(projectId, oldPath), { new_path: newPath })
+}
+
+export function moveLatexFile(projectId: string, filePath: string, newDir: string) {
+  return postJson<LatexFileItem>(LATEX.moveFile(projectId, filePath), { new_dir: newDir })
+}
+
 export function compileLatex(
   projectId: string,
   files: Array<{ path: string; content: string }>,
   rootFile: string,
   compiler: string,
 ) {
-  return postJson<CompileResponse, {
+  return postJson<CompileJobSubmitResponse, {
     root_file: string
     compiler: string
     files: Array<{ path: string; content: string }>
@@ -79,6 +129,18 @@ export function compileLatex(
     compiler,
     files,
   })
+}
+
+export function getCompileStatus(projectId: string, jobId: string) {
+  return getJson<CompileJobStatusResponse>(LATEX.compileStatus(projectId, jobId), { skipGlobalLoading: true })
+}
+
+export function cancelCompile(projectId: string, jobId: string) {
+  return deleteFetch(`${LATEX.compile(projectId)}?job_id=${jobId}`)
+}
+
+export function getCompileHistory(projectId: string) {
+  return getJson<CompileJobHistoryResponse>(LATEX.compileHistory(projectId))
 }
 
 export function getOutputZip(projectId: string, buildId: string) {

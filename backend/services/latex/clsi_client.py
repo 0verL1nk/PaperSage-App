@@ -101,14 +101,19 @@ class ClsiClient:
         root_resource_path: str = "main.tex",
         compiler: str = "pdflatex",
         sync_type: str = "full",
+        sync_state: str | None = None,
     ) -> ClsiCompileResult:
         """Submit a compile request to CLSI."""
+        options: dict[str, Any] = {
+            "compiler": compiler,
+            "syncType": sync_type,
+        }
+        if sync_state is not None:
+            options["syncState"] = sync_state
+
         body: dict[str, Any] = {
             "compile": {
-                "options": {
-                    "compiler": compiler,
-                    "syncType": sync_type,
-                },
+                "options": options,
                 "rootResourcePath": root_resource_path,
                 "resources": [r.model_dump(exclude_none=True) for r in resources],
             },

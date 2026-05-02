@@ -4,7 +4,7 @@ import { useParams } from '@tanstack/react-router'
 import {
   MessageSquareText, Search, Play, Download, Sparkles, Loader2,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
-  Check, Cloud, CloudUpload,
+  Check, Copy, Cloud, CloudUpload, FolderPlus,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -15,9 +15,12 @@ import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
-  useCreateLatexFile, useDeleteLatexFile, useLatexCompile, useLatexOutputPdf,
+  useCreateLatexFile, useDeleteLatexFile, useRenameLatexFile, useMoveLatexFile,
+  useLatexCompile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
-import type { PdfRangeSource } from '@/services/latex-api'
+import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
+import { useAutoSave } from '@/hooks/use-auto-save'
+import type { PdfRangeSource, CompileJobStatus, LatexFileItem } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
@@ -25,15 +28,15 @@ import { downloadBlob } from '@/services/client'
 function toPdfFile(source: PdfRangeSource) {
   return source as Parameters<typeof Document>[0]['file']
 }
-import { WritingFileTree } from './writing-file-tree'
+import { WritingFileTree, type FileTreeHandle } from './writing-file-tree'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import 'react-pdf/dist/Page/TextLayer.css'
+import JSZip from 'jszip'
 
 // --- Constants ---
 
-const AUTO_SAVE_DELAY_MS = 1500
 const ZOOM_RENDER_DEBOUNCE_MS = 400
 const ZOOM_MIN = 0.4
 const ZOOM_MAX = 3.0
@@ -49,8 +52,15 @@ const COMPILER_OPTIONS = [
 
 const XELATEX_PACKAGES = ['ctex', 'fontspec', 'xeCJK', 'polyglossia']
 const XELATEX_RE = new RegExp(`\\\\usepackage(?:\\[[^\\]]*\\])?\\{(?:${XELATEX_PACKAGES.join('|')})\\}`)
+// % !TEX TS-program = xelatex  or  % !TEX program = xelatex
+const TEX_MAGIC_RE = /^%\s*!TEX\s+(?:TS-)?program\s*=\s*(\S+)/mi
 
 function detectCompiler(content: string): string {
+  const magic = TEX_MAGIC_RE.exec(content)
+  if (magic) {
+    const prog = magic[1].toLowerCase()
+    if (['pdflatex', 'xelatex', 'lualatex'].includes(prog)) return prog
+  }
   return XELATEX_RE.test(content) ? 'xelatex' : 'pdflatex'
 }
 
@@ -92,16 +102,13 @@ export function WritingPage() {
   const [renderScale, setRenderScale] = useState(0.9)
   const [isMobile, setIsMobile] = useState(false)
   const [editorContent, setEditorContent] = useState('')
-  const [isCreatingFile, setIsCreatingFile] = useState(false)
-  const [newFileName, setNewFileName] = useState('')
 
   // Refs
+  const fileTreeRef = useRef<FileTreeHandle>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastSavedContentRef = useRef('')
-  const localEditsRef = useRef<string | null>(null)
+  const activeFilePathRef = useRef<string | null>(null)
 
   const monaco = useMonaco()
   const { confirm, ConfirmDialog: DeleteConfirmDialog } = useConfirmDialog()
@@ -111,22 +118,62 @@ export function WritingPage() {
   const isEditable = activeFilePath ? isEditableFile(activeFilePath) : false
   const { data: fileContent, isPending: isContentLoading } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
   const saveMutation = useSaveLatexFile(projectId)
+  const autoSave = useAutoSave(saveMutation)
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
+  const renameMutation = useRenameLatexFile(projectId)
+  const moveMutation = useMoveLatexFile(projectId)
   const compileMutation = useLatexCompile()
   const outputPdfMutation = useLatexOutputPdf()
 
+  // Async compile state
+  const [compileJobId, setCompileJobId] = useState<string | null>(null)
+  const compileStatus = useCompileStatusPolling(projectId, compileJobId)
+
   // Derived state
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
-  const [pdfDownloadUrl, setPdfDownloadUrl] = useState<string | null>(null)
+  const [pdfBuildId, setPdfBuildId] = useState<string | null>(null)
+  const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string | null>(null)
   const [showFullLogs, setShowFullLogs] = useState(false)
-  const isCompiling = compileMutation.isPending || outputPdfMutation.isPending
+
+  const isCompiling = compileMutation.isPending
+    || (compileJobId !== null && compileStatus.data !== undefined && !isTerminalStatus(compileStatus.data.status))
+
+  // React to terminal compile status — using ref to avoid setState-in-effect lint
+  const prevJobIdRef = useRef<string | null>(null)
+  useEffect(() => {
+    const job = compileStatus.data
+    if (!job || !isTerminalStatus(job.status as CompileJobStatus)) return
+    // Only process each job once
+    if (prevJobIdRef.current === job.job_id) return
+    prevJobIdRef.current = job.job_id
+
+    if (job.status === 'success' && job.build_id) {
+      setCompileError(null)
+      setCompileLogs(null)
+      outputPdfMutation.mutate(
+        { projectId, buildId: job.build_id },
+        {
+          onSuccess: (source) => {
+            setPdfFileSource(source)
+            setPdfBuildId(job.build_id!)
+          },
+        },
+      )
+    } else if (job.status === 'failed' || job.status === 'timeout') {
+      setCompileError(job.error || (job.status === 'timeout' ? '编译超时' : '编译失败'))
+      if (job.logs) setCompileLogs(job.logs)
+    }
+
+    setCompileJobId(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [compileStatus.data?.status, compileStatus.data?.job_id])
 
   // Monaco LaTeX LSP
   useEffect(() => {
-    if (monaco) registerLatexLsp()
+    if (monaco) registerLatexLsp(monaco)
   }, [monaco])
 
   // Auto-select first file or main.tex
@@ -136,9 +183,11 @@ export function WritingPage() {
       initializedRef.current = true
       const mainFile = files.find((f) => f.file_path === 'main.tex')
       const target = mainFile?.file_path || files[0].file_path
-      setTimeout(() => setActiveFilePath(target), 0)
+      activeFilePathRef.current = target
+      autoSave.setActiveFile(target)
+      setActiveFilePath(target)
     }
-  }, [files])
+  }, [files, autoSave])
 
   // Mobile detection
   useEffect(() => {
@@ -148,18 +197,20 @@ export function WritingPage() {
     return () => window.removeEventListener('resize', check)
   }, [])
 
-  // Sync editor with loaded file content
+  // Sync editor with loaded file content (skip if user has local edits)
   useEffect(() => {
     if (fileContent?.content !== undefined) {
-      lastSavedContentRef.current = fileContent.content
-      queueMicrotask(() => {
-        setEditorContent(fileContent.content)
-        if (activeFilePath === 'main.tex') {
-          setCompiler(detectCompiler(fileContent.content))
-        }
-      })
+      const applied = autoSave.applyServerContent(fileContent.content)
+      if (applied) {
+        queueMicrotask(() => {
+          setEditorContent(fileContent.content)
+          if (activeFilePathRef.current === 'main.tex') {
+            setCompiler(detectCompiler(fileContent.content))
+          }
+        })
+      }
     }
-  }, [fileContent, activeFilePath])
+  }, [fileContent, autoSave])
 
   // Debounced render scale sync
   useEffect(() => {
@@ -183,38 +234,62 @@ export function WritingPage() {
     return () => container.removeEventListener('wheel', handleWheel)
   }, [])
 
-  // Debounced auto-save
-  const scheduleAutoSave = useCallback((content: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    saveTimerRef.current = setTimeout(() => {
-      if (activeFilePath && content !== lastSavedContentRef.current) {
-        saveMutation.mutate({ filePath: activeFilePath, content })
-        lastSavedContentRef.current = content
+  // Ctrl+S / Cmd+S interception
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault()
+        autoSave.saveNow()
       }
-    }, AUTO_SAVE_DELAY_MS)
-  }, [activeFilePath, saveMutation])
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [autoSave])
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined) return
-    localEditsRef.current = value
-    scheduleAutoSave(value)
+    autoSave.onChange(value)
   }
 
   const handleSelectFile = (filePath: string) => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    autoSave.switchFile(filePath)
+    activeFilePathRef.current = filePath
     setActiveFilePath(filePath)
+    setEditorContent('')
   }
 
+  const handleDownloadPdf = useCallback(async () => {
+    if (!pdfBuildId || isDownloadingPdf) return
+    setIsDownloadingPdf(true)
+    try {
+      const blob = await downloadBlob(LATEX.outputZip(projectId, pdfBuildId))
+      const zip = await JSZip.loadAsync(blob)
+      const pdfEntry = Object.values(zip.files).find(
+        (f) => !f.dir && f.name.toLowerCase().endsWith('.pdf'),
+      )
+      if (!pdfEntry) {
+        toast.error('未找到 PDF 文件')
+        return
+      }
+      const pdfBlob = await pdfEntry.async('blob')
+      const url = URL.createObjectURL(pdfBlob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = 'output.pdf'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      toast.error('下载失败')
+    } finally {
+      setIsDownloadingPdf(false)
+    }
+  }, [pdfBuildId, isDownloadingPdf, projectId])
+
   const handleCompile = async () => {
-    setCompileError(null)
-    setCompileLogs(null)
     setShowFullLogs(false)
     try {
       // Auto-save current file before compiling
-      if (activeFilePath && editorContent !== lastSavedContentRef.current) {
-        await saveMutation.mutateAsync({ filePath: activeFilePath, content: editorContent })
-        lastSavedContentRef.current = editorContent
-      }
+      await autoSave.saveNow()
 
       const rootFile = files.find((f) => f.file_path === 'main.tex')?.file_path
         || activeFilePath
@@ -222,37 +297,28 @@ export function WritingPage() {
 
       if (!rootFile) return
 
-      // Backend loads files from storage — no need to send file contents
+      // Submit async compile job — backend loads files from storage
       const result = await compileMutation.mutateAsync({
         projectId, files: [], rootFile, compiler,
       })
-
-      if (result.status === 'error' || result.status === 'failure' || result.error) {
-        setCompileError(result.error || 'Compilation failed')
-        if (result.logs) setCompileLogs(result.logs)
-        return
-      }
-
-      if (result.build_id) {
-        const source = await outputPdfMutation.mutateAsync({ projectId, buildId: result.build_id })
-        setPdfFileSource(source)
-        setPdfDownloadUrl(LATEX.outputPdf(projectId, result.build_id))
-      }
+      setCompileJobId(result.job_id)
     } catch (err) {
       setCompileError(err instanceof Error ? err.message : '编译失败')
     }
   }
 
-  const handleCreateFile = () => {
-    const name = newFileName.trim()
-    if (!name) { setIsCreatingFile(false); return }
-    createMutation.mutate(
-      { path: name, content: '' },
-      {
-        onSuccess: () => { setActiveFilePath(name); setNewFileName(''); setIsCreatingFile(false) },
-        onError: () => setIsCreatingFile(false),
-      },
-    )
+  const handleTreeCreateFile = async (path: string, content?: string): Promise<LatexFileItem> => {
+    const result: unknown = await createMutation.mutateAsync({ path, content: content ?? '' })
+    setActiveFilePath(path)
+    return result as LatexFileItem
+  }
+
+  const handleTreeRenameFile = async (oldPath: string, newPath: string) => {
+    return renameMutation.mutateAsync({ oldPath, newPath })
+  }
+
+  const handleTreeMoveFile = async (filePath: string, newDir: string) => {
+    return moveMutation.mutateAsync({ filePath, newDir })
   }
 
   const handleDeleteFile = (filePath: string) => {
@@ -289,7 +355,10 @@ export function WritingPage() {
   }
 
   const [isDragOver, setIsDragOver] = useState(false)
-  const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragOver(true) }
+  const handleDragOver = (e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return
+    e.preventDefault(); setIsDragOver(true)
+  }
   const handleDragLeave = () => setIsDragOver(false)
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
@@ -333,36 +402,29 @@ export function WritingPage() {
                       onDrop={handleDrop}
                     >
                       {isDragOver && (
-                        <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center">
+                        <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center pointer-events-none">
                           <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
                         </div>
                       )}
                       <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
                         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
                         <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={() => { setIsCreatingFile(true); setNewFileName('') }}><Plus size={14} /></Button>
+                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件" onClick={() => fileTreeRef.current?.createLeaf()}><Plus size={14} /></Button>
+                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件夹" onClick={() => fileTreeRef.current?.createInternal()}><FolderPlus size={14} /></Button>
                           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={handleUploadClick}><Upload size={14} /></Button>
                           <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
                         </div>
                       </div>
-                      {isCreatingFile && (
-                        <div className="px-2 py-2 border-b border-border/40">
-                          <input
-                            autoFocus
-                            className="w-full px-2 py-1 text-[12px] bg-background border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
-                            placeholder="filename.tex"
-                            value={newFileName}
-                            onChange={(e) => setNewFileName(e.target.value)}
-                            onKeyDown={(e) => { if (e.key === 'Enter') handleCreateFile(); if (e.key === 'Escape') setIsCreatingFile(false) }}
-                            onBlur={() => { if (!newFileName.trim()) setIsCreatingFile(false) }}
-                          />
-                        </div>
-                      )}
                       <WritingFileTree
+                        ref={fileTreeRef}
                         files={files}
                         activeFilePath={activeFilePath}
                         onSelect={handleSelectFile}
                         onDeleteFile={handleDeleteFile}
+                        onCreateFile={handleTreeCreateFile}
+                        onRenameFile={handleTreeRenameFile}
+                        onMoveFile={handleTreeMoveFile}
+                        onExternalDrop={(fileList) => uploadFiles(fileList)}
                       />
                     </div>
                   ) : (
@@ -393,11 +455,6 @@ export function WritingPage() {
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
                     {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
                   </Button>
-                  {pdfDownloadUrl && (
-                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" asChild>
-                      <a href={pdfDownloadUrl} download="output.pdf"><Download size={14} /></a>
-                    </Button>
-                  )}
                 </div>
               </div>
               <div className="flex-1 relative overflow-hidden">
@@ -431,15 +488,33 @@ export function WritingPage() {
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
                   <div className="w-px h-3 bg-border mx-1" />
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
+                  {pdfBuildId && (
+                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
+                      {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                    </Button>
+                  )}
                 </div>
               </div>
 
               <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
                 {compileError ? (
                   <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6 select-text">
-                    <div className="flex items-center gap-2 mb-3 text-destructive">
-                      <AlertCircle size={16} />
-                      <h4 className="text-sm font-bold">编译错误</h4>
+                    <div className="flex items-center justify-between mb-3 text-destructive">
+                      <div className="flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        <h4 className="text-sm font-bold">编译错误</h4>
+                      </div>
+                      <button
+                        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted/50"
+                        onClick={() => {
+                          const text = compileLogs ? `${compileError}\n\n--- Full Logs ---\n${compileLogs}` : compileError || ''
+                          navigator.clipboard.writeText(text)
+                          toast.success('已复制到剪贴板')
+                        }}
+                      >
+                        <Copy size={10} />
+                        复制
+                      </button>
                     </div>
                     <pre className="text-[11px] text-destructive/80 whitespace-pre-wrap font-mono leading-relaxed">{compileError}</pre>
                     {compileLogs && (

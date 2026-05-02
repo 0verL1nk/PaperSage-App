@@ -15,6 +15,11 @@ vi.mock('@/store', () => ({
   getAccessToken: vi.fn().mockReturnValue('test-token'),
 }))
 
+// Mock PDF range transport
+vi.mock('@/lib/pdf/range-transport', () => ({
+  createPdfSource: vi.fn().mockResolvedValue({ url: 'http://localhost/pdf', length: 100 }),
+}))
+
 // Mock client module
 vi.mock('../client', () => ({
   getJson: vi.fn(),
@@ -47,9 +52,15 @@ import {
   createLatexFile,
   deleteLatexFile,
   compileLatex,
+  getCompileStatus,
+  cancelCompile,
+  getCompileHistory,
   getOutputZip,
+  getPdfRangeSource,
   extractPdfFromZip,
 } from '../latex-api'
+import { getAccessToken } from '@/store'
+import { createPdfSource } from '@/lib/pdf/range-transport'
 
 const mockedGetJson = vi.mocked(getJson)
 const mockedPostJson = vi.mocked(postJson)
@@ -137,8 +148,8 @@ describe('latex-api', () => {
   })
 
   describe('compileLatex', () => {
-    it('calls POST compile with correct payload', async () => {
-      const mockResponse = { status: 'success', build_id: 'build-1', output_files: [], error: null, logs: null }
+    it('calls POST compile and returns job submission response', async () => {
+      const mockResponse = { job_id: 'job-123', status: 'pending' as const }
       mockedPostJson.mockResolvedValue(mockResponse)
 
       const files = [{ path: 'main.tex', content: '\\documentclass{article}' }]
@@ -149,6 +160,84 @@ describe('latex-api', () => {
         { root_file: 'main.tex', compiler: 'xelatex', files },
       )
       expect(result).toEqual(mockResponse)
+    })
+  })
+
+  describe('getCompileStatus', () => {
+    it('calls GET compile status endpoint', async () => {
+      const mockStatus = {
+        job_id: 'job-123',
+        status: 'running' as const,
+        build_id: null,
+        error: null,
+        logs: null,
+        root_file: 'main.tex',
+        compiler: 'pdflatex',
+        elapsed_seconds: 5.2,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:05Z',
+      }
+      mockedGetJson.mockResolvedValue(mockStatus)
+
+      const result = await getCompileStatus('proj-1', 'job-123')
+
+      expect(mockedGetJson).toHaveBeenCalledWith(
+        '/api/v1/projects/proj-1/latex/compile/job-123/status/',
+        { skipGlobalLoading: true },
+      )
+      expect(result).toEqual(mockStatus)
+    })
+  })
+
+  describe('cancelCompile', () => {
+    it('calls DELETE compile with job_id query param', async () => {
+      mockedDeleteFetch.mockResolvedValue(undefined)
+
+      await cancelCompile('proj-1', 'job-123')
+
+      expect(mockedDeleteFetch).toHaveBeenCalledWith(
+        '/api/v1/projects/proj-1/latex/compile/?job_id=job-123',
+      )
+    })
+  })
+
+  describe('getCompileHistory', () => {
+    it('calls GET compile history endpoint', async () => {
+      const mockHistory = { items: [], total: 0 }
+      mockedGetJson.mockResolvedValue(mockHistory)
+
+      const result = await getCompileHistory('proj-1')
+
+      expect(mockedGetJson).toHaveBeenCalledWith(
+        '/api/v1/projects/proj-1/latex/compile/history/',
+      )
+      expect(result).toEqual(mockHistory)
+    })
+  })
+
+  describe('getPdfRangeSource', () => {
+    it('creates PDF source with auth header', async () => {
+      const result = await getPdfRangeSource('proj-1', 'build-1')
+
+      expect(getAccessToken).toHaveBeenCalled()
+      expect(createPdfSource).toHaveBeenCalledWith(
+        expect.stringContaining('/api/v1/projects/proj-1/latex/output/build-1/pdf'),
+        { Authorization: 'Bearer test-token' },
+        'build-1',
+      )
+      expect(result).toEqual({ url: 'http://localhost/pdf', length: 100 })
+    })
+
+    it('works without token', async () => {
+      vi.mocked(getAccessToken).mockReturnValueOnce(null as unknown as string)
+
+      await getPdfRangeSource('proj-1', 'build-1')
+
+      expect(createPdfSource).toHaveBeenCalledWith(
+        expect.any(String),
+        {},
+        'build-1',
+      )
     })
   })
 

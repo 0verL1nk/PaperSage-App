@@ -5,6 +5,32 @@ import pytest
 from services.latex.file_service import BLOCKED_EXTENSIONS, _validate_path
 
 
+class TestMoveAndRenameSchemas:
+    def test_rename_schema(self):
+        from schemas.latex_file import LatexFileRenameRequest
+
+        req = LatexFileRenameRequest(new_path="sections/intro_v2.tex")
+        assert req.new_path == "sections/intro_v2.tex"
+
+    def test_rename_schema_rejects_empty(self):
+        from schemas.latex_file import LatexFileRenameRequest
+
+        with pytest.raises(Exception):
+            LatexFileRenameRequest(new_path="")
+
+    def test_move_schema(self):
+        from schemas.latex_file import LatexFileMoveRequest
+
+        req = LatexFileMoveRequest(new_dir="chapters")
+        assert req.new_dir == "chapters"
+
+    def test_move_schema_accepts_empty_as_root(self):
+        from schemas.latex_file import LatexFileMoveRequest
+
+        req = LatexFileMoveRequest(new_dir="")
+        assert req.new_dir == ""
+
+
 class TestPathValidation:
     def test_valid_tex_path(self):
         assert _validate_path("main.tex") == "main.tex"
@@ -69,6 +95,8 @@ class TestLatexFilesRouter:
             LatexFileContentResponse,
             LatexFileCreateRequest,
             LatexFileListResponse,
+            LatexFileMoveRequest,
+            LatexFileRenameRequest,
             LatexFileResponse,
             LatexFileUpdateRequest,
         )
@@ -78,6 +106,8 @@ class TestLatexFilesRouter:
         assert LatexFileResponse.model_fields is not None
         assert LatexFileListResponse.model_fields is not None
         assert LatexFileContentResponse.model_fields is not None
+        assert LatexFileRenameRequest.model_fields is not None
+        assert LatexFileMoveRequest.model_fields is not None
 
     def test_blocked_extensions(self):
         assert ".exe" in BLOCKED_EXTENSIONS

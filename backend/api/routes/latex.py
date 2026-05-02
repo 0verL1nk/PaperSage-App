@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 import uuid
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,11 +14,15 @@ from api.dependencies import get_db
 from api.response import ApiResponse, api_success
 from api.routes.auth import get_current_user
 from models import User
+from schemas.compile_job import (
+    CompileJobHistoryResponse,
+    CompileJobListItem,
+    CompileJobStatusResponse,
+    CompileJobSubmitResponse,
+)
 from schemas.latex import (
     VALID_COMPILERS,
     LatexCompileRequest,
-    LatexCompileResponse,
-    LatexOutputFileResponse,
     LatexSyncCodeRequest,
     LatexSyncCodeResponse,
     LatexSyncPdfRequest,
@@ -25,12 +30,15 @@ from schemas.latex import (
     LatexSyncPosition,
     LatexWordcountResponse,
 )
+from services.latex.compile_queue import CompileQueueService, get_compile_queue
 from services.latex.resource_builder import ProjectFile
 from services.latex.service import LaTeXService, LaTeXServiceError
 
 router = APIRouter()
 
 _RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+CompileQueue = Annotated[CompileQueueService, Depends(get_compile_queue)]
 
 
 def _get_service() -> LaTeXService:
@@ -53,14 +61,19 @@ async def _load_project_files_from_storage(
     return [ProjectFile(path=path, content=content) for path, content in pairs]
 
 
-@router.post("/compile", response_model=ApiResponse[LatexCompileResponse])
+@router.post(
+    "/compile",
+    status_code=status.HTTP_202_ACCEPTED,
+    response_model=ApiResponse[CompileJobSubmitResponse],
+)
 async def compile_project(
     project_id: uuid.UUID,
     body: LatexCompileRequest,
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
-) -> ApiResponse[LatexCompileResponse]:
-    """Compile a LaTeX project."""
+    queue: CompileQueueService = Depends(get_compile_queue),  # noqa: B008
+) -> ApiResponse[CompileJobSubmitResponse]:
+    """Submit an async compile job. Returns job_id immediately."""
     if body.compiler not in VALID_COMPILERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -70,66 +83,115 @@ async def compile_project(
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
 
-    # Use files from request if provided, otherwise load from storage
-    if body.files:
-        files = [
-            ProjectFile(
-                path=f.path,
-                content=f.content,
-                url=f.url,
-                is_binary=f.is_binary,
-            )
-            for f in body.files
-        ]
-    else:
-        files = await _load_project_files_from_storage(project_id, db)
-
-    if not files:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="项目没有可编译的文件",
-        )
-
-    try:
-        result = await service.compile_project(
-            project_id=_project_id_str(project_id),
-            files=files,
-            root_file=body.root_file,
-            compiler=body.compiler,
-        )
-    except LaTeXServiceError as e:
-        raise HTTPException(status_code=e.status_code, detail=e.message) from None
-
-    response = LatexCompileResponse(
-        status=result.status,
-        build_id=result.build_id,
-        output_files=[
-            LatexOutputFileResponse(
-                path=f.path,
-                url=f.url,
-                type=f.type,
-                build=f.build,
-                size=f.size,
-            )
-            for f in result.output_files
-        ],
-        error=result.error,
-        logs=result.logs,
+    job = await queue.submit(
+        project_id=project_id,
+        user_id=current_user.id,
+        db=db,
+        root_file=body.root_file,
+        compiler=body.compiler,
     )
-    return api_success(response)
+    return api_success(
+        CompileJobSubmitResponse(job_id=job.id, status=job.status),
+    )
 
 
 @router.delete("/compile")
 async def stop_compile(
     project_id: uuid.UUID,
+    job_id: uuid.UUID | None = Query(None, description="Compile job ID to cancel"),
     current_user: User = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
+    queue: CompileQueueService = Depends(get_compile_queue),  # noqa: B008
 ) -> ApiResponse[dict]:
-    """Stop a running compilation."""
+    """Stop/cancel a compilation. Optionally cancel a specific job by job_id."""
     service = _get_service()
     await service.verify_project_access(project_id, current_user, db)
+
+    if job_id:
+        job = await queue.cancel(job_id, current_user.id, db)
+        if not job:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Compile job not found",
+            )
+        return api_success({"cancelled": True, "job_id": str(job_id)})
+
     await service.stop_compile(_project_id_str(project_id))
     return api_success({"stopped": True})
+
+
+@router.get(
+    "/compile/history",
+    response_model=ApiResponse[CompileJobHistoryResponse],
+)
+async def get_compile_history(
+    project_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    queue: CompileQueueService = Depends(get_compile_queue),  # noqa: B008
+) -> ApiResponse[CompileJobHistoryResponse]:
+    """Get compile history for a project."""
+    service = _get_service()
+    await service.verify_project_access(project_id, current_user, db)
+
+    items, total = await queue.get_history(project_id, current_user.id, db)
+    return api_success(
+        CompileJobHistoryResponse(
+            items=[
+                CompileJobListItem(
+                    job_id=j.id,
+                    status=j.status,
+                    root_file=j.root_file,
+                    compiler=j.compiler,
+                    build_id=j.build_id,
+                    error=j.error,
+                    created_at=j.created_at,
+                    updated_at=j.updated_at,
+                )
+                for j in items
+            ],
+            total=total,
+        )
+    )
+
+
+@router.get(
+    "/compile/{job_id}/status",
+    response_model=ApiResponse[CompileJobStatusResponse],
+)
+async def get_compile_status(
+    project_id: uuid.UUID,
+    job_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+    queue: CompileQueueService = Depends(get_compile_queue),  # noqa: B008
+) -> ApiResponse[CompileJobStatusResponse]:
+    """Poll compile job status."""
+    service = _get_service()
+    await service.verify_project_access(project_id, current_user, db)
+
+    job = await queue.get_status(job_id, current_user.id, db)
+    if not job:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Compile job not found",
+        )
+
+    elapsed = (job.updated_at - job.created_at).total_seconds()
+    return api_success(
+        CompileJobStatusResponse(
+            job_id=job.id,
+            status=job.status,
+            build_id=job.build_id,
+            error=job.error,
+            logs=job.logs,
+            root_file=job.root_file,
+            compiler=job.compiler,
+            elapsed_seconds=elapsed,
+            created_at=job.created_at,
+            updated_at=job.updated_at,
+        )
+    )
 
 
 @router.delete("/cache")

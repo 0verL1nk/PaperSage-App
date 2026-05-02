@@ -67,6 +67,14 @@ class S3Storage:
         """Delete an object from S3."""
         self._client.delete_object(Bucket=self._bucket, Key=key)
 
+    def generate_presigned_url(self, key: str, expires_in: int = 300) -> str:
+        """Generate a presigned URL for temporary read access."""
+        return self._client.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self._bucket, "Key": key},
+            ExpiresIn=expires_in,
+        )
+
     def list_objects(self, prefix: str) -> list[str]:
         """List object keys under a prefix."""
         keys: list[str] = []

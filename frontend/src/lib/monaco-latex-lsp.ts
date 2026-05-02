@@ -1,18 +1,76 @@
-import * as monaco from 'monaco-editor'
+import * as Monaco from 'monaco-editor'
 // @ts-expect-error lezer-generator output has no type declarations
 import { parser } from './lezer-latex/latex.mjs'
 
-export function registerLatexLsp() {
+const LATEX_TOKENIZER: Monaco.languages.IMonarchLanguage = {
+  defaultToken: '',
+  tokenPostfix: '.latex',
+
+  brackets: [
+    { open: '{', close: '}', token: 'delimiter.bracket' },
+    { open: '[', close: ']', token: 'delimiter.square' },
+  ],
+
+  keywords: [
+    'document', 'itemize', 'enumerate', 'figure', 'table', 'equation',
+    'align', 'tabular', 'center', 'abstract', 'verbatim', 'tikzpicture',
+    'array', 'matrix', 'bmatrix', 'pmatrix', 'cases',
+  ],
+
+  tokenizer: {
+    root: [
+      { regex: '%.*$', action: { token: 'comment' } },
+      { regex: '\\\\begin\\{', action: { token: 'keyword', next: '@envBody' } },
+      { regex: '\\\\end\\{', action: { token: 'keyword' } },
+      { regex: '\\\\(documentclass|usepackage|input|include|includeonly)\\b', action: { token: 'keyword' } },
+      { regex: '\\\\(part|chapter|section|subsection|subsubsection|paragraph|subparagraph)\\*?', action: { token: 'string' } },
+      { regex: '\\\\(textbf|textit|underline|emph|texttt|textrm|textsf|textsc)\\b', action: { token: 'type' } },
+      { regex: '\\\\(cite|citep|citet|citeauthor|citeyear|nocite|bibliography|bibliographystyle)\\b', action: { token: 'variable' } },
+      { regex: '\\\\(ref|eqref|pageref|label|autoref|cref|Cref)\\b', action: { token: 'variable' } },
+      { regex: '\\\\(frac|sum|prod|int|sqrt|alpha|beta|gamma|delta|epsilon|theta|lambda|mu|pi|sigma|omega|infty|cdot|times|leq|geq|neq|approx)\\b', action: { token: 'number' } },
+      { regex: '\\\\(title|author|date|maketitle|tableofcontents|newpage|clearpage|linebreak|pagebreak)\\b', action: { token: 'tag' } },
+      { regex: '\\\\(centering|raggedright|raggedleft|hfill|vfill|hrule|vrule|noindent|bigskip|medskip|smallskip)\\b', action: { token: 'tag' } },
+      { regex: '\\\\(item)\\b', action: { token: 'keyword' } },
+      { regex: '\\\\[a-zA-Z]+', action: { token: 'identifier' } },
+      { regex: '\\$\\$', action: { token: 'string', next: '@mathDisplay' } },
+      { regex: '\\$', action: { token: 'string', next: '@mathInline' } },
+      { regex: '[{}\\[\\]]', action: { token: 'delimiter.bracket' } },
+      { regex: '\\\\[\\[\\]{}\\\\]', action: { token: 'string.escape' } },
+    ],
+
+    envBody: [
+      { regex: '\\}', action: { token: 'keyword', next: '@pop' } },
+      { regex: '[a-zA-Z*]+', action: { token: 'type' } },
+    ],
+
+    mathInline: [
+      { regex: '\\$', action: { token: 'string', next: '@pop' } },
+      { regex: '\\\\[a-zA-Z]+', action: { token: 'number' } },
+      { regex: '[{}\\[\\]]', action: { token: 'delimiter.bracket' } },
+      { regex: '[^$\\\\{}]+', action: { token: 'string' } },
+    ],
+
+    mathDisplay: [
+      { regex: '\\$\\$', action: { token: 'string', next: '@pop' } },
+      { regex: '\\\\[a-zA-Z]+', action: { token: 'number' } },
+      { regex: '[{}\\[\\]]', action: { token: 'delimiter.bracket' } },
+      { regex: '[^$\\\\{}]+', action: { token: 'string' } },
+    ],
+  },
+}
+
+export function registerLatexLsp(monaco: typeof Monaco) {
   monaco.languages.register({ id: 'latex' })
+  monaco.languages.setMonarchTokensProvider('latex', LATEX_TOKENIZER)
 
   // 1. Document Outline (Document Symbol Provider)
   monaco.languages.registerDocumentSymbolProvider('latex', {
-    provideDocumentSymbols(model: monaco.editor.ITextModel) {
-      const symbols: monaco.languages.DocumentSymbol[] = []
+    provideDocumentSymbols(model: Monaco.editor.ITextModel) {
+      const symbols: Monaco.languages.DocumentSymbol[] = []
       const tree = parser.parse(model.getValue())
       const cursor = tree.cursor()
 
-      const stack: { level: number, children: monaco.languages.DocumentSymbol[] }[] = [{ level: 0, children: symbols }]
+      const stack: { level: number, children: Monaco.languages.DocumentSymbol[] }[] = [{ level: 0, children: symbols }]
 
       // Traverse the Lezer AST to build the outline
       do {
@@ -38,10 +96,10 @@ export function registerLatexLsp() {
           const titleMatch = text.match(/\\(part|chapter|section|subsection|subsubsection|paragraph)\*?\{(.*?)\}/)
           const name = titleMatch ? titleMatch[2] : text
 
-          const symbol: monaco.languages.DocumentSymbol = {
+          const symbol: Monaco.languages.DocumentSymbol = {
             name,
             detail: type,
-            kind: monaco.languages.SymbolKind.Module,
+            kind: Monaco.languages.SymbolKind.Module,
             range: {
               startLineNumber: model.getPositionAt(cursor.from).lineNumber,
               startColumn: model.getPositionAt(cursor.from).column,
@@ -74,7 +132,7 @@ export function registerLatexLsp() {
   // 2. Autocomplete (Completion Item Provider)
   monaco.languages.registerCompletionItemProvider('latex', {
     triggerCharacters: ['\\', '{'],
-    provideCompletionItems: (model: monaco.editor.ITextModel, position: monaco.Position) => {
+    provideCompletionItems: (model: Monaco.editor.ITextModel, position: Monaco.Position) => {
       const textUntilPosition = model.getValueInRange({
         startLineNumber: position.lineNumber,
         startColumn: 1,
@@ -82,7 +140,7 @@ export function registerLatexLsp() {
         endColumn: position.column
       })
 
-      const suggestions: monaco.languages.CompletionItem[] = []
+      const suggestions: Monaco.languages.CompletionItem[] = []
       const word = model.getWordUntilPosition(position)
       const range = {
         startLineNumber: position.lineNumber,
@@ -102,7 +160,7 @@ export function registerLatexLsp() {
         commands.forEach(cmd => {
           suggestions.push({
             label: `\\${cmd}`,
-            kind: monaco.languages.CompletionItemKind.Function,
+            kind: Monaco.languages.CompletionItemKind.Function,
             insertText: `${cmd}`,
             range: range
           })
@@ -116,9 +174,9 @@ export function registerLatexLsp() {
         envs.forEach(env => {
           suggestions.push({
             label: env,
-            kind: monaco.languages.CompletionItemKind.Struct,
+            kind: Monaco.languages.CompletionItemKind.Struct,
             insertText: `${env}}\n\t$0\n\\end{${env}`,
-            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            insertTextRules: Monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             range: { ...range, startColumn: position.column - matchBegin[1].length }
           })
         })

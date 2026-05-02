@@ -93,7 +93,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
                 <div className="p-4 mt-auto border-t border-border flex-none">
                   <Link 
-                    to="/app/profile" 
+                    to="/app/settings" 
                     onClick={() => setMobileMenuOpen(false)}
                     className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                   >
@@ -149,13 +149,13 @@ export function MainLayout({ children }: MainLayoutProps) {
               <DropdownMenuSeparator />
 
               <DropdownMenuItem asChild>
-                <Link to="/app/profile">
+                <Link to="/app/settings">
                   <User className="mr-2 h-4 w-4" />
                   <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link to="/app/profile">
+                <Link to="/app/settings">
                   <Settings className="mr-2 h-4 w-4" />
                   <span>Settings</span>
                 </Link>
@@ -209,7 +209,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
           <div className="p-4 mt-auto border-t border-border flex-none">
             <Link 
-              to="/app/profile" 
+              to="/app/settings" 
               className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               <Settings className="size-4 opacity-60" />

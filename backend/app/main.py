@@ -20,7 +20,22 @@ from core.database import engine
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup - create tables
+    # Auto-run pending alembic migrations on startup
+    from logging import getLogger
+
+    from alembic.config import Config
+
+    from alembic import command
+
+    logger = getLogger("app.main")
+    try:
+        alembic_cfg = Config("alembic.ini")
+        command.upgrade(alembic_cfg, "head")
+        logger.info("Database migrations applied")
+    except Exception:
+        logger.warning("Alembic migration skipped (alembic.ini not found or failed)", exc_info=True)
+
+    # Create any new tables not covered by migrations
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
@@ -34,6 +49,13 @@ async def lifespan(app: FastAPI):
     else:
         await cache_store.connect()
         print("✓ Cache: in-memory store active")
+
+    # Recover orphaned compile jobs from previous session
+    from services.latex.compile_queue import get_compile_queue
+
+    queue = get_compile_queue()
+    await queue.recover_on_startup()
+    print("✓ Compile queue: recovered pending jobs")
 
     yield
     # Shutdown

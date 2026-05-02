@@ -106,6 +106,8 @@ class LaTeXService:
         files: list[ProjectFile],
         root_file: str = "main.tex",
         compiler: str = "pdflatex",
+        sync_type: str = "full",
+        sync_state: str | None = None,
     ) -> ClsiCompileResult:
         """Compile a project by assembling resources and sending to CLSI."""
         settings = get_settings()
@@ -118,10 +120,11 @@ class LaTeXService:
             raise LaTeXServiceError("No files provided for compilation", status_code=400)
 
         logger.info(
-            "Compiling project=%s root=%s compiler=%s resources=%d",
+            "Compiling project=%s root=%s compiler=%s sync=%s resources=%d",
             project_id,
             validated_root,
             compiler,
+            sync_type,
             len(resources),
         )
 
@@ -130,6 +133,8 @@ class LaTeXService:
             resources=resources,
             root_resource_path=validated_root,
             compiler=compiler,
+            sync_type=sync_type,
+            sync_state=sync_state,
         )
 
         if result.status in _FAILED_STATUSES and result.build_id:
@@ -231,7 +236,7 @@ async def _enrich_error_from_log(
             )[:_MAX_LOG_SIZE]
         else:
             # Last resort: last 10 non-empty lines
-            tail = [l for l in raw_log.splitlines() if l.strip()][-10:]
+            tail = [line for line in raw_log.splitlines() if line.strip()][-10:]
             summary = "\n".join(tail)
 
         result.error = summary or result.error or "Compilation failed"

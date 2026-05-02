@@ -5,9 +5,11 @@ import {
   saveLatexFile,
   createLatexFile,
   deleteLatexFile,
+  renameLatexFile,
+  moveLatexFile,
   compileLatex,
   getPdfRangeSource,
-  type CompileResponse,
+  type CompileJobSubmitResponse,
   type PdfRangeSource,
 } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
@@ -82,9 +84,31 @@ export function useDeleteLatexFile(projectId: string) {
   })
 }
 
+export function useRenameLatexFile(projectId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ oldPath, newPath }: { oldPath: string; newPath: string }) =>
+      renameLatexFile(projectId, oldPath, newPath),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    },
+  })
+}
+
+export function useMoveLatexFile(projectId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ filePath, newDir }: { filePath: string; newDir: string }) =>
+      moveLatexFile(projectId, filePath, newDir),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    },
+  })
+}
+
 export function useLatexCompile() {
   return useMutation<
-    CompileResponse,
+    CompileJobSubmitResponse,
     Error,
     {
       projectId: string

@@ -19,6 +19,18 @@ class LatexFileUpdateRequest(BaseModel):
     content: str = Field(..., min_length=0, description="File content")
 
 
+class LatexFileRenameRequest(BaseModel):
+    """Rename a LaTeX file (change its path)."""
+
+    new_path: str = Field(..., min_length=1, max_length=500, description="New file path")
+
+
+class LatexFileMoveRequest(BaseModel):
+    """Move a LaTeX file to a new directory."""
+
+    new_dir: str = Field("", max_length=500, description="Target directory path (empty string for root)")
+
+
 class LatexFileResponse(BaseModel):
     """LaTeX file metadata response."""
 

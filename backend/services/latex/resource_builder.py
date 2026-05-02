@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from services.latex.clsi_client import ClsiResource
 
-# Binary file extensions that should use URL references
+# True binary extensions — use presigned URL references
 BINARY_EXTENSIONS = frozenset(
     {
         ".png",
@@ -25,12 +25,8 @@ BINARY_EXTENSIONS = frozenset(
         ".otf",
         ".woff",
         ".woff2",
-        ".bib",
-        ".bst",
-        ".sty",
-        ".cls",
-        ".fd",
-        ".cfg",
+        ".eps",
+        ".ps",
     }
 )
 
@@ -69,7 +65,7 @@ def build_resources(
 
 def _to_clsi_resource(f: ProjectFile) -> ClsiResource:
     """Convert a single ProjectFile to a ClsiResource."""
-    if f.is_binary or _is_binary_path(f.path):
+    if f.is_binary or (f.content is None and _is_binary_path(f.path)):
         return ClsiResource(
             path=f.path,
             url=f.url or "",
@@ -78,7 +74,7 @@ def _to_clsi_resource(f: ProjectFile) -> ClsiResource:
     return ClsiResource(
         path=f.path,
         content=f.content or "",
-        url=f.url,
+        url=f.url if f.content is None else None,
     )
 
 
