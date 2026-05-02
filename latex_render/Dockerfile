@@ -17,6 +17,7 @@ RUN apt-get update && \
         texlive-latex-base \
         texlive-latex-extra \
         texlive-fonts-recommended \
+        texlive-fonts-extra \
         texlive-lang-chinese \
         texlive-xetex \
         texlive-luatex \

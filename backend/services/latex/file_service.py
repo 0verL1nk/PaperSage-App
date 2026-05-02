@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import logging
 import uuid
@@ -20,6 +22,36 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS = (".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".lof", ".lot", ".toc")
 BLOCKED_EXTENSIONS = (".exe", ".dll", ".so", ".dylib")
+
+_BINARY_EXTENSIONS = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".svg",
+        ".webp",
+        ".pdf",
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".ttf",
+        ".otf",
+        ".woff",
+        ".woff2",
+        ".eps",
+        ".ps",
+    }
+)
+
+
+def _is_binary_ext(path: str) -> bool:
+    """Check if a file path has a true binary extension (images, fonts, archives)."""
+    lower = path.lower()
+    return any(lower.endswith(ext) for ext in _BINARY_EXTENSIONS)
+
 
 # In-memory LRU cache for file contents
 _MAX_CACHE_SIZE = 512
@@ -107,19 +139,76 @@ class LatexFileService:
         result = await db.execute(select(LatexFile).where(LatexFile.project_id == project_id))
         db_files = list(result.scalars().all())
 
+        return await self._parallel_load(db_files)
+
+    async def load_text_contents(
+        self,
+        project_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> list[tuple[str, str]]:
+        """Load only text file (path, content) pairs (excludes binary extensions)."""
+        result = await db.execute(select(LatexFile).where(LatexFile.project_id == project_id))
+        db_files = [f for f in result.scalars().all() if not _is_binary_ext(f.file_path)]
+        return await self._parallel_load(db_files)
+
+    async def get_binary_file_keys(
+        self,
+        project_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> list[tuple[str, str]]:
+        """Return (file_path, s3_key) pairs for binary files."""
+        result = await db.execute(select(LatexFile).where(LatexFile.project_id == project_id))
+        return [
+            (f.file_path, f.s3_key or "")
+            for f in result.scalars().all()
+            if _is_binary_ext(f.file_path)
+        ]
+
+    async def _parallel_load(
+        self,
+        db_files: list[LatexFile],
+    ) -> list[tuple[str, str]]:
+        """Parallel-load file contents with LRU cache and semaphore."""
+        from app.config import get_settings
+
+        settings = get_settings()
+        concurrency = settings.s3_parallel_fetch_concurrency
+
         pairs: list[tuple[str, str]] = []
+        misses: list[tuple[str, str, str]] = []  # (file_path, s3_key, placeholder_index)
+
         for f in db_files:
             s3_key = f.s3_key or ""
             cached = _cache.get(s3_key)
             if cached is not None:
                 pairs.append((f.file_path, cached))
             else:
+                misses.append((f.file_path, s3_key, ""))
+
+        if not misses:
+            return pairs
+
+        sem = asyncio.Semaphore(concurrency)
+
+        async def _fetch_one(fp: str, key: str) -> tuple[str, str] | None:
+            async with sem:
                 try:
-                    content = self._storage.get_object(s3_key).decode("utf-8")
-                    _cache.put(s3_key, content)
-                    pairs.append((f.file_path, content))
+                    content = await asyncio.to_thread(self._storage.get_object, key)
+                    decoded = content.decode("utf-8")
+                    _cache.put(key, decoded)
+                    return fp, decoded
                 except Exception:
-                    continue
+                    logger.warning("Failed to load file %s (key=%s)", fp, key, exc_info=True)
+                    return None
+
+        results = await asyncio.gather(
+            *[_fetch_one(fp, key) for fp, key, _ in misses],
+            return_exceptions=False,
+        )
+        for r in results:
+            if r is not None:
+                pairs.append(r)
+
         return pairs
 
     async def list_files(
@@ -171,10 +260,8 @@ class LatexFileService:
 
         # Cache text contents
         if any(file_path.endswith(ext) for ext in ALLOWED_EXTENSIONS):
-            try:
+            with contextlib.suppress(UnicodeDecodeError):
                 _cache.put(s3_key, content.decode("utf-8"))
-            except UnicodeDecodeError:
-                pass
 
         return content, content_type
 
@@ -231,10 +318,8 @@ class LatexFileService:
 
         # Only cache if it's likely text
         if content_type and "text" in content_type:
-            try:
+            with contextlib.suppress(UnicodeDecodeError):
                 _cache.put(s3_key, content.decode("utf-8"))
-            except UnicodeDecodeError:
-                pass
 
         now = datetime.now(UTC)
         latex_file = LatexFile(
@@ -320,3 +405,56 @@ class LatexFileService:
         await db.commit()
 
         return True
+
+    async def rename_file(
+        self,
+        project_id: uuid.UUID,
+        old_path: str,
+        new_path: str,
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> LatexFile:
+        """Rename a file by updating its file_path. S3 object stays in place."""
+        await _verify_project_access(project_id, user_id, db)
+
+        result = await db.execute(
+            select(LatexFile).where(
+                LatexFile.project_id == project_id,
+                LatexFile.file_path == old_path,
+            )
+        )
+        latex_file = result.scalar_one_or_none()
+        if not latex_file:
+            raise ValueError("File not found")
+
+        # Check new path doesn't already exist
+        existing = await db.execute(
+            select(LatexFile).where(
+                LatexFile.project_id == project_id,
+                LatexFile.file_path == new_path,
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise ValueError("A file with that path already exists")
+
+        latex_file.file_path = new_path
+        await db.commit()
+        await db.refresh(latex_file)
+        return latex_file
+
+    async def move_file(
+        self,
+        project_id: uuid.UUID,
+        old_path: str,
+        new_dir: str,
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> LatexFile:
+        """Move a file to a new directory by updating its file_path.
+
+        new_dir is the target directory path (e.g. 'sections'). The filename
+        is preserved from old_path.
+        """
+        filename = old_path.rsplit("/", 1)[-1] if "/" in old_path else old_path
+        new_path = f"{new_dir}/{filename}" if new_dir else filename
+        return await self.rename_file(project_id, old_path, new_path, user_id, db)

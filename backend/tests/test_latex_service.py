@@ -54,7 +54,10 @@ class TestResourceBuilder:
         assert _is_binary_path("photo.JPG")
         assert _is_binary_path("font.ttf")
         assert not _is_binary_path("main.tex")
-        assert _is_binary_path("data.bib")  # bib files use URL refs
+        assert not _is_binary_path("data.bib")  # bib is text, not binary
+        assert not _is_binary_path("style.sty")  # sty is text
+        assert not _is_binary_path("report.cls")  # cls is text
+        assert _is_binary_path("chart.eps")  # eps is binary
 
     def test_empty_files_list(self) -> None:
         resources, root = build_resources([])

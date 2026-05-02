@@ -11,7 +11,7 @@ import { URL } from 'node:url'
 import { pipeline } from 'node:stream/promises'
 import Metrics from '@overleaf/metrics'
 
-const MAX_CONNECT_TIME = 1000
+const MAX_CONNECT_TIME = 15000
 const httpAgent = new CustomHttpAgent({ connectTimeout: MAX_CONNECT_TIME })
 const httpsAgent = new CustomHttpsAgent({ connectTimeout: MAX_CONNECT_TIME })
 

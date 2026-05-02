@@ -47,9 +47,23 @@ export const LATEX = {
   files: (projectId: string) => `${V1}/projects/${projectId}/latex-files/`,
   fileContent: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}`,
+  renameFile: (projectId: string, path: string) =>
+    `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/rename`,
+  moveFile: (projectId: string, path: string) =>
+    `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/move`,
   compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/`,
+  compileStatus: (projectId: string, jobId: string) =>
+    `${V1}/projects/${projectId}/latex/compile/${jobId}/status/`,
+  compileHistory: (projectId: string) =>
+    `${V1}/projects/${projectId}/latex/compile/history/`,
   outputZip: (projectId: string, buildId: string) =>
     `${V1}/projects/${projectId}/latex/output/${buildId}/output.zip`,
   outputPdf: (projectId: string, buildId: string) =>
     `${V1}/projects/${projectId}/latex/output/${buildId}/pdf`,
+} as const
+
+// --- Settings ---
+export const SETTINGS = {
+  all: `${V1}/settings`,
+  category: (category: string) => `${V1}/settings/${category}`,
 } as const

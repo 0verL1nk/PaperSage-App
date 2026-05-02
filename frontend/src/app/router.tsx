@@ -16,6 +16,7 @@ import { WritingPage } from '@/views/projects/WritingPage'
 import { UploadingPage } from '@/views/uploading/UploadingPage'
 import { TrashPage } from '@/views/trash/TrashPage'
 import { UnderConstruction } from '@/components/shared/UnderConstruction'
+import { SettingsPage } from '@/views/settings/SettingsPage'
 
 export type AppRouterContext = {
   queryClient: QueryClient
@@ -127,17 +128,19 @@ const trashRoute = createRoute({
   },
 })
 
-// /app/profile route
+// /app/settings route
+const settingsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/app/settings',
+  component: SettingsPage,
+})
+
+// /app/profile redirect to settings
 const profileRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/app/profile',
-  component: function Profile() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Profile</h1>
-        <p className="mt-2 text-muted-foreground">Profile placeholder</p>
-      </div>
-    )
+  beforeLoad: () => {
+    throw redirect({ to: '/app/settings' })
   },
 })
 
@@ -226,7 +229,7 @@ const projectGeneratingRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, profileRoute]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectUploadingRoute,
@@ -260,7 +263,7 @@ export function AppRouterProvider({ queryClient }: AppRouterContext) {
 export function getPlannedRouteGroups() {
   return {
     public: ['/', '/auth'],
-    main: ['/app/documents', '/app/trash', '/app/profile'],
+    main: ['/app/documents', '/app/trash', '/app/profile', '/app/settings'],
     project: [
       '/project/:projectId',
       '/project/:projectId/uploading',

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from api.routes import auth, documents, folders, latex, latex_files, projects
+from api.routes import auth, documents, folders, latex, latex_files, projects, settings
 
 api_router = APIRouter()
 
@@ -16,3 +16,4 @@ api_router.include_router(
     prefix="/projects/{project_id}/latex-files",
     tags=["latex-files"],
 )
+api_router.include_router(settings.router, prefix="/settings", tags=["settings"])

@@ -150,8 +150,8 @@ describe('use-latex hooks', () => {
   })
 
   describe('useLatexCompile', () => {
-    it('calls compileLatex with correct params', async () => {
-      const mockResponse = { status: 'success', build_id: 'b1', output_files: [], error: null, logs: null }
+    it('calls compileLatex and returns job submission', async () => {
+      const mockResponse = { job_id: 'job-123', status: 'pending' as const }
       mockedCompileLatex.mockResolvedValue(mockResponse)
 
       const { result } = renderHook(() => useLatexCompile(), { wrapper: createWrapper() })
@@ -165,6 +165,7 @@ describe('use-latex hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(mockedCompileLatex).toHaveBeenCalledWith('proj-1', [{ path: 'main.tex', content: 'content' }], 'main.tex', 'xelatex')
+      expect(result.current.data).toEqual(mockResponse)
     })
   })
 
