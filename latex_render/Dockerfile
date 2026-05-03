@@ -12,31 +12,57 @@ RUN --mount=type=cache,target=/root/.npm \
 # ── Stage: texlive (cached layer) ────────────────────────────
 FROM node:22-bookworm-slim AS texlive
 
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends \
-        texlive-latex-base \
-        texlive-latex-extra \
-        texlive-fonts-recommended \
-        texlive-fonts-extra \
-        texlive-lang-chinese \
-        texlive-xetex \
-        texlive-luatex \
+ARG CTAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/CTAN
+
+# CJK fonts + install-tl dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        curl \
+        perl \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -f
 
+# Install TeX Live via upstream installer (scheme-full)
+RUN set -e && \
+    TEXLIVE_YEAR=$(date +%Y) && \
+    TEXDIR="/usr/local/texlive/${TEXLIVE_YEAR}" && \
+    tmpdir=$(mktemp -d) && \
+    echo "Downloading install-tl from ${CTAN_MIRROR} ..." && \
+    curl -fsSL ${CTAN_MIRROR}/systems/texlive/tlnet/install-tl-unx.tar.gz \
+        -o ${tmpdir}/install-tl.tar.gz && \
+    tar xzf ${tmpdir}/install-tl.tar.gz -C ${tmpdir} && \
+    installer=$(find ${tmpdir} -maxdepth 1 -type d -name "install-tl-*" | head -1) && \
+    printf "selected_scheme scheme-full\n\
+TEXDIR %s\n\
+TEXMFLOCAL /usr/local/texlive/texmf-local\n\
+TEXMFSYSCONFIG %s/texmf-config\n\
+TEXMFSYSVAR %s/texmf-var\n\
+TEXMFHOME ~/texmf\n\
+TEXMFCONFIG ~/.texlive/%s/texmf-config\n\
+TEXMFVAR ~/.texlive/%s/texmf-var\n\
+instopt_adjustpath 0\n\
+instopt_adjustrepo 1\n" \
+        "${TEXDIR}" "${TEXDIR}" "${TEXDIR}" "${TEXLIVE_YEAR}" "${TEXLIVE_YEAR}" \
+        > ${tmpdir}/texlive.profile && \
+    echo "Installing TeX Live (scheme-full) ..." && \
+    ${installer}/install-tl \
+        --profile=${tmpdir}/texlive.profile \
+        --repository=${CTAN_MIRROR}/systems/texlive/tlnet && \
+    rm -rf ${tmpdir}
+
 # ── Stage: production ───────────────────────────────────────
 FROM node:22-bookworm-slim AS production
 
-# Copy TeX Live from cached stage (changes rarely)
-COPY --from=texlive /usr/share/texlive /usr/share/texlive
+# Copy TeX Live and fonts from cached stage
+COPY --from=texlive /usr/local/texlive /usr/local/texlive
 COPY --from=texlive /usr/share/fonts /usr/share/fonts
-COPY --from=texlive /var/lib/texmf /var/lib/texmf
-COPY --from=texlive /usr/bin/pdflatex /usr/bin/xelatex /usr/bin/lualatex /usr/bin/
-COPY --from=texlive /usr/bin/bibtex /usr/bin/biber /usr/bin/
-COPY --from=texlive /usr/lib/x86_64-linux-gnu/libkpathse* /usr/lib/x86_64-linux-gnu/
-# Ensure all texlive binaries are available
-COPY --from=texlive /usr/bin/ /usr/bin/
+
+# Create arch-independent symlink for PATH
+RUN TEXBIN=$(find /usr/local/texlive -maxdepth 4 -type d -name '*-linux' | head -1) && \
+    ln -sf "${TEXBIN}" /usr/local/texlive/texbin && \
+    fc-cache -f
+
+ENV PATH="/usr/local/texlive/texbin:${PATH}"
 
 WORKDIR /app
 

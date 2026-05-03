@@ -1,11 +1,13 @@
 .PHONY: help dev dev-attach run stop status backend frontend check test install \
        install-backend install-frontend install-clsi check-clsi clsi-dev clean \
-       logs log-backend log-frontend log-clsi
+       logs log-backend log-frontend log-clsi \
+       docker-build docker-push docker-login
 
 # Colors
 GREEN := \033[0;32m
 YELLOW := \033[0;33m
 BLUE := \033[0;34m
+RED := \033[0;31m
 NC := \033[0m
 
 # Paths
@@ -43,6 +45,11 @@ help:
 	@echo ""
 	@echo "$(GREEN)Maintenance:$(NC)"
 	@echo "  make clean         - Remove PID files, logs, and temp files"
+	@echo ""
+	@echo "$(GREEN)Docker:$(NC)"
+	@echo "  make docker-login  - Login to Docker Hub"
+	@echo "  make docker-build  - Build all images"
+	@echo "  make docker-push   - Build & push all images to Docker Hub"
 	@echo ""
 
 # ─── Graceful dev lifecycle ───
@@ -157,3 +164,31 @@ clean:
 	@echo "$(YELLOW)Cleaning runtime files...$(NC)"
 	@rm -rf $(PID_DIR) $(LOG_DIR)
 	@echo "$(GREEN)Cleaned $(PID_DIR)/ and $(LOG_DIR)/$(NC)"
+
+# ─── Docker ───
+
+DOCKERHUB_USER ?= $(shell docker info 2>/dev/null | grep Username | awk '{print $$2}')
+IMAGE_TAG ?= latest
+
+docker-login:
+	@echo "$(YELLOW)Logging in to Docker Hub...$(NC)"
+	@docker login
+
+docker-build:
+	@if [ -z "$(DOCKERHUB_USER)" ]; then \
+		echo "$(RED)Error: not logged in to Docker Hub. Run 'make docker-login' first.$(NC)"; \
+		exit 1; \
+	fi
+	@echo "$(GREEN)Building Docker images...$(NC)"
+	docker build -t $(DOCKERHUB_USER)/papersage-backend:$(IMAGE_TAG) backend/
+	docker build -t $(DOCKERHUB_USER)/papersage-frontend:$(IMAGE_TAG) frontend/
+	docker build -t $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG) latex_render/
+	@echo "$(GREEN)All images built:$(NC)"
+	@docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep papersage
+
+docker-push: docker-build
+	@echo "$(GREEN)Pushing images to Docker Hub...$(NC)"
+	docker push $(DOCKERHUB_USER)/papersage-backend:$(IMAGE_TAG)
+	docker push $(DOCKERHUB_USER)/papersage-frontend:$(IMAGE_TAG)
+	docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
+	@echo "$(GREEN)All images pushed to $(DOCKERHUB_USER)$(NC)"
