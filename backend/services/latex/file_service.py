@@ -492,7 +492,7 @@ class LatexFileService:
 
         for f in files:
             _cache.invalidate(f.s3_key or "")
-            f.file_path = new_prefix + f.file_path[len(old_prefix):]
+            f.file_path = new_prefix + f.file_path[len(old_prefix) :]
 
         await db.commit()
         for f in files:
