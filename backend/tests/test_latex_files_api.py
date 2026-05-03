@@ -2,7 +2,12 @@
 
 import pytest
 
-from schemas.latex_file import FolderDeleteRequest, FolderDeleteResponse, FolderRenameRequest, FolderRenameResponse
+from schemas.latex_file import (
+    FolderDeleteRequest,
+    FolderDeleteResponse,
+    FolderRenameRequest,
+    FolderRenameResponse,
+)
 from services.latex.file_service import BLOCKED_EXTENSIONS, _validate_path
 
 
