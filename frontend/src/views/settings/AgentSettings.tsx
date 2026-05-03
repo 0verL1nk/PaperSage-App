@@ -62,13 +62,13 @@ export function AgentSettings() {
     patchCategory('agent', { providers: updated, active_provider_id: newActiveId }).catch(() => {})
   }
 
-  function handleSaveEdit() {
-    if (!editDraft) return
-    // Strip temp ID so backend generates a real one
-    const toSave = editDraft.id === TEMP_ID ? { ...editDraft, id: '' } : editDraft
-    const exists = a.providers.some((p) => p.id === editDraft.id)
+  function handleSaveEdit(flushedDraft?: ProviderConfig) {
+    const source = flushedDraft ?? editDraft
+    if (!source) return
+    const toSave = source.id === TEMP_ID ? { ...source, id: '' } : source
+    const exists = a.providers.some((p) => p.id === source.id)
     const updated = exists
-      ? a.providers.map((p) => (p.id === editDraft.id ? toSave : p))
+      ? a.providers.map((p) => (p.id === source.id ? toSave : p))
       : [...a.providers, toSave]
     const newActiveId = a.active_provider_id || ''
     patchCategory('agent', { providers: updated, active_provider_id: newActiveId }).catch(() => {})
@@ -232,7 +232,7 @@ interface ProviderCardProps {
   onEdit: () => void
   onDelete: () => void
   onDraftChange: (draft: ProviderConfig) => void
-  onSave: () => void
+  onSave: (flushedDraft?: ProviderConfig) => void
   onCancel: () => void
 }
 
@@ -252,6 +252,15 @@ function ProviderCard({
 
   if (isEditing && editDraft) {
     const d = editDraft
+
+    function flushPendingModel(): ProviderConfig {
+      const trimmed = newModel.trim()
+      if (!trimmed || d.models.includes(trimmed)) return d
+      const next = { ...d, models: [...d.models, trimmed], active_model: d.active_model || trimmed }
+      onDraftChange(next)
+      setNewModel('')
+      return next
+    }
 
     function addModel() {
       const trimmed = newModel.trim()
@@ -348,7 +357,7 @@ function ProviderCard({
           <Button variant="ghost" size="sm" onClick={onCancel}>
             <X className="size-3 mr-1" /> Cancel
           </Button>
-          <Button variant="default" size="sm" onClick={onSave}>
+          <Button variant="default" size="sm" onClick={() => onSave(flushPendingModel())}>
             <Check className="size-3 mr-1" /> Save
           </Button>
         </div>
