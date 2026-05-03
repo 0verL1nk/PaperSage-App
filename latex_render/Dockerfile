@@ -9,60 +9,22 @@ COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 
-# ── Stage: texlive (cached layer) ────────────────────────────
-FROM node:22-bookworm-slim AS texlive
+# ── Stage: production ───────────────────────────────────────
+FROM node:22-bookworm-slim AS production
 
-ARG CTAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/CTAN
+# Copy TeX Live from pre-built image (danteev/texlive = full scheme)
+COPY --from=danteev/texlive:latest /usr/local/texlive /usr/local/texlive
 
-# CJK fonts + install-tl dependencies
+# CJK fonts + fontconfig
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        curl \
-        perl \
         fontconfig \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -f
 
-# Install TeX Live via upstream installer (scheme-full)
-RUN set -e && \
-    TEXLIVE_YEAR=$(date +%Y) && \
-    TEXDIR="/usr/local/texlive/${TEXLIVE_YEAR}" && \
-    tmpdir=$(mktemp -d) && \
-    echo "Downloading install-tl from ${CTAN_MIRROR} ..." && \
-    curl -fsSL ${CTAN_MIRROR}/systems/texlive/tlnet/install-tl-unx.tar.gz \
-        -o ${tmpdir}/install-tl.tar.gz && \
-    tar xzf ${tmpdir}/install-tl.tar.gz -C ${tmpdir} && \
-    installer=$(find ${tmpdir} -maxdepth 1 -type d -name "install-tl-*" | head -1) && \
-    printf "selected_scheme scheme-full\n\
-TEXDIR %s\n\
-TEXMFLOCAL /usr/local/texlive/texmf-local\n\
-TEXMFSYSCONFIG %s/texmf-config\n\
-TEXMFSYSVAR %s/texmf-var\n\
-TEXMFHOME ~/texmf\n\
-TEXMFCONFIG ~/.texlive/%s/texmf-config\n\
-TEXMFVAR ~/.texlive/%s/texmf-var\n\
-instopt_adjustpath 0\n\
-instopt_adjustrepo 1\n" \
-        "${TEXDIR}" "${TEXDIR}" "${TEXDIR}" "${TEXLIVE_YEAR}" "${TEXLIVE_YEAR}" \
-        > ${tmpdir}/texlive.profile && \
-    echo "Installing TeX Live (scheme-full) ..." && \
-    ${installer}/install-tl \
-        --profile=${tmpdir}/texlive.profile \
-        --repository=${CTAN_MIRROR}/systems/texlive/tlnet && \
-    rm -rf ${tmpdir}
-
-# ── Stage: production ───────────────────────────────────────
-FROM node:22-bookworm-slim AS production
-
-# Copy TeX Live and fonts from cached stage
-COPY --from=texlive /usr/local/texlive /usr/local/texlive
-COPY --from=texlive /usr/share/fonts /usr/share/fonts
-
 # Create arch-independent symlink for PATH
 RUN TEXBIN=$(find /usr/local/texlive -maxdepth 4 -type d -name '*-linux' | head -1) && \
-    ln -sf "${TEXBIN}" /usr/local/texlive/texbin && \
-    fc-cache -f
+    ln -sf "${TEXBIN}" /usr/local/texlive/texbin
 
 ENV PATH="/usr/local/texlive/texbin:${PATH}"
 
