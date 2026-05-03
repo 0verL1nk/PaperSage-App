@@ -15,8 +15,8 @@ import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
-  useCreateLatexFile, useDeleteLatexFile, useRenameLatexFile, useMoveLatexFile,
-  useLatexCompile, useLatexOutputPdf,
+  useCreateLatexFile, useDeleteLatexFile, useRenameLatexFile, useRenameLatexFolder,
+  useMoveLatexFile, useLatexCompile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
 import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
 import { useAutoSave } from '@/hooks/use-auto-save'
@@ -24,6 +24,8 @@ import type { PdfRangeSource, CompileJobStatus, LatexFileItem } from '@/services
 import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
+import { ModelSelector } from '@/views/settings/model-selector'
+import { useSettingsStore } from '@/store/settings-store'
 
 function toPdfFile(source: PdfRangeSource) {
   return source as Parameters<typeof Document>[0]['file']
@@ -122,6 +124,7 @@ export function WritingPage() {
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
   const renameMutation = useRenameLatexFile(projectId)
+  const renameFolderMutation = useRenameLatexFolder(projectId)
   const moveMutation = useMoveLatexFile(projectId)
   const compileMutation = useLatexCompile()
   const outputPdfMutation = useLatexOutputPdf()
@@ -317,6 +320,10 @@ export function WritingPage() {
     return renameMutation.mutateAsync({ oldPath, newPath })
   }
 
+  const handleTreeRenameFolder = async (oldFolder: string, newFolder: string) => {
+    return renameFolderMutation.mutateAsync({ oldFolder, newFolder })
+  }
+
   const handleTreeMoveFile = async (filePath: string, newDir: string) => {
     return moveMutation.mutateAsync({ filePath, newDir })
   }
@@ -458,6 +465,7 @@ export function WritingPage() {
                         onDeleteFolder={handleDeleteFolder}
                         onCreateFile={handleTreeCreateFile}
                         onRenameFile={handleTreeRenameFile}
+                        onRenameFolder={handleTreeRenameFolder}
                         onMoveFile={handleTreeMoveFile}
                         onExternalDrop={(fileList) => uploadFiles(fileList)}
                       />
@@ -613,12 +621,27 @@ function TabButton({ icon, active, onClick }: { icon: React.ReactNode; active: b
 }
 
 function AIPanel() {
+  const { settings } = useSettingsStore()
+  const agent = settings?.agent
+  const activeProvider = agent?.providers.find((p) => p.id === agent.active_provider_id)
+  const [sessionModel, setSessionModel] = useState<{ providerId: string; model: string } | null>(null)
+
+  const effectiveModel = sessionModel ?? {
+    providerId: agent?.active_provider_id ?? '',
+    model: activeProvider?.active_model ?? '',
+  }
+
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden">
-      <div className="p-4 h-14 border-b border-border/40 flex items-center flex-none bg-card/50">
+      <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
           <Sparkles size={14} className="text-primary" /> AI Assistant
         </h3>
+        <ModelSelector
+          variant="compact"
+          value={effectiveModel}
+          onChange={setSessionModel}
+        />
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">

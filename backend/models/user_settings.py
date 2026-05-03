@@ -1,22 +1,28 @@
 """User settings model."""
 
-from datetime import UTC, datetime
-from uuid import UUID as UUIDType
+from __future__ import annotations
 
-from sqlalchemy import DateTime, ForeignKey, String
-from sqlalchemy.dialects.postgresql import JSONB
+import uuid
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
+
+from sqlalchemy import JSON, DateTime, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from core.base import UUID as UUIDCol  # noqa: N811 — type decorator, not a constant
 from core.base import Base
+
+if TYPE_CHECKING:
+    from models.user import User
 
 
 class UserSettings(Base):
-    """Per-user settings stored by category as JSONB."""
+    """Per-user settings stored by category as JSON."""
 
     __tablename__ = "user_settings"
 
-    user_id: Mapped[UUIDType] = mapped_column(
-        String(32),
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUIDCol,
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
         nullable=False,
@@ -27,7 +33,7 @@ class UserSettings(Base):
         nullable=False,
     )
     settings: Mapped[dict] = mapped_column(
-        JSONB,
+        JSON,
         nullable=False,
         default=dict,
         server_default="{}",
@@ -39,7 +45,7 @@ class UserSettings(Base):
         nullable=False,
     )
 
-    user: Mapped["User"] = relationship("User", lazy="selectin")
+    user: Mapped[User] = relationship("User", lazy="selectin")
 
     def __repr__(self) -> str:
         return f"<UserSettings(user_id={self.user_id}, category={self.category})>"

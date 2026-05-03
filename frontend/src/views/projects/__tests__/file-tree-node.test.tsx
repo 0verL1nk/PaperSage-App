@@ -1,8 +1,10 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, fireEvent } from '@testing-library/react'
 import { InlineInput } from '../file-tree-node'
 
 describe('InlineInput', () => {
+  afterEach(() => vi.useRealTimers())
+
   it('submits on Enter with trimmed value', () => {
     const onSubmit = vi.fn()
     render(<InlineInput onSubmit={onSubmit} onCancel={() => {}} defaultValue="test" />)
@@ -27,14 +29,23 @@ describe('InlineInput', () => {
     expect(onCancel).toHaveBeenCalled()
   })
 
-  it('cancels on blur (does NOT submit)', () => {
+  it('ignores blur during grace period', () => {
+    vi.useFakeTimers()
     const onCancel = vi.fn()
-    const onSubmit = vi.fn()
-    render(<InlineInput onSubmit={onSubmit} onCancel={onCancel} defaultValue="name" />)
+    render(<InlineInput onSubmit={() => {}} onCancel={onCancel} defaultValue="name" />)
     const input = document.querySelector('input')!
     fireEvent.blur(input)
+    expect(onCancel).not.toHaveBeenCalled()
+  })
+
+  it('cancels on blur after grace period', () => {
+    vi.useFakeTimers()
+    const onCancel = vi.fn()
+    render(<InlineInput onSubmit={() => {}} onCancel={onCancel} defaultValue="name" />)
+    const input = document.querySelector('input')!
+    vi.advanceTimersByTime(200)
+    fireEvent.blur(input)
     expect(onCancel).toHaveBeenCalled()
-    expect(onSubmit).not.toHaveBeenCalled()
   })
 
   it('uses defaultValue', () => {

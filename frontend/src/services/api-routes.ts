@@ -49,6 +49,8 @@ export const LATEX = {
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}`,
   renameFile: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/rename`,
+  renameFolder: (projectId: string) =>
+    `${V1}/projects/${projectId}/latex-files/folder/rename`,
   moveFile: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/move`,
   compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/`,

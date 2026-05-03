@@ -110,6 +110,13 @@ export function renameLatexFile(projectId: string, oldPath: string, newPath: str
   return postJson<LatexFileItem>(LATEX.renameFile(projectId, oldPath), { new_path: newPath })
 }
 
+export function renameLatexFolder(projectId: string, oldFolder: string, newFolder: string) {
+  return postJson<{ renamed_count: number; old_folder: string; new_folder: string }>(
+    LATEX.renameFolder(projectId),
+    { folder_path: oldFolder, new_folder: newFolder },
+  )
+}
+
 export function moveLatexFile(projectId: string, filePath: string, newDir: string) {
   return postJson<LatexFileItem>(LATEX.moveFile(projectId, filePath), { new_dir: newDir })
 }

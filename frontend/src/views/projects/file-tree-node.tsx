@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useRef, useEffect } from 'react'
 import {
   FolderOpen,
   FolderClosed,
@@ -28,10 +29,21 @@ export function InlineInput({ onSubmit, onCancel, defaultValue }: {
   onCancel: () => void
   defaultValue?: string
 }) {
+  const freshRef = useRef(true)
+  const inputRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const t = setTimeout(() => { freshRef.current = false }, 150)
+    return () => clearTimeout(t)
+  }, [])
+  useEffect(() => {
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [])
+
   return (
     <input
-      autoFocus
-      className="w-full px-1.5 py-0.5 text-[12px] bg-background border border-primary rounded outline-none"
+      ref={inputRef}
+      className="w-full px-1 text-[12px] bg-transparent border-b border-primary outline-none"
       defaultValue={defaultValue}
       onKeyDown={(e) => {
         if (e.key === 'Enter') {
@@ -41,7 +53,10 @@ export function InlineInput({ onSubmit, onCancel, defaultValue }: {
         }
         if (e.key === 'Escape') onCancel()
       }}
-      onBlur={() => onCancel()}
+      onBlur={() => {
+        if (freshRef.current) return
+        onCancel()
+      }}
     />
   )
 }
@@ -74,8 +89,11 @@ export function NodeRenderer({
 
   if (node.isEditing) {
     return (
-      <div style={style} className="px-2 w-full">
-        <div className="flex items-center gap-2 px-2 py-1.5">
+      <div style={style} ref={dragHandle} className="px-2 w-full">
+        <div className={cn(
+          'flex items-center gap-2 text-[12px] rounded-lg',
+          isDir ? 'px-2 py-1.5' : 'px-2 py-1.5',
+        )}>
           {isDir
             ? <FolderOpen size={14} className="text-yellow-500/80 shrink-0" />
             : <FileTypeIcon name={node.data.name} />}
@@ -108,7 +126,7 @@ export function NodeRenderer({
         <ContextMenuTrigger asChild>
           <div
             className={cn(
-              'flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-colors rounded-lg group relative',
+              'flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-colors rounded-lg group relative w-full',
               willReceiveDrop && 'bg-primary/5 ring-1 ring-primary/30',
               isActive && !willReceiveDrop
                 ? 'bg-primary/10 text-primary font-medium shadow-sm'
@@ -167,7 +185,7 @@ function FolderNodeRow({
       ref={dragHandle}
       style={style}
       className={cn(
-        'flex items-center gap-1 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 transition-colors rounded-lg font-medium group',
+        'flex items-center gap-1 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 transition-colors rounded-lg font-medium group w-full',
         willReceiveDrop ? 'bg-primary/5 ring-1 ring-primary/30' : 'hover:bg-muted',
         node.isDragging && 'opacity-40',
       )}

@@ -6,6 +6,7 @@ import {
   createLatexFile,
   deleteLatexFile,
   renameLatexFile,
+  renameLatexFolder,
   moveLatexFile,
   compileLatex,
   getPdfRangeSource,
@@ -89,6 +90,17 @@ export function useRenameLatexFile(projectId: string) {
   return useMutation({
     mutationFn: ({ oldPath, newPath }: { oldPath: string; newPath: string }) =>
       renameLatexFile(projectId, oldPath, newPath),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    },
+  })
+}
+
+export function useRenameLatexFolder(projectId: string) {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ oldFolder, newFolder }: { oldFolder: string; newFolder: string }) =>
+      renameLatexFolder(projectId, oldFolder, newFolder),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
     },

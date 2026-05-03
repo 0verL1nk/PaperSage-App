@@ -16,6 +16,8 @@ from models import User
 from schemas.latex_file import (
     FolderDeleteRequest,
     FolderDeleteResponse,
+    FolderRenameRequest,
+    FolderRenameResponse,
     LatexFileContentResponse,
     LatexFileCreateRequest,
     LatexFileListResponse,
@@ -157,6 +159,31 @@ async def update_file(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e)) from None
 
     return api_success(LatexFileResponse.model_validate(latex_file))
+
+
+@router.post("/folder/rename", response_model=ApiResponse[FolderRenameResponse])
+async def rename_folder(
+    project_id: uuid.UUID,
+    body: FolderRenameRequest,
+    current_user: User = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> ApiResponse[FolderRenameResponse]:
+    """Rename a folder by updating the path prefix of all contained files."""
+    service = _get_service()
+    try:
+        files = await service.rename_folder(
+            project_id, body.folder_path, body.new_folder, current_user.id, db
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from None
+
+    return api_success(
+        FolderRenameResponse(
+            renamed_count=len(files),
+            old_folder=body.folder_path,
+            new_folder=body.new_folder,
+        )
+    )
 
 
 @router.delete("/folder", response_model=ApiResponse[FolderDeleteResponse])

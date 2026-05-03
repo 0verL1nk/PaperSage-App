@@ -2,7 +2,7 @@
 
 import pytest
 
-from schemas.latex_file import FolderDeleteRequest, FolderDeleteResponse
+from schemas.latex_file import FolderDeleteRequest, FolderDeleteResponse, FolderRenameRequest, FolderRenameResponse
 from services.latex.file_service import BLOCKED_EXTENSIONS, _validate_path
 
 
@@ -23,6 +23,27 @@ class TestFolderDeleteSchemas:
         resp = FolderDeleteResponse(deleted_count=3, folder_path="sections")
         assert resp.deleted_count == 3
         assert resp.folder_path == "sections"
+
+
+class TestFolderRenameSchemas:
+    def test_rename_request(self):
+        req = FolderRenameRequest(folder_path="sections", new_folder="chapters")
+        assert req.folder_path == "sections"
+        assert req.new_folder == "chapters"
+
+    def test_rename_request_rejects_empty_folder_path(self):
+        with pytest.raises(Exception):
+            FolderRenameRequest(folder_path="", new_folder="chapters")
+
+    def test_rename_request_rejects_empty_new_folder(self):
+        with pytest.raises(Exception):
+            FolderRenameRequest(folder_path="sections", new_folder="")
+
+    def test_rename_response(self):
+        resp = FolderRenameResponse(renamed_count=3, old_folder="sections", new_folder="chapters")
+        assert resp.renamed_count == 3
+        assert resp.old_folder == "sections"
+        assert resp.new_folder == "chapters"
 
 
 class TestMoveAndRenameSchemas:
@@ -114,6 +135,8 @@ class TestLatexFilesRouter:
         from schemas.latex_file import (
             FolderDeleteRequest,
             FolderDeleteResponse,
+            FolderRenameRequest,
+            FolderRenameResponse,
             LatexFileContentResponse,
             LatexFileCreateRequest,
             LatexFileListResponse,
@@ -132,6 +155,8 @@ class TestLatexFilesRouter:
         assert LatexFileMoveRequest.model_fields is not None
         assert FolderDeleteRequest.model_fields is not None
         assert FolderDeleteResponse.model_fields is not None
+        assert FolderRenameRequest.model_fields is not None
+        assert FolderRenameResponse.model_fields is not None
 
     def test_blocked_extensions(self):
         assert ".exe" in BLOCKED_EXTENSIONS

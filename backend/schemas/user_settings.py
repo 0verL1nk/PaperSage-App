@@ -1,8 +1,9 @@
 """User settings schemas for request/response validation."""
 
+import uuid
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 # Supported setting categories
 VALID_CATEGORIES = ("ui", "editor", "agent")
@@ -55,12 +56,13 @@ class EditorSettings(BaseModel):
 class ProviderConfig(BaseModel):
     """A single AI model provider configuration."""
 
-    id: str = Field(default="", min_length=1, max_length=64)
-    name: str = Field(default="", min_length=1, max_length=100)
+    id: str = Field(default="", max_length=64)
+    name: str = Field(default="", max_length=100)
     type: Literal["openai_compatible", "anthropic"] = "openai_compatible"
-    base_url: str = Field(default="", min_length=1, max_length=500)
+    base_url: str = Field(default="", max_length=500)
     api_key: str = Field(default="", max_length=500)
-    model_name: str = Field(default="", min_length=1, max_length=200)
+    models: list[str] = Field(default_factory=list)
+    active_model: str = Field(default="")
 
 
 class AgentSettings(BaseModel):
@@ -71,6 +73,14 @@ class AgentSettings(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     writing_style: str = Field(default="academic", min_length=1, max_length=50)
     memory_enabled: bool = True
+
+    @model_validator(mode="after")
+    def assign_provider_ids(self) -> "AgentSettings":
+        """Generate IDs for providers that don't have one."""
+        for provider in self.providers:
+            if not provider.id:
+                provider.id = uuid.uuid4().hex[:12]
+        return self
 
 
 # Map category name to its Pydantic schema class
