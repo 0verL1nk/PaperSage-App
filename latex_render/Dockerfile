@@ -18,6 +18,7 @@ ARG CTAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/CTAN
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         perl \
+        fontconfig \
         fonts-noto-cjk \
     && rm -rf /var/lib/apt/lists/* \
     && fc-cache -f
