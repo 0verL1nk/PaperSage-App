@@ -13,7 +13,21 @@ LATEX_VENDER="${PROJECT_ROOT}/latex_render"
 
 # Minimum versions
 NODE_MAJOR=20
-TEXLIVE_PACKAGES="texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended texlive-fonts-extra texlive-science texlive-bibtex-extra texlive-xetex texlive-luatex texlive-extra-utils"
+CTAN_OFFICIAL="https://mirror.ctan.org"
+CTAN_MIRROR="https://mirrors.tuna.tsinghua.edu.cn/CTAN"
+
+# Pick CTAN mirror: use official if reachable, otherwise fall back to China mirror
+pick_ctan_mirror() {
+    info "Testing CTAN connectivity ..."
+    if curl -fsSL --connect-timeout 5 --max-time 10 \
+        "${CTAN_OFFICIAL}/systems/texlive/tlnet/" -o /dev/null 2>/dev/null; then
+        ok "Official CTAN reachable, using mirror.ctan.org"
+        SELECTED_CTAN="${CTAN_OFFICIAL}"
+    else
+        info "Official CTAN unreachable, using Tsinghua mirror"
+        SELECTED_CTAN="${CTAN_MIRROR}"
+    fi
+}
 
 # ─── Helpers ───
 
@@ -86,7 +100,7 @@ ensure_node() {
     ok "Node.js $(node -v) installed"
 }
 
-# ─── TeX Live (Debian/Ubuntu) ───
+# ─── TeX Live (upstream installer, no sudo) ───
 
 ensure_texlive_debian() {
     if has_cmd pdflatex && has_cmd xelatex && has_cmd lualatex; then
@@ -99,10 +113,83 @@ ensure_texlive_debian() {
         return 1
     fi
 
-    info "Installing TeX Live (this may take a while) ..."
-    sudo apt-get update -qq
-    sudo apt-get install -y -qq ${TEXLIVE_PACKAGES}
-    ok "TeX Live installed"
+    local year
+    year=$(date +%Y)
+    local TEXDIR="${HOME}/.local/texlive/${year}"
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    local cleanup_on_interrupt=true
+
+    _texlive_cleanup() {
+        if $cleanup_on_interrupt; then
+            echo ""
+            warn "Interrupted, cleaning up ..."
+            kill "$(jobs -p)" 2>/dev/null
+            rm -rf "${tmpdir}"
+            exit 130
+        fi
+    }
+    trap _texlive_cleanup INT TERM
+
+    info "Installing TeX Live via upstream installer ..."
+
+    pick_ctan_mirror
+
+    # Download installer
+    info "Downloading install-tl ..."
+    curl -fsSL "${SELECTED_CTAN}/systems/texlive/tlnet/install-tl-unx.tar.gz" \
+        -o "${tmpdir}/install-tl-unx.tar.gz"
+
+    tar xzf "${tmpdir}/install-tl-unx.tar.gz" -C "${tmpdir}"
+    local installer_dir
+    installer_dir=$(find "${tmpdir}" -maxdepth 1 -type d -name "install-tl-*" | head -1)
+
+    if [[ -z "${installer_dir}" ]]; then
+        rm -rf "${tmpdir}"
+        fail "Could not find install-tl in extracted archive"
+        return 1
+    fi
+
+    # Create profile: scheme-full for compilation service, install to user directory
+    cat > "${tmpdir}/texlive.profile" << EOF
+selected_scheme scheme-full
+TEXDIR ${TEXDIR}
+TEXMFLOCAL ${TEXDIR}/texmf-local
+TEXMFSYSCONFIG ${TEXDIR}/texmf-config
+TEXMFSYSVAR ${TEXDIR}/texmf-var
+TEXMFHOME ~/texmf
+TEXMFCONFIG ~/.texlive/${year}/texmf-config
+TEXMFVAR ~/.texlive/${year}/texmf-var
+instopt_adjustpath 0
+instopt_adjustrepo 1
+EOF
+
+    # Run installer
+    info "Installing TeX Live (scheme-full, this will take a while) ..."
+    "${installer_dir}/install-tl" \
+        --profile="${tmpdir}/texlive.profile" \
+        --repository="${SELECTED_CTAN}/systems/texlive/tlnet"
+
+    rm -rf "${tmpdir}"
+    cleanup_on_interrupt=false
+    trap - INT TERM
+    local TEXBIN
+    TEXBIN=$(find "${TEXDIR}/bin" -maxdepth 1 -type d ! -path "${TEXDIR}/bin" | head -1)
+
+    if [[ -z "${TEXBIN}" ]]; then
+        fail "Could not find TeX Live bin directory after installation"
+        return 1
+    fi
+
+    # Add to PATH in shell config
+    local rc_file="${HOME}/.zshrc"
+    if ! grep -q "${TEXBIN}" "${rc_file}" 2>/dev/null; then
+        printf '\n# TeX Live\nexport PATH="%s:$PATH"\n' "${TEXBIN}" >> "${rc_file}"
+        info "Added ${TEXBIN} to PATH in ${rc_file}"
+    fi
+    export PATH="${TEXBIN}:${PATH}"
+
+    ok "TeX Live installed (scheme-full, no sudo)"
 }
 
 # ─── TeX Live (macOS) ───
