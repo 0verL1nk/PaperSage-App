@@ -16,6 +16,7 @@ ARG CTAN_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/CTAN
 
 # CJK fonts + install-tl dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        ca-certificates \
         curl \
         perl \
         fontconfig \
