@@ -1,7 +1,16 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeAll } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { WritingFileTree } from '../writing-file-tree'
 import type { LatexFileItem } from '@/services/latex-api'
+
+beforeAll(() => {
+  class MockResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  vi.stubGlobal('ResizeObserver', MockResizeObserver)
+})
 
 const makeFile = (filePath: string): LatexFileItem => ({
   id: filePath,
@@ -17,6 +26,7 @@ const noop = {
   onDeleteFolder: () => {},
   onCreateFile: async () => makeFile('dummy'),
   onRenameFile: async () => makeFile('dummy'),
+  onRenameFolder: async () => ({ renamed_count: 0 }),
   onMoveFile: async () => makeFile('dummy'),
   onExternalDrop: undefined as ((files: FileList) => void) | undefined,
 }
@@ -33,6 +43,7 @@ function renderTree(overrides: Partial<typeof noop> = {}, files: LatexFileItem[]
         onDeleteFolder={props.onDeleteFolder}
         onCreateFile={props.onCreateFile}
         onRenameFile={props.onRenameFile}
+        onRenameFolder={props.onRenameFolder}
         onMoveFile={props.onMoveFile}
         onExternalDrop={props.onExternalDrop}
       />
@@ -74,6 +85,7 @@ describe('WritingFileTree', () => {
         onDeleteFolder={() => {}}
         onCreateFile={async () => makeFile('x')}
         onRenameFile={async () => makeFile('x')}
+        onRenameFolder={async () => ({ renamed_count: 0 })}
         onMoveFile={async () => makeFile('x')}
         onExternalDrop={undefined}
       />,
@@ -136,6 +148,7 @@ describe('WritingFileTree', () => {
   it('accepts all required props without errors', () => {
     const onCreateFile = vi.fn().mockResolvedValue(makeFile('x'))
     const onRenameFile = vi.fn().mockResolvedValue(makeFile('x'))
+    const onRenameFolder = vi.fn().mockResolvedValue({ renamed_count: 0 })
     const onMoveFile = vi.fn().mockResolvedValue(makeFile('x'))
     const onExternalDrop = vi.fn()
 
@@ -149,6 +162,7 @@ describe('WritingFileTree', () => {
           onDeleteFolder={() => {}}
           onCreateFile={onCreateFile}
           onRenameFile={onRenameFile}
+          onRenameFolder={onRenameFolder}
           onMoveFile={onMoveFile}
           onExternalDrop={onExternalDrop}
         />
@@ -173,6 +187,7 @@ describe('WritingFileTree', () => {
           onDeleteFolder={() => {}}
           onCreateFile={failingCreate}
           onRenameFile={async () => makeFile('x')}
+          onRenameFolder={async () => ({ renamed_count: 0 })}
           onMoveFile={async () => makeFile('x')}
         />
       </div>,
@@ -193,6 +208,7 @@ describe('WritingFileTree', () => {
           onDeleteFolder={() => {}}
           onCreateFile={async () => makeFile('x')}
           onRenameFile={failingRename}
+          onRenameFolder={async () => ({ renamed_count: 0 })}
           onMoveFile={async () => makeFile('x')}
         />
       </div>,

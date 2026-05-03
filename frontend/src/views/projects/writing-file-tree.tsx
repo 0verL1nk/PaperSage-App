@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import { forwardRef, useCallback, useMemo, useRef, useState, useImperativeHandle } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle } from 'react'
 import { Tree, type TreeApi, type CreateHandler, type RenameHandler, type MoveHandler } from 'react-arborist'
 import { Plus, FolderPlus } from 'lucide-react'
 import {
@@ -108,6 +108,7 @@ interface FileTreeProps {
   onDeleteFolder: (filePath: string) => void
   onCreateFile: (path: string, content?: string) => Promise<LatexFileItem>
   onRenameFile: (oldPath: string, newPath: string) => Promise<LatexFileItem>
+  onRenameFolder: (oldFolder: string, newFolder: string) => Promise<unknown>
   onMoveFile: (filePath: string, newDir: string) => Promise<LatexFileItem>
   onExternalDrop?: (files: FileList, targetFolder?: string) => void
 }
@@ -120,12 +121,25 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
   onDeleteFolder,
   onCreateFile,
   onRenameFile,
+  onRenameFolder,
   onMoveFile,
   onExternalDrop,
 }, ref) {
   const treeRef = useRef<TreeApi<FileNodeData>>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [treeWidth, setTreeWidth] = useState(300)
   const [searchTerm, setSearchTerm] = useState('')
   const [openState, setOpenState] = useState<Record<string, boolean>>({})
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(([entry]) => {
+      setTreeWidth(Math.floor(entry.contentRect.width))
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
 
   useImperativeHandle(ref, () => ({
     createLeaf: () => treeRef.current?.createLeaf(),
@@ -178,10 +192,14 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
       const newPath = parts.join('/')
 
       if (oldPath !== newPath) {
-        await onRenameFile(oldPath, newPath).catch(() => {})
+        if (node.isInternal) {
+          await onRenameFolder(oldPath, newPath).catch(() => {})
+        } else {
+          await onRenameFile(oldPath, newPath).catch(() => {})
+        }
       }
     },
-    [onRenameFile],
+    [onRenameFile, onRenameFolder],
   )
 
   const handleMove: MoveHandler<FileNodeData> = useCallback(
@@ -257,7 +275,8 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
         </div>
       ) : (
         <div
-          className="flex-1 overflow-y-auto py-3 scrollbar-none"
+          ref={containerRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden py-3 scrollbar-none"
           onDragOver={handleTreeDragOver}
           onDrop={handleTreeDrop}
           onKeyDown={handleKeyDown}
@@ -268,6 +287,7 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
               <div className="min-h-full">
                 <Tree<FileNodeData>
                   ref={treeRef}
+                  width={treeWidth}
                   data={data}
                   initialOpenState={openState}
                   onToggle={handleToggle}

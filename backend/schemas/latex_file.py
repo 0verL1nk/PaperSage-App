@@ -75,3 +75,18 @@ class FolderDeleteResponse(BaseModel):
 
     deleted_count: int
     folder_path: str
+
+
+class FolderRenameRequest(BaseModel):
+    """Rename a folder (updates path prefix of all contained files)."""
+
+    folder_path: str = Field(..., min_length=1, max_length=500, description="Current folder path")
+    new_folder: str = Field(..., min_length=1, max_length=500, description="New folder name")
+
+
+class FolderRenameResponse(BaseModel):
+    """Response after folder rename."""
+
+    renamed_count: int
+    old_folder: str
+    new_folder: str

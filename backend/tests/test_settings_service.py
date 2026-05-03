@@ -3,14 +3,15 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import ValidationError
 
 from schemas.user_settings import (
-    AgentSettings,
     CATEGORY_SCHEMAS,
     DEFAULT_SETTINGS,
+    VALID_CATEGORIES,
+    AgentSettings,
     EditorSettings,
     UISettings,
-    VALID_CATEGORIES,
 )
 from services.settings_service import SettingsService, SettingsServiceError
 
@@ -51,7 +52,7 @@ class TestCategorySchemas:
         assert s.theme == "dark"
 
     def test_invalid_theme(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             UISettings(theme="blue")
 
     def test_valid_editor(self) -> None:
@@ -59,11 +60,11 @@ class TestCategorySchemas:
         assert s.font_size == 20
 
     def test_font_size_too_small(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EditorSettings(font_size=1)
 
     def test_font_size_too_large(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             EditorSettings(font_size=50)
 
     def test_valid_agent(self) -> None:
@@ -71,11 +72,11 @@ class TestCategorySchemas:
         assert s.temperature == 1.5
 
     def test_temperature_out_of_range(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AgentSettings(temperature=3.0)
 
     def test_negative_temperature(self) -> None:
-        with pytest.raises(Exception):
+        with pytest.raises(ValidationError):
             AgentSettings(temperature=-0.5)
 
     def test_category_schemas_map_matches_valid_categories(self) -> None:

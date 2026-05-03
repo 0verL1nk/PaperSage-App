@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 import type { ProviderConfig, ProviderType } from '@/services/settings-api'
+import { ModelSelector } from './model-selector'
 
 const TEMPERATURE_OPTIONS = [
   { value: '0.0', label: 'Precise (0.0)' },
@@ -24,14 +25,7 @@ const WRITING_STYLES = [
   { value: 'concise', label: 'Concise' },
 ]
 
-function generateId(): string {
-  return `provider_${Date.now().toString(36)}`
-}
-
-function maskKey(key: string): string {
-  if (!key || key.length <= 8) return key ? '****' : ''
-  return `${key.slice(0, 4)}${'*'.repeat(key.length - 8)}${key.slice(-4)}`
-}
+const TEMP_ID = '__new__'
 
 export function AgentSettings() {
   const { settings, patchCategory } = useSettingsStore()
@@ -48,15 +42,15 @@ export function AgentSettings() {
 
   function handleAddProvider() {
     const newProvider: ProviderConfig = {
-      id: generateId(),
-      name: 'New Provider',
+      id: TEMP_ID,
+      name: '',
       type: 'openai_compatible',
       base_url: '',
       api_key: '',
-      model_name: '',
+      models: [],
+      active_model: '',
     }
-    // Only add to local state, don't persist yet
-    setEditingId(newProvider.id)
+    setEditingId(TEMP_ID)
     setEditDraft(newProvider)
   }
 
@@ -70,11 +64,13 @@ export function AgentSettings() {
 
   function handleSaveEdit() {
     if (!editDraft) return
+    // Strip temp ID so backend generates a real one
+    const toSave = editDraft.id === TEMP_ID ? { ...editDraft, id: '' } : editDraft
     const exists = a.providers.some((p) => p.id === editDraft.id)
     const updated = exists
-      ? a.providers.map((p) => (p.id === editDraft.id ? editDraft : p))
-      : [...a.providers, editDraft]
-    const newActiveId = a.active_provider_id || editDraft.id
+      ? a.providers.map((p) => (p.id === editDraft.id ? toSave : p))
+      : [...a.providers, toSave]
+    const newActiveId = a.active_provider_id || ''
     patchCategory('agent', { providers: updated, active_provider_id: newActiveId }).catch(() => {})
     setEditingId(null)
     setEditDraft(null)
@@ -89,7 +85,6 @@ export function AgentSettings() {
 
   return (
     <div className="space-y-4">
-      {/* Provider List */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base">Model Providers</CardTitle>
@@ -98,17 +93,17 @@ export function AgentSettings() {
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
-          {agent.providers.length === 0 && (
+          {a.providers.length === 0 && !editingId && (
             <p className="text-sm text-muted-foreground py-2">
               No providers configured. Click + to add one.
             </p>
           )}
 
-          {agent.providers.map((provider) => (
+          {a.providers.map((provider) => (
             <ProviderCard
               key={provider.id}
               provider={provider}
-              isActive={provider.id === agent.active_provider_id}
+              isActive={provider.id === a.active_provider_id}
               isEditing={editingId === provider.id}
               editDraft={editingId === provider.id ? editDraft : null}
               onActivate={() => handleChange('active_provider_id', provider.id)}
@@ -120,8 +115,7 @@ export function AgentSettings() {
             />
           ))}
 
-          {/* Show editing form for new provider (not yet in list) */}
-          {editingId && !agent.providers.some((p) => p.id === editingId) && editDraft && (
+          {editingId && !a.providers.some((p) => p.id === editingId) && editDraft && (
             <ProviderCard
               provider={editDraft}
               isActive={false}
@@ -138,36 +132,29 @@ export function AgentSettings() {
         </CardContent>
       </Card>
 
-      {/* Active Model Info */}
-      {activeProvider && (
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base">Active Model</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-sm space-y-1">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Provider</span>
-                <span>{activeProvider.name}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Model</span>
-                <span>{activeProvider.model_name || 'Not set'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Endpoint</span>
-                <span className="truncate ml-4 max-w-[280px]">{activeProvider.base_url || 'Not set'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">API Key</span>
-                <span>{activeProvider.api_key ? maskKey(activeProvider.api_key) : 'Not set'}</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      <Card>
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Default Model</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ModelSelector
+            value={{
+              providerId: a.active_provider_id,
+              model: activeProvider?.active_model ?? '',
+            }}
+            onChange={({ providerId, model }) => {
+              const updated = a.providers.map((p) =>
+                p.id === providerId ? { ...p, active_model: model } : p,
+              )
+              patchCategory('agent', {
+                active_provider_id: providerId,
+                providers: updated,
+              }).catch(() => {})
+            }}
+          />
+        </CardContent>
+      </Card>
 
-      {/* Generation Settings */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Generation</CardTitle>
@@ -176,7 +163,7 @@ export function AgentSettings() {
           <div className="flex items-center justify-between">
             <Label htmlFor="temperature">Temperature</Label>
             <Select
-              value={String(agent.temperature)}
+              value={String(a.temperature)}
               onValueChange={(v) => handleChange('temperature', parseFloat(v))}
             >
               <SelectTrigger id="temperature" className="w-48">
@@ -195,7 +182,7 @@ export function AgentSettings() {
           <div className="flex items-center justify-between">
             <Label htmlFor="writing-style">Writing Style</Label>
             <Select
-              value={agent.writing_style}
+              value={a.writing_style}
               onValueChange={(v) => handleChange('writing_style', v)}
             >
               <SelectTrigger id="writing-style" className="w-48">
@@ -213,7 +200,6 @@ export function AgentSettings() {
         </CardContent>
       </Card>
 
-      {/* Memory */}
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-base">Memory</CardTitle>
@@ -222,7 +208,7 @@ export function AgentSettings() {
           <div className="flex items-center gap-3">
             <Checkbox
               id="memory-enabled"
-              checked={agent.memory_enabled}
+              checked={a.memory_enabled}
               onCheckedChange={(v) => handleChange('memory_enabled', !!v)}
             />
             <Label htmlFor="memory-enabled">
@@ -262,19 +248,38 @@ function ProviderCard({
   onSave,
   onCancel,
 }: ProviderCardProps) {
+  const [newModel, setNewModel] = useState('')
+
   if (isEditing && editDraft) {
+    const d = editDraft
+
+    function addModel() {
+      const trimmed = newModel.trim()
+      if (!trimmed || d.models.includes(trimmed)) return
+      onDraftChange({ ...d, models: [...d.models, trimmed], active_model: d.active_model || trimmed })
+      setNewModel('')
+    }
+
+    function removeModel(idx: number) {
+      const updated = d.models.filter((_, i) => i !== idx)
+      const newActive = d.active_model === d.models[idx]
+        ? (updated[0] ?? '')
+        : d.active_model
+      onDraftChange({ ...d, models: updated, active_model: newActive })
+    }
+
     return (
       <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
           <Label className="text-xs text-muted-foreground">Name</Label>
           <Input
-            value={editDraft.name}
+            value={d.name}
             onChange={(e) => onDraftChange({ ...editDraft, name: e.target.value })}
             className="h-8 text-sm"
           />
           <Label className="text-xs text-muted-foreground">Type</Label>
           <Select
-            value={editDraft.type}
+            value={d.type}
             onValueChange={(v) => onDraftChange({ ...editDraft, type: v as ProviderType })}
           >
             <SelectTrigger className="h-8 text-sm">
@@ -287,7 +292,7 @@ function ProviderCard({
           </Select>
           <Label className="text-xs text-muted-foreground">Base URL</Label>
           <Input
-            value={editDraft.base_url}
+            value={d.base_url}
             onChange={(e) => onDraftChange({ ...editDraft, base_url: e.target.value })}
             placeholder="https://api.openai.com/v1"
             className="h-8 text-sm"
@@ -295,19 +300,50 @@ function ProviderCard({
           <Label className="text-xs text-muted-foreground">API Key</Label>
           <Input
             type="password"
-            value={editDraft.api_key}
+            value={d.api_key}
             onChange={(e) => onDraftChange({ ...editDraft, api_key: e.target.value })}
             placeholder="sk-..."
             className="h-8 text-sm"
           />
-          <Label className="text-xs text-muted-foreground">Model</Label>
-          <Input
-            value={editDraft.model_name}
-            onChange={(e) => onDraftChange({ ...editDraft, model_name: e.target.value })}
-            placeholder="gpt-4o / deepseek-chat"
-            className="h-8 text-sm"
-          />
         </div>
+
+        {/* Models list */}
+        <div className="space-y-2">
+          <Label className="text-xs text-muted-foreground">Models</Label>
+          {d.models.length > 0 && (
+            <div className="space-y-1">
+              {d.models.map((m, idx) => (
+                <div key={m} className="flex items-center gap-2">
+                  <Button
+                    variant={d.active_model === m ? 'default' : 'outline'}
+                    size="sm"
+                    className="flex-1 justify-start h-7 text-xs"
+                    onClick={() => onDraftChange({ ...editDraft, active_model: m })}
+                  >
+                    {m}
+                    {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">active</span>}
+                  </Button>
+                  <Button variant="ghost" size="icon-xs" onClick={() => removeModel(idx)}>
+                    <X className="size-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <Input
+              value={newModel}
+              onChange={(e) => setNewModel(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addModel() }}
+              placeholder="gpt-4o / deepseek-chat"
+              className="h-8 text-sm"
+            />
+            <Button variant="outline" size="sm" onClick={addModel} disabled={!newModel.trim()}>
+              <Plus className="size-3" />
+            </Button>
+          </div>
+        </div>
+
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>
             <X className="size-3 mr-1" /> Cancel
@@ -337,8 +373,24 @@ function ProviderCard({
           )}
         </div>
         <div className="text-xs text-muted-foreground truncate">
-          {provider.model_name} · {provider.type === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {provider.base_url || 'No URL'}
+          {provider.active_model || 'No model'} · {provider.type === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {provider.base_url || 'No URL'}
         </div>
+        {provider.models.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1">
+            {provider.models.map((m) => (
+              <span
+                key={m}
+                className={`text-[10px] px-1.5 py-0.5 rounded ${
+                  provider.active_model === m
+                    ? 'bg-primary/10 text-primary font-medium'
+                    : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {m}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
         <Button variant="ghost" size="icon-xs" onClick={(e) => { e.stopPropagation(); onEdit() }}>

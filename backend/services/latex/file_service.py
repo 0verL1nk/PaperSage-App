@@ -459,6 +459,46 @@ class LatexFileService:
         new_path = f"{new_dir}/{filename}" if new_dir else filename
         return await self.rename_file(project_id, old_path, new_path, user_id, db)
 
+    async def rename_folder(
+        self,
+        project_id: uuid.UUID,
+        old_folder: str,
+        new_folder: str,
+        user_id: uuid.UUID,
+        db: AsyncSession,
+    ) -> list[LatexFile]:
+        """Rename a folder by updating the path prefix of all files under it."""
+        await _verify_project_access(project_id, user_id, db)
+
+        old_prefix = old_folder.rstrip("/") + "/"
+        new_prefix = new_folder.rstrip("/") + "/"
+
+        collision = await db.execute(
+            select(LatexFile).where(
+                LatexFile.project_id == project_id,
+                LatexFile.file_path.startswith(new_prefix),
+            )
+        )
+        if collision.scalars().first():
+            raise ValueError("A folder with that name already exists")
+
+        result = await db.execute(
+            select(LatexFile).where(
+                LatexFile.project_id == project_id,
+                LatexFile.file_path.startswith(old_prefix),
+            )
+        )
+        files = list(result.scalars().all())
+
+        for f in files:
+            _cache.invalidate(f.s3_key or "")
+            f.file_path = new_prefix + f.file_path[len(old_prefix):]
+
+        await db.commit()
+        for f in files:
+            await db.refresh(f)
+        return files
+
     async def delete_folder(
         self,
         project_id: uuid.UUID,
