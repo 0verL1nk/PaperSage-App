@@ -359,60 +359,133 @@ class TestSecurity:
 
 ### 3.5 集成测试示例
 
+> 状态：可运行参考。`backend/tests/test_settings_integration.py` 是首个落地的集成测试文件，配套 fixture 在 `backend/tests/conftest.py`。
+
+#### 3.5.1 Fixture 设计（`conftest.py`）
+
 ```python
-# backend/tests/integration/test_api_projects.py
-
 import pytest
-from httpx import AsyncClient
+import pytest_asyncio
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.main import app
+from core.base import Base
+from models import User  # noqa — 注册到 Base.metadata
+
+@pytest_asyncio.fixture
+async def db_session() -> AsyncGenerator[AsyncSession, None]:
+    """每次测试一个全新的 in-memory SQLite + Base.metadata.create_all/drop_all。"""
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with factory() as session:
+        yield session
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
+    await engine.dispose()
 
 
-@pytest.mark.asyncio
-async def test_create_project(client: AsyncClient, test_user):
-    """测试创建项目"""
-    response = await client.post(
-        "/api/projects",
-        json={"name": "新项目", "description": "测试项目"},
-        headers={"Authorization": "Bearer test-token"},
+@pytest.fixture
+def authed_user() -> User:
+    """不需要持久化的假用户。UUID 固定，方便断言。"""
+    return User(
+        id=uuid.UUID("11111111-1111-1111-1111-111111111111"),
+        username="tester",
+        password_hash="not-a-real-hash",
+        is_active=True,
     )
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["code"] == 200
-    assert data["data"]["name"] == "新项目"
 
+@pytest_asyncio.fixture
+async def client(db_session, authed_user) -> AsyncGenerator[AsyncClient, None]:
+    """httpx 客户端，绕过 lifespan/alembic/缓存，注入 DB+user。"""
+    from api.dependencies import get_db
+    from api.routes.auth import get_current_user
 
-@pytest.mark.asyncio
-async def test_list_projects(client: AsyncClient, test_user, db_session):
-    """测试获取项目列表"""
-    # 先创建一个项目
-    # ...
+    async def _override_get_db():
+        try:
+            yield db_session
+            await db_session.commit()
+        except Exception:
+            await db_session.rollback()
+            raise
 
-    response = await client.get(
-        "/api/projects",
-        headers={"Authorization": "Bearer test-token"},
-    )
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_current_user] = lambda: authed_user
 
-    assert response.status_code == 200
-    data = response.json()
-    assert data["code"] == 200
-    assert isinstance(data["data"]["items"], list)
-
-
-@pytest.mark.asyncio
-async def test_delete_project(client: AsyncClient, test_user, db_session):
-    """测试删除项目（软删除）"""
-    # 先创建一个项目
-    # ...
-
-    response = await client.delete(
-        "/api/projects/project-id",
-        headers={"Authorization": "Bearer test-token"},
-    )
-
-    assert response.status_code == 200
-    data = response.json()
-    assert data["code"] == 200
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
 ```
+
+**为什么这样选**：
+- **in-memory SQLite**：与 `core/database.py` 的 `NullPool` 分支一致；CI 无需 PostgreSQL；每个测试一份新库，天然隔离
+- **`dependency_overrides`**：直接复用 `get_db` / `get_current_user`，不引入新的测试钩子；override 的 key 必须是路由实际 `Depends` 的那个函数对象
+- **httpx 0.28 不跑 ASGI lifespan**：无需 `asgi-lifespan` 包装，alembic 迁移和缓存初始化都不会触发
+- **不用 TokenFactory**：override 走 `get_current_user` 短路了 JWT 验证，测试 token 字符串随便填
+
+#### 3.5.2 典型用例
+
+```python
+@pytest.mark.asyncio
+class TestGetCategory:
+    async def test_returns_ui_defaults_when_no_row(self, client: AsyncClient) -> None:
+        r = await client.get("/api/v1/settings/ui")
+        assert r.status_code == 200
+        data = r.json()["data"]
+        assert data["settings"]["theme"] == "system"
+
+    async def test_unknown_category_returns_404(self, client: AsyncClient) -> None:
+        r = await client.get("/api/v1/settings/nonexistent")
+        assert r.status_code == 404
+```
+
+#### 3.5.3 验证 422 用项目信封
+
+项目的 `validation_exception_handler` 把 Pydantic 错误包成 `{code: 422, data: null, info: "..."}`，**不是** FastAPI 默认的 `{detail: ...}`。断言要看 `body["code"]` 和 `body["info"]`，不是 `body["detail"]`。
+
+```python
+async def test_invalid_value_returns_422(self, client: AsyncClient) -> None:
+    r = await client.patch("/api/v1/settings/ui", json={"settings": {"theme": "neon"}})
+    assert r.status_code == 422
+    body = r.json()
+    assert body["code"] == 422
+    assert "UISettings" in body["info"]
+```
+
+#### 3.5.4 测鉴权：暂时清除 override
+
+`client` fixture 默认注入了 `get_current_user`。要测 401 时，单独构造一个不注入 auth 的客户端：
+
+```python
+async def test_unauthenticated_request_returns_401(self, db_session) -> None:
+    app.dependency_overrides[get_db] = lambda_db(db_session)  # 只覆盖 DB
+    # 故意不覆盖 get_current_user
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as ac:
+            r = await ac.get("/api/v1/settings")
+            assert r.status_code == 401
+    finally:
+        app.dependency_overrides.clear()
+```
+
+#### 3.5.5 何时用集成 vs 单元
+
+| 场景 | 用 |
+|------|-----|
+| 校验 Pydantic 字段、默认值合并 | 单元（`test_settings_service.py`）|
+| 验证路由签名、依赖注册 | 单元（`test_settings_api.py`）|
+| 跨请求状态（PATCH 之后 GET 看是否持久化）| **集成**（`test_settings_integration.py`）|
+| 鉴权 / 异常信封 / 未知 category 404 | **集成**（httpx 必经）|
+| 真实数据库方言行为（PG vs SQLite JSON）| 集成 + 多 DB fixture，不在本套件范围 |
 
 ## 4. 测试覆盖要求
 
