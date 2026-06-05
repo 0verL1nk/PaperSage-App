@@ -43,6 +43,7 @@ export function InlineInput({ onSubmit, onCancel, defaultValue }: {
   return (
     <input
       ref={inputRef}
+      data-testid="inline-rename-input"
       className="w-full px-1 text-[12px] bg-transparent border-b border-primary outline-none"
       defaultValue={defaultValue}
       onKeyDown={(e) => {
@@ -125,6 +126,9 @@ export function NodeRenderer({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
+            data-testid="file-node"
+            data-file-path={node.data.fullPath}
+            data-active={isActive}
             className={cn(
               'flex items-center gap-2 px-2 py-1.5 text-[12px] cursor-pointer transition-colors rounded-lg group relative w-full',
               willReceiveDrop && 'bg-primary/5 ring-1 ring-primary/30',
@@ -184,6 +188,9 @@ function FolderNodeRow({
     <div
       ref={dragHandle}
       style={style}
+      data-testid="folder-node"
+      data-folder-path={node.data.fullPath}
+      data-open={node.isOpen}
       className={cn(
         'flex items-center gap-1 px-2 py-1.5 text-[12px] cursor-pointer text-foreground/80 transition-colors rounded-lg font-medium group w-full',
         willReceiveDrop ? 'bg-primary/5 ring-1 ring-primary/30' : 'hover:bg-muted',
