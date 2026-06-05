@@ -1,0 +1,82 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+
+import { useSettingsStore } from '@/store/settings-store'
+import type { AllSettings } from '@/services/settings-api'
+
+// Mock the store before importing the component so the component picks up the mock
+vi.mock('@/store/settings-store', async () => {
+  const actual = await vi.importActual<typeof import('@/store/settings-store')>(
+    '@/store/settings-store',
+  )
+  return {
+    ...actual,
+    useSettingsStore: vi.fn(),
+  }
+})
+
+import { SettingsPage } from './SettingsPage'
+
+const fixtureSettings: AllSettings = {
+  ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
+  editor: { font_size: 14, tab_size: 2, auto_save: true, auto_save_interval: 30, word_wrap: true },
+  agent: {
+    providers: [],
+    active_provider_id: '',
+    temperature: 0.7,
+    writing_style: 'academic',
+    memory_enabled: true,
+  },
+}
+
+function installMockStore(overrides: Partial<ReturnType<typeof useSettingsStore.getState>>) {
+  const fetchSettings = vi.fn().mockResolvedValue(fixtureSettings)
+  vi.mocked(useSettingsStore).mockImplementation((selector?: (s: ReturnType<typeof useSettingsStore.getState>) => unknown) => {
+    const state = {
+      settings: null as AllSettings | null,
+      loading: false,
+      error: null as string | null,
+      fetchSettings,
+      patchCategory: vi.fn(),
+      resetCategory: vi.fn(),
+      clear: vi.fn(),
+      ...overrides,
+    }
+    return (selector ? selector(state) : state) as ReturnType<typeof useSettingsStore>
+  })
+  return fetchSettings
+}
+
+describe('SettingsPage', () => {
+  beforeEach(() => {
+    vi.mocked(useSettingsStore).mockReset()
+  })
+
+  it('renders the three tab triggers', () => {
+    installMockStore({ settings: fixtureSettings, loading: false })
+    render(<SettingsPage />)
+    expect(screen.getByRole('tab', { name: 'General' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Editor' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'AI Assistant' })).toBeInTheDocument()
+  })
+
+  it('shows loading state when no settings and loading=true', () => {
+    installMockStore({ settings: null, loading: true })
+    render(<SettingsPage />)
+    expect(screen.getByText(/Loading settings/i)).toBeInTheDocument()
+  })
+
+  it('invokes fetchSettings on mount when settings are not loaded', async () => {
+    const fetchSettings = installMockStore({ settings: null, loading: false })
+    render(<SettingsPage />)
+    await waitFor(() => {
+      expect(fetchSettings).toHaveBeenCalled()
+    })
+  })
+
+  it('does not call fetchSettings on mount when settings are already loaded', () => {
+    const fetchSettings = installMockStore({ settings: fixtureSettings, loading: false })
+    render(<SettingsPage />)
+    expect(fetchSettings).not.toHaveBeenCalled()
+  })
+})
