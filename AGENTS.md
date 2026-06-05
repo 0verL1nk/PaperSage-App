@@ -56,7 +56,7 @@ PaperSage - Full-stack academic paper management app. React 19 + TypeScript fron
 ## ANTI-PATTERNS (THIS PROJECT)
 
 - **`get_current_user` was a route-file dependency**: now lives in `backend/api/dependencies.py`; routes import from there, not from each other (2026-06 fix)
-- **`get_db` is duplicated** in `backend/core/database.py` and `backend/api/dependencies.py` (identical bodies) — known cleanup target, currently harmless because no caller imports from `core.database`
+- **`get_db` was duplicated** in `backend/core/database.py` and `backend/api/dependencies.py` (identical bodies); removed 2026-06; canonical home is `api.dependencies`
 - **Port mismatch**: Makefile has 8000, CLAUDE.md says 5478
 - **Test = type check**: Makefile `test` target runs `ty check`, not pytest
 - **`app/` package**: Extra layer not in standard layout
