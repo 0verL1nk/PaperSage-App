@@ -100,8 +100,7 @@ async def client(
 
     # Import here so the overrides match the function objects the routes
     # captured at import time.
-    from api.dependencies import get_db
-    from api.routes.auth import get_current_user
+    from api.dependencies import get_current_user, get_db
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_current_user] = _override_get_current_user
