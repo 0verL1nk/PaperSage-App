@@ -73,16 +73,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS middleware - allow localhost and 127.0.0.1 for development
+# CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:5478",
-        "http://127.0.0.1:5478",
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["Content-Disposition"],

@@ -11,9 +11,9 @@ LOG_DIR="${PROJECT_ROOT}/logs"
 # Service definitions: name|health_url|health_method|start_command
 # Order matters: started top-to-bottom, stopped bottom-to-top
 SERVICES=(
-    "clsi|http://localhost:3013/status|GET|source '${PROJECT_ROOT}/scripts/clsi/env.sh' 2>/dev/null; node --watch '${PROJECT_ROOT}/latex_render/services/clsi/app.js'"
-    "backend|http://localhost:5478/health|GET|cd '${PROJECT_ROOT}/backend' && uv run uvicorn app.main:app --reload --port 5478"
-    "frontend|http://localhost:5173|TCP|cd '${PROJECT_ROOT}/frontend' && pnpm dev"
+    "clsi|http://localhost:3013/status|GET|source '${PROJECT_ROOT}/scripts/clsi/env.sh' && mkdir -p '${PROJECT_ROOT}/latex_render/services/clsi/compiles' '${PROJECT_ROOT}/latex_render/services/clsi/output' '${PROJECT_ROOT}/latex_render/services/clsi/cache'; node --watch '${PROJECT_ROOT}/latex_render/services/clsi/app.js'"
+    "backend|http://localhost:5478/health|GET|cd '${PROJECT_ROOT}/backend' && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 5478"
+    "frontend|http://localhost:5173|TCP|cd '${PROJECT_ROOT}/frontend' && pnpm dev --host"
 )
 
 HEALTH_TIMEOUT=60

@@ -1,4 +1,4 @@
-const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? 'http://localhost:5478'
+const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? ''
 
 export const appEnv = Object.freeze({
   apiBaseUrl: rawApiBaseUrl,
@@ -13,7 +13,7 @@ export function getOptionalApiBaseUrl() {
 }
 
 export function getRequiredApiBaseUrl() {
-  if (appEnv.apiBaseUrl) {
+  if (appEnv.apiBaseUrl !== undefined && appEnv.apiBaseUrl !== null) {
     return appEnv.apiBaseUrl
   }
 
