@@ -7,9 +7,8 @@ from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_db
+from api.dependencies import get_current_user, get_db
 from api.response import ApiResponse, api_success
-from api.routes.auth import get_current_user
 from models.user import User
 from schemas import DocumentMoveRequest, DocumentRemarkRequest, DocumentResponse
 from services.documents.document_service import DocumentService

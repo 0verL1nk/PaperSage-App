@@ -9,9 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.dependencies import get_db
+from api.dependencies import get_current_user, get_db
 from api.response import ApiResponse, api_success
-from api.routes.auth import get_current_user
 from models import User
 from schemas.latex_file import (
     FolderDeleteRequest,

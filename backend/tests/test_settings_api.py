@@ -2,13 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
-
 from schemas.user_settings import (
+    VALID_CATEGORIES,
     AllSettingsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
-    VALID_CATEGORIES,
 )
 
 
