@@ -75,7 +75,7 @@ async def create_item(
 - ❌ **Reaching into other route files for shared code**. If you find yourself writing `from api.routes.X import helper`, the helper belongs in `dependencies.py`
 - ❌ **Defining FastAPI dependencies in route files**. This was the original `get_current_user` smell. If a `Depends` is used by more than one route file, it must live in `dependencies.py`
 - ❌ **Bypassing the envelope**. Don't `return {"foo": bar}` from a route — use `api_success(...)`. Otherwise the global error handlers and frontend envelope parsing break
-- ❌ **`get_db` is duplicated** in `core/database.py` and `dependencies.py` (identical bodies). No caller imports the `core.database` version, so this is currently harmless, but a future cleanup target
+- ❌ **`get_db` was duplicated** in `core/database.py` and `dependencies.py` (identical bodies); removed 2026-06 — canonical home is `api/dependencies.py`
 - ❌ **Inline JWT verification in route handlers**. `get_current_user` already does this; the `/auth/refresh` route inlines it only because it uses a *refresh* token instead of an access token — that's a legitimate exception, not a pattern to copy
 
 ## TESTING

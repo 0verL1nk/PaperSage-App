@@ -13,7 +13,7 @@ Low-level security, token, database, and Redis utilities. Exports bcrypt hashing
 | `create_access_token` | Function | `token.py` | JWT access token (short-lived) |
 | `create_refresh_token` | Function | `token.py` | JWT refresh token (long-lived) |
 | `verify_token` | Function | `token.py` | token verification with type check |
-| `get_db` | Generator | `database.py` | FastAPI dependency for async sessions |
+| ~~`get_db`~~ | ~~Generator~~ | ~~`database.py`~~ | Moved to `api/dependencies.py` (2026-06); `database.py` now only owns the engine and session factory |
 | `get_redis` | Function | `redis.py` | FastAPI dependency for Redis |
 | `Base` | Class | `base.py` | SQLAlchemy DeclarativeBase |
 | `TimestampMixin` | Mixin | `base.py` | created_at/updated_at fields |
