@@ -42,6 +42,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Database
@@ -78,7 +79,7 @@ class Settings(BaseSettings):
     compile_history_limit: int = 20
 
     # S3 Storage (Cloudflare R2 / S3-compatible)
-    s3_endpoint: str = "https://account_id.r2.cloudflarestorage.com"
+    s3_endpoint: str = ""
     s3_access_key: str = ""
     s3_secret_key: str = ""
     s3_bucket: str = "papersage"

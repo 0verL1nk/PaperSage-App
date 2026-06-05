@@ -144,6 +144,9 @@ export function AuthPage() {
                         placeholder="请输入您的账号"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
                       />
+                      {loginForm.formState.errors.username && (
+                        <p className="text-xs text-destructive ml-1">{loginForm.formState.errors.username.message}</p>
+                      )}
                     </div>
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between px-1">
@@ -166,6 +169,9 @@ export function AuthPage() {
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
                       </div>
+                      {loginForm.formState.errors.password && (
+                        <p className="text-xs text-destructive ml-1">{loginForm.formState.errors.password.message}</p>
+                      )}
                     </div>
                     <Button 
                       type="submit" 
@@ -189,6 +195,9 @@ export function AuthPage() {
                         placeholder="建议使用常用 ID"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
+                      {registerForm.formState.errors.username && (
+                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.username.message}</p>
+                      )}
                     </div>
                     <div className="space-y-2.5">
                       <Label htmlFor="reg-password" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">设置密码</Label>
@@ -199,6 +208,9 @@ export function AuthPage() {
                         placeholder="至少 8 位，包含字母与数字"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
+                      {registerForm.formState.errors.password && (
+                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.password.message}</p>
+                      )}
                     </div>
                     <div className="space-y-2.5">
                       <Label htmlFor="reg-confirm" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">确认密码</Label>
@@ -209,9 +221,12 @@ export function AuthPage() {
                         placeholder="请再次输入密码"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
+                      {registerForm.formState.errors.confirmPassword && (
+                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.confirmPassword.message}</p>
+                      )}
                     </div>
-                    <Button 
-                      type="submit" 
+                    <Button
+                      type="submit"
                       variant="outline"
                       disabled={registerMutation.isPending}
                       className="h-12 w-full font-bold text-[15px] mt-4 rounded-full"

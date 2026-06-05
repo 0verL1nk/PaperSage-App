@@ -34,6 +34,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "docx-preview": "^0.3.7",
+    "js-sha256": "^0.11.1",
     "jszip": "^3.10.1",
     "lucide-react": "^1.7.0",
     "md5": "^2.3.0",

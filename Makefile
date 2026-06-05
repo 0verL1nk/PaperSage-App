@@ -70,13 +70,13 @@ status:
 
 backend:
 	@echo "$(YELLOW)Starting backend server...$(NC)"
-	@echo "$(BLUE)Backend running at http://localhost:5478$(NC)"
-	cd backend && uv run uvicorn app.main:app --reload --port 5478
+	@echo "$(BLUE)Backend running at http://0.0.0.0:5478$(NC)"
+	cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 5478
 
 frontend:
 	@echo "$(YELLOW)Starting frontend server...$(NC)"
-	@echo "$(BLUE)Frontend running at http://localhost:5173$(NC)"
-	cd frontend && pnpm dev
+	@echo "$(BLUE)Frontend running at http://0.0.0.0:5173$(NC)"
+	cd frontend && pnpm dev --host
 
 clsi-dev:
 	@./scripts/clsi/dev.sh
