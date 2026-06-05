@@ -22,7 +22,7 @@ export function FileTreeSearch({ value, onChange }: FileTreeSearchProps) {
   }, [])
 
   return (
-    <div className="relative px-2 py-1.5">
+    <div className="relative px-2 py-1.5" data-testid="file-tree-search">
       <div className={`flex items-center gap-1.5 px-2 py-1 rounded-md border transition-colors ${focused ? 'border-primary bg-background' : 'border-transparent bg-muted/50'}`}>
         <Search size={12} className="shrink-0 text-muted-foreground" />
         <input
@@ -33,11 +33,13 @@ export function FileTreeSearch({ value, onChange }: FileTreeSearchProps) {
           onFocus={() => setFocused(true)}
           onBlur={() => setFocused(false)}
           placeholder="搜索文件..."
+          data-testid="file-tree-search-input"
           className="w-full bg-transparent text-[11px] outline-none placeholder:text-muted-foreground/50"
         />
         {value && (
           <button
             onClick={() => onChange('')}
+            data-testid="file-tree-search-clear"
             className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
           >
             <X size={12} />
