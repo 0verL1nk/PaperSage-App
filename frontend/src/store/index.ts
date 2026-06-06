@@ -18,3 +18,4 @@ export {
   showGlobalLoading,
   useUiStore,
 } from '@/store/ui-store'
+export { useUploadStore } from '@/store/upload-store'

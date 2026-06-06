@@ -17,20 +17,35 @@ interface DataTableProps {
   data: ProjectDocument[]
   actions: DocumentActions
   globalFilter: string
+  /** Called when row selection changes with the array of selected row IDs. */
+  onRowSelectionChange?: (selectedIds: string[]) => void
 }
 
 const PAGE_SIZE = 20
 
-export function DataTable({ data, actions, globalFilter }: DataTableProps) {
+export function DataTable({ data, actions, globalFilter, onRowSelectionChange }: DataTableProps) {
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([])
+  const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const columns = createColumns(actions)
 
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table cannot be safely memoized
   const table = useReactTable({
     data,
     columns,
-    state: { sorting, globalFilter },
+    state: { sorting, globalFilter, rowSelection },
     onSortingChange: setSorting,
+    onRowSelectionChange: (updater) => {
+      const newSelection = typeof updater === 'function' ? updater(rowSelection) : updater
+      setRowSelection(newSelection)
+      if (onRowSelectionChange) {
+        const selectedIds = Object.keys(newSelection).filter((k) => newSelection[k])
+        onRowSelectionChange(
+          selectedIds
+            .map((id) => data[Number(id)]?.id)
+            .filter(Boolean),
+        )
+      }
+    },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getPaginationRowModel: getPaginationRowModel(),

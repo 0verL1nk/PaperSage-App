@@ -1,6 +1,6 @@
 /** Uploading page — reference document management with on-demand preview. */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams } from '@tanstack/react-router'
 import * as Resizable from 'react-resizable-panels'
 import { Upload, FolderPlus } from 'lucide-react'
@@ -9,7 +9,8 @@ import { useUploadStore } from '@/store/upload-store'
 import { useDocuments, useDeleteDocument } from '@/services/files-api'
 import { useProjectFolders } from '@/services/folders-api'
 import type { ProjectDocument } from '@/types/files'
-import { PANEL_SIZES } from './constants'
+import { PANEL_SIZES, MOBILE_BREAKPOINT } from './constants'
+import { FolderTree } from './FolderTree'
 import { DataTable } from './DataTable'
 import { FilterBar } from './FilterBar'
 import { BatchActionsBar } from './BatchActionsBar'
@@ -19,13 +20,29 @@ import { MoveDocumentDialog } from './MoveDocumentDialog'
 import { EditRemarkDialog } from './EditRemarkDialog'
 import { CreateFolderDialog } from './CreateFolderDialog'
 
+/** Hook to detect mobile viewport. */
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false,
+  )
+  useEffect(() => {
+    const handler = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
+  return isMobile
+}
+
 export function UploadingPage() {
   const { projectId = '' } = useParams({ strict: false })
 
   const [typeFilter, setTypeFilter] = useState('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  const { selectedFolderId, selectedFileIds, setSelectedFolder, clearSelection } = useUploadStore()
+  const {
+    selectedFolderId, selectedFileIds,
+    setSelectedFolder, clearSelection, selectAllFiles,
+  } = useUploadStore()
 
   const [previewDoc, setPreviewDoc] = useState<ProjectDocument | null>(null)
 
@@ -92,7 +109,28 @@ export function UploadingPage() {
     openRemarkDialog(selected)
   }, [selectedFileIds, documents, openRemarkDialog])
 
-  const actions = { onMove: handleMove, onRemark: handleRemark, onDelete: handleDelete, onPreview: handlePreview }
+  /** Sync DataTable row selection changes to Zustand store. */
+  const handleRowSelectionChange = useCallback(
+    (selectedIds: string[]) => selectAllFiles(selectedIds),
+    [selectAllFiles],
+  )
+
+  const actions = {
+    onMove: handleMove,
+    onRemark: handleRemark,
+    onDelete: handleDelete,
+    onPreview: handlePreview,
+  }
+
+  const folderTreePanel = (
+    <aside className="h-full border-r border-border/30 bg-muted/5">
+      <FolderTree
+        projectId={projectId}
+        folders={folders}
+        onCreateFolder={() => setCreateFolderOpen(true)}
+      />
+    </aside>
+  )
 
   const tableContent = (
     <div className="flex flex-col h-full w-full">
@@ -120,7 +158,12 @@ export function UploadingPage() {
       />
 
       <div className="flex-1 min-h-0">
-        <DataTable data={filteredDocs} actions={actions} globalFilter={searchQuery} />
+        <DataTable
+          data={filteredDocs}
+          actions={actions}
+          globalFilter={searchQuery}
+          onRowSelectionChange={handleRowSelectionChange}
+        />
       </div>
 
       <BatchActionsBar
@@ -133,24 +176,49 @@ export function UploadingPage() {
     </div>
   )
 
+  const previewPanel = previewDoc ? (
+    <aside className="h-full border-l border-border/30 bg-muted/10">
+      <DocumentPreviewPanel document={previewDoc} onClose={handleClosePreview} />
+    </aside>
+  ) : null
+
+  const isMobile = useIsMobile()
+
   return (
     <div className="flex h-full w-full bg-background overflow-hidden">
-      {previewDoc ? (
-        <Resizable.Group orientation="horizontal" id="uploading-layout">
-          <Resizable.Panel defaultSize={PANEL_SIZES.left} minSize={PANEL_SIZES.minLeft}>
+      {isMobile ? (
+        /* Mobile: stacked layout */
+        <div className="flex flex-col h-full w-full">
+          <div className="h-48 shrink-0 border-b border-border/30 overflow-hidden">{folderTreePanel}</div>
+          <div className="flex-1 min-h-0">{tableContent}</div>
+          {previewPanel && <div className="h-96 shrink-0 border-t border-border/30">{previewPanel}</div>}
+        </div>
+      ) : previewDoc ? (
+        /* Desktop with preview: three-pane resizable */
+        <Resizable.Group orientation="horizontal" id="uploading-layout-3">
+          <Resizable.Panel defaultSize={PANEL_SIZES.folder} minSize={PANEL_SIZES.minFolder}>
+            {folderTreePanel}
+          </Resizable.Panel>
+          <Resizable.Separator className="w-px bg-border/40 hover:bg-accent/30 transition-colors" />
+          <Resizable.Panel defaultSize={PANEL_SIZES.table} minSize={PANEL_SIZES.minTable}>
             {tableContent}
           </Resizable.Panel>
-
           <Resizable.Separator className="w-px bg-border/40 hover:bg-accent/30 transition-colors" />
-
-          <Resizable.Panel defaultSize={PANEL_SIZES.right} minSize={PANEL_SIZES.minRight}>
-            <aside className="h-full border-l border-border/30 bg-muted/10">
-              <DocumentPreviewPanel document={previewDoc} onClose={handleClosePreview} />
-            </aside>
+          <Resizable.Panel defaultSize={PANEL_SIZES.preview} minSize={PANEL_SIZES.minPreview}>
+            {previewPanel}
           </Resizable.Panel>
         </Resizable.Group>
       ) : (
-        tableContent
+        /* Desktop without preview: two-pane (folder tree + table) */
+        <Resizable.Group orientation="horizontal" id="uploading-layout-2">
+          <Resizable.Panel defaultSize={PANEL_SIZES.folder} minSize={PANEL_SIZES.minFolder}>
+            {folderTreePanel}
+          </Resizable.Panel>
+          <Resizable.Separator className="w-px bg-border/40 hover:bg-accent/30 transition-colors" />
+          <Resizable.Panel defaultSize={100 - PANEL_SIZES.folder} minSize={PANEL_SIZES.minTable}>
+            {tableContent}
+          </Resizable.Panel>
+        </Resizable.Group>
       )}
 
       {uploadOpen && (

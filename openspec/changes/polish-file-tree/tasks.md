@@ -64,10 +64,10 @@
 
 ## 10. E2E 测试
 
-- [ ] 10.1 编写 Playwright E2E 测试：创建文件 → 编辑 → 编译 → 查看预览完整流程
-- [ ] 10.2 编写文件操作 E2E 测试：创建文件夹 → 拖拽文件 → 重命名 → 删除
-- [x] 10.3 编写搜索过滤 E2E 测试：搜索文件 → 点击定位 → 清空搜索（`tests/e2e/features/file-tree.spec.ts` — 2026-06）
-- [x] 10.4 编写键盘快捷键 E2E 测试：F2 重命名 → Delete 删除 → Escape 取消（`tests/e2e/features/file-tree.spec.ts` — 2026-06；Delete 路径走 confirm-dialog，详见 `frontend/tests/AGENTS.md`）
+- [x] 10.1 编写 Playwright E2E 测试：创建文件 → 编辑 → 编译 → 查看预览完整流程（`tests/e2e/writing/writing-happy-path.spec.ts` — 2026-06）
+- [x] 10.2 编写文件操作 E2E 测试：创建文件夹 → 拖拽文件 → 重命名 → 删除（`tests/e2e/writing/file-ops.spec.ts` — 2026-06）
+- [x] 10.3 编写搜索过滤 E2E 测试：搜索文件 → 点击定位 → 清空搜索（`tests/e2e/writing/file-tree.spec.ts` — 2026-06）
+- [x] 10.4 编写键盘快捷键 E2E 测试：F2 重命名 → Delete 删除 → Escape 取消（`tests/e2e/writing/file-tree.spec.ts` — 2026-06；Delete 路径走 confirm-dialog）
 
 ## 11. 最终验证
 
