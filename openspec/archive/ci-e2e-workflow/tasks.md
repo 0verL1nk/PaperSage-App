@@ -50,7 +50,7 @@
 - [x] 6.1 生成 `frontend/tests/e2e/fixtures/sample.pdf`(~1KB 最小合法 PDF)
 - [x] 6.2 生成 `frontend/tests/e2e/fixtures/sample.docx`(~3KB 最小合法 DOCX)
 - [x] 6.3 写 `frontend/tests/e2e/fixtures/main.tex`(1 页 LaTeX 文档)
-- [ ] 6.4 写 `docs/agents/recipes/2026-06-e2e-fixtures.md` 生成 recipe
+- [x] 6.4 写 `docs/agents/recipes/2026-06-e2e-fixtures.md` 生成 recipe
 
 ## 7. 9 个 spec 文件
 
@@ -73,15 +73,15 @@
 
 ## 9. 本地验证
 
-- [ ] 9.1 `cd frontend && pnpm typecheck`
-- [ ] 9.2 `cd backend && uvx ruff check app api core` + `uvx ruff format --check .`
-- [ ] 9.3 `cd backend && uv run pytest tests/`
-- [ ] 9.4 `cd frontend && pnpm test`
+- [x] 9.1 `cd frontend && pnpm typecheck`
+- [x] 9.2 `cd backend && uvx ruff check app api core` + `uvx ruff format --check .`
+- [x] 9.3 `cd backend && uv run pytest tests/`
+- [x] 9.4 `cd frontend && pnpm test`
 - [ ] 9.5 手工 `pnpm test:e2e` 跑 1-2 个 spec 确认能起
 
 ## 10. 上线 & 归档
 
-- [ ] 10.1 推分支,在 GitHub Actions 上跑一次,记录实际时长
-- [ ] 10.2 修任何 CI 实际跑出来的 issue
-- [ ] 10.3 走 `openspec archive ci-e2e-workflow` 归档
+- [x] 10.1 推分支,在 GitHub Actions 上跑一次,记录实际时长
+- [x] 10.2 修任何 CI 实际跑出来的 issue
+- [x] 10.3 走 `openspec archive ci-e2e-workflow` 归档
 - [ ] 10.4 (可选) 通知 repo owner 在 branch protection 里把 `e2e` 设为 required check
