@@ -194,3 +194,4 @@ tags
 # CLSI build artifacts and output
 .clsi/
 output/
+.cc-connect/

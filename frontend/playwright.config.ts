@@ -36,4 +36,14 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  // Auto-start the Vite dev server for local `pnpm test:e2e` runs.
+  // In CI the workflow starts the server manually via nohup.
+  webServer: !isCI
+    ? {
+        command: 'pnpm dev --port 5173',
+        port: 5173,
+        reuseExistingServer: true,
+        timeout: 30_000,
+      }
+    : undefined,
 })

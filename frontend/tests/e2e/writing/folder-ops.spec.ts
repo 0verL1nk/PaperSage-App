@@ -43,4 +43,71 @@ test.describe('Folder operations (real backend)', () => {
     await mainFile.click()
     await expect(mainFile).toHaveAttribute('data-active', 'true', { timeout: 5_000 })
   })
+
+  test('creates a new folder via header button', async ({ page }) => {
+    const projectId = e2eEnv('E2E_PROJECT_ID')
+    await loginAs(page)
+    await page.goto(`/project/${projectId}/writing`)
+    await expect(page.getByTestId('file-node').first()).toBeVisible({ timeout: 15_000 })
+
+    // Click "New Folder" button
+    await page.getByTitle('新建文件夹').click()
+
+    // Inline input appears for naming
+    const renameInput = page.getByTestId('inline-rename-input')
+    await expect(renameInput).toBeVisible({ timeout: 3_000 })
+
+    const folderName = `e2e-folder-${Date.now()}`
+    await renameInput.fill(folderName)
+    await renameInput.press('Enter')
+
+    // The folder should appear in the tree
+    await expect(page.getByTestId('folder-node').filter({ hasText: folderName }).first()).toBeVisible({ timeout: 5_000 })
+  })
+
+  test('renames a folder via context menu', async ({ page }) => {
+    const projectId = e2eEnv('E2E_PROJECT_ID')
+    await loginAs(page)
+    await page.goto(`/project/${projectId}/writing`)
+    await expect(page.getByTestId('file-node').first()).toBeVisible({ timeout: 15_000 })
+
+    // Find the sections folder (seeded by default)
+    const sectionsFolder = page.getByTestId('folder-node').filter({ hasText: 'sections' }).first()
+    if (await sectionsFolder.isVisible().catch(() => false)) {
+      // Right-click to open context menu
+      await sectionsFolder.click({ button: 'right' })
+      await page.getByText('重命名').click()
+
+      const renameInput = page.getByTestId('inline-rename-input')
+      await expect(renameInput).toBeVisible({ timeout: 3_000 })
+      await renameInput.fill('renamed-sections')
+      await renameInput.press('Enter')
+
+      // The renamed folder should appear
+      await expect(page.getByTestId('folder-node').filter({ hasText: 'renamed-sections' }).first()).toBeVisible({ timeout: 5_000 })
+    }
+  })
+
+  test('deletes a folder via context menu + confirm dialog', async ({ page }) => {
+    const projectId = e2eEnv('E2E_PROJECT_ID')
+    await loginAs(page)
+    await page.goto(`/project/${projectId}/writing`)
+    await expect(page.getByTestId('file-node').first()).toBeVisible({ timeout: 15_000 })
+
+    // Find the sections folder
+    const sectionsFolder = page.getByTestId('folder-node').filter({ hasText: 'sections' }).first()
+    if (await sectionsFolder.isVisible().catch(() => false)) {
+      // Right-click to open context menu
+      await sectionsFolder.click({ button: 'right' })
+      await page.getByText('删除').click()
+
+      // Confirm dialog should appear
+      const confirmButton = page.getByRole('button', { name: '删除' })
+      await expect(confirmButton).toBeVisible({ timeout: 3_000 })
+      await confirmButton.click()
+
+      // The folder should be removed from the tree
+      await expect(sectionsFolder).not.toBeVisible({ timeout: 5_000 })
+    }
+  })
 })

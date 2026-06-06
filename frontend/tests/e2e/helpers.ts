@@ -108,16 +108,51 @@ export async function mockWritingPageAPIs(page: Page) {
     })
   })
 
-  // Per-file content + auto-save. The list endpoint `.../latex-files/`
-  // ends with a slash so the glob below never matches it; the
-  // trailing-slash branch in the handler covers the corner case.
-  await page.route('**/api/v1/projects/*/latex-files/*', async (route) => {
+  // Per-file content + auto-save + rename/move. The list endpoint
+  // `.../latex-files/` ends with a slash so the glob below never
+  // matches it; the trailing-slash branch handles the corner case.
+  await page.route('**/api/v1/projects/*/latex-files/**', async (route) => {
     const url = route.request().url()
+    const method = route.request().method()
+
+    // List endpoint — handled by the dedicated route above
     if (url.endsWith('/')) {
       await route.fallback()
       return
     }
-    const method = route.request().method()
+
+    // ── Sub-resource actions: rename / move ──
+    if (url.endsWith('/rename') && method === 'POST') {
+      const body = route.request().postDataJSON()
+      const newPath = body?.new_path ?? 'renamed.tex'
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: { id: 'f-renamed', file_path: newPath, content_type: 'text/x-tex', size_bytes: 42, last_saved_at: '2025-06-01T00:00:00Z' },
+        }),
+      })
+      return
+    }
+
+    if (url.endsWith('/move') && method === 'POST') {
+      const body = route.request().postDataJSON()
+      const newDir = body?.new_dir ?? 'sections'
+      const originalSegment = decodeURIComponent(url.split('/latex-files/').pop()?.replace('/move', '') ?? 'refs.bib')
+      const fileName = originalSegment.split('/').pop() ?? 'file.tex'
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: { id: 'f-moved', file_path: `${newDir}/${fileName}`, content_type: 'text/x-tex', size_bytes: 42, last_saved_at: '2025-06-01T00:00:00Z' },
+        }),
+      })
+      return
+    }
+
+    // ── GET file content ──
     if (method === 'GET') {
       const path = decodeURIComponent(url.split('/latex-files/').pop() ?? '')
       await route.fulfill({
@@ -133,6 +168,8 @@ export async function mockWritingPageAPIs(page: Page) {
       })
       return
     }
+
+    // ── PUT (auto-save) / DELETE (single file) ──
     if (method === 'PUT' || method === 'DELETE') {
       await route.fulfill({
         status: 200,
@@ -141,7 +178,88 @@ export async function mockWritingPageAPIs(page: Page) {
       })
       return
     }
+
     await route.fallback()
+  })
+
+  // Create file/folder (POST to the list endpoint)
+  await page.route(API_LATEX_FILES, async (route) => {
+    if (route.request().method() === 'POST') {
+      const body = route.request().postDataJSON()
+      const filePath = body?.file_path ?? body?.path ?? 'new-file.tex'
+      const isFolder = filePath.endsWith('/.gitkeep')
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: {
+            id: `f-new-${Date.now()}`,
+            file_path: isFolder ? filePath.replace(/\/\.gitkeep$/, '') : filePath,
+            content_type: isFolder ? 'directory' : 'text/x-tex',
+            size_bytes: 0,
+            last_saved_at: '2025-06-01T00:00:00Z',
+          },
+        }),
+      })
+      return
+    }
+    // GET falls through to the existing MOCK_LATEX_FILES response
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(MOCK_LATEX_FILES),
+    })
+  })
+
+  // Recursive folder delete
+  await page.route('**/api/v1/projects/*/latex-files/folder', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: { deleted_count: 3 }, info: '' }),
+    })
+  })
+
+  // Compile mock — returns immediate success
+  await page.route(API_LATEX_COMPILE, async (route) => {
+    const method = route.request().method()
+
+    if (method === 'POST') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: { job_id: 'job-1', status: 'success', build_id: 'build-1' },
+        }),
+      })
+      return
+    }
+
+    // GET compile status (job polling)
+    if (method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: { status: 'success', build_id: 'build-1', output_files: ['output.pdf'] },
+        }),
+      })
+      return
+    }
+
+    await route.fallback()
+  })
+
+  // Compile output (PDF)
+  await page.route('**/api/v1/projects/*/latex/output/**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      body: '<mock-pdf-content>',
+    })
   })
 }
 

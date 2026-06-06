@@ -20,21 +20,10 @@ test.describe('401 redirect', () => {
       [ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY],
     )
 
+    // Navigate to a protected route — the axios interceptor should
+    // catch the 401 from /auth/me and redirect to /auth.
     await page.goto('/app/projects')
-    // Either the axios interceptor kicks in (because the auth/me
-    // call returns 401) and clears session + redirects, OR the
-    // page just shows an error and the user is still on /app.
-    // We accept either: the contract is "user is not silently
-    // logged in with a broken session".
-    await page.waitForTimeout(2000)
-    const url = page.url()
-    const isOnAuth = /\/auth/.test(url)
-    const hasErrorMessage = await page
-      .getByText(/失败|error|401|未授权/i)
-      .first()
-      .isVisible()
-      .catch(() => false)
-    expect(isOnAuth || hasErrorMessage).toBe(true)
+    await expect(page).toHaveURL(/\/auth/, { timeout: 10_000 })
 
     // Sanity: env helper reads
     expect(e2eEnv('E2E_USER', 'fallback')).toBeTruthy()
