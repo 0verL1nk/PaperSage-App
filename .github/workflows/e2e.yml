@@ -154,7 +154,7 @@ jobs:
       - name: Start backend (uvicorn)
         working-directory: backend
         run: |
-          nohup uv run uvicorn main:app --host 127.0.0.1 --port 5478 \
+          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 5478 \
             > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
           echo $! > /tmp/backend.pid
           disown
