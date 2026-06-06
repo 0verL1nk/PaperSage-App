@@ -493,7 +493,15 @@ export function WritingPage() {
                 </div>
                 <div className="flex items-center gap-1">
                   <span className="text-[10px] font-mono text-muted-foreground mr-1">{compilerLabel}</span>
-                  <Button variant="ghost" size="icon-xs" className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90" onClick={handleCompile} disabled={isCompiling}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    data-testid="compile-button"
+                    aria-label={isCompiling ? '编译中' : '编译'}
+                    className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90"
+                    onClick={handleCompile}
+                    disabled={isCompiling}
+                  >
                     {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
                   </Button>
                 </div>
