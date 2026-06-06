@@ -1,0 +1,265 @@
+name: E2E (Playwright)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/e2e.yml'
+      - 'frontend/playwright.config.ts'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - 'backend/**'
+      - '.github/workflows/e2e.yml'
+      - 'frontend/playwright.config.ts'
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Playwright E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # All env vars are explicit here. The .env file is NOT read in CI
+    # (Settings reads os.environ first via Pydantic, but with env_file
+    # set, Pydantic would still find the .env file in CWD. We avoid
+    # that by writing our own .env.ci file that overwrites any
+    # committed .env with the values below — see "Write CI env file" step).
+    env:
+      # Backend
+      DATABASE_URL: sqlite+aiosqlite:///./e2e.db
+      SECRET_KEY: ci-secret-not-for-prod
+      REDIS_URL: ''
+      LATEX_CLSI_ENABLED: 'false'
+      # IMPORTANT: the backend runs on the runner host (not in a container),
+      # so it cannot resolve the docker service hostname `minio`. GitHub
+      # Actions services expose their ports to the host via port mapping,
+      # therefore the host-side client must use `localhost:9000`. The mc
+      # init container uses `minio:9000` because IT is a sibling container
+      # and resolves docker DNS — see `services.minio-init` below.
+      S3_ENDPOINT: http://localhost:9000
+      S3_ACCESS_KEY: ci-access
+      S3_SECRET_KEY: ci-secret
+      S3_BUCKET: papersage
+      S3_REGION: us-east-1
+      # If a spec ever needs to hand a presigned URL to the browser, this
+      # is the host the browser sees. Mirrors S3_ENDPOINT for CI.
+      S3_PUBLIC_URL: http://localhost:9000
+      EMAIL_PROVIDER: smtp
+      SMTP_HOST: localhost
+      # Frontend
+      # The frontend reads VITE_API_BASE_URL (not VITE_API_BASE) — see
+      # frontend/src/lib/env.ts. Using an absolute URL bypasses the Vite
+      # dev proxy so multipart uploads and binary responses don't get
+      # double-buffered. CORS in the backend allows * origins.
+      VITE_API_BASE_URL: http://localhost:5478/api/v1
+      # Playwright
+      CI: 'true'
+      PLAYWRIGHT_BASE_URL: http://localhost:5173
+
+    services:
+      minio:
+        image: minio/minio:RELEASE.2024-10-13T13-34-11Z
+        env:
+          MINIO_ROOT_USER: ci-access
+          MINIO_ROOT_PASSWORD: ci-secret
+        ports:
+          - 9000:9000
+          - 9001:9001
+        options: >-
+          --health-cmd "curl -sf http://localhost:9000/minio/health/live"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+
+      minio-init:
+        image: minio/mc:RELEASE.2024-10-08T09-37-26Z
+        depends-on:
+          minio:
+            condition: service_healthy
+        env:
+          MC_HOST_minio: http://ci-access:ci-secret@minio:9000
+        entrypoint: >
+          /bin/sh -c "
+          mc mb --ignore-existing minio/papersage &&
+          mc anonymous set download minio/papersage &&
+          echo 'MinIO bucket ready'
+          "
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Backend setup ─────────────────────────────────────
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install backend deps
+        working-directory: backend
+        run: uv sync --extra dev
+
+      # ── Frontend setup ────────────────────────────────────
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # ── Write CI env file ────────────────────────────────
+      # The committed .env file (gitignored locally but possibly
+      # present in some CI caches) must not influence settings.
+      # We write our own .env that Pydantic will load instead.
+      - name: Write CI env file
+        working-directory: backend
+        run: |
+          cat > .env <<ENVEOF
+          DATABASE_URL=sqlite+aiosqlite:///./e2e.db
+          SECRET_KEY=ci-secret-not-for-prod
+          REDIS_URL=
+          LATEX_CLSI_ENABLED=false
+          S3_ENDPOINT=http://localhost:9000
+          S3_ACCESS_KEY=ci-access
+          S3_SECRET_KEY=ci-secret
+          S3_BUCKET=papersage
+          S3_REGION=us-east-1
+          S3_PUBLIC_URL=http://localhost:9000
+          EMAIL_PROVIDER=smtp
+          SMTP_HOST=localhost
+          ENVEOF
+
+      # ── Seed e2e DB ───────────────────────────────────────
+      - name: Seed e2e database
+        working-directory: backend
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/logs"
+          uv run python scripts/seed_e2e_user.py 2>&1 | tee "$GITHUB_WORKSPACE/logs/seed.log"
+
+      # ── Start backend ─────────────────────────────────────
+      - name: Start backend (uvicorn)
+        working-directory: backend
+        run: |
+          nohup uv run uvicorn main:app --host 127.0.0.1 --port 5478 \
+            > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
+          echo $! > /tmp/backend.pid
+          disown
+
+      - name: Wait for backend
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:5478/health >/dev/null; then
+              echo "Backend ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Backend did not start in 60s"
+          tail -100 "$GITHUB_WORKSPACE/logs/backend.log" || true
+          exit 1
+
+      # ── Start frontend ────────────────────────────────────
+      - name: Start vite dev server
+        working-directory: frontend
+        run: |
+          nohup pnpm dev --host 127.0.0.1 --port 5173 --strictPort \
+            > "$GITHUB_WORKSPACE/logs/frontend.log" 2>&1 &
+          echo $! > /tmp/frontend.pid
+          disown
+
+      - name: Wait for frontend
+        run: |
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:5173/ >/dev/null; then
+              echo "Frontend ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Frontend did not start in 60s"
+          tail -100 "$GITHUB_WORKSPACE/logs/frontend.log" || true
+          exit 1
+
+      # ── Playwright ────────────────────────────────────────
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/pnpm-lock.yaml') }}
+
+      - name: Install Playwright browsers
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Playwright E2E
+        id: e2e
+        working-directory: frontend
+        run: pnpm exec playwright test --reporter=list,github
+        env:
+          CI: 'true'
+
+      # ── Artifacts ─────────────────────────────────────────
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report
+            frontend/playwright-results.json
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload test results (traces, videos, screenshots)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: frontend/test-results
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Upload backend & frontend logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-logs
+          path: logs
+          retention-days: 7
+          if-no-files-found: warn
+
+      - name: Dump service logs on failure
+        if: failure()
+        run: |
+          echo '── seed.log ──'
+          tail -100 "$GITHUB_WORKSPACE/logs/seed.log" 2>/dev/null || echo "(missing)"
+          echo '── backend.log ──'
+          tail -200 "$GITHUB_WORKSPACE/logs/backend.log" 2>/dev/null || echo "(missing)"
+          echo '── frontend.log ──'
+          tail -200 "$GITHUB_WORKSPACE/logs/frontend.log" 2>/dev/null || echo "(missing)"
+
+      - name: Cleanup e2e.db
+        if: always()
+        working-directory: backend
+        run: rm -f e2e.db .env
