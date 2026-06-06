@@ -39,5 +39,5 @@
 
 ## 7. Testing & Polish
 
-- [ ] 7.1 Verify API mocks / write Vitest unit tests for the upload store and core hooks.
-- [ ] 7.2 Run full linting (`pnpm lint`) and typechecking (`pnpm typecheck`).
+- [x] 7.1 Verify API mocks / write Vitest unit tests for the upload store and core hooks.
+- [x] 7.2 Run full linting (`pnpm lint`) and typechecking (`pnpm typecheck`).
