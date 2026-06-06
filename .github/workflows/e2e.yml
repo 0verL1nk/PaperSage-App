@@ -62,7 +62,7 @@ jobs:
       # frontend/src/lib/env.ts. Using an absolute URL bypasses the Vite
       # dev proxy so multipart uploads and binary responses don't get
       # double-buffered. CORS in the backend allows * origins.
-      VITE_API_BASE_URL: http://localhost:5478/api/v1
+      VITE_API_BASE_URL: http://localhost:5478
       # Playwright
       CI: 'true'
       PLAYWRIGHT_BASE_URL: http://localhost:5173
