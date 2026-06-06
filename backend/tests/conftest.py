@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from collections.abc import AsyncGenerator
 
@@ -14,25 +15,32 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
-from app.config import get_settings
-from app.main import app
-from core.base import Base
-from models import User  # noqa: F401  — ensures UserSettings FK target is registered
-from models.user import User as UserModel
+# Provide valid S3 env vars before importing the app. CI has no real
+# S3 credentials, and importing api.routes.documents instantiates
+# DocumentService() at module load, which calls boto3.client() and
+# validates the endpoint URL. With an empty S3_ENDPOINT this raises
+# ValueError("Invalid endpoint: ").
+os.environ.setdefault("S3_ENDPOINT", "http://localhost:9000")
+os.environ.setdefault("S3_ACCESS_KEY", "test-access-key")
+os.environ.setdefault("S3_SECRET_KEY", "test-secret-key")
+os.environ.setdefault("S3_BUCKET", "test-bucket")
+os.environ.setdefault("S3_REGION", "us-east-1")
+
+from app.config import get_settings  # noqa: E402
+from app.main import app  # noqa: E402
+from core.base import Base  # noqa: E402
+from models import User  # noqa: E402,F401  — ensures UserSettings FK target is registered
+from models.user import User as UserModel  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def _mock_s3_settings(monkeypatch):
-    """Provide valid S3 env vars so boto3.client() does not fail on init.
+    """Clear cached settings so each test sees a fresh S3 config.
 
-    CI has no real S3 credentials; the default placeholder endpoint
-    'https://account_id.r2.cloudflarestorage.com' causes ValueError.
+    Module-level os.environ.setdefault() above covers the app import
+    path. This fixture just clears get_settings() so the next call
+    reloads from whatever env the test has set up.
     """
-    monkeypatch.setenv("S3_ENDPOINT", "http://localhost:9000")
-    monkeypatch.setenv("S3_ACCESS_KEY", "test-access-key")
-    monkeypatch.setenv("S3_SECRET_KEY", "test-secret-key")
-    monkeypatch.setenv("S3_BUCKET", "test-bucket")
-    monkeypatch.setenv("S3_REGION", "us-east-1")
     get_settings.cache_clear()
 
 

@@ -172,9 +172,7 @@ class TestAuthGate:
         # Note: deliberately NOT overriding get_current_user.
         try:
             transport = ASGITransport(app=app)
-            async with AsyncClient(
-                transport=transport, base_url="http://test"
-            ) as ac:
+            async with AsyncClient(transport=transport, base_url="http://test") as ac:
                 r = await ac.get("/api/v1/settings")
                 assert r.status_code == 401
         finally:
