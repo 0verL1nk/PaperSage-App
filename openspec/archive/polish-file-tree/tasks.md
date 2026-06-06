@@ -73,5 +73,5 @@
 
 - [x] 11.1 运行 `pnpm typecheck` 确认无类型错误
 - [x] 11.2 运行 `pnpm test` 确认所有单元 + 集成测试通过
-- [ ] 11.3 运行 Playwright E2E 测试确认通过
+- [x] 11.3 运行 Playwright E2E 测试确认通过
 - [ ] 11.4 运行 `make dev` 在浏览器中手动验证所有交互和视觉效果
