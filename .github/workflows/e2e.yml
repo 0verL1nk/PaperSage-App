@@ -67,30 +67,17 @@ jobs:
       CI: 'true'
       PLAYWRIGHT_BASE_URL: http://localhost:5173
 
-    services:
-      minio:
-        image: minio/minio:RELEASE.2024-11-07T00-52-20Z
-        env:
-          MINIO_ROOT_USER: ci-access
-          MINIO_ROOT_PASSWORD: ci-secret
-        ports:
-          - 9000:9000
-          - 9001:9001
-        # No health-cmd: MinIO's healthcheck binaries may not exist in
-        # all image tags. We wait for the port to respond in a step below.
-        options: >-
-          --health-cmd "exit 0"
-          --health-interval 1s
-          --health-timeout 1s
-          --health-retries 1
-
     steps:
       - uses: actions/checkout@v4
 
-      # ── Init MinIO bucket ────────────────────────────────
-      - name: Wait for MinIO and create bucket
+      # ── Start MinIO ─────────────────────────────────────
+      - name: Start MinIO (docker run)
         run: |
-          # Wait for MinIO to accept connections
+          docker run -d --name minio \
+            -p 9000:9000 -p 9001:9001 \
+            -e MINIO_ROOT_USER=ci-access \
+            -e MINIO_ROOT_PASSWORD=ci-secret \
+            minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
           for i in {1..30}; do
             if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO ready after ${i}s"
