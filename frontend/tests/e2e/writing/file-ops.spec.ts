@@ -34,7 +34,7 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
             code: 200,
             data: {
               id: 'f-new-test',
-              file_path: body?.file_path ?? 'new-file.tex',
+              file_path: body?.file_path ?? 'new_file.tex',
               content_type: 'text/x-tex',
               size_bytes: 0,
               last_saved_at: '2025-06-01T00:00:00Z',
@@ -47,18 +47,14 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
     })
 
     // Click the "New File" (+) button in the Explorer header
-    await page.getByTitle('新建文件').click()
+    await page.getByRole('button', { name: '新建文件', exact: true }).click()
 
-    // Inline input appears for naming the new file
-    const renameInput = page.getByTestId('inline-rename-input')
-    await expect(renameInput).toBeVisible({ timeout: 3_000 })
+    // The file is created immediately with a default name and opened
+    // in the editor. Verify the POST was called.
+    await expect.poll(() => createCalled, { timeout: 5_000 }).toBe(true)
 
-    // Type a name and confirm
-    await renameInput.fill('appendix.tex')
-    await renameInput.press('Enter')
-
-    // The POST to create the file was sent
-    await expect.poll(() => createCalled, { timeout: 3_000 }).toBe(true)
+    // The editor tab should show the new file name
+    await expect(page.getByText('new_file.tex').first()).toBeVisible({ timeout: 3_000 })
   })
 
   test('creates a new folder via header button', async ({ page }) => {
@@ -74,7 +70,7 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
             code: 200,
             data: {
               id: 'f-new-folder',
-              file_path: body?.file_path?.replace('/.gitkeep', '') ?? 'new-folder',
+              file_path: body?.file_path?.replace('/.gitkeep', '') ?? 'new_folder',
               content_type: 'directory',
               size_bytes: 0,
               last_saved_at: '2025-06-01T00:00:00Z',
@@ -87,18 +83,11 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
     })
 
     // Click the "New Folder" button in the Explorer header
-    await page.getByTitle('新建文件夹').click()
+    await page.getByRole('button', { name: '新建文件夹', exact: true }).click()
 
-    // Inline input appears for naming the new folder
-    const renameInput = page.getByTestId('inline-rename-input')
-    await expect(renameInput).toBeVisible({ timeout: 3_000 })
-
-    // Type a name and confirm
-    await renameInput.fill('chapters')
-    await renameInput.press('Enter')
-
-    // The POST to create the folder (.gitkeep) was sent
-    await expect.poll(() => createCalled, { timeout: 3_000 }).toBe(true)
+    // The folder is created immediately with a default name.
+    // Verify the POST was called.
+    await expect.poll(() => createCalled, { timeout: 5_000 }).toBe(true)
   })
 
   test('renames a file via F2 + Enter', async ({ page }) => {
