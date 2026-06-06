@@ -109,7 +109,7 @@ test.describe('File tree — keyboard shortcuts (OpenSpec 10.4)', () => {
         })
         return
       }
-      await route.continue()
+      await route.fallback()
     })
 
     await page.goto(WRITING_URL)
