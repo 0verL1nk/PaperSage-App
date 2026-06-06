@@ -76,18 +76,28 @@ jobs:
         ports:
           - 9000:9000
           - 9001:9001
+        # No health-cmd: MinIO's healthcheck binaries may not exist in
+        # all image tags. We wait for the port to respond in a step below.
         options: >-
-          --health-cmd "mc ready local"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd "exit 0"
+          --health-interval 1s
+          --health-timeout 1s
+          --health-retries 1
 
     steps:
       - uses: actions/checkout@v4
 
       # ── Init MinIO bucket ────────────────────────────────
-      - name: Create MinIO bucket
+      - name: Wait for MinIO and create bucket
         run: |
+          # Wait for MinIO to accept connections
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
+              echo "MinIO ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
           docker run --rm --network host minio/mc:RELEASE.2024-11-05T11-29-45Z \
             sh -c "
             mc alias set minio http://localhost:9000 ci-access ci-secret &&
