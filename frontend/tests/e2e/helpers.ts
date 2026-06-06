@@ -75,6 +75,13 @@ export const MOCK_LATEX_FILES = {
 /**
  * Install the standard set of API mocks needed for the writing page
  * to render. Call AFTER seedAuthTokens and BEFORE page.goto(WRITING_URL).
+ *
+ * Mocks the file listing, per-file content fetches, and auto-save
+ * (PUT) so the page never hits the vite proxy for `/api/*` while
+ * the backend is down. Without the file-content mock, the dev
+ * server returns 502 to the auto-fetched content request and the
+ * resulting toast interferes with Playwright's click stability
+ * checks.
  */
 export async function mockWritingPageAPIs(page: Page) {
   await page.route(API_AUTH_ME, async (route) => {
@@ -100,4 +107,147 @@ export async function mockWritingPageAPIs(page: Page) {
       body: JSON.stringify(MOCK_LATEX_FILES),
     })
   })
+
+  // Per-file content + auto-save. The list endpoint `.../latex-files/`
+  // ends with a slash so the glob below never matches it; the
+  // trailing-slash branch in the handler covers the corner case.
+  await page.route('**/api/v1/projects/*/latex-files/*', async (route) => {
+    const url = route.request().url()
+    if (url.endsWith('/')) {
+      await route.fallback()
+      return
+    }
+    const method = route.request().method()
+    if (method === 'GET') {
+      const path = decodeURIComponent(url.split('/latex-files/').pop() ?? '')
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          data: {
+            path,
+            content: '\\documentclass{article}\n\\begin{document}\nHello\n\\end{document}',
+          },
+        }),
+      })
+      return
+    }
+    if (method === 'PUT' || method === 'DELETE') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: null, info: '' }),
+      })
+      return
+    }
+    await route.fallback()
+  })
+}
+
+// ─── Real-backend helpers (used by the new spec suite in CI) ─────────
+
+/**
+ * Walk the real login form (visiting /auth, filling the inputs, clicking
+ * "立即登录") and wait for the post-login redirect to /app/projects.
+ *
+ * Use this when the spec exercises the real backend flow — register,
+ * token refresh, 401 redirect, etc. For spec that only need a logged-in
+ * shell to render the page, prefer `seedAuthTokens` (faster, no API hit).
+ *
+ * Reads E2E_USER / E2E_PASS from process.env when no args are given,
+ * matching the GitHub Actions workflow env.
+ */
+export async function loginAs(
+  page: Page,
+  username?: string,
+  password?: string,
+): Promise<void> {
+  const u = username ?? process.env.E2E_USER ?? 'e2euser'
+  const p = password ?? process.env.E2E_PASS ?? 'e2epass1'
+  await page.goto('/auth')
+  await page.getByPlaceholder('请输入您的账号').fill(u)
+  await page.getByPlaceholder('••••••••').fill(p)
+  await page.getByRole('button', { name: '立即登录' }).click()
+  await page.waitForURL(/\/app\/projects/, { timeout: 15_000 })
+}
+
+/**
+ * Clear the auth session and return to /auth. The router's beforeLoad
+ * guard should bounce the user back to /auth if they try to navigate
+ * anywhere protected after this.
+ */
+export async function logout(page: Page): Promise<void> {
+  await page.evaluate(
+    ([access, refresh]) => {
+      window.localStorage.removeItem(access)
+      window.localStorage.removeItem(refresh)
+    },
+    [ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY],
+  )
+  await page.goto('/auth')
+}
+
+/**
+ * Generic API mock factory. `pattern` is a glob (passed straight to
+ * Playwright's `page.route()`), `body` is any JSON-serializable value.
+ * Use this when a spec only needs to stub a handful of endpoints and
+ * doesn't need the full `mockWritingPageAPIs` set.
+ */
+export async function apiMock(
+  page: Page,
+  pattern: string,
+  status: number,
+  body: unknown,
+  options: { method?: string | RegExp } = {},
+): Promise<void> {
+  await page.route(pattern, async (route) => {
+    if (options.method && !matchMethod(route.request().method(), options.method)) {
+      await route.fallback()
+      return
+    }
+    await route.fulfill({
+      status,
+      contentType: 'application/json',
+      body: JSON.stringify(body),
+    })
+  })
+}
+
+function matchMethod(actual: string, expected: string | RegExp): boolean {
+  if (typeof expected === 'string') return actual === expected
+  return expected.test(actual)
+}
+
+/**
+ * Resolve the absolute path of an E2E fixture file. Playwright's
+ * `setInputFiles` accepts absolute paths; we anchor on the project
+ * root so the helper works from any working directory.
+ */
+export function fixturePath(name: string): string {
+  // tests/e2e/helpers.ts → tests/e2e/fixtures/{name}
+  return new URL(`./fixtures/${name}`, import.meta.url).pathname
+}
+
+/**
+ * Upload a fixture file through the page's first <input type="file">.
+ * Use after the upload dialog has been opened by the page (e.g. after
+ * clicking the "上传" button on the uploading page). `name` is the
+ * basename under `tests/e2e/fixtures/` (e.g. "sample.pdf").
+ */
+export async function uploadFixture(
+  page: Page,
+  name: string,
+  options: { inputSelector?: string } = {},
+): Promise<void> {
+  const selector = options.inputSelector ?? 'input[type="file"]'
+  await page.setInputFiles(selector, fixturePath(name))
+}
+
+/**
+ * Read an env var with a default. Used to pick up E2E_* values
+ * exported by the seed script.
+ */
+export function e2eEnv(name: string, fallback = ''): string {
+  return process.env[name] ?? fallback
 }

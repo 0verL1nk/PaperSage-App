@@ -6,6 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **PaperSage** - Full-stack academic paper management app with LaTeX editing and compilation. React 19 + TypeScript frontend, Python FastAPI backend, vendor Overleaf CLSI for LaTeX rendering.
 
+## CI Status
+
+| Workflow | Status |
+|---|---|
+| Backend CI (lint + pytest) | ![Backend CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/backend.yml/badge.svg) |
+| Frontend CI (typecheck + lint + vitest) | ![Frontend CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/frontend.yml/badge.svg) |
+| E2E (Playwright) | ![E2E](https://github.com/0verL1nk/GraduateProject/actions/workflows/e2e.yml/badge.svg) |
+| Docker Build & Push | ![Docker](https://github.com/0verL1nk/GraduateProject/actions/workflows/docker.yml/badge.svg) |
+
 ## Architecture
 
 ### Frontend (React 19 + TypeScript)
@@ -112,6 +121,7 @@ pnpm typecheck          # TypeScript check
 pnpm lint               # ESLint
 pnpm test               # Vitest (single run)
 pnpm test -- foo        # Run tests matching "foo"
+pnpm test:e2e           # Playwright (requires backend + MinIO)
 ```
 
 ### Backend
@@ -142,6 +152,55 @@ pytest tests/test_auth.py  # Specific file
 make check              # Ruff + typecheck + lint (all)
 make test               # pytest + vitest (all)
 ```
+
+
+
+## End-to-End (Playwright)
+
+E2E tests live in `frontend/tests/e2e/` and are organised by domain (`auth/`, `projects/`, `uploading/`, `writing/`, `settings/`, `navigation/`, `error-states/`). The shared helpers in `helpers.ts` expose:
+
+- `loginAs(page, user?, pass?)` — walk the real `/auth` form
+- `logout(page)` — clear tokens + redirect
+- `seedAuthTokens(page)` — fast in-memory login (no API call)
+- `uploadFixture(page, name)` — `setInputFiles` against `tests/e2e/fixtures/{name}`
+- `apiMock(page, pattern, status, body)` — uniform `page.route` factory
+- `e2eEnv(name, fallback)` — read env vars exported by the seed script
+
+### Local run
+
+```bash
+# 1. Bring up backend + MinIO + frontend
+cd backend && uv run uvicorn main:app --port 5478 &
+docker run -d --rm -p 9000:9000 -p 9001:9001 \
+  -e MINIO_ROOT_USER=ci-access -e MINIO_ROOT_PASSWORD=ci-secret \
+  minio/minio:latest server /data
+docker run --rm --network host minio/mc:latest \
+  sh -c "MC_HOST_minio=http://ci-access:ci-secret@localhost:9000 \
+         mc mb --ignore-existing minio/papersage"
+
+cd backend && DATABASE_URL='sqlite+aiosqlite:///./e2e.db' \
+  LATEX_CLSI_ENABLED=false S3_ENDPOINT=http://localhost:9000 \
+  S3_ACCESS_KEY=ci-access S3_SECRET_KEY=ci-secret S3_BUCKET=papersage \
+  S3_REGION=us-east-1 EMAIL_PROVIDER=smtp SMTP_HOST=localhost \
+  uv run python scripts/seed_e2e_user.py
+
+cd frontend && pnpm dev --port 5173 &
+
+# 2. Run the suite
+cd frontend && pnpm test:e2e
+
+# 3. Or a single spec
+cd frontend && pnpm exec playwright test auth/auth-flow.spec.ts
+```
+
+`playwright.config.ts` auto-detects `CI=1` and switches to:
+- `retries: 1`, `workers: 2`
+- `reporter: ['list', 'github', 'html', 'json']`
+- longer `expect.timeout`
+
+### CI
+
+`.github/workflows/e2e.yml` runs the same suite on every push to `main` and every PR. The job brings up the backend, frontend, and MinIO as service containers / background processes, seeds the e2e DB, then runs `pnpm test:e2e`. Artifacts (`playwright-report/`, `test-results/`, `backend.log`, `frontend.log`) are uploaded for 7 days. See `openspec/changes/ci-e2e-workflow/` for the full design.
 
 ## Configuration
 
