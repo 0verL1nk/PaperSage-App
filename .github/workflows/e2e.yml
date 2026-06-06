@@ -215,7 +215,11 @@ jobs:
       - name: Run Playwright E2E
         id: e2e
         working-directory: frontend
-        run: pnpm exec playwright test --reporter=list,github
+        # The reporter set lives in playwright.config.ts (keyed on
+        # process.env.CI) and includes list, github, html, json. Don't
+        # pass --reporter on the CLI — it OVERRIDES the config and
+        # we'd lose the html/json artifacts.
+        run: pnpm exec playwright test
         env:
           CI: 'true'
 
