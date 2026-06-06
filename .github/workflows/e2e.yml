@@ -85,8 +85,9 @@ jobs:
             fi
             sleep 1
           done
-          docker run --rm --network host minio/mc:RELEASE.2024-11-05T11-29-45Z \
-            sh -c "
+          docker run --rm --network host \
+            --entrypoint sh minio/mc:RELEASE.2024-11-05T11-29-45Z \
+            -c "
             mc alias set minio http://localhost:9000 ci-access ci-secret &&
             mc mb --ignore-existing minio/papersage &&
             mc anonymous set download minio/papersage &&
