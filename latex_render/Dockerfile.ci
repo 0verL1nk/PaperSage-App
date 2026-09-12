@@ -14,6 +14,9 @@ COPY package.json package-lock.json ./
 # （deps 漏 COPY libraries 时 @overleaf/* 装不出来，容器启动即
 #  ERR_MODULE_NOT_FOUND）
 COPY libraries/ libraries/
+# lockfile 由 npm 11 生成：npm 10 的 ci 读不懂 workspaces 条目，
+# 只装 69/546 个包，@overleaf/* 全缺（ERR_MODULE_NOT_FOUND）
+RUN npm install -g npm@11 --silent
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 

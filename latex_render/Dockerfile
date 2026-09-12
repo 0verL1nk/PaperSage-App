@@ -9,6 +9,9 @@ COPY package.json package-lock.json ./
 #  ERR_MODULE_NOT_FOUND——该镜像此前只 build 从未运行，问题未暴露）
 COPY libraries/ libraries/
 
+# lockfile 由 npm 11 生成：npm 10 的 ci 读不懂 workspaces 条目
+RUN npm install -g npm@11 --silent
+
 # Mount npm cache — survives rebuilds
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
