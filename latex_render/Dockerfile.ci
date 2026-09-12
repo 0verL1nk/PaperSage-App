@@ -1,0 +1,64 @@
+# ── PaperSage CLSI 轻量镜像（TinyTeX 基座）──────────────────────
+# 生产 Dockerfile 用 danteev/texlive（full scheme，约 4-5GB）；本镜像
+# 面向 CI/本地开发：TinyTeX 基础（~150MB）+ tlmgr 按需安装论文常用包
+# + CJK 字体，总量 < 1GB，足以编译含中文的 article 模板。
+#
+# 构建：docker build -f Dockerfile.ci -t papersage-render-ci .
+# 运行：docker run --rm -p 3013:3013 papersage-render-ci
+
+# ── Stage: deps ──────────────────────────────────────────────
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --omit=dev
+
+# ── Stage: production ────────────────────────────────────────
+FROM node:22-bookworm-slim AS production
+
+# TinyTeX + 论文常用包（ctex 链中文、latexmk 编译、常见排版宏包）
+RUN apt-get update && apt-get install --no-install-recommends -y \
+        ca-certificates curl fontconfig fonts-noto-cjk perl wget \
+    && rm -rf /var/lib/apt/lists/* \
+    && wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh -s - --admin --no-path \
+    && mv /root/.TinyTeX /opt/tinytex \
+    && /opt/tinytex/bin/*/tlmgr path add \
+    && tlmgr install latexmk ctex xecjk xcolor geometry hyperref booktabs \
+                      amsmath amsfonts graphics caption \
+    && fc-cache -f
+
+ENV PATH="/opt/tinytex/bin/x86_64-linux:${PATH}"
+
+WORKDIR /app
+
+RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser
+
+COPY --from=deps --chown=appuser:appgroup /app/node_modules ./node_modules
+COPY --chown=appuser:appgroup libraries/ libraries/
+COPY --chown=appuser:appgroup services/ services/
+COPY --chown=appuser:appgroup patches/ patches/
+COPY --chown=appuser:appgroup package.json ./
+
+ENV HOST=0.0.0.0 \
+    PORT=3013 \
+    SANDBOXED_COMPILES=false \
+    COMPILES_DIR=/tmp/clsi/compiles \
+    OUTPUT_DIR=/tmp/clsi/output \
+    CACHE_DIR=/tmp/clsi/cache \
+    UPLOAD_DIR=/tmp/clsi/uploads \
+    TEXMFVAR=/tmp/clsi/texmf-var \
+    NODE_ENV=production
+
+RUN mkdir -p /tmp/clsi/compiles /tmp/clsi/output /tmp/clsi/cache \
+    /tmp/clsi/uploads /tmp/clsi/texmf-var \
+    && chown -R appuser:appgroup /tmp/clsi \
+    && chown -R appuser:appgroup /opt/tinytex
+
+USER appuser
+
+EXPOSE 3013
+
+HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
+    CMD node -e "fetch('http://localhost:3013/health_check').catch(() => process.exit(1))" || exit 1
+
+CMD ["node", "--max-semi-space-size=64", "services/clsi/app.js"]
