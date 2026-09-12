@@ -22,7 +22,9 @@ RUN apt-get update && apt-get install --no-install-recommends -y \
     && rm -rf /var/lib/apt/lists/* \
     && wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh -s - \
     && mv /root/.TinyTeX /opt/tinytex \
-    && /opt/tinytex/bin/*/tlmgr path add \
+    && export PATH="/opt/tinytex/bin/x86_64-linux:$PATH" \
+    && tlmgr option sys_bin /usr/local/bin \
+    && tlmgr path add \
     && tlmgr install latexmk ctex xecjk xcolor geometry hyperref booktabs \
                       amsmath amsfonts graphics caption \
     && fc-cache -f
