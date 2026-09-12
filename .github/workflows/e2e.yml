@@ -296,13 +296,15 @@ jobs:
       - name: Start CLSI
         run: |
           docker run -d --name clsi -p 3013:3013 papersage-render-ci
-          for i in {1..60}; do
+          for i in {1..90}; do
             if curl -sf http://localhost:3013/status >/dev/null; then
-              echo "CLSI ready after ${i}s"; exit 0
+              echo "CLSI ready after $((i*2))s"; exit 0
             fi
             sleep 2
           done
-          docker logs clsi | tail -50
+          echo "── docker ps:"; docker ps -a --filter name=clsi
+          echo "── full clsi logs:"
+          docker logs clsi 2>&1 | grep -v statfs | tail -120
           exit 1
 
       - uses: actions/setup-go@v5
