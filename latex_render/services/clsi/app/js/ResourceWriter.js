@@ -370,7 +370,14 @@ export default ResourceWriter = {
 
   checkPath(basePath, resourcePath, callback) {
     const path = Path.normalize(Path.join(basePath, resourcePath))
-    if (path.slice(0, basePath.length + 1) !== basePath + '/') {
+    // PaperSage patch: on Windows Path.normalize yields '\' separators, so
+    // the upstream '/'-suffix check can never match and every resource is
+    // rejected as "outside root directory". Keep the escape-prevention
+    // semantics but accept the platform separator.
+    if (
+      path.slice(0, basePath.length) !== basePath ||
+      (path[basePath.length] !== '/' && path[basePath.length] !== Path.sep)
+    ) {
       return callback(new Error('resource path is outside root directory'))
     } else {
       return callback(null, path)

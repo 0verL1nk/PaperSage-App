@@ -50,11 +50,14 @@ export default CommandRunner = {
     }
 
     // run command as detached process so it has its own process group (which can be killed if needed)
+    // PaperSage patch: on Windows, detached spawns with DETACHED_PROCESS and
+    // MiKTeX's latexmk.exe crash-fasts there (exit 0xC0000409). Process-group
+    // isolation is only needed for the kill path on POSIX; skip it on win32.
     const proc = spawn(command[0], command.slice(1), {
       cwd: directory,
       env,
       stdio: ['pipe', 'pipe', 'ignore'],
-      detached: true,
+      detached: process.platform !== 'win32',
     })
 
     let stdout = ''
