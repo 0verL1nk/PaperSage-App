@@ -131,13 +131,14 @@ export function FolderTree({ projectId, folders, onCreateFolder }: FolderTreePro
         <button
           type="button"
           className={`
-            w-full flex items-center gap-1.5 px-3 py-1.5 rounded-md text-left text-[12px]
+            group w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md text-left text-[12px]
             transition-colors cursor-pointer
             ${selectedFolderId === null
               ? 'bg-primary/10 text-primary font-medium'
               : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
             }
           `}
+          style={{ paddingLeft: '8px' }}
           onClick={() => setSelectedFolder(null)}
         >
           <FolderOpen size={13} className="shrink-0" />

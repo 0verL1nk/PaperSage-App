@@ -1,0 +1,51 @@
+name: Release
+
+# 打 v* tag 触发：跨平台单二进制 + checksums → GitHub Release
+# 仅 maintainer 可推 tag；PR 无法触发（contents: write 不暴露给 fork）
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # 创建 Release
+
+jobs:
+  release:
+    name: goreleaser
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # changelog 需要完整历史
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # 前端产物嵌入二进制（go:embed web/assets）
+      - name: Build frontend into embed dir
+        run: |
+          cd frontend && pnpm install --frozen-lockfile && pnpm build
+          rm -rf ../server/web/assets && mkdir -p ../server/web/assets
+          cp -r dist/* ../server/web/assets/
+
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: '~> v2'
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

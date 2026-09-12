@@ -7,6 +7,21 @@ import {
   updateCategory,
   resetCategory,
 } from '@/services/settings-api'
+import { applyTheme, type Theme } from '@/app/theme-context'
+import i18n, { LANG_STORAGE_KEY } from '@/i18n'
+
+/** 后端 ui 设置是跨设备权威值：加载后同步主题与语言到本地。 */
+function syncUiPreferencesToLocal(ui: { theme?: string; language?: string } | undefined) {
+  if (!ui) return
+  if (ui.theme === 'light' || ui.theme === 'dark' || ui.theme === 'system') {
+    localStorage.setItem('papersage_theme', ui.theme)
+    applyTheme(ui.theme as Theme)
+  }
+  if (ui.language === 'zh-CN' || ui.language === 'en-US') {
+    localStorage.setItem(LANG_STORAGE_KEY, ui.language)
+    void i18n.changeLanguage(ui.language)
+  }
+}
 
 type SettingsState = {
   settings: AllSettings | null
@@ -38,6 +53,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const data = await getSettings()
       set({ settings: data, loading: false })
+      syncUiPreferencesToLocal(data.ui)
       return data
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to load settings'

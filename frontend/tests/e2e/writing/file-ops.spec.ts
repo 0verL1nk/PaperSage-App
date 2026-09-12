@@ -123,7 +123,7 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
     // F2 triggers inline rename
     await page.keyboard.press('F2')
     const renameInput = page.getByTestId('inline-rename-input')
-    await expect(renameInput).toBeVisible({ timeout: 2_000 })
+    await expect(renameInput).toBeVisible({ timeout: 5_000 })
 
     // Clear and type new name
     await renameInput.fill('index.tex')

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 
-import { mockWritingPageAPIs, WRITING_URL } from '../helpers'
+import { mockWritingPageAPIs, seedAuthTokens, WRITING_URL } from '../helpers'
 
 /**
  * Compile trigger — verifies that clicking the compile button
@@ -12,7 +12,11 @@ import { mockWritingPageAPIs, WRITING_URL } from '../helpers'
  */
 test.describe('Compile trigger (UI behaviour)', () => {
   test('clicking compile with CLSI disabled shows an error', async ({ page }) => {
-    await page.goto('/')
+    // 必须先注入会话 token：路由守卫检查 localStorage，未登录会被弹回
+    // /auth，mock 只拦 API 请求、拦不住前端路由守卫
+    await seedAuthTokens(page)
+    // 不要再裸 goto('/')：mock 装好前应用会调真实 API，401 拦截器
+    // 会清掉刚注入的 token 并重定向 /auth
     await mockWritingPageAPIs(page)
 
     // Mock the compile submit so we don't depend on the backend

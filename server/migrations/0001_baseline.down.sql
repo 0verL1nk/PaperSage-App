@@ -1,0 +1,8 @@
+DROP TABLE IF EXISTS user_settings;
+DROP TABLE IF EXISTS compile_jobs;
+DROP TABLE IF EXISTS latex_files;
+DROP TABLE IF EXISTS documents;
+DROP TABLE IF EXISTS folders;
+DROP TABLE IF EXISTS projects;
+DROP TABLE IF EXISTS project_groups;
+DROP TABLE IF EXISTS users;

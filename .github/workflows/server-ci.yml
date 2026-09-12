@@ -1,0 +1,144 @@
+name: Server CI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  pull_request:
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  workflow_dispatch:
+
+# PR 上新推送取消旧跑（省额度）；同分支串行
+concurrency:
+  group: server-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: gofmt + tidy + vet + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Go 版本唯一事实来源是 server/go.mod（曾出现工作流与 go.mod 漂移）
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: Check gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+
+      - name: go vet
+        run: go vet ./...
+
+      # go.mod/go.sum 漂移检查：tidy 后有 diff 即失败（防止依赖文件腐烂）
+      - name: go mod tidy drift check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          working-directory: server
+
+
+  integration:
+    name: postgres migration integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: papersage
+          POSTGRES_PASSWORD: papersage_dev_password
+          POSTGRES_DB: papersage_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U papersage"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          # Go 版本唯一事实来源是 server/go.mod（曾出现工作流与 go.mod 漂移）
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: Migration integration tests
+        env:
+          TEST_PG_DSN: postgres://papersage:papersage_dev_password@localhost:5432/papersage_test
+        run: go test -tags=integration ./internal/store/ -v -run 'TestMigrateUp'
+
+  # 单测矩阵：linux + windows（主力开发环境是 Windows，曾出现仅 Windows
+  # 可复现的问题：sqlite 句柄释放、路径分隔符）；race + 随机顺序
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+      - name: go test -race -shuffle
+        run: go test ./internal/... ./web/... -race -shuffle=on -count=1
+      # 覆盖率门槛只在 linux 跑（与 covermode/口径绑定，避免平台差异噪声）
+      - name: coverage gate (≥ 80%)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          go test ./internal/... ./web/... -coverprofile=cover.out -covermode=atomic -count=1 > /dev/null
+          total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
+          echo "total coverage: ${total}%"
+          awk -v c="$total" 'BEGIN { exit c < 80 ? 1 : 0 }'
+
+  # 官方漏洞扫描：只报实际调用路径上的已知漏洞（非泛 CVE 清单）
+  vuln:
+    name: govulncheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          # Go 版本唯一事实来源是 server/go.mod（曾出现工作流与 go.mod 漂移）
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+      - name: Scan
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          govulncheck ./...

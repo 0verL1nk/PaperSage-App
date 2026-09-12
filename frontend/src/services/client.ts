@@ -96,7 +96,10 @@ apiClient.interceptors.request.use(
     }
 
     const requestConfig = config as ApiRequestConfig
-    if (!requestConfig.skipGlobalLoading) {
+    // 顶层全局指示只跟随读请求（GET）；写操作由调用处的按钮
+    // spinner/行内状态提供就地反馈，不再弹全局条（业界通行分层）
+    const isRead = !requestConfig.method || requestConfig.method.toLowerCase() === 'get'
+    if (!requestConfig.skipGlobalLoading && isRead) {
       showGlobalLoading(requestConfig.loadingText)
     }
 
@@ -109,7 +112,9 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => {
     const requestConfig = response.config as ApiRequestConfig
-    if (!requestConfig.skipGlobalLoading) {
+    // 与请求侧对称：只有 show 过的（读请求）才 hide，避免偷走并发 GET 的计数
+    const isRead = !requestConfig.method || requestConfig.method.toLowerCase() === 'get'
+    if (!requestConfig.skipGlobalLoading && isRead) {
       hideGlobalLoading()
     }
 
@@ -117,7 +122,8 @@ apiClient.interceptors.response.use(
   },
   async (error) => {
     const requestConfig = error.config as ApiRequestConfig | undefined
-    if (!requestConfig?.skipGlobalLoading) {
+    const isRead = !requestConfig?.method || requestConfig?.method.toLowerCase() === 'get'
+    if (!requestConfig?.skipGlobalLoading && isRead) {
       hideGlobalLoading()
     }
 
@@ -125,9 +131,13 @@ apiClient.interceptors.response.use(
     // and aren't marked to skip auth refresh
     if (
       error.response?.status === 401 &&
+      !requestConfig?.url?.includes('/auth/login') &&
+      !requestConfig?.url?.includes('/auth/register') &&
       !requestConfig?.url?.includes('/auth/refresh') &&
       !requestConfig?.skipAuthRefresh
     ) {
+      // login/register 的 401 是凭据错误，应交给页面展示错误提示；
+      // 走 refresh 重定向会整页跳转 /auth 并清空表单状态
       // If already refreshing, wait for the refresh to complete
       if (isRefreshing) {
         return new Promise((resolve) => {
@@ -174,7 +184,14 @@ apiClient.interceptors.response.use(
     }
 
     const normalized = normalizeApiError(error)
-    if (normalized.status === 401 || normalized.status === 403) {
+    // auth 端点的 401/403 是凭据问题，交给页面渲染错误提示；
+    // 这里若再整页跳转 /auth 会清空表单与错误状态（login wrong-password
+    // 用例曾因此永远看不到 alert）
+    const isAuthEndpoint =
+      requestConfig?.url?.includes('/auth/login') ||
+      requestConfig?.url?.includes('/auth/register') ||
+      requestConfig?.url?.includes('/auth/refresh')
+    if (!isAuthEndpoint && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()
       // Redirect to auth page
       if (typeof window !== 'undefined') {
@@ -289,8 +306,11 @@ export function putJson<TResponse, TBody = unknown>(
   })
 }
 
-export function deleteFetch(url: string, config?: ApiRequestConfig) {
-  return requestApi<void>({
+export function deleteFetch<TResponse = void, TBody = unknown>(
+  url: string,
+  config?: ApiRequestConfig<TBody>,
+) {
+  return requestApi<TResponse, TBody>({
     ...config,
     method: 'delete',
     url,

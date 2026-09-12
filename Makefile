@@ -1,7 +1,8 @@
 .PHONY: help dev dev-attach run stop status backend frontend check test install \
-       install-backend install-frontend install-clsi check-clsi clsi-dev clean \
+       install-frontend install-clsi check-clsi clsi-dev clean \
        logs log-backend log-frontend log-clsi \
-       docker-build docker-push docker-login
+       docker-build docker-push docker-login \
+       build-server seed parity
 
 # Colors
 GREEN := \033[0;32m
@@ -27,12 +28,16 @@ help:
 	@echo "  make run           - Start frontend + backend (no CLSI)"
 	@echo ""
 	@echo "$(GREEN)Individual services:$(NC)"
-	@echo "  make backend       - Start backend only"
+	@echo "  make backend       - Start Go backend only (sqlite dev db)"
 	@echo "  make frontend      - Start frontend only"
 	@echo "  make clsi-dev      - Start CLSI LaTeX service only"
 	@echo "  make log-backend   - Tail backend logs"
 	@echo "  make log-frontend  - Tail frontend logs"
 	@echo "  make log-clsi      - Tail CLSI logs"
+	@echo ""
+	@echo "$(GREEN)Single binary:$(NC)"
+	@echo "  make build-server  - Build one binary with embedded frontend"
+	@echo "  make seed          - Seed e2e/dev database (deterministic data)"
 	@echo ""
 	@echo "$(GREEN)Quality:$(NC)"
 	@echo "  make check         - Run all code quality checks"
@@ -69,9 +74,9 @@ status:
 # ─── Individual services (standalone, no PID tracking) ───
 
 backend:
-	@echo "$(YELLOW)Starting backend server...$(NC)"
+	@echo "$(YELLOW)Starting Go backend...$(NC)"
 	@echo "$(BLUE)Backend running at http://0.0.0.0:5478$(NC)"
-	cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 5478
+	cd server && DATABASE_URL='sqlite:///./papersage.db' LATEX_CLSI_ENABLED=false go run ./cmd/papersage
 
 frontend:
 	@echo "$(YELLOW)Starting frontend server...$(NC)"
@@ -87,7 +92,7 @@ run:
 	@echo "$(BLUE)Frontend: http://localhost:5173$(NC)"
 	@echo "$(BLUE)Backend:  http://localhost:5478$(NC)"
 	@echo "$(YELLOW)Tip: use 'make dev' for graceful process management$(NC)"
-	(cd backend && uv run uvicorn app.main:app --reload --port 5478) & \
+	(cd server && DATABASE_URL='sqlite:///./papersage.db' LATEX_CLSI_ENABLED=false go run ./cmd/papersage) & \
 	(cd frontend && pnpm dev)
 	@wait
 
@@ -108,12 +113,8 @@ log-clsi:
 
 # ─── Install ───
 
-install: install-backend install-frontend install-clsi
+install: install-frontend install-clsi
 	@echo "$(GREEN)All dependencies installed$(NC)"
-
-install-backend:
-	@echo "$(YELLOW)Installing backend dependencies...$(NC)"
-	cd backend && uv sync --extra dev
 
 install-frontend:
 	@echo "$(YELLOW)Installing frontend dependencies...$(NC)"
@@ -126,9 +127,8 @@ check: check-backend check-frontend
 
 check-backend:
 	@echo "$(YELLOW)Running backend checks...$(NC)"
-	cd backend && uvx ruff check app api core --fix
-	cd backend && uvx ruff format --check .
-	cd backend && uv run python -m py_compile app/ api/ || true
+	cd server && gofmt -l . && go vet ./...
+	cd server && go test ./internal/... ./web/... -run xxx_noop
 
 check-frontend:
 	@echo "$(YELLOW)Running frontend checks...$(NC)"
@@ -142,7 +142,7 @@ test: test-backend test-frontend
 
 test-backend:
 	@echo "$(YELLOW)Running backend tests...$(NC)"
-	cd backend && uv run pytest tests/ -v
+	cd server && go test ./internal/... ./web/...
 
 test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
@@ -180,15 +180,38 @@ docker-build:
 		exit 1; \
 	fi
 	@echo "$(GREEN)Building Docker images...$(NC)"
-	docker build -t $(DOCKERHUB_USER)/papersage-backend:$(IMAGE_TAG) backend/
-	docker build -t $(DOCKERHUB_USER)/papersage-frontend:$(IMAGE_TAG) frontend/
+	docker build -t $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG) -f server/Dockerfile .
 	docker build -t $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG) latex_render/
 	@echo "$(GREEN)All images built:$(NC)"
 	@docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep papersage
 
 docker-push: docker-build
 	@echo "$(GREEN)Pushing images to Docker Hub...$(NC)"
-	docker push $(DOCKERHUB_USER)/papersage-backend:$(IMAGE_TAG)
-	docker push $(DOCKERHUB_USER)/papersage-frontend:$(IMAGE_TAG)
+	docker push $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG)
 	docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
 	@echo "$(GREEN)All images pushed to $(DOCKERHUB_USER)$(NC)"
+
+# ── Go server（单二进制：前端 embed）─────────────────────────
+
+build-server: ## 构建单二进制（前端产物嵌入）
+	cd frontend && pnpm build
+	rm -rf server/web/assets && mkdir -p server/web/assets
+	cp -r frontend/dist/* server/web/assets/
+	cd server && CGO_ENABLED=0 go build -o bin/ ./cmd/papersage
+
+dev-s3: ## 本地 S3 兼容服务（纯 Go，数据落 server/devs3-data；免 Docker）
+	cd server && go run ./cmd/devs3
+
+dev-single: ## 一键本地栈：devs3 + 单二进制（sqlite）——重启机器后一条命令拉起
+	@cd server && (./devs3.exe > /tmp/devs3.log 2>&1 &) 2>/dev/null || 		(cd server && go build -o devs3.exe ./cmd/devs3 && (./devs3.exe > /tmp/devs3.log 2>&1 &))
+	@sleep 1
+	@cd server && DATABASE_URL='sqlite:///./e2e-local.db' PORT=5478 LATEX_CLSI_ENABLED=false 		S3_ENDPOINT=http://localhost:9002 S3_ACCESS_KEY=dev-access S3_SECRET_KEY=dev-secret 		S3_BUCKET=papersage S3_REGION=us-east-1 ./bin/papersage.exe
+	@echo "papersage: http://localhost:5478/ (S3 :9002)"
+
+seed: ## 种子数据（e2e/dev；幂等）
+	cd server && go run ./cmd/seed
+
+server-server: backend
+
+parity: build-server ## 双跑对比：Go vs Python 后端行为一致性（迁移期验收工具）
+	cd server && python scripts/parity_check.py

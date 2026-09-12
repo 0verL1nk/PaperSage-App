@@ -2,8 +2,10 @@ import { QueryCache, QueryClient, QueryClientProvider } from '@tanstack/react-qu
 import { Toaster } from '@/components/ui/sonner'
 import { AppRouterProvider } from '@/app/router'
 import { TooltipProvider } from '@/components/ui/tooltip'
-import { LoadingOverlay } from '@/components/shared'
+import { TopProgressBar } from '@/components/shared'
 import { restoreSessionState } from '@/store'
+import { ThemeProvider } from '@/app/theme-provider'
+import '@/i18n'
 import { toast } from 'sonner'
 
 const queryClient = new QueryClient({
@@ -29,11 +31,13 @@ restoreSessionState()
 export function AppProviders() {
   return (
     <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
       <TooltipProvider delayDuration={120}>
         <AppRouterProvider queryClient={queryClient} />
-        <LoadingOverlay />
+        <TopProgressBar />
         <Toaster />
       </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   )
 }

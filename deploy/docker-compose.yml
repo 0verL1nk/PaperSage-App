@@ -13,17 +13,15 @@ x-logging: &default-logging
     max-file: "3"
 
 services:
-  # ── Backend (FastAPI) ─────────────────────────────────────
-  backend:
+  # ── App（Go 单二进制：API + 前端 SPA）─────────────────────
+  app:
     build:
-      context: ../backend
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: server/Dockerfile
     ports:
-      - "${BACKEND_PORT:-5478}:5478"
-    env_file:
-      - ../backend/.env
+      - "${APP_PORT:-5478}:5478"
     environment:
-      - DATABASE_URL=postgresql+asyncpg://papersage:${DB_PASSWORD:-papersage}@db:5432/papersage
+      - DATABASE_URL=postgres://papersage:${DB_PASSWORD:-papersage}@db:5432/papersage
       - REDIS_URL=redis://redis:6379/0
       - LATEX_CLSI_BASE_URL=http://clsi:3013
       - LATEX_CLSI_ENABLED=true
@@ -38,28 +36,7 @@ services:
           cpus: "2.0"
           memory: 1G
         reservations:
-          memory: 256M
-    logging: *default-logging
-    restart: unless-stopped
-    networks:
-      - backend-net
-
-  # ── Frontend (Vite SPA + Nginx) ──────────────────────────
-  frontend:
-    build:
-      context: ../frontend
-      dockerfile: Dockerfile
-    ports:
-      - "${FRONTEND_PORT:-5173}:5173"
-    depends_on:
-      - backend
-    deploy:
-      resources:
-        limits:
-          cpus: "0.5"
           memory: 128M
-        reservations:
-          memory: 32M
     logging: *default-logging
     restart: unless-stopped
     networks:

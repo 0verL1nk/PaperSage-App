@@ -195,3 +195,16 @@ tags
 .clsi/
 output/
 .cc-connect/
+
+# Go server build
+server/bin/
+server/web/assets/*
+!server/web/assets/.keep
+server/.env
+
+# local e2e databases (cmd/fakes3 / sqlite runs)
+server/*.db
+server/*.db-journal
+server/*.db-wal
+frontend/shots/
+server/devs3-data/

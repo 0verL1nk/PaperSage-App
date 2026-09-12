@@ -10,6 +10,8 @@
  * (vite.config.ts) and direct CORS calls both match.
  */
 
+import { existsSync } from 'node:fs'
+import { resolve } from 'node:path'
 import type { Page } from '@playwright/test'
 
 export const TEST_PROJECT_ID = 'test-project-1'
@@ -344,7 +346,13 @@ function matchMethod(actual: string, expected: string | RegExp): boolean {
  */
 export function fixturePath(name: string): string {
   // tests/e2e/helpers.ts → tests/e2e/fixtures/{name}
-  return new URL(`./fixtures/${name}`, import.meta.url).pathname
+  // import.meta.url 在 Playwright 的 transform 缓存下可能不指向源文件，
+  // 兜底用 process.cwd()（playwright 始终以 frontend/ 为工作目录运行）
+  const viaImportUrl = new URL(`./fixtures/${name}`, import.meta.url)
+  if (viaImportUrl.protocol === 'file:' && existsSync(viaImportUrl.pathname)) {
+    return viaImportUrl.pathname
+  }
+  return resolve(process.cwd(), 'tests/e2e/fixtures', name)
 }
 
 /**
@@ -360,6 +368,39 @@ export async function uploadFixture(
 ): Promise<void> {
   const selector = options.inputSelector ?? 'input[type="file"]'
   await page.setInputFiles(selector, fixturePath(name))
+}
+
+/**
+ * 在已登录页面上经真实 API 创建 latex 文件（用例自建夹具，避免
+ * 依赖/污染种子状态——并行 worker 下共享 'sections' 会互相踩）。
+ */
+export async function apiCreateLatexFile(
+  page: Page,
+  projectId: string,
+  path: string,
+  content = '',
+): Promise<void> {
+  const token = await page.evaluate(() => localStorage.getItem('papersage_access_token') ?? '')
+  const resp = await page.request.post(`/api/v1/projects/${projectId}/latex-files/`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { path, content },
+  })
+  if (resp.status() !== 200) {
+    throw new Error(`apiCreateLatexFile(${path}) -> ${resp.status()} ${await resp.text()}`)
+  }
+}
+
+/** 删除文件夹（递归），测试自清理用；失败静默（夹具可能已被被测行为删除）。 */
+export async function apiDeleteLatexFolder(
+  page: Page,
+  projectId: string,
+  folderPath: string,
+): Promise<void> {
+  const token = await page.evaluate(() => localStorage.getItem('papersage_access_token') ?? '')
+  await page.request.delete(`/api/v1/projects/${projectId}/latex-files/folder`, {
+    headers: { Authorization: `Bearer ${token}` },
+    data: { folder_path: folderPath },
+  })
 }
 
 /**

@@ -1,4 +1,5 @@
 import { useNavigate, useParams, Link, useLocation } from '@tanstack/react-router'
+import { useTranslation } from 'react-i18next'
 import { ArrowLeft, FileUp, PenLine, Tags, GitBranch, Sparkles, Settings, ExternalLink } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
@@ -11,16 +12,17 @@ interface WorkspaceLayoutProps {
 }
 
 const projectTabs = [
-  { path: '/project/$projectId/uploading' as const, label: '上传资料', icon: FileUp, key: 'uploading' },
-  { path: '/project/$projectId/writing' as const, label: '论文撰写', icon: PenLine, key: 'writing' },
-  { path: '/project/$projectId/classifying' as const, label: '内容分类', icon: Tags, key: 'classifying' },
-  { path: '/project/$projectId/logic-chain' as const, label: '逻辑链条', icon: GitBranch, key: 'logic-chain' },
-  { path: '/project/$projectId/generating' as const, label: '报告生成', icon: Sparkles, key: 'generating' },
+  { path: '/project/$projectId/uploading' as const, labelKey: 'nav.tabUploading', icon: FileUp, key: 'uploading' },
+  { path: '/project/$projectId/writing' as const, labelKey: 'nav.tabWriting', icon: PenLine, key: 'writing' },
+  { path: '/project/$projectId/classifying' as const, labelKey: 'nav.tabClassifying', icon: Tags, key: 'classifying' },
+  { path: '/project/$projectId/logic-chain' as const, labelKey: 'nav.tabLogicChain', icon: GitBranch, key: 'logic-chain' },
+  { path: '/project/$projectId/generating' as const, labelKey: 'nav.tabGenerating', icon: Sparkles, key: 'generating' },
 ]
 
 export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const { t } = useTranslation()
   const { projectId = 'default' } = useParams({ strict: false })
   const { data: project, isLoading } = useProject(projectId)
 
@@ -93,7 +95,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
                   "size-3.5 transition-all duration-300", 
                   isActive ? "text-primary" : "opacity-60 group-hover:opacity-100 group-hover:rotate-6"
                 )} />
-                <span className="relative z-10">{tab.label}</span>
+                <span className="relative z-10">{t(tab.labelKey)}</span>
               </button>
             )
           })}
@@ -126,7 +128,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
                 )}
               >
-                {tab.label}
+                {t(tab.labelKey)}
               </button>
             )
           })}

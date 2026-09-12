@@ -135,9 +135,9 @@ function PdfRenderer({ url }: { url: string }) {
     const observer = new ResizeObserver((entries) => {
       const entry = entries[0]
       if (entry) {
-        // Subtract padding (p-4 = 1rem each side = 32px total if 1rem=16px)
-        const width = entry.contentRect.width - 32
-        setContainerWidth(width)
+        // contentRect 已是 padding 内的可用宽度，不要再减（曾双重扣除
+        // 导致画布偏窄、页面视觉上贴左）
+        setContainerWidth(entry.contentRect.width)
       }
     })
 
@@ -188,15 +188,17 @@ function PdfRenderer({ url }: { url: string }) {
           }}
           loading={<LoadingSpinner text="加载 PDF 中" progress={loadProgress} className="p-20" />}
         >
-          {Array.from({ length: numPages }, (_, i) => (
-            <LazyPage
-              key={i}
-              pageNumber={i + 1}
-              scale={appliedScale}
-              width={containerWidth}
-              className="mb-4 shadow-sm bg-white"
-            />
-          ))}
+          <div className="flex flex-col items-center">
+            {Array.from({ length: numPages }, (_, i) => (
+              <LazyPage
+                key={i}
+                pageNumber={i + 1}
+                scale={appliedScale}
+                width={containerWidth}
+                className="mb-4 shadow-sm bg-white"
+              />
+            ))}
+          </div>
         </Document>
       </div>
       <div className="flex-none px-4 py-2 border-t border-border/30 flex items-center justify-center">
@@ -222,9 +224,33 @@ function ErrorState({ message }: { message: string }) {
 
 function DocxRenderer({ url }: { url: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [scale, setScale] = useState(ZOOM_DEFAULT)
+  // fit-to-width：面板宽 / 纸张自然宽（Letter 816px 塞进 ~485px 的
+  // 预览面板曾溢出 300+px 出横向滚动条；用 CSS zoom 缩到面板宽，
+  // zoom 参与布局故不会留白/溢出，现代浏览器均已支持）
+  const [containerW, setContainerW] = useState(0)
+  const [pageW, setPageW] = useState(0)
+
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const ro = new ResizeObserver((entries) => {
+      const e = entries[0]
+      if (e) setContainerW(e.contentRect.width)
+    })
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // 渲染完成后测纸张自然宽（loading 变 false 时容器已填充）
+  useEffect(() => {
+    if (loading) return
+    const sec = containerRef.current?.querySelector('section.docx') as HTMLElement | null
+    if (sec) setPageW(sec.getBoundingClientRect().width / (zoomRef.current || 1))
+  }, [loading])
 
   useEffect(() => {
     const container = containerRef.current
@@ -241,14 +267,17 @@ function DocxRenderer({ url }: { url: string }) {
         if (destroyed || !container) return
 
         container.innerHTML = ''
-        // inWrapper: false completely removes the awful default grey background containers
+        // 标准用法：inWrapper 保留库的页面包装（按文档自身的页面尺寸与
+        // 页边距分页排版）；灰色底由下方 CSS 覆盖为透明。
+        // 之前 inWrapper:false + 一堆 !important 行高/段距/宽度覆盖，
+        // 把文档自己的排版全部顶掉了——格式全乱的根源。
         await renderAsync(blob, container, undefined, {
-          className: 'clean-docx',
-          inWrapper: false, 
+          inWrapper: true,
           ignoreHeight: false,
           ignoreWidth: false,
           ignoreFonts: false,
           breakPages: true,
+          useBase64URL: true,
         })
         if (!destroyed) setLoading(false)
       } catch (err) {
@@ -268,44 +297,46 @@ function DocxRenderer({ url }: { url: string }) {
   const handleZoomOut = useCallback(() => setScale((s) => Math.max(s - ZOOM_STEP, ZOOM_MIN)), [])
   const handleReset = useCallback(() => setScale(ZOOM_DEFAULT), [])
 
+  const fitScale = pageW > 0 && containerW > 0 ? Math.min(1, containerW / pageW) : 1
+  const zoom = fitScale * scale
+  const zoomRef = useRef(1)
+  zoomRef.current = zoom
+
   if (error) return <ErrorState message={error} />
 
   return (
     <div className="flex flex-col h-full bg-background overflow-x-hidden relative">
       {/* Clean styles strictly targeted at the output document */}
       <style>{`
-        .clean-docx {
-          background-color: white !important;
-          box-shadow: 0 10px 40px rgba(0, 0, 0, 0.12) !important;
-          border: 1px solid rgba(0, 0, 0, 0.05) !important;
-          width: 100% !important;
-          max-width: 816px !important;
-          min-height: 1154px !important;
-          margin: 1.5rem auto !important;
-          padding: clamp(24px, 10%, 80px) !important;
-          box-sizing: border-box !important;
-          color: #333 !important;
-          overflow: hidden !important;
-          position: relative !important;
+        /* 只装饰页面底板；段落/字体/表格等文档自身排版一律由
+           docx-preview 按原始 docx 样式生成，不做任何覆盖 */
+        .docx-wrapper {
+          background: transparent !important;
+          padding: 0 !important;
+          display: flex !important;
+          flex-direction: column !important;
+          align-items: center !important;
+          gap: 1rem !important;
         }
-        .clean-docx p { margin-bottom: 0.5em !important; line-height: 1.6 !important; }
-        .clean-docx img, .clean-docx table { max-width: 100% !important; height: auto !important; }
-        .clean-docx table { border-collapse: collapse !important; }
-        .clean-docx td { border: 1px solid #ddd !important; padding: 4px 8px !important; }
+        .docx-wrapper > section.docx {
+          background: #fff !important;
+          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.10) !important;
+          border-radius: 4px !important;
+          margin: 0 !important;
+          color: #1f2328 !important;
+        }
       `}</style>
       
-      <div className="flex-1 overflow-x-hidden overflow-y-auto p-4 md:p-8 flex flex-col items-center">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-8">
         {loading && <LoadingSpinner text="解析文档中" className="mt-12" />}
-        <div 
-          className="w-full flex justify-center overflow-x-hidden"
+        <div
+          className="flex justify-center"
           style={{ display: loading ? 'none' : 'flex' }}
         >
-          <div style={{ 
-            width: '100%',
-            maxWidth: '816px',
-            transform: scale !== 1 ? `scale(${scale})` : 'none', 
-            transformOrigin: 'top center', 
-            transition: 'transform 0.2s ease-out' 
+          <div style={{
+            // CSS zoom 参与布局（区别于 transform）：fit-to-width 缩放后
+            // 盒子尺寸同步收缩，居中与纵向滚动都自然成立
+            zoom,
           }}>
             <div ref={containerRef} />
           </div>

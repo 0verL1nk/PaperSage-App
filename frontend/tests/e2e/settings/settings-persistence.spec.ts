@@ -42,10 +42,11 @@ test.describe('Settings (real backend)', () => {
     const themeTrigger = page.locator('#theme')
     await expect(themeTrigger).toBeVisible({ timeout: 10_000 })
     await themeTrigger.click()
-    await page.getByRole('option', { name: 'Dark' }).click()
+    // Appearance 文案已 i18n（zh: 深色 / en: Dark），双语匹配
+    await page.getByRole('option', { name: /^深色$|^Dark$/ }).click()
 
     // Reload
     await page.reload()
-    await expect(page.locator('#theme')).toContainText('Dark', { timeout: 10_000 })
+    await expect(page.locator('#theme')).toContainText(/深色|Dark/, { timeout: 10_000 })
   })
 })

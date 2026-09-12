@@ -106,6 +106,18 @@ export function deleteLatexFile(projectId: string, filePath: string) {
   return deleteFetch(LATEX.fileContent(projectId, filePath))
 }
 
+/**
+ * 删除文件夹（递归删除其下所有文件）。走专用的 folder 端点并携带
+ * JSON body；旧的实现误用文件端点 DELETE /latex-files/{path}，对
+ * 文件夹路径必然 404。
+ */
+export function deleteLatexFolder(projectId: string, folderPath: string) {
+  return deleteFetch<{ deleted_count: number; folder_path: string }, { folder_path: string }>(
+    LATEX.deleteFolder(projectId),
+    { data: { folder_path: folderPath } },
+  )
+}
+
 export function renameLatexFile(projectId: string, oldPath: string, newPath: string) {
   return postJson<LatexFileItem>(LATEX.renameFile(projectId, oldPath), { new_path: newPath })
 }

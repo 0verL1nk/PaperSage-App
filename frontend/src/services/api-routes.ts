@@ -33,6 +33,7 @@ export const DOCUMENTS = {
   remark: (id: string) => `${V1}/documents/${id}/remark`,
   delete: (id: string) => `${V1}/documents/${id}`,
   upload: `${V1}/documents/upload`,
+  confirm: (documentId: string) => `${V1}/documents/${documentId}/confirm`,
 } as const
 
 // --- Folders ---
@@ -51,6 +52,8 @@ export const LATEX = {
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/rename`,
   renameFolder: (projectId: string) =>
     `${V1}/projects/${projectId}/latex-files/folder/rename`,
+  deleteFolder: (projectId: string) =>
+    `${V1}/projects/${projectId}/latex-files/folder`,
   moveFile: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/move`,
   compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/`,

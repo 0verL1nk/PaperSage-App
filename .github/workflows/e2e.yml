@@ -5,14 +5,14 @@ on:
     branches: [main]
     paths:
       - 'frontend/**'
-      - 'backend/**'
+      - 'server/**'
       - '.github/workflows/e2e.yml'
       - 'frontend/playwright.config.ts'
   pull_request:
     branches: [main]
     paths:
       - 'frontend/**'
-      - 'backend/**'
+      - 'server/**'
       - '.github/workflows/e2e.yml'
       - 'frontend/playwright.config.ts'
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
     # committed .env with the values below — see "Write CI env file" step).
     env:
       # Backend
-      DATABASE_URL: sqlite+aiosqlite:///./e2e.db
+      DATABASE_URL: sqlite:///./e2e-go.db
       SECRET_KEY: ci-secret-not-for-prod
       REDIS_URL: ''
       LATEX_CLSI_ENABLED: 'false'
@@ -77,7 +77,7 @@ jobs:
             -p 9000:9000 -p 9001:9001 \
             -e MINIO_ROOT_USER=ci-access \
             -e MINIO_ROOT_PASSWORD=ci-secret \
-            minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+            quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
           for i in {1..30}; do
             if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
               echo "MinIO ready after ${i}s"
@@ -86,7 +86,7 @@ jobs:
             sleep 1
           done
           docker run --rm --network host \
-            --entrypoint sh minio/mc:RELEASE.2024-11-05T11-29-45Z \
+            --entrypoint sh quay.io/minio/mc:RELEASE.2024-11-05T11-29-45Z \
             -c "
             mc alias set minio http://localhost:9000 ci-access ci-secret &&
             mc mb --ignore-existing minio/papersage &&
@@ -94,15 +94,12 @@ jobs:
             echo 'MinIO bucket ready'
             "
 
-      # ── Backend setup ─────────────────────────────────────
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      # ── Backend (Go) setup ────────────────────────────────
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          enable-cache: true
-
-      - name: Install backend deps
-        working-directory: backend
-        run: uv sync --extra dev
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
 
       # ── Frontend setup ────────────────────────────────────
       - name: Install pnpm
@@ -121,15 +118,12 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      # ── Write CI env file ────────────────────────────────
-      # The committed .env file (gitignored locally but possibly
-      # present in some CI caches) must not influence settings.
-      # We write our own .env that Pydantic will load instead.
+      # ── Write CI env file（Go config 读取的 .env）─────────
       - name: Write CI env file
-        working-directory: backend
+        working-directory: server
         run: |
           cat > .env <<ENVEOF
-          DATABASE_URL=sqlite+aiosqlite:///./e2e.db
+          DATABASE_URL=sqlite:///./e2e-go.db
           SECRET_KEY=ci-secret-not-for-prod
           REDIS_URL=
           LATEX_CLSI_ENABLED=false
@@ -144,18 +138,18 @@ jobs:
           ENVEOF
 
       # ── Seed e2e DB ───────────────────────────────────────
-      - name: Seed e2e database
-        working-directory: backend
+      - name: Build & seed (go)
+        working-directory: server
         run: |
           mkdir -p "$GITHUB_WORKSPACE/logs"
-          uv run python scripts/seed_e2e_user.py 2>&1 | tee "$GITHUB_WORKSPACE/logs/seed.log"
+          go build -o bin/papersage ./cmd/papersage
+          go run ./cmd/seed 2>&1 | tee "$GITHUB_WORKSPACE/logs/seed.log"
 
       # ── Start backend ─────────────────────────────────────
-      - name: Start backend (uvicorn)
-        working-directory: backend
+      - name: Start backend (go binary)
+        working-directory: server
         run: |
-          nohup uv run uvicorn app.main:app --host 127.0.0.1 --port 5478 \
-            > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
+          nohup ./bin/papersage > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
           echo $! > /tmp/backend.pid
           disown
 
@@ -258,7 +252,7 @@ jobs:
           echo '── frontend.log ──'
           tail -200 "$GITHUB_WORKSPACE/logs/frontend.log" 2>/dev/null || echo "(missing)"
 
-      - name: Cleanup e2e.db
+      - name: Cleanup e2e db
         if: always()
-        working-directory: backend
-        run: rm -f e2e.db .env
+        working-directory: server
+        run: rm -f e2e-go.db .env bin/papersage
