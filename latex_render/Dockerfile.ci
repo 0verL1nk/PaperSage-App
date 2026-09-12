@@ -18,7 +18,7 @@ FROM node:22-bookworm-slim AS production
 
 # TinyTeX + 论文常用包（ctex 链中文、latexmk 编译、常见排版宏包）
 RUN apt-get update && apt-get install --no-install-recommends -y \
-        ca-certificates curl fontconfig fonts-noto-cjk perl wget \
+        ca-certificates curl fontconfig fonts-noto-cjk perl wget xz-utils \
     && rm -rf /var/lib/apt/lists/* \
     && wget -qO- "https://yihui.org/tinytex/install-bin-unix.sh" | sh -s - --admin --no-path \
     && mv /root/.TinyTeX /opt/tinytex \
