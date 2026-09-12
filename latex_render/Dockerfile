@@ -8,6 +8,9 @@ COPY package.json package-lock.json ./
 # （deps 漏 COPY libraries 时 @overleaf/* 装不出来，容器启动即
 #  ERR_MODULE_NOT_FOUND——该镜像此前只 build 从未运行，问题未暴露）
 COPY libraries/ libraries/
+# express 等运行时依赖声明在 services/clsi 这个 workspace 里：npm ci
+# 需要各 workspace 的 package.json 才会装其依赖
+COPY services/clsi/package.json services/clsi/package.json
 
 # lockfile 由 npm 11 生成：npm 10 的 ci 读不懂 workspaces 条目
 RUN npm install -g npm@11 --silent
