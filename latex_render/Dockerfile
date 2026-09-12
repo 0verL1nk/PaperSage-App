@@ -4,6 +4,10 @@ FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+# workspaces 本地包必须随行：npm ci 要把它们链进 node_modules
+# （deps 漏 COPY libraries 时 @overleaf/* 装不出来，容器启动即
+#  ERR_MODULE_NOT_FOUND——该镜像此前只 build 从未运行，问题未暴露）
+COPY libraries/ libraries/
 
 # Mount npm cache — survives rebuilds
 RUN --mount=type=cache,target=/root/.npm \
