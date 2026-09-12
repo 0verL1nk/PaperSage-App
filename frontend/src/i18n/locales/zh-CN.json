@@ -1,0 +1,31 @@
+{
+  "nav": {
+    "backToProjects": "返回项目列表",
+    "tabUploading": "上传资料",
+    "tabWriting": "论文撰写",
+    "tabClassifying": "内容分类",
+    "tabLogicChain": "逻辑链条",
+    "tabGenerating": "报告生成",
+    "projects": "所有项目",
+    "trash": "回收站",
+    "settings": "设置",
+    "documents": "文档"
+  },
+  "comingSoon": {
+    "badge": "规划中",
+    "title": "{{name}} 模块建设中",
+    "desc": "该模块属于 AI 辅助写作流程（v0.5 路线），当前版本聚焦文献管理与论文撰写。你可以先完成前两步：整理文献、开始写作。",
+    "goWriting": "去论文撰写",
+    "goUploading": "去上传资料"
+  },
+  "settings": {
+    "appearance": "外观",
+    "theme": "主题",
+    "themeSystem": "跟随系统",
+    "themeLight": "浅色",
+    "themeDark": "深色",
+    "language": "语言",
+    "langZh": "简体中文",
+    "langEn": "English"
+  }
+}

@@ -1,0 +1,25 @@
+# actions/labeler 路径映射（PR Labeler 工作流使用）
+server:
+  - changed-files:
+      - any-glob-to-any-file: 'server/**'
+
+frontend:
+  - changed-files:
+      - any-glob-to-any-file: 'frontend/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'Makefile'
+
+docs:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'docs/**'
+          - 'openspec/**'
+          - '*.md'
+
+latex:
+  - changed-files:
+      - any-glob-to-any-file: 'latex_render/**'

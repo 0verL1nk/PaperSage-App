@@ -5,6 +5,7 @@ import {
   saveLatexFile,
   createLatexFile,
   deleteLatexFile,
+  deleteLatexFolder,
   renameLatexFile,
   renameLatexFolder,
   moveLatexFile,
@@ -75,14 +76,33 @@ export function useCreateLatexFile(projectId: string) {
   })
 }
 
-export function useDeleteLatexFile(projectId: string) {
+/**
+ * 文件树变更类 mutation 的共享工厂：成功后失效文件列表缓存。
+ * delete/rename/move 等操作都遵循同一失效语义，收敛在此避免重复。
+ */
+function useInvalidateFilesMutation<TVars>(
+  projectId: string,
+  mutationFn: (vars: TVars) => Promise<unknown>,
+) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: (filePath: string) => deleteLatexFile(projectId, filePath),
+    mutationFn,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
     },
   })
+}
+
+export function useDeleteLatexFile(projectId: string) {
+  return useInvalidateFilesMutation(projectId, (filePath: string) =>
+    deleteLatexFile(projectId, filePath),
+  )
+}
+
+export function useDeleteLatexFolder(projectId: string) {
+  return useInvalidateFilesMutation(projectId, (folderPath: string) =>
+    deleteLatexFolder(projectId, folderPath),
+  )
 }
 
 export function useRenameLatexFile(projectId: string) {

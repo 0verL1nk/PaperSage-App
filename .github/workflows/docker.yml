@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'backend/**'
+      - 'server/**'
       - 'frontend/**'
       - 'latex_render/**'
       - '.github/workflows/docker.yml'
@@ -19,14 +19,17 @@ jobs:
     permissions:
       contents: read
       packages: write
+      attestations: write
+      id-token: write
 
     strategy:
       matrix:
         include:
-          - context: backend
-            image: papersage-backend
-          - context: frontend
-            image: papersage-frontend
+          # 单二进制镜像（前端 embed）；上下文为仓库根（Dockerfile 需同时访问
+          # frontend/ 与 server/）
+          - context: .
+            dockerfile: server/Dockerfile
+            image: papersage-app
           - context: latex_render
             image: papersage-render
 
@@ -54,3 +57,7 @@ jobs:
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          # 供应链证明：provenance（构建来源/SLSA）+ SBOM（组件清单）随镜像
+          # 推送到 registry，docker buildx 原生 attestation
+          provenance: mode=max
+          sbom: true

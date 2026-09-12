@@ -8,10 +8,18 @@ on:
     branches: [main]
     paths: ['frontend/**', '.github/workflows/frontend.yml']
 
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
 jobs:
   lint:
     name: Lint & TypeCheck
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -72,3 +80,21 @@ jobs:
           name: frontend-test-results
           path: frontend/test-results
           retention-days: 7
+
+  # 前端依赖漏洞审计（不依赖 GHAS/依赖图，私有仓库可用；
+  # 仓库转公开后可再上 actions/dependency-review-action 拦 license 问题）
+  audit:
+    name: pnpm audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Audit (high/critical)
+        working-directory: frontend
+        # 仅审计生产依赖的高危/致命漏洞；dev 依赖噪音大（构建期不进产物）
+        run: pnpm audit --prod --audit-level high

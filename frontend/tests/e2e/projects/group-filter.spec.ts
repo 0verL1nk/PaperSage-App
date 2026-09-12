@@ -12,7 +12,7 @@ test.describe('Project group filter', () => {
     await loginAs(page)
     // The group chip should be visible alongside the "全部" chip
     await expect(page.getByRole('button', { name: '全部' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'e2e-default-group' })).toBeVisible({
+    await expect(page.getByRole('button', { name: 'e2e-default-group', exact: true })).toBeVisible({
       timeout: 10_000,
     })
   })
@@ -25,7 +25,7 @@ test.describe('Project group filter', () => {
 
     // Click the seeded group — the default project should still be visible
     // because it belongs to this group
-    await page.getByRole('button', { name: 'e2e-default-group' }).click()
+    await page.getByRole('button', { name: 'e2e-default-group', exact: true }).click()
 
     // Click "全部" to verify the filter toggles back
     await page.getByRole('button', { name: '全部' }).click()

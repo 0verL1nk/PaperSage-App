@@ -201,6 +201,21 @@ select {
 
 @layer utilities {
   /* Page transition animations */
+  /* 进度条延迟出现：250ms 内完成的请求从未被绘制（防闪烁） */
+  @keyframes progress-appear {
+    from { opacity: 0; }
+  }
+  .progress-appear {
+    animation: progress-appear 1ms linear 250ms backwards;
+  }
+  @keyframes progress-slide {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(400%); }
+  }
+  .progress-slide {
+    animation: progress-slide 1.1s ease-in-out 250ms infinite;
+  }
+
   @keyframes fade-in {
     from {
       opacity: 0;

@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import { useParams } from '@tanstack/react-router'
 import * as Resizable from 'react-resizable-panels'
-import { Upload, FolderPlus } from 'lucide-react'
+import { Upload, FolderPlus, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useUploadStore } from '@/store/upload-store'
 import { useDocuments, useDeleteDocument } from '@/services/files-api'
@@ -222,14 +222,30 @@ export function UploadingPage() {
       )}
 
       {uploadOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm" onClick={() => setUploadOpen(false)}>
-          <div className="w-full max-w-md p-6 bg-background rounded-2xl border border-border/40 shadow-strong" onClick={(e) => e.stopPropagation()}>
-            <h3 className="text-sm font-semibold mb-4">上传文档</h3>
-            <UploadDropzone projectId={projectId} folderId={selectedFolderId} />
-            <div className="mt-4 flex justify-end">
-              <Button variant="ghost" size="sm" onClick={() => setUploadOpen(false)} className="text-xs">
-                关闭
-              </Button>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
+          onClick={() => {
+            // 上传进行中不允许误触关闭（丢进度）；完成后任意处点击可关
+            if (!useUploadStore.getState().isUploading) setUploadOpen(false)
+          }}
+        >
+          <div
+            className="w-full max-w-md bg-background rounded-2xl border border-border/40 shadow-strong overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
+              <h3 className="text-sm font-semibold">上传文档</h3>
+              <button
+                type="button"
+                onClick={() => setUploadOpen(false)}
+                className="text-muted-foreground/60 hover:text-foreground transition-colors p-1 rounded-lg hover:bg-muted/50"
+                aria-label="关闭上传对话框"
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="px-5 py-4">
+              <UploadDropzone projectId={projectId} folderId={selectedFolderId} onClose={() => setUploadOpen(false)} />
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+import { ComingSoon } from '@/components/domain/ComingSoon'
 import type { QueryClient } from '@tanstack/react-query'
 import {
   Outlet,
@@ -187,42 +188,21 @@ const projectWritingRoute = createRoute({
 const projectClassifyingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/classifying',
-  component: function ProjectClassifying() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Classifying</h1>
-        <p className="mt-2 text-muted-foreground">Classifying module placeholder</p>
-      </div>
-    )
-  },
+  component: () => <ComingSoon moduleKey="classifying" />
 })
 
 // Project logic-chain route
 const projectLogicChainRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/logic-chain',
-  component: function ProjectLogicChain() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Logic Chain</h1>
-        <p className="mt-2 text-muted-foreground">Logic chain module placeholder</p>
-      </div>
-    )
-  },
+  component: () => <ComingSoon moduleKey="logic-chain" />
 })
 
 // Project generating route
 const projectGeneratingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/generating',
-  component: function ProjectGenerating() {
-    return (
-      <div className="p-6">
-        <h1 className="text-2xl font-bold">Generating</h1>
-        <p className="mt-2 text-muted-foreground">Generating module placeholder</p>
-      </div>
-    )
-  },
+  component: () => <ComingSoon moduleKey="generating" />
 })
 
 // Build route tree

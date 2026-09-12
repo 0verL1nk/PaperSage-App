@@ -15,7 +15,8 @@ import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
-  useCreateLatexFile, useDeleteLatexFile, useRenameLatexFile, useRenameLatexFolder,
+  useCreateLatexFile, useDeleteLatexFile,
+  useDeleteLatexFolder, useRenameLatexFile, useRenameLatexFolder,
   useMoveLatexFile, useLatexCompile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
 import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
@@ -123,6 +124,7 @@ export function WritingPage() {
   const autoSave = useAutoSave(saveMutation)
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
+  const deleteFolderMutation = useDeleteLatexFolder(projectId)
   const renameMutation = useRenameLatexFile(projectId)
   const renameFolderMutation = useRenameLatexFolder(projectId)
   const moveMutation = useMoveLatexFile(projectId)
@@ -362,7 +364,7 @@ export function WritingPage() {
       confirmText: '删除',
       variant: 'destructive',
       onConfirm: () => {
-        deleteMutation.mutate(folderPath, {
+        deleteFolderMutation.mutate(folderPath, {
           onSuccess: () => {
             if (activeFilePath?.startsWith(folderPath + '/') || activeFilePath === folderPath) {
               const fallback = files.find((f) => f.file_path === 'main.tex' && !f.file_path.startsWith(folderPath + '/'))

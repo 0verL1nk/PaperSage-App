@@ -1,6 +1,6 @@
 /** Data table for documents with sorting, pagination, and row selection. */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   useReactTable, getCoreRowModel, getSortedRowModel, getPaginationRowModel,
   getFilteredRowModel, flexRender,
@@ -28,23 +28,30 @@ export function DataTable({ data, actions, globalFilter, onRowSelectionChange }:
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const columns = createColumns(actions)
 
+  // 行被删除/数据刷新后，清掉指向不存在文档的选中项并同步父级
+  useEffect(() => {
+    const live = new Set(data.map((d) => d.id))
+    const stale = Object.entries(rowSelection).filter(([id, v]) => v && !live.has(id))
+    if (stale.length > 0) {
+      const pruned = Object.fromEntries(Object.entries(rowSelection).filter(([id, v]) => v && live.has(id)))
+      setRowSelection(pruned)
+      onRowSelectionChange?.(Object.keys(pruned))
+    }
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+
   // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Table cannot be safely memoized
   const table = useReactTable({
     data,
     columns,
+    // 选中态以文档 ID 为 key（默认的行索引在删除/刷新后会让选中
+    // 「漂移」到补位上来的新行——多选删除后误选后续文件的根源）
+    getRowId: (row) => row.id,
     state: { sorting, globalFilter, rowSelection },
     onSortingChange: setSorting,
     onRowSelectionChange: (updater) => {
       const newSelection = typeof updater === 'function' ? updater(rowSelection) : updater
       setRowSelection(newSelection)
-      if (onRowSelectionChange) {
-        const selectedIds = Object.keys(newSelection).filter((k) => newSelection[k])
-        onRowSelectionChange(
-          selectedIds
-            .map((id) => data[Number(id)]?.id)
-            .filter(Boolean),
-        )
-      }
+      onRowSelectionChange?.(Object.keys(newSelection).filter((k) => newSelection[k]))
     },
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -53,6 +60,19 @@ export function DataTable({ data, actions, globalFilter, onRowSelectionChange }:
     initialState: { pagination: { pageSize: PAGE_SIZE } },
     enableRowSelection: true,
   })
+
+  // 数据变化（删除/移动/刷新）后，把已不存在的行从选中态与父级剔除
+  useEffect(() => {
+    const dataIds = new Set(data.map((d) => d.id))
+    setRowSelection((prev) => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([id, v]) => v && dataIds.has(id)),
+      )
+      if (Object.keys(next).length === Object.keys(prev).length) return prev
+      onRowSelectionChange?.(Object.keys(next))
+      return next
+    })
+  }, [data, onRowSelectionChange])
 
   return (
     <div className="flex flex-col h-full w-full">

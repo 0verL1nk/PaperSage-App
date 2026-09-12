@@ -28,8 +28,9 @@ test.describe('Cross-route navigation', () => {
   test('user can navigate to trash and back', async ({ page }) => {
     await loginAs(page)
     await page.goto('/app/trash')
-    // Empty trash should show some placeholder
-    await expect(page.getByText(/回收站|Trash|暂无/)).toBeVisible({ timeout: 10_000 })
+    // Empty trash should show the page heading（getByText 正则会同时命中
+    // 侧边栏链接与空态文案，strict mode 下报错——用 heading 角色精确匹配）
+    await expect(page.getByRole('heading', { name: '回收站', exact: true })).toBeVisible({ timeout: 10_000 })
   })
 
   test('direct link to a writing project works when logged in', async ({ page }) => {

@@ -10,6 +10,14 @@ import {
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import { Folder as FolderIcon, HardDrive } from 'lucide-react'
 import { useMoveDocument } from '@/services/files-api'
 import type { Folder } from '@/types/files'
 
@@ -81,16 +89,30 @@ export function MoveDocumentDialog({
 
           <div className="space-y-2">
             <Label className="text-[13px] font-medium">目标文件夹</Label>
-            <select
+            <Select
               value={targetFolderId ?? '_root'}
-              onChange={(e) => setTargetFolderId(e.target.value === '_root' ? null : e.target.value)}
-              className="flex h-10 w-full rounded-lg border border-border/40 bg-muted/40 px-3 py-2 text-[14px] focus:outline-none focus:ring-1 focus:ring-foreground/20 focus:bg-background cursor-pointer"
+              onValueChange={(v) => setTargetFolderId(v === '_root' ? null : v)}
             >
-              <option value="_root">根目录（无文件夹）</option>
-              {folders.map((f) => (
-                <option key={f.id} value={f.id}>{f.name}</option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full h-10 rounded-md border-border/40 bg-muted/40 text-[14px] cursor-pointer">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="rounded-md border-border/40">
+                <SelectItem value="_root" className="text-[13px] gap-2">
+                  <span className="flex items-center gap-2">
+                    <HardDrive size={13} className="text-muted-foreground" />
+                    根目录（无文件夹）
+                  </span>
+                </SelectItem>
+                {folders.map((f) => (
+                  <SelectItem key={f.id} value={f.id} className="text-[13px] gap-2">
+                    <span className="flex items-center gap-2">
+                      <FolderIcon size={13} className="text-amber-500/80" />
+                      {f.name}
+                    </span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           <DialogFooter className="pt-2 sm:justify-end gap-2">

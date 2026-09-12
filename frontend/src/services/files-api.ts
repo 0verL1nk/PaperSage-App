@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AxiosProgressEvent } from 'axios'
-import { getJson, deleteFetch, putJson, postMultipart } from './client'
+import { getJson, postJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
 import { DOCUMENTS } from './api-routes'
 
@@ -62,19 +62,40 @@ export function useUpdateRemark(projectId: string, folderId: string | null) {
   })
 }
 
+/** staged 上传响应：文档行 + 重复标记 */
+export type StagedUploadResult = ProjectDocument & { duplicate?: boolean }
+
+/** staged → uploaded（入库） */
+export function useConfirmDocument(projectId: string, folderId: string | null) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (documentId: string) => postJson<ProjectDocument>(DOCUMENTS.confirm(documentId)),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
+  })
+}
+
 export function useUploadDocument(projectId: string, folderId: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: async ({ file, remark, onUploadProgress }: {
-      file: File; remark?: string; onUploadProgress?: (e: AxiosProgressEvent) => void
+    mutationFn: async ({ file, remark, staged, onUploadProgress }: {
+      file: File; remark?: string; staged?: boolean
+      onUploadProgress?: (e: AxiosProgressEvent) => void
     }) => {
       const formData = new FormData()
       formData.append('file', file)
       formData.append('projectId', projectId)
       if (folderId) formData.append('folderId', folderId)
       if (remark) formData.append('remark', remark)
-      return postMultipart<ProjectDocument>(DOCUMENTS.upload, formData, { onUploadProgress })
+      if (staged) formData.append('staged', 'true')
+      // 上传有逐文件进度条，不再触发全局加载指示（skipGlobalLoading），
+      // 否则长时间上传会一直挂着全局 loading，观感像页面卡死
+      return postMultipart<StagedUploadResult>(
+        DOCUMENTS.upload, formData, { onUploadProgress, skipGlobalLoading: true },
+      )
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
+    // staged 行不进默认列表；confirm 入库/丢弃时再失效
+    onSuccess: (_data, vars) => {
+      if (!vars.staged) qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] })
+    },
   })
 }

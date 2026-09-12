@@ -13,6 +13,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+
+import { SmoothHeight } from '@/components/shared/smooth-height'
 import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
 import {
   loginSchema,
@@ -126,7 +128,7 @@ export function AuthPage() {
                 </TabsList>
               </div>
 
-              <div className="p-8">
+              <SmoothHeight className="px-8 pb-6 pt-8" data-testid="auth-panels">
                 {authError && (
                   <Alert variant="destructive" className="mb-6 border-none bg-destructive/10 text-destructive rounded-xl py-3">
                     <ShieldCheck className="mr-2 h-4 w-4" />
@@ -177,7 +179,7 @@ export function AuthPage() {
                       type="submit" 
                       variant="outline"
                       disabled={loginMutation.isPending}
-                      className="h-12 w-full font-bold text-[15px] mt-4 rounded-full"
+                      className="flex h-12 w-full font-bold text-[15px] mt-4 rounded-full"
                     >
                       {loginMutation.isPending ? '正在连接...' : '立即登录'}
                       {!loginMutation.isPending && <ArrowRight className="ml-2 h-4 w-4" />}
@@ -229,16 +231,16 @@ export function AuthPage() {
                       type="submit"
                       variant="outline"
                       disabled={registerMutation.isPending}
-                      className="h-12 w-full font-bold text-[15px] mt-4 rounded-full"
+                      className="flex h-12 w-full font-bold text-[15px] mt-4 rounded-full"
                     >
                       {registerMutation.isPending ? '正在创建...' : '创建我的账号'}
                     </Button>
                   </form>
                 </TabsContent>
-              </div>
+              </SmoothHeight>
             </Tabs>
           </CardContent>
-          <div className="border-t border-border/20 bg-secondary/20 px-8 py-5 text-center">
+          <div className="border-t border-border/20 bg-secondary/20 px-8 py-4 text-center">
             <p className="text-[11px] font-medium text-muted-foreground">
               继续操作即代表您同意我们的 <a href="#" className="text-foreground font-semibold hover:underline transition-all">服务条款</a> 和 <a href="#" className="text-foreground font-semibold hover:underline transition-all">隐私政策</a>
             </p>
