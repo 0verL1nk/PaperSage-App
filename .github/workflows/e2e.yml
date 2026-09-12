@@ -295,9 +295,9 @@ jobs:
 
       - name: Start CLSI
         run: |
-          # HOST 必须显式传入：settings 模块默认绑 127.0.0.1，
-          # Dockerfile ENV 未被其读取，端口映射会够不着
-          docker run -d --name clsi -p 3013:3013             -e HOST=0.0.0.0 -e PORT=3013 papersage-render-ci
+          # LISTEN_ADDRESS 必须显式传入（settings 模块默认绑 127.0.0.1，
+          # Dockerfile 内已设但双保险），否则端口映射够不着
+          docker run -d --name clsi -p 3013:3013             -e LISTEN_ADDRESS=0.0.0.0 -e PORT=3013 papersage-render-ci
           for i in {1..90}; do
             if curl -sf http://localhost:3013/status >/dev/null; then
               echo "CLSI ready after $((i*2))s"; exit 0
