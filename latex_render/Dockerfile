@@ -48,13 +48,14 @@ COPY --chown=appuser:appgroup services/ services/
 COPY --chown=appuser:appgroup patches/ patches/
 COPY --chown=appuser:appgroup package.json ./
 
-ENV HOST=0.0.0.0 \
+# 变量名与 settings.defaults.cjs 对齐（旧名从未被读取）
+ENV LISTEN_ADDRESS=0.0.0.0 \
     PORT=3013 \
     SANDBOXED_COMPILES=false \
-    COMPILES_DIR=/tmp/clsi/compiles \
-    OUTPUT_DIR=/tmp/clsi/output \
-    CACHE_DIR=/tmp/clsi/cache \
-    UPLOAD_DIR=/tmp/clsi/uploads \
+    CLSI_COMPILES_PATH=/tmp/clsi/compiles \
+    CLSI_OUTPUT_PATH=/tmp/clsi/output \
+    CLSI_CACHE_PATH=/tmp/clsi/cache \
+    CLSI_UPLOAD_PATH=/tmp/clsi/uploads \
     TEXMFVAR=/tmp/clsi/texmf-var \
     NODE_ENV=production
 
