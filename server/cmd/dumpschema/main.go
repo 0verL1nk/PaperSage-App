@@ -1,13 +1,14 @@
-// Command dumpschema — 全表结构快照导出。
+// Command dumpschema — 逐表结构导出（schema/tables/*.sql）。
 //
-// 对目标库（DSOS 环境变量 SCHEMA_DSN，MySQL/TiDB 方言）执行：
-// 建临时库 → 跑全部迁移 → SHOW CREATE TABLE 逐表输出。
-// 产物提交到 server/schema/，作为「所有表」的权威记录；
-// 真相源仍是 migrations/（改模型→加迁移→重跑本命令刷新快照）。
+// 对目标库执行：建临时库 → 跑全部迁移 → 逐表 SHOW CREATE TABLE
+// → 每表一个 SQL 写入 schema/tables/。这些文件是表结构的权威记录，
+// 也是 cmd/generate 生成 DAO 的输入（SQL-first）。
+// migrations/ 仍是演进通道：改表 = 加迁移 + 跑本命令刷新表文件 +
+// 重新生成 DAO。
 //
 // 用法：
 //
-//	SCHEMA_DSN='mysql://user:pass@host:4000/test?tls=true' go run ./cmd/dumpschema > schema.mysql.sql
+//	SCHEMA_DSN='mysql://user:pass@host:4000/test?tls=true' go run ./cmd/dumpschema
 package main
 
 import (
@@ -65,23 +66,33 @@ func main() {
 	}
 	_ = rows.Close()
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "-- PaperSage 全表结构快照（MySQL/TiDB 方言）\n")
-	fmt.Fprintln(&b, "-- 由 cmd/dumpschema 生成：全部迁移（migrations/ 全量）执行后的终态。")
-	fmt.Fprintf(&b, "-- 真相源是 migrations/；改模型请加迁移并重跑 make schema。\n\n")
+	// 逐表写入 schema/tables/<table>.sql（真相源；cmd/generate 基于它们生成 DAO）
+	outDir := "schema/tables"
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		fatal("mkdir: %v", err)
+	}
+	written := 0
 	for _, t := range tables {
+		if t == "schema_migrations" {
+			continue // golang-migrate 版本表，非业务表
+		}
 		var name, ddl string
 		if err := admin.QueryRow("SHOW CREATE TABLE "+snap+"."+t).Scan(&name, &ddl); err != nil {
 			fatal("show create %s: %v", t, err)
 		}
-		fmt.Fprintln(&b, ddl+";")
-		fmt.Fprintln(&b)
+		hdr := "-- " + t + " 表结构（MySQL/TiDB 方言，真相源）\n" +
+			"-- cmd/generate 基于这些 SQL 建库并生成 DAO；改表先改这里，\n" +
+			"-- 再 `make generate-dao SCHEMA_DSN=...` 重新生成。\n\n"
+		if err := os.WriteFile(outDir+"/"+t+".sql",
+			[]byte(hdr+ddl+";\n"), 0o644); err != nil {
+			fatal("write %s: %v", t, err)
+		}
+		written++
 	}
-	fmt.Print(b.String())
+	fmt.Printf("wrote %d table files → %s\n", written, outDir)
 }
 
-// goDriverDSN: mysql://u:p@h:port/db?x → go-sql-driver 形式（复用 store 的
-// 转换规则太重，这里精简实现）。
+// goDriverDSN: mysql://u:p@h:port/db?x → go-sql-driver 形式。
 func goDriverDSN(dsn string) string {
 	rest := strings.TrimPrefix(strings.TrimPrefix(dsn, "mysql://"), "tidb://")
 	if i := strings.LastIndex(rest, "@"); i >= 0 {
