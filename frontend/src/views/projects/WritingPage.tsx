@@ -12,6 +12,8 @@ import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import * as Resizable from 'react-resizable-panels'
 import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
+import { useTheme } from '@/app/theme-context'
+import { resolveDark } from '@/app/theme-context'
 import { useConfirmDialog } from '@/components/ui/confirm-dialog'
 import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
@@ -114,6 +116,17 @@ export function WritingPage() {
   const activeFilePathRef = useRef<string | null>(null)
 
   const monaco = useMonaco()
+  // 编辑器主题跟随应用主题（Monaco 不吃 CSS token，需显式切换）
+  const { theme } = useTheme()
+  const [editorDark, setEditorDark] = useState(() => resolveDark(theme))
+  useEffect(() => {
+    setEditorDark(resolveDark(theme))
+    if (theme !== 'system') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const on = () => setEditorDark(mq.matches)
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [theme])
   const { confirm, ConfirmDialog: DeleteConfirmDialog } = useConfirmDialog()
 
   // Data hooks
@@ -517,7 +530,7 @@ export function WritingPage() {
                   <LoadingSpinner text="正在获取文件内容" className="h-full" />
                 ) : isEditable ? (
                   <Editor
-                    height="100%" language={getLanguageByExt(activeFilePath)} theme="vs-light"
+                    height="100%" language={getLanguageByExt(activeFilePath)} theme={editorDark ? 'vs-dark' : 'vs'}
                     value={editorContent} onChange={handleEditorChange}
                     options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
