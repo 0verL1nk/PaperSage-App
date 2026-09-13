@@ -90,7 +90,7 @@ server/
 - 装配集中在 internal/bootstrap.Build()；cmd/ 只有进程生命周期
 - 软删除全表统一 gorm.DeletedAt（BaseModel 自带；回收站/恢复用 Unscoped）
 - CRUD 走 gorm.io/gen 生成的类型安全 DAO（internal/store/query；`make generate-dao`）
-- 全表快照 schema/schema.mysql.sql（`make schema SCHEMA_DSN=...` 对真实库刷新）
+- SQL-first：schema/tables/*.sql 每表一份 DDL（真相源）；`make schema SCHEMA_DSN=...` 从真实库刷新；`make generate-dao SCHEMA_DSN=...` 从 SQL 建库生成 DAO
 - 构造函数依赖注入（无全局单例）；测试用 testutil 内存替身
 - JWE 加密双 token（A256KW+A256GCM，载荷不明文）；refresh 注册表落库持久化，真轮换（旧 token 用后即废）且重启不丢登录态
 - API envelope: `{code, data, info}`；路由级 404/405 是裸 `{"detail": ...}`（对齐 FastAPI 实测行为）

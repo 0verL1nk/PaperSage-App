@@ -209,3 +209,4 @@ server/*.db-wal
 frontend/shots/
 server/devs3-data/
 server/.env
+.codegraph/
