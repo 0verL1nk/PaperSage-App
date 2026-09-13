@@ -23,7 +23,7 @@ type BaseModel struct {
 // BeforeCreate 填充 uuid4 主键（Python 侧 default=uuid.uuid4）。
 func (b *BaseModel) BeforeCreate(*gorm.DB) error {
 	if b.ID.UUID == uuid.Nil {
-		b.ID = UUID{UUID: uuid.New()}
+		b.ID = UUID{UUID: uuid.Must(uuid.NewV7())} // v7：时间有序（RFC 9562），索引局部性更好
 	}
 	return nil
 }
