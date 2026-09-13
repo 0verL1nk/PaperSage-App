@@ -192,6 +192,10 @@ func (s *Service) confirm(c *gin.Context) {
 	}
 	_ = s.DB.WithContext(ctx).Model(&doc).Update("status", "uploaded").Error
 	doc.Status = "uploaded"
+	// RAG 索引钩子：异步抽取+索引（失败不阻断入库）
+	if s.Indexer != nil {
+		go s.Indexer.IndexDocument(doc.ProjectID, doc.ID, doc.Name, doc.S3Key, doc.Type)
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toDocumentResponse(&doc), ""))
 }
 

@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -40,10 +42,11 @@ type Service struct {
 	Storage storage.Storage
 	Queue   *latex.Queue
 	Cfg     *config.Settings
+	RAG     *rag.Store
 }
 
-func NewService(db *gorm.DB, stg storage.Storage, q *latex.Queue, cfg *config.Settings) *Service {
-	return &Service{DB: db, Storage: stg, Queue: q, Cfg: cfg}
+func NewService(db *gorm.DB, stg storage.Storage, q *latex.Queue, cfg *config.Settings, rg *rag.Store) *Service {
+	return &Service{DB: db, Storage: stg, Queue: q, Cfg: cfg, RAG: rg}
 }
 
 // sseEvent 流给前端的事件形状。
@@ -112,11 +115,19 @@ func (s *Service) chat(c *gin.Context) {
 		return
 	}
 
-	// 工具 + Agent（ReAct）
+	// 工具 + Agent（ReAct）。search_references 是 agentic search：内部
+	// 子 agent 多跳检索（rag_search/wiki 读写）
 	tools, err := ProjectTools(s.DB, s.Storage, s.Queue, store.UUID{UUID: pid}, uid)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
+	}
+	if s.RAG != nil {
+		if tcm, ok := chatModel.(model.ToolCallingChatModel); ok {
+			if st, err := SearchTool(ctx, s.DB, s.RAG, store.UUID{UUID: pid}, uid, tcm); err == nil {
+				tools = append(tools, st)
+			}
+		}
 	}
 	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "papersage-writing-assistant",

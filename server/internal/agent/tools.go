@@ -8,12 +8,16 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
+	"github.com/cloudwego/eino/compose"
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/extract"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -209,6 +213,116 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 		listDocuments, readDocument, listLatexFiles, readLatexFile,
 		writeLatexFile, compileProject,
 	}, nil
+}
+
+// SearchTool 构建 agentic search 工具：内部是一个子 agent（检索专家，
+// AgentAsTool 模式），持有 rag_search（hybrid 检索）与 wiki_read/
+// wiki_write 工具，多跳检索（改写查询、读块、沉淀 wiki）后返回带
+// 出处的综合摘要。主 agent 只见一个 search_references 工具。
+func SearchTool(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
+	projectID, ownerID store.UUID, chatModel model.ToolCallingChatModel) (tool.BaseTool, error) {
+
+	verify := func(ctx context.Context) error {
+		var n int64
+		if err := db.WithContext(ctx).Model(&store.Project{}).
+			Where("id = ? AND owner_id = ?", projectID, ownerID).
+			Count(&n).Error; err != nil || n == 0 {
+			return fmt.Errorf("project not accessible")
+		}
+		return nil
+	}
+
+	ragSearch, err := utils.InferTool(
+		"rag_search",
+		"混合检索（向量+关键词）项目资料库与 wiki。返回最相关的内容块及出处。可用不同措辞多次调用以扩展召回。",
+		func(ctx context.Context, in struct {
+			Query string `json:"query" jsonschema:"description=检索词（可中英混合）"`
+			K     int    `json:"k,omitempty" jsonschema:"description=返回条数，默认 5"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			hits, err := ragStore.Search(ctx, projectID, in.Query, in.K)
+			if err != nil {
+				return "", err
+			}
+			if len(hits) == 0 {
+				return "（资料库中无相关内容）", nil
+			}
+			var b strings.Builder
+			for i, h := range hits {
+				fmt.Fprintf(&b, "[%d] 来源=%s 名称=%s\n%s\n\n", i+1, h.SourceType, h.SourceName, h.Content)
+			}
+			return b.String(), nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	wikiRead, err := utils.InferTool(
+		"wiki_read",
+		"读取项目知识库（LLM wiki）的一页。先查这里——过往研究结论已沉淀。",
+		func(ctx context.Context, in struct {
+			Title string `json:"title" jsonschema:"description=页标题"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			page, err := ragStore.GetWiki(ctx, projectID, in.Title)
+			if err != nil {
+				return fmt.Sprintf("wiki 无 %q 页", in.Title), nil
+			}
+			return page.Content, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	wikiWrite, err := utils.InferTool(
+		"wiki_write",
+		"把研究结论沉淀为项目知识库一页（供后续检索直达）。检索完成后应把综合发现写入。",
+		func(ctx context.Context, in struct {
+			Title   string `json:"title" jsonschema:"description=页标题（如：注意力机制综述）"`
+			Content string `json:"content" jsonschema:"description=markdown 内容，含出处文件名"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			if _, err := ragStore.UpsertWiki(ctx, projectID, in.Title, in.Content, ""); err != nil {
+				return "", err
+			}
+			return "已沉淀 wiki 页：" + in.Title, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	// 注意：AgentTool 对模型暴露的名字 = 子 agent 的 Name（ADK 约定），
+	// 因此这里就叫 search_references
+	subAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
+		Name:        "search_references",
+		Description: "深度检索项目资料库（文献+wiki）：多轮混合检索并综合出带出处的调研结论。任何涉及文献内容/相关工作的调研问题都应调用。",
+		Instruction: strings.Join([]string{
+			"你是文献检索专家。任务：针对给定的研究问题，在项目资料库中检索并综合出带出处的答案。",
+			"流程：",
+			"1. 先 rag_search 用原始问题检索；",
+			"2. 结果不足时改写关键词（同义词/英文术语）再检索，至多 4 轮；",
+			"3. 相关主题若 wiki_read 已有沉淀则优先引用；",
+			"4. 综合多路结果给出结论，每条结论标注 [来源: 文件名]；",
+			"5. 结论有沉淀价值时 wiki_write 存为知识页（标题概括主题）。",
+			"输出格式：先 2-3 句结论，再分点展开并注明出处。找不到就明说，不编造。",
+		}, "\n"),
+		Model: chatModel,
+		ToolsConfig: adk.ToolsConfig{
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools: []tool.BaseTool{ragSearch, wikiRead, wikiWrite},
+			},
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return adk.NewAgentTool(ctx, subAgent), nil
 }
 
 // validateAgentPath 与 latex 域同规则：禁穿越、禁危险扩展。

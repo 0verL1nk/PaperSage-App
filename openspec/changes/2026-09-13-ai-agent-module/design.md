@@ -30,3 +30,22 @@ POST /api/v1/projects/:id/agent/chat body {conversation_id?, content}
 - 工具内 project 归属校验（复用 verify 模式）
 - write_latex_file 路径黑名单（../、危险扩展）复用 latex 域规则
 - 模型 API key 不落日志；SSE 失败转 error 事件而非裸 500
+
+## D7 Hybrid RAG + LLM Wiki（任务书「资料库 RAG」项）
+- internal/rag：向量（chromem-go 嵌入式库，余弦）+ BM25（纯 Go 内存
+  倒排，CJK bigram/英文分词）双路召回，RRF 融合；chunk 真相源落
+  rag_chunks 表，向量持久 data/rag/，BM25 惰性重建
+- 嵌入：OpenAI 兼容 /embeddings（EMBED_* env），未配置 HashEmbedder
+  兜底（保证管线可用，语义质量由真实嵌入决定）
+- 原件为真相源：documents confirm 钩子异步（抽取→分块→嵌入→索引），
+  失败仅日志不阻断入库
+- LLM wiki（agent_wiki_pages）：子 agent 检索结论沉淀页，UpsertWiki
+  同步进索引——下次检索直达知识而非重读原文
+- 分块：段落优先递归聚合（~1200 字），超长段句号切分
+
+## D8 Agentic search（子 agent 检索）
+- 主 agent 只见一个 search_references 工具（Eino AgentAsTool）；
+  内部子 agent（检索专家）持 rag_search/wiki_read/wiki_write 三个
+  工具做多跳检索：改写查询、读块、沉淀 wiki，输出带出处的综合摘要
+- AgentTool 注册名 = 子 agent Name（ADK 约定）
+- documents 域经 DocIndexer 回调解耦（不 import rag，装配层闭包）

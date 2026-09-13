@@ -48,6 +48,10 @@ type Settings struct {
 	AgentAPIKey     string `env:"AGENT_API_KEY"`
 	AgentBaseURL    string `env:"AGENT_BASE_URL"`
 	AgentModel      string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
+	DataDir         string `env:"DATA_DIR" envDefault:"./data"`
+	EmbedAPIKey     string `env:"EMBED_API_KEY"`
+	EmbedBaseURL    string `env:"EMBED_BASE_URL"`
+	EmbedModel      string `env:"EMBED_MODEL" envDefault:"BAAI/bge-m3"`
 	SuperuserEmails string `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
 	EmailProvider   string `env:"EMAIL_PROVIDER" envDefault:"resend"`
 	FromEmail       string `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`

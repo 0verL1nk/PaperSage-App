@@ -191,6 +191,8 @@ type AgentMessage struct {
 
 func (AgentMessage) TableName() string { return "agent_messages" }
 
+// RAG 域模型（表定义在 rag 包，这里注册 AutoMigrate 用的裸结构）。
+
 // SystemSetting：admin 可改的运行时配置（key-value JSON）。
 // 已知键：allowed_email_domains（[]string，空/缺省 = 不限制）。
 type SystemSetting struct {
