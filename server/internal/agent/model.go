@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
+	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
 // ProviderConfig 是 settings.agent.providers[] 的单条形状
@@ -74,10 +75,21 @@ func ResolveModel(ctx context.Context, db *gorm.DB, userID interface{ String() s
 	return nil, ErrNoModel
 }
 
-// ResolveModelWithEnv 在用户配置未命中时落 env 兜底。
+// ResolveModelWithEnv 完整解析链：
+// 用户设置（BYO key）→ 管理后台（system_settings.agent，热生效）→ env 兜底。
 func ResolveModelWithEnv(ctx context.Context, db *gorm.DB, userID interface{ String() string }, cfg *config.Settings) (*ResolvedModel, error) {
 	if m, err := ResolveModel(ctx, db, userID); err == nil {
 		return m, nil
+	}
+	if a := syssettings.GetAgent(db); a.APIKey != "" && a.BaseURL != "" {
+		m := a.Model
+		if m == "" {
+			m = cfg.AgentModel
+		}
+		return &ResolvedModel{
+			Source: "admin-settings", Name: m, Model: m,
+			BaseURL: a.BaseURL, APIKey: a.APIKey,
+		}, nil
 	}
 	if cfg.AgentAPIKey != "" && cfg.AgentBaseURL != "" {
 		return &ResolvedModel{

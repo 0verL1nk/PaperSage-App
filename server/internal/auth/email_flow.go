@@ -14,8 +14,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
 // EmailGate：注册邮箱域名校验注入点（默认读 system_settings 的
@@ -228,9 +230,15 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 	if user.Email != nil {
 		to = *user.Email
 	}
-	link := s.Cfg.AppURL + "/auth/verify?token=" + token
+	// 热生效：管理后台的 app_url / email 组覆盖启动配置
+	appURL := syssettings.GetAppURL(s.DB)
+	if appURL == "" {
+		appURL = s.Cfg.AppURL
+	}
+	mailer := s.resolveMailer()
+	link := appURL + "/auth/verify?token=" + token
 	html := verificationEmailHTML(link, time.Now().Add(verifyTokenTTL))
-	if err := s.Mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
+	if err := mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
 		// 日志不落 token（OWASP）
 		slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
 	}
@@ -326,4 +334,19 @@ func randSuffix(n int) string {
 	b := make([]byte, n/2+n%2)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)[:n]
+}
+
+// resolveMailer 每次发信时解析：管理后台 email 组 → 启动时注入的 mailer。
+func (s *Service) resolveMailer() email.Sender {
+	e := syssettings.GetEmail(s.DB)
+	switch e.Provider {
+	case "resend":
+		if e.ResendAPIKey != "" && e.ResendDomain != "" {
+			from := "PaperSage <noreply@" + e.ResendDomain + ">"
+			return email.NewResend(e.ResendAPIKey, from, "https://api.resend.com")
+		}
+	case "noop":
+		return email.Noop{}
+	}
+	return s.Mailer
 }

@@ -23,34 +23,45 @@ const ctxUserKey = "papersage.user"
 // AuthRequired 解析 Bearer access token 并注入当前用户。
 func (s *Service) AuthRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if s.authCheck(c) {
+			c.Next()
+		}
+	}
+}
+
+// authCheck 校验并注入当前用户；失败时已写错误并 Abort。
+// 不含 c.Next()——ChainMiddleware 直调它时不会误放行后续链条
+// （曾因此 200/403 双信封：内层 c.Next() 把 handler 先跑了一遍）。
+func (s *Service) authCheck(c *gin.Context) bool {
+	{
 		h := c.GetHeader("Authorization")
 		parts := strings.SplitN(h, " ", 2)
 		if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusUnauthorized, Info: "Not authenticated"})
 			c.Abort()
-			return
+			return false
 		}
 		claims, err := VerifyToken(parts[1], s.Cfg.SecretKey, "access")
 		if err != nil || claims.Subject == "" {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusUnauthorized, Info: "Invalid token"})
 			c.Abort()
-			return
+			return false
 		}
 		uid, err := uuid.Parse(claims.Subject)
 		if err != nil {
 			// 坏设计修正：Python 未捕获 uuid.UUID 异常返回 500 → 401
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusUnauthorized, Info: "Invalid token"})
 			c.Abort()
-			return
+			return false
 		}
 		var user store.User
 		if err := s.DB.WithContext(c.Request.Context()).Where("id = ?", store.UUID{UUID: uid}).First(&user).Error; err != nil || !user.IsActive {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusUnauthorized, Info: "User not found or inactive"})
 			c.Abort()
-			return
+			return false
 		}
 		c.Set(ctxUserKey, &user)
-		c.Next()
+		return true
 	}
 }
 
@@ -62,4 +73,35 @@ func CurrentUser(c *gin.Context) *store.User {
 	}
 	u, _ := v.(*store.User)
 	return u
+}
+
+// ChainMiddleware 把 AuthRequired 与后续守卫串成一个中间件
+// （管理路由用：登录 + superuser）。
+func (s *Service) ChainMiddleware(next ...gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !s.authCheck(c) {
+			return
+		}
+		for _, h := range next {
+			h(c)
+			if c.IsAborted() {
+				return
+			}
+		}
+	}
+}
+
+// AdminRequired superuser 专属中间件（叠加在 AuthRequired 之后）。
+func AdminRequired() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		u := CurrentUser(c)
+		if u == nil || !u.IsSuperuser {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{
+				Code: http.StatusForbidden, Info: "Admin access required",
+			})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }
