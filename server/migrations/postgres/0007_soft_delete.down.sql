@@ -1,0 +1,15 @@
+ALTER TABLE users DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE project_groups DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE projects DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE folders DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE documents DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE latex_files DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE compile_jobs DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE user_settings DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE refresh_tokens DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE verification_tokens DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE system_settings DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE agent_conversations DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE agent_messages DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE rag_chunks DROP COLUMN IF EXISTS deleted_at;
+ALTER TABLE agent_wiki_pages DROP COLUMN IF EXISTS deleted_at;

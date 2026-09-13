@@ -4,7 +4,6 @@ package projects
 
 import (
 	"context"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -78,13 +77,13 @@ func toProjectResponse(p *store.Project, g *store.ProjectGroup) projectResponse 
 		ID: p.ID.UUID, Name: p.Name, Description: p.Description,
 		OwnerID: p.OwnerID.UUID,
 		GroupID: uuidPtr(p.GroupID), Status: p.Status,
-		IsDeleted: p.IsDeleted,
+		IsDeleted: p.DeletedAt.Valid,
 		CreatedAt: dto.JSONTime{Time: p.CreatedAt},
 		UpdatedAt: dto.JSONTime{Time: p.UpdatedAt},
 		Group:     toGroupResponse(g),
 	}
-	if p.DeletedAt != nil {
-		t := dto.JSONTime{Time: *p.DeletedAt}
+	if p.DeletedAt.Valid {
+		t := dto.JSONTime{Time: p.DeletedAt.Time}
 		resp.DeletedAt = &t
 	}
 	return resp
@@ -127,8 +126,9 @@ func (s *Service) list(c *gin.Context) {
 		}
 		q = q.Where("group_id = ?", store.UUID{UUID: g})
 	}
-	if c.Query("include_deleted") != "true" {
-		q = q.Where("is_deleted = ?", false)
+	if c.Query("include_deleted") == "true" {
+		// 契约保留：include_deleted=true 时含已删行（回收站语义）
+		q = q.Unscoped()
 	}
 	var ps []store.Project
 	_ = q.Order("updated_at DESC").Find(&ps).Error
@@ -158,7 +158,7 @@ func (s *Service) create(c *gin.Context) {
 
 	var existing store.Project
 	err := s.DB.WithContext(ctx).
-		Where("owner_id = ? AND name = ? AND is_deleted = ?", store.UUID{UUID: uid}, *req.Name, false).
+		Where("owner_id = ? AND name = ?", store.UUID{UUID: uid}, *req.Name).
 		First(&existing).Error
 	if err == nil {
 		httpapi.WriteError(c.Writer, badReq("Project with this name already exists"))
@@ -284,7 +284,7 @@ func (s *Service) deleteGroup(c *gin.Context) {
 	}
 	// 组内项目移到未分组
 	_ = s.DB.WithContext(ctx).Model(&store.Project{}).
-		Where("group_id = ? AND owner_id = ? AND is_deleted = ?", store.UUID{UUID: gid}, store.UUID{UUID: uid}, false).
+		Where("group_id = ? AND owner_id = ?", store.UUID{UUID: gid}, store.UUID{UUID: uid}).
 		Update("group_id", nil).Error
 	_ = s.DB.WithContext(ctx).Delete(&g).Error
 
@@ -296,15 +296,12 @@ func (s *Service) listTrash(c *gin.Context) {
 	uid := auth.CurrentUser(c).ID.UUID
 	var ps []store.Project
 	_ = s.DB.WithContext(ctx).
-		Where("owner_id = ? AND is_deleted = ?", store.UUID{UUID: uid}, true).Find(&ps).Error
+		Unscoped().Where("owner_id = ? AND deleted_at IS NOT NULL", store.UUID{UUID: uid}).Find(&ps).Error
 
 	out := make([]trashItemResponse, 0, len(ps))
 	for i := range ps {
 		p := &ps[i]
-		deleted := dto.JSONTime{Time: time.Now().UTC()}
-		if p.DeletedAt != nil {
-			deleted = dto.JSONTime{Time: *p.DeletedAt}
-		}
+		deleted := dto.JSONTime{Time: p.DeletedAt.Time}
 		out = append(out, trashItemResponse{
 			Type: "project", ID: p.ID.UUID, Name: p.Name, DeletedAt: deleted,
 			OriginalData: gin.H{"description": p.Description, "status": p.Status},
@@ -322,8 +319,8 @@ func (s *Service) restoreProject(c *gin.Context) {
 		return
 	}
 	res := s.DB.WithContext(ctx).Model(&store.Project{}).
-		Where("id = ? AND owner_id = ? AND is_deleted = ?", store.UUID{UUID: pid}, store.UUID{UUID: uid}, true).
-		Updates(map[string]any{"is_deleted": false, "deleted_at": nil})
+		Unscoped().Where("id = ? AND owner_id = ? AND deleted_at IS NOT NULL", store.UUID{UUID: pid}, store.UUID{UUID: uid}).
+		Update("deleted_at", nil)
 	if res.Error != nil || res.RowsAffected == 0 {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Project not found in trash"})
 		return
@@ -340,7 +337,7 @@ func (s *Service) purgeProject(c *gin.Context) {
 		return
 	}
 	res := s.DB.WithContext(ctx).
-		Where("id = ? AND owner_id = ? AND is_deleted = ?", store.UUID{UUID: pid}, store.UUID{UUID: uid}, true).
+		Unscoped().Where("id = ? AND owner_id = ? AND deleted_at IS NOT NULL", store.UUID{UUID: pid}, store.UUID{UUID: uid}).
 		Delete(&store.Project{})
 	if res.Error != nil || res.RowsAffected == 0 {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Project not found in trash"})
@@ -380,7 +377,7 @@ func (s *Service) updateProject(c *gin.Context) {
 	if req.Name != nil && *req.Name != p.Name {
 		var existing store.Project
 		err := s.DB.WithContext(ctx).
-			Where("owner_id = ? AND name = ? AND id != ? AND is_deleted = ?",
+			Where("owner_id = ? AND name = ? AND id != ?",
 				store.UUID{UUID: uid}, *req.Name, p.ID, false).First(&existing).Error
 		if err == nil {
 			httpapi.WriteError(c.Writer, badReq("Project with this name already exists"))
@@ -418,11 +415,7 @@ func (s *Service) deleteProject(c *gin.Context) {
 	if !ok {
 		return
 	}
-	now := time.Now().UTC()
-	p.IsDeleted = true
-	p.DeletedAt = &now
-	_ = s.DB.WithContext(ctx).Model(&store.Project{}).Where("id = ?", p.ID).
-		Updates(map[string]any{"is_deleted": true, "deleted_at": now}).Error
+	_ = s.DB.WithContext(ctx).Delete(&store.Project{}, "id = ?", p.ID).Error
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"id": p.ID.String(), "deleted": true}, ""))
 }
 
@@ -435,10 +428,12 @@ func (s *Service) loadOwnedProject(c *gin.Context, requireActive bool) (*store.P
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return nil, false
 	}
+	// requireActive=true：仅未删（gorm.DeletedAt 自动过滤）
+	// requireActive=false：含已删行（详情/更新可在回收站态继续操作）
 	q := s.DB.WithContext(c.Request.Context()).
 		Where("id = ? AND owner_id = ?", store.UUID{UUID: pid}, store.UUID{UUID: uid})
-	if requireActive {
-		q = q.Where("is_deleted = ?", false)
+	if !requireActive {
+		q = q.Unscoped()
 	}
 	var p store.Project
 	if err := q.First(&p).Error; err != nil {

@@ -33,6 +33,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
@@ -131,6 +132,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	if err2 != nil {
 		t.Fatalf("rag store: %v", err2)
 	}
+	query.SetDefault(db) // 生成 DAO 全局入口（与 bootstrap 对齐）
 	agentSvc := agent.NewService(db, mem, compileQueue, cfg, ragStore)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)

@@ -15,9 +15,10 @@ import (
 // BaseModel 对应 UUIDMixin + TimestampMixin：应用侧生成 uuid4 主键，
 // 时间戳自动填充（Python default=now UTC / onupdate=now UTC）。
 type BaseModel struct {
-	ID        UUID      `gorm:"primaryKey"`
-	CreatedAt time.Time `gorm:"not null;autoCreateTime"`
-	UpdatedAt time.Time `gorm:"not null;autoUpdateTime"`
+	ID        UUID           `gorm:"primaryKey"`
+	CreatedAt time.Time      `gorm:"not null;autoCreateTime"`
+	UpdatedAt time.Time      `gorm:"not null;autoUpdateTime"`
+	DeletedAt gorm.DeletedAt `gorm:"index"` // 软删除：Delete() 落 UPDATE，查询自动过滤
 }
 
 // BeforeCreate 填充 uuid4 主键（Python 侧 default=uuid.uuid4）。
@@ -63,13 +64,11 @@ type ProjectGroup struct {
 
 type Project struct {
 	BaseModel
-	Name        string     `gorm:"size:100;not null"`
-	Description *string    // Text
-	OwnerID     UUID       `gorm:"not null;index"`
-	GroupID     *UUID      `gorm:"index"`
-	Status      string     `gorm:"size:20;not null;default:active"`
-	IsDeleted   bool       `gorm:"not null;default:false"`
-	DeletedAt   *time.Time // 普通可空列（DateTime，非 gorm 软删标记）
+	Name        string  `gorm:"size:100;not null"`
+	Description *string // Text
+	OwnerID     UUID    `gorm:"not null;index"`
+	GroupID     *UUID   `gorm:"index"`
+	Status      string  `gorm:"size:20;not null;default:active"`
 
 	Owner      User          `gorm:"foreignKey:OwnerID"`
 	Group      *ProjectGroup `gorm:"foreignKey:GroupID"`

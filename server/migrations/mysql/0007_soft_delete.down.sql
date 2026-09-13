@@ -1,0 +1,15 @@
+ALTER TABLE users DROP COLUMN deleted_at;
+ALTER TABLE project_groups DROP COLUMN deleted_at;
+ALTER TABLE projects DROP COLUMN deleted_at;
+ALTER TABLE folders DROP COLUMN deleted_at;
+ALTER TABLE documents DROP COLUMN deleted_at;
+ALTER TABLE latex_files DROP COLUMN deleted_at;
+ALTER TABLE compile_jobs DROP COLUMN deleted_at;
+ALTER TABLE user_settings DROP COLUMN deleted_at;
+ALTER TABLE refresh_tokens DROP COLUMN deleted_at;
+ALTER TABLE verification_tokens DROP COLUMN deleted_at;
+ALTER TABLE system_settings DROP COLUMN deleted_at;
+ALTER TABLE agent_conversations DROP COLUMN deleted_at;
+ALTER TABLE agent_messages DROP COLUMN deleted_at;
+ALTER TABLE rag_chunks DROP COLUMN deleted_at;
+ALTER TABLE agent_wiki_pages DROP COLUMN deleted_at;

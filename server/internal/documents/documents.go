@@ -14,6 +14,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
 )
 
 // Service 文档/文件夹域逻辑。
@@ -96,8 +97,8 @@ func toFolderResponse(f *store.Folder) folderResponse {
 func (s *Service) verifyProjectAccess(ctx context.Context, projectID, userID uuid.UUID) (*store.Project, error) {
 	var p store.Project
 	err := s.DB.WithContext(ctx).
-		Where("id = ? AND owner_id = ? AND is_deleted = ?",
-			store.UUID{UUID: projectID}, store.UUID{UUID: userID}, false).First(&p).Error
+		Where("id = ? AND owner_id = ?",
+			store.UUID{UUID: projectID}, store.UUID{UUID: userID}).First(&p).Error
 	if err != nil {
 		return nil, &httpapi.APIError{Code: 400, Info: "Project not found"}
 	}
@@ -192,10 +193,13 @@ func (s *Service) listFolderDocuments(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	var docs []store.Document
-	_ = s.DB.WithContext(ctx).
-		Where("folder_id = ? AND owner_id = ?", store.UUID{UUID: fid}, store.UUID{UUID: uid}).
-		Find(&docs).Error
+	fdocs, _ := query.Document.WithContext(ctx).
+		Where(query.Document.FolderID.Eq(store.UUID{UUID: fid}), query.Document.OwnerID.Eq(store.UUID{UUID: uid})).
+		Order(query.Document.CreatedAt.Desc()).Find()
+	docs := make([]store.Document, 0, len(fdocs))
+	for i := range fdocs {
+		docs = append(docs, *fdocs[i])
+	}
 	if len(docs) > 0 {
 		// verify_project_access(docs[0])：非本人项目 → 400
 		if _, err := s.verifyProjectAccess(ctx, docs[0].ProjectID.UUID, uid); err != nil {
@@ -225,16 +229,20 @@ func (s *Service) listProjectDocuments(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Project not found"})
 		return
 	}
-	q := s.DB.WithContext(ctx).
-		Where("project_id = ?", store.UUID{UUID: pid})
+	dq := query.Document.WithContext(ctx).
+		Where(query.Document.ProjectID.Eq(store.UUID{UUID: pid}))
 	if c.Query("includeStaged") != "true" {
-		q = q.Where("status != ?", "staged")
+		dq = dq.Where(query.Document.Status.Neq("staged"))
 	}
-	var docs []store.Document
-	_ = q.Order("created_at DESC").Find(&docs).Error
-	out := make([]documentResponse, 0, len(docs))
+	docs, _ := dq.Order(query.Document.CreatedAt.Desc()).Find()
+	// []*store.Document → 值切片（响应装配用值语义）
+	docVals := make([]store.Document, 0, len(docs))
 	for i := range docs {
-		out = append(out, toDocumentResponse(&docs[i]))
+		docVals = append(docVals, *docs[i])
+	}
+	out := make([]documentResponse, 0, len(docVals))
+	for i := range docVals {
+		out = append(out, toDocumentResponse(&docVals[i]))
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(out, ""))
 }

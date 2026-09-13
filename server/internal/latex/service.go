@@ -91,8 +91,8 @@ func NewService(client ClsiClient, cfg *config.Settings) (*Service, error) {
 func (s *Service) VerifyProjectAccess(ctx context.Context, db *gorm.DB, projectID, userID uuid.UUID) error {
 	var n int64
 	err := db.WithContext(ctx).Model(&store.Project{}).
-		Where("id = ? AND owner_id = ? AND is_deleted = ?",
-			store.UUID{UUID: projectID}, store.UUID{UUID: userID}, false).
+		Where("id = ? AND owner_id = ?",
+			store.UUID{UUID: projectID}, store.UUID{UUID: userID}).
 		Count(&n).Error
 	if err != nil || n == 0 {
 		return &ServiceError{Code: 404, Msg: "Project not found"}

@@ -66,6 +66,7 @@ server/
 │   ├── papersage/     # 主程序入口（装配依赖 + 优雅停机）
 │   └── seed/          # E2E/开发种子数据（幂等）
 ├── internal/
+│   ├── bootstrap/     # 装配：Build() 完成 域服务→路由→DAO 全局注入（cmd 薄壳化）
 │   ├── config/        # env 配置（变量名与旧 Python 版 1:1）
 │   ├── httpapi/       # gin 装配、{code,data,info} 信封、错误映射、CORS、SPA 静态服务
 │   ├── auth/          # JWT 双 token + bcrypt + AuthRequired 中间件
@@ -73,7 +74,7 @@ server/
 │   ├── documents/     # 文档上传/文件夹域（camelCase DTO）
 │   ├── latex/         # latex_files + CLSI 客户端 + 异步编译队列
 │   ├── settings/      # 用户设置域（分类 JSONB + 默认值合并）
-│   ├── store/         # GORM 模型 ×8 + golang-migrate（Alembic 交接）
+│   ├── store/         # GORM 模型 + golang-migrate（Alembic 交接）+ query/（gen 生成 DAO）
 │   ├── cache/         # Redis / 内存双实现
 │   ├── storage/       # S3 客户端（aws-sdk-go-v2）
 │   ├── dto/           # JSONTime（Python isoformat 字节级兼容）
@@ -86,6 +87,10 @@ server/
 
 **Key patterns:**
 - gin + 按域分包（域内 handler+service；store 集中放模型防 import 环）
+- 装配集中在 internal/bootstrap.Build()；cmd/ 只有进程生命周期
+- 软删除全表统一 gorm.DeletedAt（BaseModel 自带；回收站/恢复用 Unscoped）
+- CRUD 走 gorm.io/gen 生成的类型安全 DAO（internal/store/query；`make generate-dao`）
+- 全表快照 schema/schema.mysql.sql（`make schema SCHEMA_DSN=...` 对真实库刷新）
 - 构造函数依赖注入（无全局单例）；测试用 testutil 内存替身
 - JWE 加密双 token（A256KW+A256GCM，载荷不明文）；refresh 注册表落库持久化，真轮换（旧 token 用后即废）且重启不丢登录态
 - API envelope: `{code, data, info}`；路由级 404/405 是裸 `{"detail": ...}`（对齐 FastAPI 实测行为）
