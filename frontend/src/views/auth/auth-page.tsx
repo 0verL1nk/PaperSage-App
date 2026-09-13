@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Eye, EyeOff, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, MailCheck, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -18,6 +18,7 @@ import { SmoothHeight } from '@/components/shared/smooth-height'
 import { useQuery } from '@tanstack/react-query'
 import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
 import { getEmailDomains, resendVerification } from '@/services/auth-api'
+import { cn } from '@/lib/utils'
 import {
   loginSchema,
   registerSchema,
@@ -40,6 +41,36 @@ function isVerifyRequired(error: unknown): boolean {
   return (
     error instanceof Error &&
     error.message.includes('verify your email')
+  )
+}
+
+/** 重发验证邮件按钮：60s 实时倒计时（服务端冷却同窗口） */
+function ResendButton({ email, className }: { email: string; className?: string }) {
+  const [left, setLeft] = useState(0)
+  useEffect(() => {
+    if (left <= 0) return
+    const t = setInterval(() => setLeft((n) => n - 1), 1000)
+    return () => clearInterval(t)
+  }, [left])
+
+  const send = () => {
+    resendVerification(email)
+      .then(() => {
+        toast.success('已重新发送', { description: '若该邮箱已注册且未验证，验证邮件已重新发送。' })
+        setLeft(60)
+      })
+      .catch(() => toast.error('发送失败，请稍后再试'))
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={left > 0}
+      className={cn('text-primary hover:underline disabled:opacity-60 disabled:no-underline', className)}
+      onClick={send}
+    >
+      {left > 0 ? `重新发送（${left}s）` : '没收到？重新发送'}
+    </button>
   )
 }
 
@@ -66,6 +97,8 @@ export function AuthPage() {
   const [mode, setMode] = useState<AuthMode>('login')
   const [authError, setAuthError] = useState('')
   const [needsVerify, setNeedsVerify] = useState(false)
+  // 注册成功后待验证邮箱（常驻提醒，登录成功即清除）
+  const [pendingVerifyEmail, setPendingVerifyEmail] = useState('')
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
@@ -89,6 +122,7 @@ export function AuthPage() {
     setNeedsVerify(false)
     try {
       const tokens = await loginMutation.mutateAsync(values)
+      setPendingVerifyEmail('')
       setSessionTokens(tokens)
       toast.success('登录成功', { description: '欢迎回来，PaperSage 会话已建立。' })
       await navigate({ to: '/app/projects' })
@@ -105,6 +139,7 @@ export function AuthPage() {
         email: values.email,
         password: values.password,
       })
+      setPendingVerifyEmail(values.email)
       toast.success('注册成功', { description: '验证邮件已发送，请查收并完成激活。' })
       setMode('login')
     } catch (error) {
@@ -157,20 +192,20 @@ export function AuthPage() {
               </div>
 
               <SmoothHeight className="px-8 pb-6 pt-8" data-testid="auth-panels">
+                {pendingVerifyEmail && (
+                  <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                    <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
+                    <div className="flex-1 text-[13px] leading-relaxed text-foreground/80">
+                      验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
+                      请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
+                      <ResendButton email={pendingVerifyEmail} className="ml-1" />
+                    </div>
+                  </div>
+                )}
                 {needsVerify && loginForm.getValues('username') && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      resendVerification(loginForm.getValues('username')).then(() => {
-                        toast.success('已发送', { description: '若该邮箱已注册且未验证，验证邮件已重新发送。' })
-                      }).catch(() => {
-                        toast.error('发送失败，请稍后再试')
-                      })
-                    }}
-                    className="text-xs text-primary hover:underline font-medium"
-                  >
-                    重新发送验证邮件
-                  </button>
+                  <div className="text-xs">
+                    <ResendButton email={loginForm.getValues('username')} className="font-medium" />
+                  </div>
                 )}
                 {authError && (
                   <Alert variant="destructive" className="mb-6 border-none bg-destructive/10 text-destructive rounded-xl py-3">

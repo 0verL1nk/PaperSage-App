@@ -138,7 +138,9 @@ func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 	var existing store.User
 	err := s.DB.Where("email = ?", email).First(&existing).Error
 	if err == nil {
-		// 防枚举：与成功响应逐字节一致
+		// 防枚举：响应与成功一致。不自动补发（用户主导）——未收到
+		// 邮件时走登录 403 提示条 / 提醒条上的「重新发送」按钮，
+		// 或重发端点（均有限速）
 		s.silentVerifyOK(c)
 		return
 	}
@@ -227,21 +229,23 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 		to = *user.Email
 	}
 	link := s.Cfg.AppURL + "/auth/verify?token=" + token
-	html := verificationEmailHTML(link)
+	html := verificationEmailHTML(link, time.Now().Add(verifyTokenTTL))
 	if err := s.Mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
 		// 日志不落 token（OWASP）
 		slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
 	}
 }
 
-func verificationEmailHTML(link string) string {
+// 邮件客户端禁 JS，无法实时倒计时；通行做法是标注失效时刻。
+func verificationEmailHTML(link string, expiresAt time.Time) string {
+	deadline := expiresAt.In(time.FixedZone("CST", 8*3600)).Format("2006-01-02 15:04")
 	return `<div style="font-family:system-ui,sans-serif;max-width:520px;margin:0 auto;padding:32px">
 <h2 style="color:#1f2328">验证你的 PaperSage 邮箱</h2>
-<p>点击下方按钮完成注册验证（24 小时内有效）：</p>
+<p>点击下方按钮完成注册验证：</p>
 <p style="margin:24px 0">
 <a href="` + link + `" style="background:#1f2328;color:#fff;padding:10px 24px;border-radius:8px;text-decoration:none;display:inline-block">验证邮箱</a>
 </p>
-<p style="color:#6b7280;font-size:13px">如果你没有注册 PaperSage，请忽略本邮件。</p>
+<p style="color:#6b7280;font-size:13px">链接有效期至北京时间 ` + deadline + `（24 小时）。<br>如果你没有注册 PaperSage，请忽略本邮件。</p>
 </div>`
 }
 
@@ -268,7 +272,19 @@ func (s *Service) verifyEmail(c *gin.Context) {
 	}
 	var row store.VerificationToken
 	err = s.DB.Where("token_hash = ?", tokenHash(token)).First(&row).Error
-	if err != nil || row.UsedAt != nil || time.Now().After(row.ExpiresAt) {
+	if err != nil || time.Now().After(row.ExpiresAt) {
+		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
+		return
+	}
+	// 幂等：已用 token 若其用户确已验证 → 200（防邮件预取/双击/
+	// React StrictMode 双发把成功体验变成 400；token 绑定 user，
+	// 不构成对他人账号的重放）
+	if row.UsedAt != nil {
+		var u store.User
+		if s.DB.Where("id = ?", row.UserID).First(&u).Error == nil && u.EmailVerified {
+			_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"verified": true, "already": true}, ""))
+			return
+		}
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
