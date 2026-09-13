@@ -81,14 +81,14 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 	return vecs, nil
 }
 
-// HashEmbedder：确定性测试替身（sha1 → 64 维），语义无关但稳定，
+// HashEmbedder：确定性嵌入兜底（sha1 词袋哈希），语义无关但稳定，
 // 用于验证索引/检索管线而非语义质量。
 type HashEmbedder struct{ Dim int }
 
 func (h HashEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	dim := h.Dim
 	if dim == 0 {
-		dim = 64
+		dim = 512 // 兜底默认：低维会因哈希碰撞产生假相似
 	}
 	out := make([][]float32, len(texts))
 	for i, t := range texts {
