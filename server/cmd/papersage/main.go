@@ -34,13 +34,6 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
-func ragDir(cfg *config.Settings) string {
-	if cfg.DataDir != "" {
-		return cfg.DataDir + "/rag"
-	}
-	return "./data/rag"
-}
-
 func hostOnly(hostport string) string {
 	if i := strings.LastIndex(hostport, ":"); i > 0 {
 		return hostport[:i]
@@ -159,7 +152,7 @@ func buildHandler(cfg *config.Settings, logger *slog.Logger) http.Handler {
 	if cfg.EmbedAPIKey != "" && cfg.EmbedBaseURL != "" {
 		embedder = &rag.HTTPEmbedder{BaseURL: cfg.EmbedBaseURL, APIKey: cfg.EmbedAPIKey, Model: cfg.EmbedModel}
 	}
-	ragStore, err := rag.NewStore(db, embedder, ragDir(cfg))
+	ragStore, err := rag.NewStore(db, embedder, "")
 	if err != nil {
 		logger.Error("rag store init failed", "error", err)
 		os.Exit(1)

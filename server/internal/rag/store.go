@@ -2,56 +2,58 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
 	"strings"
 	"sync"
 
-	"github.com/philippgille/chromem-go"
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
-// Store — hybrid 检索门面：向量（chromem）+ BM25（内存倒排）+ RRF。
+// Store — hybrid 检索门面：向量（内存余弦，DB 持久）+ BM25（内存倒排）+ RRF。
+//
+// 真相源唯一：rag_chunks 表（含 embedding JSON 列）。向量与 BM25 的
+// 进程内索引均从该表惰性构建（每项目一次），重启后只 reload、绝不
+// 重新嵌入——嵌入调用只发生在 IndexSource（写路径）与查询文本（读路径）。
 type Store struct {
-	DB      *gorm.DB
-	Embed   Embedder
-	chromem *chromem.DB
+	DB    *gorm.DB
+	Embed Embedder
 
 	mu   sync.RWMutex
-	bm25 map[string]*bm25Index // projectID(hex) → 索引（惰性构建）
+	vec  map[string]*vecIndex
+	bm25 map[string]*bm25Index
 }
 
-func NewStore(db *gorm.DB, emb Embedder, persistDir string) (*Store, error) {
-	var cdb *chromem.DB
-	var err error
-	if persistDir != "" {
-		cdb, err = chromem.NewPersistentDB(persistDir, false)
-	} else {
-		cdb = chromem.NewDB()
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &Store{DB: db, Embed: emb, chromem: cdb, bm25: map[string]*bm25Index{}}, nil
+// vecIndex 项目级向量索引（内存）。
+type vecIndex struct {
+	entries []vecEntry
 }
 
-func (s *Store) collection(projectID store.UUID) (*chromem.Collection, error) {
-	embFn := func(ctx context.Context, text string) ([]float32, error) {
-		v, err := s.Embed.Embed(ctx, []string{text})
-		if err != nil || len(v) == 0 {
-			return nil, err
-		}
-		return v[0], nil
-	}
-	return s.chromem.GetOrCreateCollection("p-"+projectID.String(), nil, embFn)
+type vecEntry struct {
+	id      string
+	vec     []float32
+	norm    float64 // 预归一化范数
+	content string
+	stype   string // source_type
+	sid     string // source_id
+	sname   string
+}
+
+// NewStore（持久目录参数保留兼容签名；向量真相源在 DB，无需额外目录）。
+func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
+	return &Store{
+		DB: db, Embed: emb,
+		vec: map[string]*vecIndex{}, bm25: map[string]*bm25Index{},
+	}, nil
 }
 
 // ── 索引 ─────────────────────────────────────────────
 
-// IndexedChunk 落库的真相源行。
+// IndexedChunk 落库的真相源行（含向量）。
 type IndexedChunk struct {
 	ID         string     `gorm:"column:id;primaryKey;size:80"`
 	ProjectID  store.UUID `gorm:"column:project_id;index"`
@@ -60,35 +62,30 @@ type IndexedChunk struct {
 	SourceName string     `gorm:"column:source_name;size:255"`
 	ChunkIdx   int        `gorm:"column:chunk_idx"`
 	Content    string     `gorm:"column:content"`
+	Embedding  string     `gorm:"column:embedding"` // JSON []float32
 }
 
 func (IndexedChunk) TableName() string { return "rag_chunks" }
 
-// IndexSource 对一个来源（document 或 wiki 页）重建索引：
-// 删旧块 → 抽块 → 嵌入 → 双写（DB 真相源 + chromem + BM25 失效）。
+// IndexSource 对一个来源重建索引：
+// 删旧行 → 分块 → 嵌入（唯一嵌入点）→ 整行（含向量）落 DB → 失效内存索引。
 func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 	sourceType string, sourceID store.UUID, sourceName, text string) (int, error) {
 
-	// 1) 清旧
 	if err := s.DB.WithContext(ctx).
 		Where("project_id = ? AND source_type = ? AND source_id = ?",
 			projectID, sourceType, sourceID).
 		Delete(&IndexedChunk{}).Error; err != nil {
 		return 0, err
 	}
-	col, err := s.collection(projectID)
-	if err != nil {
-		return 0, err
-	}
-	_ = col.Delete(ctx, nil, nil, idsForSource(sourceType, sourceID)...)
 
 	chunks := SplitChunks(text, 1200, 150)
 	if len(chunks) == 0 {
-		s.invalidateBM25(projectID)
+		s.invalidate(projectID)
 		return 0, nil
 	}
 
-	// 2) 嵌入（批量）
+	// 嵌入（批量；写路径唯一嵌入点）
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
 		texts[i] = c.Content
@@ -98,31 +95,24 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 		return 0, fmt.Errorf("embed chunks: %w", err)
 	}
 
-	// 3) 双写
-	ids := make([]string, len(chunks))
-	metas := make([]map[string]string, len(chunks))
 	rows := make([]IndexedChunk, len(chunks))
 	for i, c := range chunks {
-		ids[i] = fmt.Sprintf("%s:%s:%d", sourceType, sourceID.String(), c.Idx)
-		metas[i] = map[string]string{
-			"project_id":  projectID.String(),
-			"source_type": sourceType,
-			"source_id":   sourceID.String(),
-			"source_name": sourceName,
+		raw, err := json.Marshal(vecs[i])
+		if err != nil {
+			return 0, err
 		}
 		rows[i] = IndexedChunk{
-			ID: ids[i], ProjectID: projectID, SourceType: sourceType,
+			ID:        fmt.Sprintf("%s:%s:%d", sourceType, sourceID.String(), c.Idx),
+			ProjectID: projectID, SourceType: sourceType,
 			SourceID: sourceID, SourceName: sourceName,
 			ChunkIdx: c.Idx, Content: c.Content,
+			Embedding: string(raw),
 		}
 	}
 	if err := s.DB.WithContext(ctx).Create(&rows).Error; err != nil {
 		return 0, err
 	}
-	if err := col.Add(ctx, ids, vecs, metas, texts); err != nil {
-		return 0, fmt.Errorf("vector add: %w", err)
-	}
-	s.invalidateBM25(projectID)
+	s.invalidate(projectID)
 	return len(chunks), nil
 }
 
@@ -134,10 +124,7 @@ func (s *Store) DeleteSource(ctx context.Context, projectID store.UUID,
 		Delete(&IndexedChunk{}).Error; err != nil {
 		return err
 	}
-	if col, err := s.collection(projectID); err == nil {
-		_ = col.Delete(ctx, nil, nil, idsForSource(sourceType, sourceID)...)
-	}
-	s.invalidateBM25(projectID)
+	s.invalidate(projectID)
 	return nil
 }
 
@@ -156,44 +143,42 @@ type Hit struct {
 const rrfK = 60.0
 
 // Search 混合检索：向量 top-k 与 BM25 top-k，RRF 融合。
+// 查询文本嵌入是本函数唯一的嵌入调用。
 func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, k int) ([]Hit, error) {
 	if k <= 0 {
 		k = 5
 	}
-	ranks := map[string]int{} // chunkID → 两路名次
+	ranks := map[string]int{}
 	hits := map[string]Hit{}
 
-	if col, err := s.collection(projectID); err == nil {
-		res, err := col.Query(ctx, query, k, nil, nil)
-		if err == nil {
-			for rank, r := range res {
-				id := r.ID
-				ranks[id] += rank
-				hits[id] = Hit{
-					ChunkID: id, Content: r.Content,
-					SourceType: r.Metadata["source_type"],
-					SourceID:   r.Metadata["source_id"],
-					SourceName: r.Metadata["source_name"],
-				}
+	// 向量路
+	qvecs, err := s.Embed.Embed(ctx, []string{query})
+	if err == nil && len(qvecs) == 1 {
+		for rank, e := range s.vectorSearch(ctx, projectID, qvecs[0], k) {
+			ranks[e.id] += rank
+			hits[e.id] = Hit{
+				ChunkID: e.id, Content: e.content,
+				SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
 			}
 		}
 	}
 
+	// BM25 路
 	for rank, id := range s.bm25Search(projectID, query, k) {
-		if _, ok := hits[id]; !ok {
-			var row IndexedChunk
-			if err := s.DB.WithContext(ctx).Where("id = ?", id).First(&row).Error; err != nil {
-				continue
-			}
-			hits[id] = Hit{
-				ChunkID: row.ID, Content: row.Content,
-				SourceType: row.SourceType, SourceID: row.SourceID.String(),
-				SourceName: row.SourceName,
-			}
-			ranks[id] += 10_000 // 未进向量路的 BM25 命中给大名次基数
-		} else {
+		if _, ok := hits[id]; ok {
 			ranks[id] += rank
+			continue
 		}
+		var row IndexedChunk
+		if err := s.DB.WithContext(ctx).Where("id = ?", id).First(&row).Error; err != nil {
+			continue
+		}
+		hits[id] = Hit{
+			ChunkID: row.ID, Content: row.Content,
+			SourceType: row.SourceType, SourceID: row.SourceID.String(),
+			SourceName: row.SourceName,
+		}
+		ranks[id] += 10_000 // 未进向量路的 BM25 命中给大名次基数
 	}
 
 	out := make([]Hit, 0, len(hits))
@@ -208,20 +193,108 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	return out, nil
 }
 
-func (s *Store) invalidateBM25(projectID store.UUID) {
+func (s *Store) invalidate(projectID store.UUID) {
+	key := projectID.String()
 	s.mu.Lock()
-	delete(s.bm25, projectID.String())
+	delete(s.vec, key)
+	delete(s.bm25, key)
 	s.mu.Unlock()
+}
+
+// ── 向量索引（内存，从 DB 惰性加载——只 reload 不重嵌入）────
+
+func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID) *vecIndex {
+	key := projectID.String()
+	s.mu.RLock()
+	if idx, ok := s.vec[key]; ok {
+		s.mu.RUnlock()
+		return idx
+	}
+	s.mu.RUnlock()
+
+	var rows []IndexedChunk
+	_ = s.DB.WithContext(ctx).
+		Select("id", "content", "source_type", "source_id", "source_name", "embedding").
+		Where("project_id = ?", projectID).Find(&rows).Error
+
+	idx := &vecIndex{}
+	for _, r := range rows {
+		if r.Embedding == "" {
+			continue
+		}
+		var v []float32
+		if json.Unmarshal([]byte(r.Embedding), &v) != nil || len(v) == 0 {
+			continue
+		}
+		n := 0.0
+		for _, x := range v {
+			n += float64(x) * float64(x)
+		}
+		n = math.Sqrt(n)
+		if n == 0 {
+			continue
+		}
+		idx.entries = append(idx.entries, vecEntry{
+			id: r.ID, vec: v, norm: n, content: r.Content,
+			stype: r.SourceType, sid: r.SourceID.String(), sname: r.SourceName,
+		})
+	}
+	s.mu.Lock()
+	s.vec[key] = idx
+	s.mu.Unlock()
+	return idx
+}
+
+// vectorSearch 余弦 top-k（与 chromem 同为暴力精确检索，数据量级内够用）。
+func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []float32, k int) []vecEntry {
+	idx := s.vectorIndex(ctx, projectID)
+	if len(idx.entries) == 0 {
+		return nil
+	}
+	qn := 0.0
+	for _, x := range q {
+		qn += float64(x) * float64(x)
+	}
+	qn = math.Sqrt(qn)
+	if qn == 0 {
+		return nil
+	}
+	type scored struct {
+		e vecEntry
+		s float64
+	}
+	list := make([]scored, 0, len(idx.entries))
+	for _, e := range idx.entries {
+		dot := 0.0
+		for i, x := range e.vec {
+			if i < len(q) {
+				dot += float64(x) * float64(q[i])
+			}
+		}
+		if cos := dot / (e.norm * qn); cos > 1e-6 {
+			// 阈值截断：零重叠（正交）不进候选——否则小库内
+			// top-k 会把 0 分条目也带出来
+			list = append(list, scored{e, cos})
+		}
+	}
+	sort.Slice(list, func(i, j int) bool { return list[i].s > list[j].s })
+	if len(list) > k {
+		list = list[:k]
+	}
+	out := make([]vecEntry, len(list))
+	for i, x := range list {
+		out[i] = x.e
+	}
+	return out
 }
 
 // ── BM25（纯 Go 内存倒排，项目级惰性构建）────────────
 
 type bm25Index struct {
-	docs    []string          // chunkID 列表
-	content map[string]string // chunkID → 内容（复用 tokenize）
-	tf      map[string]map[string]int
-	df      map[string]int
-	avgLen  float64
+	docs []string // chunkID 列表
+	tf   map[string]map[string]int
+	df   map[string]int
+	avg  float64
 }
 
 func (s *Store) bm25For(projectID store.UUID) *bm25Index {
@@ -236,15 +309,13 @@ func (s *Store) bm25For(projectID store.UUID) *bm25Index {
 	var rows []IndexedChunk
 	_ = s.DB.Where("project_id = ?", projectID).Find(&rows).Error
 	idx := &bm25Index{
-		content: map[string]string{},
-		tf:      map[string]map[string]int{},
-		df:      map[string]int{},
+		tf: map[string]map[string]int{},
+		df: map[string]int{},
 	}
 	total := 0
 	for _, r := range rows {
 		idx.docs = append(idx.docs, r.ID)
 		toks := tokenize(r.Content)
-		idx.content[r.ID] = r.Content
 		tf := map[string]int{}
 		seen := map[string]bool{}
 		for _, t := range toks {
@@ -258,7 +329,7 @@ func (s *Store) bm25For(projectID store.UUID) *bm25Index {
 		total += len(toks)
 	}
 	if len(rows) > 0 {
-		idx.avgLen = float64(total) / float64(len(rows))
+		idx.avg = float64(total) / float64(len(rows))
 	}
 	s.mu.Lock()
 	s.bm25[key] = idx
@@ -280,11 +351,11 @@ func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
 	var list []scored
 	for _, id := range idx.docs {
 		tf := idx.tf[id]
-		dl := float64(0)
+		dl := 0.0
 		for _, v := range tf {
 			dl += float64(v)
 		}
-		var score float64
+		var sc float64
 		for _, q := range tokenize(query) {
 			f := float64(tf[q])
 			if f == 0 {
@@ -292,10 +363,10 @@ func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
 			}
 			n := float64(idx.df[q])
 			idf := math.Log(1 + (N-n+0.5)/(n+0.5))
-			score += idf * (f * (k1 + 1)) / (f + k1*(1-b+b*dl/max(idx.avgLen, 1)))
+			sc += idf * (f * (k1 + 1)) / (f + k1*(1-b+b*dl/max(idx.avg, 1)))
 		}
-		if score > 0 {
-			list = append(list, scored{id, score})
+		if sc > 0 {
+			list = append(list, scored{id, sc})
 		}
 	}
 	sort.Slice(list, func(i, j int) bool { return list[i].s > list[j].s })
@@ -305,16 +376,6 @@ func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
 	out := make([]string, len(list))
 	for i, x := range list {
 		out[i] = x.id
-	}
-	return out
-}
-
-// idsForSource：按 chunk ID 规约删除（chromem Delete 按 ID 最稳）。
-func idsForSource(sourceType string, sourceID store.UUID) []string {
-	// 保守上限 512 块/来源（SplitChunks 目标 1200 字符，覆盖 ~60 万字）
-	out := make([]string, 0, 64)
-	for i := 0; i < 512; i++ {
-		out = append(out, fmt.Sprintf("%s:%s:%d", sourceType, sourceID.String(), i))
 	}
 	return out
 }

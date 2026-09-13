@@ -32,9 +32,11 @@ POST /api/v1/projects/:id/agent/chat body {conversation_id?, content}
 - 模型 API key 不落日志；SSE 失败转 error 事件而非裸 500
 
 ## D7 Hybrid RAG + LLM Wiki（任务书「资料库 RAG」项）
-- internal/rag：向量（chromem-go 嵌入式库，余弦）+ BM25（纯 Go 内存
-  倒排，CJK bigram/英文分词）双路召回，RRF 融合；chunk 真相源落
-  rag_chunks 表，向量持久 data/rag/，BM25 惰性重建
+- internal/rag：向量（内存余弦）+ BM25（纯 Go 内存倒排，CJK bigram/
+  英文分词）双路召回，RRF 融合。**向量入库**：embedding JSON 列随
+  chunk 落 rag_chunks（唯一真相源），进程内索引从 DB 惰性加载——
+  重启只 reload 绝不重新嵌入；嵌入调用仅存于写路径（IndexSource
+  批量）与读路径（查询文本单次）
 - 嵌入：OpenAI 兼容 /embeddings（EMBED_* env），未配置 HashEmbedder
   兜底（保证管线可用，语义质量由真实嵌入决定）
 - 原件为真相源：documents confirm 钩子异步（抽取→分块→嵌入→索引），

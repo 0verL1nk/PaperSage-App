@@ -26,7 +26,7 @@ func newTestStore(t *testing.T) *Store {
 			_ = sqlDB.Close()
 		}
 	})
-	s, err := NewStore(db, HashEmbedder{Dim: 64}, "")
+	s, err := NewStore(db, HashEmbedder{Dim: 4096}, "")
 	require.NoError(t, err)
 	return s
 }
