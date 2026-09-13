@@ -20,6 +20,12 @@ import (
 type Service struct {
 	DB      *gorm.DB
 	Storage storage.Storage
+	Indexer *DocIndexer // 可选：入库后的 RAG 索引钩子（装配层注入）
+}
+
+// DocIndexer documents 不直接依赖 rag（保持域单向）；由装配层闭包实现。
+type DocIndexer struct {
+	IndexDocument func(projectID, docID store.UUID, name, s3Key, contentType string)
 }
 
 // NewService wires the documents domain（storage 为对象存储接口）。

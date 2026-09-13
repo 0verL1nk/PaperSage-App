@@ -23,14 +23,23 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
+	"github.com/0verL1nk/GraduateProject/server/internal/extract"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
+
+func ragDir(cfg *config.Settings) string {
+	if cfg.DataDir != "" {
+		return cfg.DataDir + "/rag"
+	}
+	return "./data/rag"
+}
 
 func hostOnly(hostport string) string {
 	if i := strings.LastIndex(hostport, ":"); i > 0 {
@@ -142,10 +151,39 @@ func buildHandler(cfg *config.Settings, logger *slog.Logger) http.Handler {
 	v1 := api.Group(httpapi.APIVersion)
 	auth.Mount(v1, authSvc)
 	projects.Mount(v1, authSvc.AuthRequired(), projects.NewService(db, latex.CreateTemplate(latexFiles)))
-	documents.Mount(v1, authSvc.AuthRequired(), documents.NewService(db, s3))
+	docSvc := documents.NewService(db, s3)
 	settings.Mount(v1, authSvc.AuthRequired(), settings.NewService(db))
 	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
-	agentSvc := agent.NewService(db, s3, compileQueue, cfg)
+	// RAG：嵌入端点（env EMBED_*），未配置则用 HashEmbedder 兜底
+	var embedder rag.Embedder = rag.HashEmbedder{Dim: 64}
+	if cfg.EmbedAPIKey != "" && cfg.EmbedBaseURL != "" {
+		embedder = &rag.HTTPEmbedder{BaseURL: cfg.EmbedBaseURL, APIKey: cfg.EmbedAPIKey, Model: cfg.EmbedModel}
+	}
+	ragStore, err := rag.NewStore(db, embedder, ragDir(cfg))
+	if err != nil {
+		logger.Error("rag store init failed", "error", err)
+		os.Exit(1)
+	}
+	docSvc.Indexer = &documents.DocIndexer{
+		IndexDocument: func(projectID, docID store.UUID, name, s3Key, contentType string) {
+			ctx := context.Background()
+			raw, err := s3.Get(ctx, s3Key)
+			if err != nil {
+				slog.Warn("rag: fetch doc failed", "key", s3Key, "err", err)
+				return
+			}
+			text, err := extract.Text(ctx, raw, name, contentType, 0)
+			if err != nil {
+				slog.Warn("rag: extract failed", "name", name, "err", err)
+				return
+			}
+			if _, err := ragStore.IndexSource(ctx, projectID, "document", docID, name, text); err != nil {
+				slog.Warn("rag: index failed", "name", name, "err", err)
+			}
+		},
+	}
+	agentSvc := agent.NewService(db, s3, compileQueue, cfg, ragStore)
+	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)

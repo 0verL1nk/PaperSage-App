@@ -23,6 +23,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
 )
@@ -109,7 +110,9 @@ func TestAgentReActLoop(t *testing.T) {
 	latexSvc, err := latex.NewService(nil, cfg)
 	require.NoError(t, err)
 	queue := latex.NewQueue(db, nil, latexSvc, cfg)
-	agentSvc := agent.NewService(db, mem, queue, cfg)
+	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
+	require.NoError(t, rerr)
+	agentSvc := agent.NewService(db, mem, queue, cfg, rgStore)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
@@ -214,7 +217,9 @@ func TestAgentNoModelConfigured(t *testing.T) {
 	cfg := &config.Settings{SecretKey: "t"} // 无 AGENT_*，用户也无设置
 	latexSvc, _ := latex.NewService(nil, cfg)
 	queue := latex.NewQueue(db, nil, latexSvc, cfg)
-	agentSvc := agent.NewService(db, testutil.NewMemStorage(), queue, cfg)
+	rgStore2, rerr2 := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
+	require.NoError(t, rerr2)
+	agentSvc := agent.NewService(db, testutil.NewMemStorage(), queue, cfg, rgStore2)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)

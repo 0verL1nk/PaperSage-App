@@ -30,6 +30,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
@@ -126,7 +127,11 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
 	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
-	agentSvc := agent.NewService(db, mem, compileQueue, cfg)
+	ragStore, err2 := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
+	if err2 != nil {
+		t.Fatalf("rag store: %v", err2)
+	}
+	agentSvc := agent.NewService(db, mem, compileQueue, cfg, ragStore)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
