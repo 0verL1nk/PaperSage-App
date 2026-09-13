@@ -47,7 +47,7 @@ func TestMigrateUpFreshDatabase(t *testing.T) {
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 9, count, "基线 8 表 + 0002 refresh_tokens（新增迁移时同步更新）")
+	assert.Equal(t, 15, count, "业务表总数（两方言一致；新增迁移时同步更新）")
 
 	// 幂等：再跑一次不报错（ErrNoChange 路径）
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
@@ -67,7 +67,8 @@ func TestMigrateUpAlembicHandover(t *testing.T) {
 
 	// 模拟 Python 侧遗留：alembic_version + 一张业务表
 	_, err = db.Exec(fmt.Sprintf(`CREATE TABLE %s.alembic_version (version_num varchar(32) NOT NULL);
-		CREATE TABLE %s.users (id uuid PRIMARY KEY, username varchar(50) NOT NULL);`, schema, schema))
+		CREATE TABLE %s.users (id uuid PRIMARY KEY, username varchar(50) NOT NULL);
+		CREATE TABLE %s.projects (id uuid PRIMARY KEY, name varchar(100) NOT NULL, owner_id uuid NOT NULL);`, schema, schema, schema))
 	require.NoError(t, err)
 
 	schemaDSN := dsn + "?search_path=" + schema
