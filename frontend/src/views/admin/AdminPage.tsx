@@ -101,7 +101,7 @@ export function AdminPage() {
           )}
 
           <div className="flex justify-end pt-2">
-            <Button size="sm" className="rounded-full px-6" disabled={save.isPending} onClick={() => save.mutate()}>
+            <Button size="sm" className="px-4" disabled={save.isPending} onClick={() => save.mutate()}>
               {save.isPending ? '保存中…' : '保存'}
             </Button>
           </div>

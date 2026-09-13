@@ -747,7 +747,7 @@ function BinaryFilePlaceholder({ path, projectId }: { path: string, projectId: s
           )}
         </div>
       ) : (
-        <Button variant="outline" size="sm" className="rounded-full px-8" onClick={handleDownload}>
+        <Button variant="outline" size="sm" className="px-5" onClick={handleDownload}>
           下载文件
         </Button>
       )}
