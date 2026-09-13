@@ -343,7 +343,7 @@ func normalizeProvider(p map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("id too long")
 	}
 	if id == "" {
-		id = strings.ReplaceAll(uuid.New().String(), "-", "")[:12] // uuid4().hex[:12]
+		id = strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[:12] // v7 hex 前缀（时间有序）
 	}
 	name, err := pickString(p, "name", "")
 	if err != nil {

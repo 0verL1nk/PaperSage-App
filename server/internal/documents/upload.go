@@ -109,7 +109,7 @@ func (s *Service) upload(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
-	s3Key := path.Join("projects", pid.String(), "documents", uuid.New().String(), fileName)
+	s3Key := path.Join("projects", pid.String(), "documents", uuid.Must(uuid.NewV7()).String(), fileName)
 	if err := s.Storage.Put(ctx, s3Key, content); err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
