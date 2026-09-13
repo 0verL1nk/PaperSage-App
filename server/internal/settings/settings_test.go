@@ -29,7 +29,7 @@ func newSettingsTestServer(t *testing.T) (*httptest.Server, *gorm.DB) {
 	require.NoError(t, db.AutoMigrate(store.AllModels()...))
 
 	cfg := &config.Settings{SecretKey: "t", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7}
-	authSvc := auth.NewService(db, cfg)
+	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
 	v1 := api.Group(httpapi.APIVersion)

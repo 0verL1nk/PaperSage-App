@@ -1,4 +1,4 @@
-import { FrontendApiError, postMultipart } from '@/services'
+import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
 import { clearSessionTokens } from '@/store/session-store'
 import type { SessionTokens } from '@/store/session-store'
 import { AUTH } from './api-routes'
@@ -30,6 +30,13 @@ async function buildAuthFormData(payload: AuthPayload) {
   return formData
 }
 
+async function buildRegisterFormData(email: string, rawPassword: string) {
+  const formData = new FormData()
+  formData.append('email', email)
+  formData.append('password', await sha256(rawPassword))
+  return formData
+}
+
 export async function loginWithPassword(payload: AuthPayload) {
   const formData = await buildAuthFormData(payload)
   const data = await postMultipart<LoginResponse>(
@@ -52,11 +59,25 @@ export async function loginWithPassword(payload: AuthPayload) {
   }
 }
 
-export async function registerWithPassword(payload: AuthPayload) {
-  const formData = await buildAuthFormData(payload)
-  await postMultipart<null>(AUTH.register, formData, {
+export async function registerWithEmail(email: string, rawPassword: string) {
+  const formData = await buildRegisterFormData(email, rawPassword)
+  const data = await postMultipart<{ message?: string }>(AUTH.register, formData, {
     skipGlobalLoading: true,
   })
+  return data
+}
+
+export async function getEmailDomains(): Promise<string[]> {
+  const data = await getJson<{ domains?: string[] }>('/api/v1/auth/email-domains')
+  return data?.domains ?? []
+}
+
+export async function resendVerification(email: string) {
+  return postJson<{ message?: string }>('/api/v1/auth/resend-verification', { email })
+}
+
+export async function verifyEmail(token: string) {
+  return getJson<{ verified: boolean }>(`/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`)
 }
 
 export async function logout() {

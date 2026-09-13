@@ -9,9 +9,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/smtp"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -19,13 +21,22 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/cache"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
+	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
+
+func hostOnly(hostport string) string {
+	if i := strings.LastIndex(hostport, ":"); i > 0 {
+		return hostport[:i]
+	}
+	return hostport
+}
 
 func main() {
 	if err := run(); err != nil {
@@ -90,7 +101,24 @@ func buildHandler(cfg *config.Settings, logger *slog.Logger) http.Handler {
 	mem := cache.New(cfg.RedisURL)
 	_ = mem.Connect(context.Background())
 
-	authSvc := auth.NewService(db, cfg)
+	// 邮件 Provider 装配（EMAIL_PROVIDER=resend/smtp/noop）
+	var mailer email.Sender = email.Noop{}
+	switch cfg.EmailProvider {
+	case "resend":
+		if cfg.ResendAPIKey != "" {
+			from := "PaperSage <noreply@" + cfg.ResendDomain + ">"
+			mailer = email.NewResend(cfg.ResendAPIKey, from, "https://api.resend.com")
+		}
+	case "smtp":
+		if cfg.SMTPHost != "" {
+			var auth smtp.Auth
+			if cfg.SMTPUser != "" {
+				auth = smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPassword, hostOnly(cfg.SMTPHost))
+			}
+			mailer = &email.SMTP{Host: cfg.SMTPHost, From: cfg.SMTPUser, Auth: auth}
+		}
+	}
+	authSvc := auth.NewService(db, cfg, mailer)
 	s3, err := storage.NewS3(context.Background(), cfg)
 	if err != nil {
 		logger.Error("s3 init failed", "error", err)
@@ -115,6 +143,7 @@ func buildHandler(cfg *config.Settings, logger *slog.Logger) http.Handler {
 	projects.Mount(v1, authSvc.AuthRequired(), projects.NewService(db, latex.CreateTemplate(latexFiles)))
 	documents.Mount(v1, authSvc.AuthRequired(), documents.NewService(db, s3))
 	settings.Mount(v1, authSvc.AuthRequired(), settings.NewService(db))
+	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	return api

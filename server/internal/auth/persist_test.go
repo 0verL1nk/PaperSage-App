@@ -27,7 +27,7 @@ func newAuthTestServerOnDB(t *testing.T, db *gorm.DB) *httptest.Server {
 		SecretKey:                testSecret,
 		AccessTokenExpireMinutes: 30,
 		RefreshTokenExpireDays:   7,
-	})
+	}, nil)
 	api := httpapi.New(nil)
 	v1 := api.Group(httpapi.APIVersion)
 	Mount(v1, svc)

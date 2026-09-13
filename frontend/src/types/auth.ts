@@ -1,20 +1,28 @@
 import { z } from 'zod'
 
-export const PASSWORD_PATTERN = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/
-
-const usernameSchema = z.string().trim().min(1, '请输入用户名')
+// NIST SP 800-63B Rev4：不设复杂度规则，仅长度门槛
 const passwordSchema = z
   .string()
   .min(1, '请输入密码')
-  .regex(PASSWORD_PATTERN, '密码必须包含字母和数字，且长度至少为 8 位')
+  .min(8, '密码至少 8 位')
+
+const accountSchema = z.string().trim().min(1, '请输入用户名或邮箱')
+
+const emailSchema = z
+  .string()
+  .trim()
+  .min(1, '请输入学校邮箱')
+  .email('邮箱格式不正确')
 
 export const loginSchema = z.object({
-  username: usernameSchema,
+  username: accountSchema,
   password: passwordSchema,
 })
 
-export const registerSchema = loginSchema
-  .extend({
+export const registerSchema = z
+  .object({
+    email: emailSchema,
+    password: passwordSchema,
     confirmPassword: z.string().min(1, '请再次输入密码'),
   })
   .refine((value) => value.password === value.confirmPassword, {

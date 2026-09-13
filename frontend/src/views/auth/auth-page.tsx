@@ -15,7 +15,9 @@ import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { SmoothHeight } from '@/components/shared/smooth-height'
+import { useQuery } from '@tanstack/react-query'
 import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
+import { getEmailDomains, resendVerification } from '@/services/auth-api'
 import {
   loginSchema,
   registerSchema,
@@ -33,6 +35,29 @@ function getErrorMessage(error: unknown) {
   return '操作失败，请稍后重试。'
 }
 
+/** 后端 403 "Please verify your email" → 登录被验证门槛拦截 */
+function isVerifyRequired(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes('verify your email')
+  )
+}
+
+/** 注册页展示当前允许的邮箱域（公开端点；空 = 不限制时隐藏） */
+function AllowedDomainsHint() {
+  const { data } = useQuery({
+    queryKey: ['auth-email-domains'],
+    queryFn: getEmailDomains,
+    staleTime: 5 * 60_000,
+  })
+  if (!data || data.length === 0) return null
+  return (
+    <p className="text-[11px] text-muted-foreground/70 ml-1">
+      目前支持：{data.join('、')}
+    </p>
+  )
+}
+
 export function AuthPage() {
   const navigate = useNavigate()
   const accessToken = useSessionStore((state) => state.accessToken)
@@ -40,6 +65,7 @@ export function AuthPage() {
   const registerMutation = useRegisterMutation()
   const [mode, setMode] = useState<AuthMode>('login')
   const [authError, setAuthError] = useState('')
+  const [needsVerify, setNeedsVerify] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
 
   useEffect(() => {
@@ -55,11 +81,12 @@ export function AuthPage() {
 
   const registerForm = useForm<RegisterFormValues>({
     resolver: zodResolver(registerSchema),
-    defaultValues: { username: '', password: '', confirmPassword: '' },
+    defaultValues: { email: '', password: '', confirmPassword: '' },
   })
 
   const handleLoginSubmit = loginForm.handleSubmit(async (values) => {
     setAuthError('')
+    setNeedsVerify(false)
     try {
       const tokens = await loginMutation.mutateAsync(values)
       setSessionTokens(tokens)
@@ -67,6 +94,7 @@ export function AuthPage() {
       await navigate({ to: '/app/projects' })
     } catch (error) {
       setAuthError(getErrorMessage(error))
+      setNeedsVerify(isVerifyRequired(error))
     }
   })
 
@@ -74,10 +102,10 @@ export function AuthPage() {
     setAuthError('')
     try {
       await registerMutation.mutateAsync({
-        username: values.username,
+        email: values.email,
         password: values.password,
       })
-      toast.success('注册成功', { description: '账号已创建，请使用新账号登录。' })
+      toast.success('注册成功', { description: '验证邮件已发送，请查收并完成激活。' })
       setMode('login')
     } catch (error) {
       setAuthError(getErrorMessage(error))
@@ -129,6 +157,21 @@ export function AuthPage() {
               </div>
 
               <SmoothHeight className="px-8 pb-6 pt-8" data-testid="auth-panels">
+                {needsVerify && loginForm.getValues('username') && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resendVerification(loginForm.getValues('username')).then(() => {
+                        toast.success('已发送', { description: '若该邮箱已注册且未验证，验证邮件已重新发送。' })
+                      }).catch(() => {
+                        toast.error('发送失败，请稍后再试')
+                      })
+                    }}
+                    className="text-xs text-primary hover:underline font-medium"
+                  >
+                    重新发送验证邮件
+                  </button>
+                )}
                 {authError && (
                   <Alert variant="destructive" className="mb-6 border-none bg-destructive/10 text-destructive rounded-xl py-3">
                     <ShieldCheck className="mr-2 h-4 w-4" />
@@ -190,16 +233,18 @@ export function AuthPage() {
                 <TabsContent value="register" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
                   <form onSubmit={handleRegisterSubmit} className="space-y-5">
                     <div className="space-y-2.5">
-                      <Label htmlFor="reg-username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">创建用户名</Label>
+                      <Label htmlFor="reg-email" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">学校邮箱</Label>
                       <Input
-                        id="reg-username"
-                        {...registerForm.register('username')}
-                        placeholder="建议使用常用 ID"
+                        id="reg-email"
+                        type="email"
+                        {...registerForm.register('email')}
+                        placeholder="your-id@hit.edu.cn"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
                       />
-                      {registerForm.formState.errors.username && (
-                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.username.message}</p>
+                      {registerForm.formState.errors.email && (
+                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.email.message}</p>
                       )}
+                      <AllowedDomainsHint />
                     </div>
                     <div className="space-y-2.5">
                       <Label htmlFor="reg-password" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">设置密码</Label>

@@ -8,4 +8,8 @@ func Mount(rg *gin.RouterGroup, s *Service) {
 	rg.POST("/auth/login", s.login)
 	rg.POST("/auth/refresh", s.refresh)
 	rg.POST("/auth/logout", s.logout)
+	rg.GET("/auth/me", s.AuthRequired(), s.me)
+	rg.GET("/auth/verify-email", s.verifyEmail)
+	rg.GET("/auth/email-domains", s.emailDomainsHandler)
+	rg.POST("/auth/resend-verification", s.resendVerification)
 }

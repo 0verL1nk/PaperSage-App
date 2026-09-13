@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { FrontendApiError, postMultipart } from '@/services'
-import { loginWithPassword, registerWithPassword } from '@/services/auth-api'
+import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
 import { sha256 as jsSha256 } from 'js-sha256'
 
 vi.mock('@/services', async () => {
@@ -81,11 +81,8 @@ describe('auth api', () => {
     vi.mocked(postMultipart).mockResolvedValue(null)
 
     await expect(
-      registerWithPassword({
-        username: 'alice',
-        password: 'Pass1234',
-      }),
-    ).resolves.toBeUndefined()
+      registerWithEmail('alice@hit.edu.cn', 'Pass1234'),
+    ).resolves.toBeNull()
 
     expect(postMultipart).toHaveBeenCalledTimes(1)
     expect(postMultipart).toHaveBeenCalledWith(
@@ -98,7 +95,7 @@ describe('auth api', () => {
 
     const formData = vi.mocked(postMultipart).mock.calls[0]?.[1]
 
-    expect(formData?.get('account')).toBe('alice')
+    expect(formData?.get('email')).toBe('alice@hit.edu.cn')
     expect(formData?.get('password')).toBe(await sha256WebCrypto('Pass1234'))
   })
 })
@@ -158,7 +155,7 @@ describe('auth api — Web Crypto fallback', () => {
     vi.mocked(postMultipart).mockReset()
     vi.mocked(postMultipart).mockResolvedValue(null)
     await expect(
-      registerWithPassword({ username: 'eve', password: 'pw' }),
-    ).resolves.toBeUndefined()
+      registerWithEmail('eve@hit.edu.cn', 'pw'),
+    ).resolves.toBeNull()
   })
 })
