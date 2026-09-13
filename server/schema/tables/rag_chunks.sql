@@ -12,7 +12,7 @@ CREATE TABLE `rag_chunks` (
   `content` text NOT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `deleted_at` datetime(6) DEFAULT NULL,
-  `embedding` varbinary(8192) DEFAULT NULL,
+  `embedding` vector DEFAULT NULL,
   KEY `ix_rag_chunks_project` (`project_id`),
   KEY `ix_rag_chunks_source` (`source_type`,`source_id`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
