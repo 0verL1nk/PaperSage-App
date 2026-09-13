@@ -26,3 +26,8 @@ func TestVecCodecOrder(t *testing.T) {
 	assert.Equal(t, v[0], got[0])
 	assert.Equal(t, v[1], got[1])
 }
+
+func TestVecLiteral(t *testing.T) {
+	assert.Equal(t, "[1,0.5,-2.25]", VecLiteral([]float32{1, 0.5, -2.25}))
+	assert.Equal(t, "[]", VecLiteral(nil))
+}

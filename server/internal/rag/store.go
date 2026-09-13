@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -20,8 +21,9 @@ import (
 // 进程内索引均从该表惰性构建（每项目一次），重启后只 reload、绝不
 // 重新嵌入——嵌入调用只发生在 IndexSource（写路径）与查询文本（读路径）。
 type Store struct {
-	DB    *gorm.DB
-	Embed Embedder
+	DB         *gorm.DB
+	Embed      Embedder
+	vectorInDB bool // TiDB/MySQL：VECTOR 列库端检索，应用不持向量
 
 	mu   sync.RWMutex
 	vec  map[string]*vecIndex
@@ -46,7 +48,7 @@ type vecEntry struct {
 // NewStore（持久目录参数保留兼容签名；向量真相源在 DB，无需额外目录）。
 func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
 	return &Store{
-		DB: db, Embed: emb,
+		DB: db, Embed: emb, vectorInDB: db.Dialector.Name() == "mysql", //nolint:staticcheck // QF1008: Name() 是方法非嵌入字段
 		vec: map[string]*vecIndex{}, bm25: map[string]*bm25Index{},
 	}, nil
 }
@@ -105,7 +107,12 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 			Embedding: EncodeVec(vecs[i]),
 		}
 	}
-	if err := s.DB.WithContext(ctx).Create(&rows).Error; err != nil {
+	if s.vectorInDB {
+		// TiDB VECTOR 列以 '[f1,f2,…]' 字面量写入
+		if err := s.insertVectorRows(ctx, rows, vecs); err != nil {
+			return 0, err
+		}
+	} else if err := s.DB.WithContext(ctx).Create(&rows).Error; err != nil {
 		return 0, err
 	}
 	s.invalidate(projectID)
@@ -150,7 +157,13 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	// 向量路
 	qvecs, err := s.Embed.Embed(ctx, []string{query})
 	if err == nil && len(qvecs) == 1 {
-		for rank, e := range s.vectorSearch(ctx, projectID, qvecs[0], k) {
+		var vecHits []vecEntry
+		if s.vectorInDB {
+			vecHits = s.vectorSearchDB(ctx, projectID, qvecs[0], k)
+		} else {
+			vecHits = s.vectorSearch(ctx, projectID, qvecs[0], k)
+		}
+		for rank, e := range vecHits {
 			ranks[e.id] += rank
 			hits[e.id] = Hit{
 				ChunkID: e.id, Content: e.content,
@@ -397,4 +410,64 @@ func DecodeVec(b []byte) []float32 {
 		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
 	}
 	return v
+}
+
+// insertVectorRows TiDB 方言：embedding 列以向量字面量插入
+// （go-sql-driver 对 VECTOR 列按字符串交互）。
+func (s *Store) insertVectorRows(ctx context.Context, rows []IndexedChunk, vecs [][]float32) error {
+	for i, r := range rows {
+		if err := s.DB.WithContext(ctx).Exec(
+			`INSERT INTO rag_chunks (id, project_id, source_type, source_id, source_name, chunk_idx, content, embedding, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(6))`,
+			r.ID, r.ProjectID, r.SourceType, r.SourceID, r.SourceName,
+			r.ChunkIdx, r.Content, VecLiteral(vecs[i]),
+		).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// vectorSearchDB 库端余弦检索（TiDB vec_cosine_distance 下推）。
+// Serverless 档为库内精确扫描；Dedicated 有 columnar replica 时可建
+// HNSW 向量索引（见 0010 迁移注释），同一 SQL 自动加速。
+func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []float32, k int) []vecEntry {
+	var rows []struct {
+		ID         string
+		Content    string
+		SourceType string
+		SourceID   store.UUID
+		SourceName string
+	}
+	err := s.DB.WithContext(ctx).Raw(
+		`SELECT id, content, source_type, source_id, source_name
+		 FROM rag_chunks
+		 WHERE project_id = ? AND embedding IS NOT NULL
+		 ORDER BY vec_cosine_distance(embedding, ?)
+		 LIMIT ?`, projectID, VecLiteral(q), k).Scan(&rows).Error
+	if err != nil {
+		return nil
+	}
+	out := make([]vecEntry, len(rows))
+	for i, r := range rows {
+		out[i] = vecEntry{
+			id: r.ID, content: r.Content, stype: r.SourceType,
+			sid: r.SourceID.String(), sname: r.SourceName,
+		}
+	}
+	return out
+}
+
+// VecLiteral []float32 → '[f1,f2,…]'（TiDB VECTOR 字面量）。
+func VecLiteral(v []float32) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, x := range v {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.FormatFloat(float64(x), 'g', -1, 32))
+	}
+	b.WriteByte(']')
+	return b.String()
 }
