@@ -9,8 +9,10 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // 已知设置键（值形态在注释中约定）。
@@ -65,20 +67,20 @@ func Put(db *gorm.DB, kv map[string]any) error {
 	}
 	if err := db.Transaction(func(tx *gorm.DB) error {
 		for _, w := range writes {
-			row := struct {
-				Key       string         `gorm:"column:key"`
-				Value     datatypes.JSON `gorm:"column:value"`
-				UpdatedAt time.Time      `gorm:"column:updated_at"`
-			}{w.key, w.value, time.Now()}
-			if err := tx.Table("system_settings").
-				Where("key = ?", w.key).
-				Updates(map[string]any{"value": w.value, "updated_at": row.UpdatedAt}).Error; err != nil {
-				return err
+			// 惯用法 upsert：ON CONFLICT(key) DO UPDATE。
+			// 此前 Table().Updates() 后读 tx.RowsAffected 判断是否
+			// Create——链式会话的 RowsAffected 不可靠，已存在行时
+			// 误走 INSERT 撞唯一键（实测 500）。
+			row := store.SystemSetting{
+				Key:       w.key,
+				Value:     w.value,
+				UpdatedAt: time.Now(),
 			}
-			if tx.RowsAffected == 0 {
-				if err := tx.Table("system_settings").Create(&row).Error; err != nil {
-					return err
-				}
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+			}).Create(&row).Error; err != nil {
+				return err
 			}
 		}
 		return nil
