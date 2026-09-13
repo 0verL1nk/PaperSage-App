@@ -126,7 +126,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	projects.Mount(v1, authSvc.AuthRequired(), projSvc)
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
-	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
+	syssettings.Mount(v1, authSvc.ChainMiddleware(auth.AdminRequired()), syssettings.NewService(db))
 	ragStore, err2 := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	if err2 != nil {
 		t.Fatalf("rag store: %v", err2)

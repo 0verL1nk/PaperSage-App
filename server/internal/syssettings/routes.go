@@ -2,29 +2,11 @@
 package syssettings
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 )
-
-// AdminRequired：superuser 专属中间件（叠加在 AuthRequired 之后）。
-func AdminRequired() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		u := auth.CurrentUser(c)
-		if u == nil || !u.IsSuperuser {
-			httpapi.WriteError(c.Writer, &httpapi.APIError{
-				Code: http.StatusForbidden, Info: "Admin access required",
-			})
-			c.Abort()
-			return
-		}
-		c.Next()
-	}
-}
 
 type Service struct{ DB *gorm.DB }
 
@@ -54,8 +36,8 @@ func (s *Service) put(c *gin.Context) {
 }
 
 // Mount 挂载 admin 设置路由。
-func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
-	g := rg.Group("/admin", authMw, AdminRequired())
+func Mount(rg *gin.RouterGroup, adminMw gin.HandlerFunc, s *Service) {
+	g := rg.Group("/admin", adminMw)
 	g.GET("/settings", s.get)
 	g.PUT("/settings", s.put)
 }

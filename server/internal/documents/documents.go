@@ -24,8 +24,11 @@ type Service struct {
 }
 
 // DocIndexer documents 不直接依赖 rag（保持域单向）；由装配层闭包实现。
+// IndexDocFn 索引钩子签名（bootstrap 闭包实现）。
+type IndexDocFn = func(projectID, docID store.UUID, name, s3Key, contentType string)
+
 type DocIndexer struct {
-	IndexDocument func(projectID, docID store.UUID, name, s3Key, contentType string)
+	IndexDocument IndexDocFn
 }
 
 // NewService wires the documents domain（storage 为对象存储接口）。

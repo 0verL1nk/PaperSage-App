@@ -15,9 +15,14 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-// 已知设置键（值形态在注释中约定）。
+// 已知设置键（值形态在注释中约定）。分组 JSON 让管理页一屏一域；
+// 均为「管理后台可配、热生效、覆盖 env 兜底」的运行时配置。
 const (
 	KeyAllowedEmailDomains = "allowed_email_domains" // []string，空/缺省 = 不限制
+	KeyAgent               = "agent"                 // {base_url, api_key, model}
+	KeyEmbed               = "embed"                 // {base_url, api_key, model}
+	KeyEmail               = "email"                 // {provider, resend_api_key, resend_domain}
+	KeyAppURL              = "app_url"               // "https://…"（验证邮件链接前缀）
 )
 
 // All 返回全量设置（合并已知键缺省值），admin 读取用。
@@ -31,11 +36,25 @@ func All(db *gorm.DB) (map[string]any, error) {
 	}
 	out := map[string]any{
 		KeyAllowedEmailDomains: []string{},
+		KeyAgent:               map[string]any{},
+		KeyEmbed:               map[string]any{},
+		KeyEmail:               map[string]any{},
+		KeyAppURL:              "",
 	}
 	for _, r := range rows {
 		switch r.Key {
 		case KeyAllowedEmailDomains:
 			var v []string
+			if err := json.Unmarshal(r.Value, &v); err == nil {
+				out[r.Key] = v
+			}
+		case KeyAgent, KeyEmbed, KeyEmail:
+			var v map[string]any
+			if err := json.Unmarshal(r.Value, &v); err == nil {
+				out[r.Key] = v
+			}
+		case KeyAppURL:
+			var v string
 			if err := json.Unmarshal(r.Value, &v); err == nil {
 				out[r.Key] = v
 			}
@@ -59,6 +78,23 @@ func Put(db *gorm.DB, kv map[string]any) error {
 				continue
 			}
 			raw, err := json.Marshal(list)
+			if err != nil {
+				return err
+			}
+			writes = append(writes, write{key, raw})
+		case KeyAgent, KeyEmbed, KeyEmail:
+			// 分组对象整体透写（前端发什么存什么；空对象=清空该组）
+			raw, err := json.Marshal(val)
+			if err != nil {
+				continue
+			}
+			writes = append(writes, write{key, raw})
+		case KeyAppURL:
+			v, ok := val.(string)
+			if !ok {
+				continue
+			}
+			raw, err := json.Marshal(v)
 			if err != nil {
 				return err
 			}
@@ -107,4 +143,71 @@ func toStringSlice(v any) ([]string, bool) {
 		return out, true
 	}
 	return nil, false
+}
+
+// AgentSettings agent 组的形状（管理页/解析链共用）。
+type AgentSettings struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+}
+
+// EmbedSettings embed 组的形状。
+type EmbedSettings struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+}
+
+// EmailSettings email 组的形状。
+type EmailSettings struct {
+	Provider     string `json:"provider"`
+	ResendAPIKey string `json:"resend_api_key"`
+	ResendDomain string `json:"resend_domain"`
+}
+
+// GetAgent 读 agent 组（缺省零值）。
+func GetAgent(db *gorm.DB) AgentSettings {
+	all, err := All(db)
+	if err != nil {
+		return AgentSettings{}
+	}
+	b, _ := json.Marshal(all[KeyAgent])
+	var v AgentSettings
+	_ = json.Unmarshal(b, &v)
+	return v
+}
+
+// GetEmbed 读 embed 组。
+func GetEmbed(db *gorm.DB) EmbedSettings {
+	all, err := All(db)
+	if err != nil {
+		return EmbedSettings{}
+	}
+	b, _ := json.Marshal(all[KeyEmbed])
+	var v EmbedSettings
+	_ = json.Unmarshal(b, &v)
+	return v
+}
+
+// GetEmail 读 email 组。
+func GetEmail(db *gorm.DB) EmailSettings {
+	all, err := All(db)
+	if err != nil {
+		return EmailSettings{}
+	}
+	b, _ := json.Marshal(all[KeyEmail])
+	var v EmailSettings
+	_ = json.Unmarshal(b, &v)
+	return v
+}
+
+// GetAppURL 读站点 URL（空 = 未配置，回落 env）。
+func GetAppURL(db *gorm.DB) string {
+	all, err := All(db)
+	if err != nil {
+		return ""
+	}
+	v, _ := all[KeyAppURL].(string)
+	return v
 }
