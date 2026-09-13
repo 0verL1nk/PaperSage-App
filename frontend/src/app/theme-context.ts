@@ -12,6 +12,11 @@ interface ThemeCtx {
 
 export const ThemeContext = createContext<ThemeCtx>({ theme: 'system', setTheme: () => {} })
 
+/** 解析 theme（含 system）当前是否为深色。 */
+export function resolveDark(theme: Theme): boolean {
+  return theme === 'dark' || (theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches)
+}
+
 export const useTheme = () => useContext(ThemeContext)
 
 const MEDIA = '(prefers-color-scheme: dark)'
