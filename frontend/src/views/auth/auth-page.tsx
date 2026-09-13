@@ -40,7 +40,8 @@ function getErrorMessage(error: unknown) {
 function isVerifyRequired(error: unknown): boolean {
   return (
     error instanceof Error &&
-    error.message.includes('verify your email')
+    (error.message.includes('verify your email') ||
+      error.message.includes('完成邮箱验证'))
   )
 }
 
@@ -179,7 +180,11 @@ export function AuthPage() {
         {/* 统一风格的 Auth Card */}
         <Card className="apple-popover overflow-hidden rounded-[2rem]">
           <CardContent className="p-0">
-            <Tabs value={mode} onValueChange={(v) => setMode(v as AuthMode)} className="w-full">
+            <Tabs value={mode} onValueChange={(v) => {
+              setAuthError('')
+              setNeedsVerify(false)
+              setMode(v as AuthMode)
+            }} className="w-full">
               <div className="px-8 pt-8">
                 <TabsList className="grid w-full grid-cols-2 rounded-xl bg-secondary/50 p-1">
                   <TabsTrigger value="login" className="rounded-lg text-sm font-semibold transition-all duration-200">
@@ -192,29 +197,28 @@ export function AuthPage() {
               </div>
 
               <SmoothHeight className="px-8 pb-6 pt-8" data-testid="auth-panels">
-                {pendingVerifyEmail && (
-                  <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                    <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
-                    <div className="flex-1 text-[13px] leading-relaxed text-foreground/80">
-                      验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
-                      请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
-                      <ResendButton email={pendingVerifyEmail} className="ml-1" />
-                    </div>
-                  </div>
-                )}
-                {needsVerify && loginForm.getValues('username') && (
-                  <div className="text-xs">
-                    <ResendButton email={loginForm.getValues('username')} className="font-medium" />
-                  </div>
-                )}
-                {authError && (
-                  <Alert variant="destructive" className="mb-6 border-none bg-destructive/10 text-destructive rounded-xl py-3">
-                    <ShieldCheck className="mr-2 h-4 w-4" />
-                    <AlertDescription className="text-xs font-bold leading-none">{authError}</AlertDescription>
-                  </Alert>
-                )}
-
                 <TabsContent value="login" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
+                  {pendingVerifyEmail && (
+                    <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
+                      <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
+                      <div className="flex-1 text-[13px] leading-relaxed text-foreground/80">
+                        验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
+                        请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
+                        <ResendButton email={pendingVerifyEmail} className="ml-1" />
+                      </div>
+                    </div>
+                  )}
+                  {needsVerify && loginForm.getValues('username') && (
+                    <div className="text-xs">
+                      <ResendButton email={loginForm.getValues('username')} className="font-medium" />
+                    </div>
+                  )}
+                  {authError && (
+                    <Alert variant="destructive" className="border-none bg-destructive/10 text-destructive rounded-xl py-3">
+                      <ShieldCheck className="mr-2 h-4 w-4" />
+                      <AlertDescription className="text-xs font-bold leading-none">{authError}</AlertDescription>
+                    </Alert>
+                  )}
                   <form onSubmit={handleLoginSubmit} className="space-y-5">
                     <div className="space-y-2.5">
                       <Label htmlFor="username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">用户名</Label>
