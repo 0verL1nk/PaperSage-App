@@ -261,7 +261,7 @@ export function AuthPage() {
                       type="submit" 
                       variant="outline"
                       disabled={loginMutation.isPending}
-                      className="flex h-12 w-full font-bold text-[15px] mt-4 rounded-full"
+                      className="flex h-12 w-full font-semibold text-[15px] mt-4 rounded-xl"
                     >
                       {loginMutation.isPending ? '正在连接...' : '立即登录'}
                       {!loginMutation.isPending && <ArrowRight className="ml-2 h-4 w-4" />}
@@ -315,7 +315,7 @@ export function AuthPage() {
                       type="submit"
                       variant="outline"
                       disabled={registerMutation.isPending}
-                      className="flex h-12 w-full font-bold text-[15px] mt-4 rounded-full"
+                      className="flex h-12 w-full font-semibold text-[15px] mt-4 rounded-xl"
                     >
                       {registerMutation.isPending ? '正在创建...' : '创建我的账号'}
                     </Button>
