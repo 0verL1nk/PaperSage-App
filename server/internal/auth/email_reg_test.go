@@ -77,9 +77,11 @@ func TestEmailRegistrationFlow(t *testing.T) {
 	})
 	assert.Equal(t, 200, resp.StatusCode)
 
-	// token 一次性：重放 → 400
+	// token 一次性 + 幂等：重放时用户已验证 → 200 {already:true}
+	//（防 StrictMode 双发/邮件预取把成功变 400）
 	resp = httpGet(t, srv.URL+"/api/v1/auth/verify-email?token="+url.QueryEscape(token))
-	assert.Equal(t, 400, resp.StatusCode)
+	require.Equal(t, 200, resp.StatusCode)
+	assert.Equal(t, true, bodyJSON(t, resp)["data"].(map[string]any)["already"])
 }
 
 func TestResendVerification(t *testing.T) {

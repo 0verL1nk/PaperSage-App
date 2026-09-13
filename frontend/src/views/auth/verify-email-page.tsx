@@ -2,7 +2,7 @@
  * 邮箱验证结果页：邮件链接 /auth/verify?token=... 落地。
  * 调后端一次性验证端点，展示成功/失败状态与去向。
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearch } from '@tanstack/react-router'
 import { CheckCircle2, XCircle, Loader2, MailCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -16,11 +16,13 @@ export function VerifyEmailPage() {
   const [state, setState] = useState<VerifyState>('pending')
   const [message, setMessage] = useState('')
 
+  // StrictMode（dev）会双发 effect；ref 守卫保证只发起一次验证请求
+  const firedRef = useRef(false)
   useEffect(() => {
+    if (firedRef.current) return
+    firedRef.current = true
     const token = search.token
-    let cancelled = false
     const fail = (msg: string) => {
-      if (cancelled) return
       setState('error')
       setMessage(msg)
     }
@@ -28,10 +30,11 @@ export function VerifyEmailPage() {
       fail('缺少验证参数')
       return
     }
+    // 结果无条件落地：ref 已保证单发；StrictMode 重挂载时实例状态
+    // 保留，cancelled 守卫会把唯一一次请求的结果丢掉（实测卡在 pending）
     verifyEmail(token)
-      .then(() => { if (!cancelled) setState('success') })
+      .then(() => setState('success'))
       .catch((err) => fail(err instanceof Error ? err.message : '验证链接无效或已过期'))
-    return () => { cancelled = true }
   }, [search.token])
 
   return (
