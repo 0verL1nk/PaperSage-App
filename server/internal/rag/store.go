@@ -2,7 +2,7 @@ package rag
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sort"
@@ -62,7 +62,7 @@ type IndexedChunk struct {
 	SourceName string     `gorm:"column:source_name;size:255"`
 	ChunkIdx   int        `gorm:"column:chunk_idx"`
 	Content    string     `gorm:"column:content"`
-	Embedding  string     `gorm:"column:embedding"` // JSON []float32
+	Embedding  []byte     `gorm:"column:embedding"` // binary float32 小端
 }
 
 func (IndexedChunk) TableName() string { return "rag_chunks" }
@@ -97,16 +97,12 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 
 	rows := make([]IndexedChunk, len(chunks))
 	for i, c := range chunks {
-		raw, err := json.Marshal(vecs[i])
-		if err != nil {
-			return 0, err
-		}
 		rows[i] = IndexedChunk{
 			ID:        fmt.Sprintf("%s:%s:%d", sourceType, sourceID.String(), c.Idx),
 			ProjectID: projectID, SourceType: sourceType,
 			SourceID: sourceID, SourceName: sourceName,
 			ChunkIdx: c.Idx, Content: c.Content,
-			Embedding: string(raw),
+			Embedding: EncodeVec(vecs[i]),
 		}
 	}
 	if err := s.DB.WithContext(ctx).Create(&rows).Error; err != nil {
@@ -219,11 +215,11 @@ func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID) *vecIndex
 
 	idx := &vecIndex{}
 	for _, r := range rows {
-		if r.Embedding == "" {
+		if len(r.Embedding) == 0 {
 			continue
 		}
-		var v []float32
-		if json.Unmarshal([]byte(r.Embedding), &v) != nil || len(v) == 0 {
+		v := DecodeVec(r.Embedding)
+		if len(v) == 0 {
 			continue
 		}
 		n := 0.0
@@ -381,3 +377,24 @@ func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
 }
 
 var _ = strings.TrimSpace
+
+// EncodeVec []float32 → 小端 binary（每维 4 字节，定长）。
+func EncodeVec(v []float32) []byte {
+	b := make([]byte, len(v)*4)
+	for i, x := range v {
+		binary.LittleEndian.PutUint32(b[i*4:], math.Float32bits(x))
+	}
+	return b
+}
+
+// DecodeVec binary → []float32（长度非 4 倍数返回 nil）。
+func DecodeVec(b []byte) []float32 {
+	if len(b) == 0 || len(b)%4 != 0 {
+		return nil
+	}
+	v := make([]float32, len(b)/4)
+	for i := range v {
+		v[i] = math.Float32frombits(binary.LittleEndian.Uint32(b[i*4:]))
+	}
+	return v
+}
