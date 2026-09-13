@@ -36,7 +36,7 @@ func TestProbeStateFresh(t *testing.T) {
 	expectTableExists(mock, "schema_migrations", false)
 	expectTableExists(mock, "users", false)
 
-	st, err := probeState(context.Background(), db)
+	st, err := probeState(context.Background(), db, "postgres")
 	require.NoError(t, err)
 	assert.Equal(t, state{}, st)
 	assert.Equal(t, actionFreshInstall, decideHandover(st))
@@ -50,7 +50,7 @@ func TestProbeStateLegacyDB(t *testing.T) {
 	expectTableExists(mock, "schema_migrations", false)
 	expectTableExists(mock, "users", true)
 
-	st, err := probeState(context.Background(), db)
+	st, err := probeState(context.Background(), db, "postgres")
 	require.NoError(t, err)
 	assert.True(t, st.HasAlembic)
 	assert.True(t, st.HasUsers)
@@ -67,7 +67,7 @@ func TestStampBaselineSQL(t *testing.T) {
 		WithArgs(int64(1)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 
-	require.NoError(t, stampBaseline(context.Background(), db))
+	require.NoError(t, stampBaseline(context.Background(), db, "postgres"))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -78,6 +78,6 @@ func TestProbeStateQueryError(t *testing.T) {
 	mock.ExpectQuery(`SELECT EXISTS`).WithArgs("alembic_version").
 		WillReturnError(assert.AnError)
 
-	_, err := probeState(context.Background(), db)
+	_, err := probeState(context.Background(), db, "postgres")
 	assert.Error(t, err)
 }

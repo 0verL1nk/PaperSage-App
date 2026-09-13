@@ -2,6 +2,7 @@ package store
 
 import (
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -30,18 +31,47 @@ func TestDecideHandover(t *testing.T) {
 	}
 }
 
-// baseline 迁移必须已嵌入且命名可被 golang-migrate 解析（NNNN_name.up.sql）
+// 迁移必须已嵌入且命名可被 golang-migrate 解析（NNNN_name.up.sql）。
+// 两方言版本号必须一一对齐（0001..000N），否则某方言升级会跳版本。
 func TestEmbeddedMigrationsPresent(t *testing.T) {
-	up, err := fs.ReadFile(migrations.FS, "0001_baseline.up.sql")
-	require.NoError(t, err)
-	assert.Contains(t, string(up), "CREATE TABLE IF NOT EXISTS users")
+	for _, dialect := range []string{"postgres", "mysql"} {
+		f, subdir, err := migrations.FSFor(dialect)
+		require.NoError(t, err)
 
-	entries, err := fs.ReadDir(migrations.FS, ".")
-	require.NoError(t, err)
-	names := []string{}
-	for _, e := range entries {
-		names = append(names, e.Name())
+		up, err := fs.ReadFile(f, subdir+"/0001_baseline.up.sql")
+		require.NoError(t, err, dialect)
+		if dialect == "postgres" {
+			assert.Contains(t, string(up), "CREATE TABLE IF NOT EXISTS users")
+		} else {
+			assert.Contains(t, string(up), "CREATE TABLE users")
+		}
+
+		entries, err := fs.ReadDir(f, subdir)
+		require.NoError(t, err)
+		names := map[string]bool{}
+		for _, e := range entries {
+			names[e.Name()] = true
+		}
+		assert.Contains(t, names, "0001_baseline.up.sql")
+		assert.Contains(t, names, "0001_baseline.down.sql")
 	}
-	assert.Contains(t, names, "0001_baseline.up.sql")
-	assert.Contains(t, names, "0001_baseline.down.sql")
+
+	// 版本对齐：两方言的 up 版本集合一致
+	versions := func(f interface {
+		ReadDir(string) ([]fs.DirEntry, error)
+	}, dir string) map[string]bool {
+		out := map[string]bool{}
+		entries, _ := f.ReadDir(dir)
+		for _, e := range entries {
+			n := e.Name()
+			if strings.HasSuffix(n, ".up.sql") {
+				out[n[:4]] = true
+			}
+		}
+		return out
+	}
+	pgFS, pgDir, _ := migrations.FSFor("postgres")
+	myFS, myDir, _ := migrations.FSFor("mysql")
+	assert.Equal(t, versions(pgFS, pgDir), versions(myFS, myDir),
+		"postgres 与 mysql 迁移版本必须一一对齐")
 }

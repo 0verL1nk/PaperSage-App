@@ -212,7 +212,7 @@ cd frontend && pnpm exec playwright test auth/auth-flow.spec.ts
 
 Backend reads env vars via `server/internal/config`（变量名与旧 Python 版 1:1，PORT 默认 5478）:
 
-- **Database**: `DATABASE_URL`（Go 驱动格式 `postgres://...`；旧 SQLAlchemy 格式 `postgresql+asyncpg://` 自动转换；SQLite 用 `sqlite:///./x.db`）
+- **Database**: `DATABASE_URL`（三方言：`postgres://...` / `mysql://...`（含 TiDB Cloud，建议 `?tls=true`；`tidb://` 等价）/ SQLite 开发用 `sqlite:///./x.db`；迁移按方言自动选择 `migrations/{postgres,mysql}/`）
 - **Redis**: `redis://localhost:6379/0` — falls back to in-memory
 - **S3**: Cloudflare R2 (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`)
 - **LaTeX**: `LATEX_CLSI_BASE_URL=http://localhost:3013`, `LATEX_CLSI_ENABLED`
