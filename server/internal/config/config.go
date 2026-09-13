@@ -45,7 +45,10 @@ type Settings struct {
 	CompileIncrementalSyncEnabled bool `env:"COMPILE_INCREMENTAL_SYNC_ENABLED" envDefault:"true"`
 
 	AppURL          string `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
-	SuperuserEmails string `env:"SUPERUSER_EMAILS" envDefault:""`             // bootstrap admin（逗号分隔邮箱）
+	AgentAPIKey     string `env:"AGENT_API_KEY"`
+	AgentBaseURL    string `env:"AGENT_BASE_URL"`
+	AgentModel      string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
+	SuperuserEmails string `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
 	EmailProvider   string `env:"EMAIL_PROVIDER" envDefault:"resend"`
 	FromEmail       string `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`
 	FromName        string `env:"FROM_NAME" envDefault:"PaperSage"`

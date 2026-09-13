@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/cache"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
@@ -144,6 +145,8 @@ func buildHandler(cfg *config.Settings, logger *slog.Logger) http.Handler {
 	documents.Mount(v1, authSvc.AuthRequired(), documents.NewService(db, s3))
 	settings.Mount(v1, authSvc.AuthRequired(), settings.NewService(db))
 	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
+	agentSvc := agent.NewService(db, s3, compileQueue, cfg)
+	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	return api

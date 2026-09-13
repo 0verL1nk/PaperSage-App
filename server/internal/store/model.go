@@ -168,6 +168,29 @@ type VerificationToken struct {
 
 func (VerificationToken) TableName() string { return "verification_tokens" }
 
+// AgentConversation：AI 助手会话（云端化，DB 持久）。
+type AgentConversation struct {
+	ID        UUID      `gorm:"column:id;primaryKey"`
+	ProjectID UUID      `gorm:"column:project_id;not null;index"`
+	UserID    UUID      `gorm:"column:user_id;not null"`
+	Title     string    `gorm:"column:title;size:200;default:新对话"`
+	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime"`
+}
+
+func (AgentConversation) TableName() string { return "agent_conversations" }
+
+type AgentMessage struct {
+	ID             UUID           `gorm:"column:id;primaryKey"`
+	ConversationID UUID           `gorm:"column:conversation_id;not null;index"`
+	Role           string         `gorm:"column:role;size:20;not null"`
+	Content        string         `gorm:"column:content;not null"`
+	ToolEvents     datatypes.JSON `gorm:"column:tool_events"`
+	CreatedAt      time.Time      `gorm:"column:created_at;autoCreateTime"`
+}
+
+func (AgentMessage) TableName() string { return "agent_messages" }
+
 // SystemSetting：admin 可改的运行时配置（key-value JSON）。
 // 已知键：allowed_email_domains（[]string，空/缺省 = 不限制）。
 type SystemSetting struct {
@@ -183,6 +206,7 @@ func AllModels() []any {
 		&User{}, &UserSettings{}, &ProjectGroup{}, &Project{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
 		&SystemSetting{}, &VerificationToken{},
+		&AgentConversation{}, &AgentMessage{},
 	}
 }
 

@@ -22,6 +22,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
@@ -125,6 +126,8 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
 	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
+	agentSvc := agent.NewService(db, mem, compileQueue, cfg)
+	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 
