@@ -67,3 +67,6 @@ var (
 	_ driver.Valuer = UUID{}
 	_ sql.Scanner   = (*UUID)(nil)
 )
+
+// MustNewUUID 生成 UUID（失败 panic；测试/构建便捷）。
+func MustNewUUID() UUID { return UUID{UUID: uuid.Must(uuid.NewV7())} }
