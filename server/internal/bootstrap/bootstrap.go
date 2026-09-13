@@ -25,6 +25,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
@@ -41,6 +42,9 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("database init: %w", err)
 	}
+
+	// 生成 DAO（gorm.io/gen）的全局入口；域代码可用 query.Q.Documents 等
+	query.SetDefault(db)
 
 	s3, err := storage.NewS3(ctx, cfg)
 	if err != nil {

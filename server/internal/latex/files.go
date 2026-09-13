@@ -88,8 +88,8 @@ func NewFilesService(db *gorm.DB, stg storage.Storage) (*FilesService, error) {
 func (s *FilesService) verifyProjectAccess(ctx context.Context, projectID, userID uuid.UUID) error {
 	var p store.Project
 	err := s.DB.WithContext(ctx).
-		Where("id = ? AND owner_id = ? AND is_deleted = ?",
-			store.UUID{UUID: projectID}, store.UUID{UUID: userID}, false).First(&p).Error
+		Where("id = ? AND owner_id = ?",
+			store.UUID{UUID: projectID}, store.UUID{UUID: userID}).First(&p).Error
 	if err != nil {
 		return fmt.Errorf("Project not found") //nolint:staticcheck // ST1005: python 契约
 	}

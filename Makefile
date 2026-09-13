@@ -199,6 +199,12 @@ build-server: ## 构建单二进制（前端产物嵌入）
 	cp -r frontend/dist/* server/web/assets/
 	cd server && CGO_ENABLED=0 go build -o bin/ ./cmd/papersage
 
+generate-dao: ## GORM 代码生成（模型→类型安全 DAO，internal/store/query）
+	cd server && go run ./cmd/generate
+
+schema: ## 全表结构快照（真实库跑全部迁移后导出；SCHEMA_DSN 必填）
+	cd server && SCHEMA_DSN="$(SCHEMA_DSN)" go run ./cmd/dumpschema > schema/schema.mysql.sql
+
 dev-s3: ## 本地 S3 兼容服务（纯 Go，数据落 server/devs3-data；免 Docker）
 	cd server && go run ./cmd/devs3
 
