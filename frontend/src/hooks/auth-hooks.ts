@@ -1,5 +1,5 @@
 import { useMutation } from '@tanstack/react-query'
-import { loginWithPassword, registerWithPassword } from '@/services/auth-api'
+import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
 
 export function useLoginMutation() {
   return useMutation({
@@ -9,6 +9,7 @@ export function useLoginMutation() {
 
 export function useRegisterMutation() {
   return useMutation({
-    mutationFn: registerWithPassword,
+    mutationFn: ({ email, password }: { email: string; password: string }) =>
+      registerWithEmail(email, password),
   })
 }

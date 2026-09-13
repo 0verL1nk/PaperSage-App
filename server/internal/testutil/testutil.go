@@ -11,6 +11,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,21 +25,54 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
+	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
 // TestServer 一套装配好的 API + 预置用户。
 type TestServer struct {
 	*httptest.Server
+	mailer       *swappableSender
 	Engine       *gin.Engine // 调试路由表用
 	CompileQueue *latex.Queue
 	DB           *gorm.DB
 	Token        string // 预置用户的 access token
 	UID          uuid.UUID
+}
+
+// swappableSender 运行时可替换的邮件替身。
+type swappableSender struct {
+	mu    sync.Mutex
+	inner email.Sender
+}
+
+func (s *swappableSender) Send(ctx context.Context, to, subject, html string) error {
+	s.mu.Lock()
+	inner := s.inner
+	s.mu.Unlock()
+	return inner.Send(ctx, to, subject, html)
+}
+
+// SetEmailSender 替换邮件实现（捕获器等）。
+func (ts *TestServer) SetEmailSender(s email.Sender) { ts.mailer.Swap(s) }
+
+func (s *swappableSender) Swap(inner email.Sender) {
+	s.mu.Lock()
+	s.inner = inner
+	s.mu.Unlock()
+}
+
+// MakeSuperuser 把预置测试用户提升为 superuser（admin 路径测试用）。
+func (ts *TestServer) MakeSuperuser(t *testing.T) {
+	t.Helper()
+	require.NoError(t, ts.DB.Model(&store.User{}).
+		Where("id = ?", ts.UserID()).
+		Update("is_superuser", true).Error)
 }
 
 // UserID 返回 store.UUID 形式的用户 ID。
@@ -61,7 +95,10 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	require.NoError(t, db.AutoMigrate(store.AllModels()...))
 
 	cfg := &config.Settings{SecretKey: "test", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7}
-	authSvc := auth.NewService(db, cfg)
+	// 可替换的邮件替身：注册制测试前 setEmailSender 换捕获器
+	ts := &TestServer{}
+	ts.mailer = &swappableSender{inner: email.Noop{}}
+	authSvc := auth.NewService(db, cfg, ts.mailer)
 	mem := NewMemStorage()
 	latexFiles, err := latex.NewFilesService(db, mem)
 	require.NoError(t, err)
@@ -87,6 +124,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	projects.Mount(v1, authSvc.AuthRequired(), projSvc)
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
+	syssettings.Mount(v1, authSvc.AuthRequired(), syssettings.NewService(db))
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 

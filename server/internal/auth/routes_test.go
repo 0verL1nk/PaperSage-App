@@ -2,13 +2,14 @@ package auth
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sync"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
+	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -24,26 +26,68 @@ import (
 
 const testSecret = "test-secret-key"
 
-func newAuthTestServer(t *testing.T) *httptest.Server {
+// swappableSender 运行时可替换的邮件替身（auth 测试基座专用）。
+type swappableSender struct {
+	mu    sync.Mutex
+	inner email.Sender
+}
+
+func (s *swappableSender) Send(ctx context.Context, to, subject, html string) error {
+	s.mu.Lock()
+	inner := s.inner
+	s.mu.Unlock()
+	return inner.Send(ctx, to, subject, html)
+}
+
+func (s *swappableSender) Swap(inner email.Sender) {
+	s.mu.Lock()
+	s.inner = inner
+	s.mu.Unlock()
+}
+
+// authServer：带 db/mailer 句柄的测试服务（邮箱注册制测试用）。
+type authServer struct {
+	*httptest.Server
+	db     *gorm.DB
+	mailer *swappableSender
+}
+
+func (a *authServer) setEmailSender(t *testing.T, s email.Sender) {
+	t.Helper()
+	a.mailer.Swap(s)
+}
+
+// setupWhitelist 直接写 system_settings（测试不 import syssettings，
+// 其 Put/匹配语义已有独立覆盖）
+func (a *authServer) setupWhitelist(t *testing.T, domains ...string) {
+	t.Helper()
+	raw, err := json.Marshal(domains)
+	require.NoError(t, err)
+	require.NoError(t, a.db.Exec(`INSERT INTO system_settings (key, value, updated_at)
+		VALUES ('allowed_email_domains', ?, datetime('now'))
+		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(raw)).Error)
+}
+
+func newAuthTestServer(t *testing.T) *authServer {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(store.AllModels()...))
 
+	mailer := &swappableSender{inner: email.Noop{}}
 	svc := NewService(db, &config.Settings{
 		SecretKey:                testSecret,
 		AccessTokenExpireMinutes: 30,
 		RefreshTokenExpireDays:   7,
-	})
+	}, mailer)
 
 	api := httpapi.New(nil)
 	v1 := api.Group(httpapi.APIVersion)
 	Mount(v1, svc)
-	v1.GET("/me", svc.AuthRequired(), func(c *gin.Context) {
-		u := CurrentUser(c)
-		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"username": u.Username}, ""))
-	})
-	return httptest.NewServer(api)
+	v1.GET("/me", svc.AuthRequired(), svc.me)
+
+	srv := httptest.NewServer(api)
+	return &authServer{Server: srv, db: db, mailer: mailer}
 }
 
 func postForm(t *testing.T, url string, form url.Values) *http.Response {

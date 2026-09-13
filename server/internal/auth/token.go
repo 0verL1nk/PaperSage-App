@@ -30,6 +30,11 @@ func CreateAccessToken(secret, sub string, expireMinutes int) (string, error) {
 	return encryptClaims(secret, sub, "access", time.Duration(expireMinutes)*time.Minute)
 }
 
+// CreateVerifyToken issues an encrypted one-time email-verification token.
+func CreateVerifyToken(secret, sub string, ttl time.Duration) (string, error) {
+	return encryptClaims(secret, sub, "email_verify", ttl)
+}
+
 // CreateRefreshToken issues an encrypted refresh token.
 func CreateRefreshToken(secret, sub string, expireDays int) (string, error) {
 	return encryptClaims(secret, sub, "refresh", time.Duration(expireDays)*24*time.Hour)

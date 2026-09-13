@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loginWithPassword, registerWithPassword } from '@/services/auth-api'
+import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
 import { AuthPage } from '@/views/auth/auth-page'
 import { setSessionTokens, useSessionStore } from '@/store'
 
@@ -12,7 +12,7 @@ const toastErrorMock = vi.fn()
 
 vi.mock('@/services/auth-api', () => ({
   loginWithPassword: vi.fn(),
-  registerWithPassword: vi.fn(),
+  registerWithEmail: vi.fn(),
 }))
 
 vi.mock('sonner', () => ({
@@ -52,7 +52,7 @@ describe('AuthPage', () => {
     toastSuccessMock.mockReset()
     toastErrorMock.mockReset()
     vi.mocked(loginWithPassword).mockReset()
-    vi.mocked(registerWithPassword).mockReset()
+    vi.mocked(registerWithEmail).mockReset()
     useSessionStore.setState({
       accessToken: '',
       refreshToken: '',
@@ -101,7 +101,7 @@ describe('AuthPage', () => {
     await waitFor(() => {
       expect(screen.getByText(/两次输入的密码不一致/i)).toBeInTheDocument()
     })
-    expect(registerWithPassword).not.toHaveBeenCalled()
+    expect(registerWithEmail).not.toHaveBeenCalled()
   })
 
   it('stores long and short tokens after a successful login', async () => {

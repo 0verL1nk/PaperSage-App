@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
+	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -20,14 +22,19 @@ import (
 
 // Service 承载认证域逻辑（构造函数注入，无全局状态）。
 type Service struct {
-	DB  *gorm.DB
-	Cfg *config.Settings
+	DB      *gorm.DB
+	Cfg     *config.Settings
+	Mailer  email.Sender
+	limiter *rateLimiter
 }
 
 // NewService wires the auth domain.
 // refresh token 注册表走 DB（持久化；曾走进程内存 cache，重启即丢登录态）。
-func NewService(db *gorm.DB, cfg *config.Settings) *Service {
-	return &Service{DB: db, Cfg: cfg}
+func NewService(db *gorm.DB, cfg *config.Settings, mailer email.Sender) *Service {
+	if mailer == nil {
+		mailer = email.Noop{}
+	}
+	return &Service{DB: db, Cfg: cfg, Mailer: mailer, limiter: newRateLimiter()}
 }
 
 // TokenResponse 对应 schemas/user.py TokenResponse（camelCase + tokenType）。
@@ -55,11 +62,26 @@ func errBad(info string, code int) *httpapi.APIError {
 }
 
 // POST /auth/register（表单）→ UserResponse
+// 两种形态共存：email+password（学校邮箱注册制，新）与
+// account+password（用户名注册，存量/e2e 兼容）。
 func (s *Service) register(c *gin.Context) {
-	account := c.PostForm("account")
+	if !s.limiter.allow("register:"+c.ClientIP(), 10) {
+		httpapi.WriteError(c.Writer, errBad("Too many requests", http.StatusTooManyRequests))
+		return
+	}
 	password := c.PostForm("password")
-	if account == "" || password == "" {
+	if password == "" {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation) // FastAPI Form 缺失 → 422
+		return
+	}
+	account := c.PostForm("account")
+	if account == "" {
+		// 无 account 但有 email：邮箱注册制（新）
+		if e := c.PostForm("email"); e != "" {
+			s.registerEmailFlow(c, e, password)
+			return
+		}
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
 	var email *string
@@ -86,6 +108,25 @@ func (s *Service) register(c *gin.Context) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(toUserResponse(&user), ""))
 }
 
+// GET /auth/me — 当前用户信息（登录态探测 + 前端条件渲染依据）
+func (s *Service) me(c *gin.Context) {
+	u := CurrentUser(c)
+	if u == nil {
+		httpapi.WriteError(c.Writer, errBad("Invalid token", http.StatusUnauthorized))
+		return
+	}
+	resp := gin.H{
+		"username":      u.Username,
+		"isSuperuser":   u.IsSuperuser,
+		"email":         nil,
+		"emailVerified": u.EmailVerified,
+	}
+	if u.Email != nil {
+		resp["email"] = *u.Email
+	}
+	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(resp, ""))
+}
+
 // POST /auth/login（表单）→ TokenResponse；refresh token 写入缓存
 func (s *Service) login(c *gin.Context) {
 	account := c.PostForm("account")
@@ -94,15 +135,32 @@ func (s *Service) login(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
+	// 限速：IP 与账号双维度（校园出口 NAT 共享 → IP 阈值放宽）
+	if !s.limiter.allow("login-ip:"+c.ClientIP(), 30) || !s.limiter.allow("login-acct:"+account, rateMaxLogin) {
+		httpapi.WriteError(c.Writer, errBad("Too many attempts, try later", http.StatusTooManyRequests))
+		return
+	}
+	// account 兼容 username 或 email（域名规范化后匹配）
+	lookup := account
+	if at := strings.LastIndex(account, "@"); at > 0 {
+		lookup = account[:at] + "@" + strings.ToLower(account[at+1:])
+	}
 
 	var user store.User
-	err := s.DB.Where("username = ?", account).First(&user).Error
+	err := s.DB.Where("username = ? OR email = ?", account, lookup).First(&user).Error
 	if err != nil || !user.IsActive || !VerifyPassword(password, user.PasswordHash) {
 		// 三种失败统一 401 "Invalid credentials"（不泄漏用户存在性）
 		httpapi.WriteError(c.Writer, errBad("Invalid credentials", http.StatusUnauthorized))
 		return
 	}
+	// 邮箱注册用户未验证 → 403（需要正确密码才走到这，不构成无凭据枚举；
+	// account 注册附带 email 的存量用户不受此门槛约束）
+	if user.IsEmailRegistered && !user.EmailVerified {
+		httpapi.WriteError(c.Writer, errBad("Please verify your email before logging in", http.StatusForbidden))
+		return
+	}
 
+	s.maybePromoteSuperuser(c.Request.Context(), &user)
 	sub := user.ID.String()
 	access, _ := CreateAccessToken(s.Cfg.SecretKey, sub, s.Cfg.AccessTokenExpireMinutes)
 	refresh, _ := CreateRefreshToken(s.Cfg.SecretKey, sub, s.Cfg.RefreshTokenExpireDays)
@@ -111,6 +169,27 @@ func (s *Service) login(c *gin.Context) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(TokenResponse{
 		AccessToken: access, RefreshToken: refresh, TokenType: "bearer",
 	}, ""))
+}
+
+// maybePromoteSuperuser：SUPERUSER_EMAILS env（逗号分隔）命中即幂等
+// 提升——部署者的 bootstrap 管理通道，不属于代码硬编码。
+func (s *Service) maybePromoteSuperuser(ctx context.Context, user *store.User) {
+	list := strings.Split(s.Cfg.SuperuserEmails, ",")
+	email := ""
+	if user.Email != nil {
+		email = normalizeEmail(*user.Email)
+	}
+	for _, e := range list {
+		e = strings.TrimSpace(e)
+		if e == "" || email == "" || normalizeEmail(e) != email {
+			continue
+		}
+		if !user.IsSuperuser {
+			_ = s.DB.WithContext(ctx).Model(user).Update("is_superuser", true).Error
+			user.IsSuperuser = true
+		}
+		return
+	}
 }
 
 // POST /auth/refresh（JSON {refresh_token}）→ 新 token 对

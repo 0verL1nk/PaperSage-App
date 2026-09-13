@@ -48,29 +48,30 @@ test.describe('Auth flow (real backend)', () => {
     await page.waitForURL(/\/auth/, { timeout: 5000 })
   })
 
-  test('a fresh user can register then log in', async ({ page }) => {
-    const username = `e2e_reg_${Date.now()}`
+  test('a fresh user can register (email-gated) and is blocked until verified', async ({ page }) => {
+    const email = `e2e_reg_${Date.now()}@hit.edu.cn`
     const password = 'e2epass1'
 
     await page.goto('/auth')
     await page.getByRole('tab', { name: '注册新账号' }).click()
-    await page.getByRole('textbox', { name: '创建用户名' }).fill(username)
-    // First password field — placeholder makes it unique
-    await page.getByPlaceholder('至少 8 位，包含字母与数字').fill(password)
+    await page.getByRole('textbox', { name: '学校邮箱' }).fill(email)
+    await page.getByPlaceholder('至少 8 位').fill(password)
     await page.getByPlaceholder('请再次输入密码').fill(password)
     await page.getByRole('button', { name: '创建我的账号' }).click()
 
-    // After register, the UI auto-switches to login tab
+    // 注册成功 → 提示查邮件并切回登录 tab
     await expect(page.getByRole('tab', { name: '账号登录' })).toHaveAttribute(
       'data-state',
       'active',
       { timeout: 5000 },
     )
 
-    // Now actually log in
-    await page.getByPlaceholder('请输入您的账号').fill(username)
+    // 未验证登录被拦截（403）——完整验证闭环由后端集成测试覆盖
+    //（CI 的 mailer 是 noop，验证链接拿不到）
+    await page.getByPlaceholder('请输入您的账号').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
     await page.getByRole('button', { name: '立即登录' }).click()
-    await page.waitForURL(/\/app\/projects/, { timeout: 15_000 })
+    await expect(page.getByText(/verify your email|验证/i).first()).toBeVisible({ timeout: 5000 })
+    await expect(page).toHaveURL(/\/auth/)
   })
 })

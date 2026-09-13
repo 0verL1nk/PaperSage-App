@@ -1,5 +1,5 @@
 import { Link, useLocation } from '@tanstack/react-router'
-import {
+import { ShieldCheck,
   FileText,
   Trash2,
   User,
@@ -37,7 +37,10 @@ const mainNavItems = [
   { path: '/app/trash', label: 'Trash', icon: Trash2 },
 ]
 
+import { useMe } from '@/hooks/use-me'
+
 export function MainLayout({ children }: MainLayoutProps) {
+  const { data: me } = useMe()
   const location = useLocation()
   const currentPath = location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -89,6 +92,20 @@ export function MainLayout({ children }: MainLayoutProps) {
                       </Link>
                     )
                   })}
+                  {me?.isSuperuser && (
+                    <Link
+                      to="/app/admin"
+                      className={cn(
+                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        location.pathname === '/app/admin'
+                          ? "bg-primary text-primary-foreground shadow-sm"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      )}
+                    >
+                      <ShieldCheck className="size-4 opacity-60" />
+                      Admin
+                    </Link>
+                  )}
                 </nav>
 
                 <div className="p-4 mt-auto border-t border-border flex-none">

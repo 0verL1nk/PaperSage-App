@@ -1,4 +1,6 @@
 import { ComingSoon } from '@/components/domain/ComingSoon'
+import { VerifyEmailPage } from '@/views/auth/verify-email-page'
+import { AdminPage } from '@/views/admin/AdminPage'
 import type { QueryClient } from '@tanstack/react-query'
 import {
   Outlet,
@@ -70,6 +72,18 @@ const indexRoute = createRoute({
 })
 
 // Auth route - public, redirects if already logged in
+const adminRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/app/admin',
+  component: AdminPage,
+})
+
+const authVerifyRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/verify',
+  component: VerifyEmailPage,
+})
+
 const authRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/auth',
@@ -208,8 +222,9 @@ const projectGeneratingRoute = createRoute({
 // Build route tree
 const routeTree = rootRoute.addChildren([
   indexRoute,
+  authVerifyRoute,
   authRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectUploadingRoute,
