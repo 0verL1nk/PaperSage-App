@@ -45,6 +45,7 @@ type Settings struct {
 	CompileIncrementalSyncEnabled bool `env:"COMPILE_INCREMENTAL_SYNC_ENABLED" envDefault:"true"`
 
 	AppURL          string `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
+	NeonDatabaseURL string `env:"NEON_DATABASE_URL"`
 	AgentAPIKey     string `env:"AGENT_API_KEY"`
 	AgentBaseURL    string `env:"AGENT_BASE_URL"`
 	AgentModel      string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`

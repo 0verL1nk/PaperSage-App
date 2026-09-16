@@ -79,6 +79,13 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("rag store init: %w", err)
 	}
+	// Neon(pgvector)：配置了 NEON_DATABASE_URL 时启用，向量检索下推 PG
+	if cfg.NeonDatabaseURL != "" {
+		if err := ragStore.AttachNeon(ctx, cfg.NeonDatabaseURL); err != nil {
+			// 拉不起不阻断启动：降级主库路径，日志提示
+			slog.Warn("rag: neon attach failed, falling back to primary DB", "err", err)
+		}
+	}
 
 	// 文献入库 → 索引钩子（documents 不 import rag：回调闭包解耦）
 	docSvc.Indexer = &documents.DocIndexer{
