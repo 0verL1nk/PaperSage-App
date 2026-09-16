@@ -23,7 +23,8 @@ import (
 type Store struct {
 	DB         *gorm.DB
 	Embed      Embedder
-	vectorInDB bool // TiDB/MySQL：VECTOR 列库端检索，应用不持向量
+	Pg         *PgStore // Neon(pgvector) 后端；配置了 NEON_DATABASE_URL 时启用
+	vectorInDB bool     // TiDB/MySQL：VECTOR 列库端检索（Neon 未配置时的次选）
 
 	mu   sync.RWMutex
 	vec  map[string]*vecIndex
@@ -47,10 +48,25 @@ type vecEntry struct {
 
 // NewStore（持久目录参数保留兼容签名；向量真相源在 DB，无需额外目录）。
 func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
+	inDB := false
+	if db != nil { // nil DB：纯 Neon 后端模式（集成测试）
+		inDB = db.Dialector.Name() == "mysql" //nolint:staticcheck // QF1008: 方法而非嵌入字段
+	}
 	return &Store{
-		DB: db, Embed: emb, vectorInDB: db.Dialector.Name() == "mysql", //nolint:staticcheck // QF1008: Name() 是方法非嵌入字段
+		DB: db, Embed: emb, vectorInDB: inDB,
 		vec: map[string]*vecIndex{}, bm25: map[string]*bm25Index{},
 	}, nil
+}
+
+// AttachNeon 挂载 Neon(pgvector) 后端（配置了 NEON_DATABASE_URL 时调用）。
+// 挂载后 chunk 写入/向量检索/BM25 内容源全部走 PG；主库不再存 chunk。
+func (s *Store) AttachNeon(ctx context.Context, dsn string) error {
+	pg, err := NewPgStore(ctx, dsn)
+	if err != nil {
+		return err
+	}
+	s.Pg = pg
+	return nil
 }
 
 // ── 索引 ─────────────────────────────────────────────
@@ -74,11 +90,16 @@ func (IndexedChunk) TableName() string { return "rag_chunks" }
 func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 	sourceType string, sourceID store.UUID, sourceName, text string) (int, error) {
 
-	if err := s.DB.WithContext(ctx).
-		Where("project_id = ? AND source_type = ? AND source_id = ?",
-			projectID, sourceType, sourceID).
-		Delete(&IndexedChunk{}).Error; err != nil {
-		return 0, err
+	if s.Pg == nil && s.DB == nil {
+		return 0, fmt.Errorf("no store backend")
+	}
+	if s.Pg == nil {
+		if err := s.DB.WithContext(ctx).
+			Where("project_id = ? AND source_type = ? AND source_id = ?",
+				projectID, sourceType, sourceID).
+			Delete(&IndexedChunk{}).Error; err != nil {
+			return 0, err
+		}
 	}
 
 	chunks := SplitChunks(text, 1200, 150)
@@ -107,7 +128,14 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 			Embedding: EncodeVec(vecs[i]),
 		}
 	}
-	if s.vectorInDB {
+	if s.Pg != nil {
+		// Neon：chunk 与向量整体落 PG（主库不留副本，单一真相源）。
+		// hex 无横线（32 位）与主库列形态一致
+		if err := s.Pg.IndexSource(ctx, hexID(projectID), sourceType,
+			hexID(sourceID), sourceName, chunks, vecs); err != nil {
+			return 0, err
+		}
+	} else if s.vectorInDB {
 		// TiDB VECTOR 列以 '[f1,f2,…]' 字面量写入
 		if err := s.insertVectorRows(ctx, rows, vecs); err != nil {
 			return 0, err
@@ -121,6 +149,13 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 
 func (s *Store) DeleteSource(ctx context.Context, projectID store.UUID,
 	sourceType string, sourceID store.UUID) error {
+	if s.Pg != nil {
+		if err := s.Pg.DeleteSource(ctx, hexID(projectID), sourceType, hexID(sourceID)); err != nil {
+			return err
+		}
+		s.invalidate(projectID)
+		return nil
+	}
 	if err := s.DB.WithContext(ctx).
 		Where("project_id = ? AND source_type = ? AND source_id = ?",
 			projectID, sourceType, sourceID).
@@ -157,17 +192,31 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	// 向量路
 	qvecs, err := s.Embed.Embed(ctx, []string{query})
 	if err == nil && len(qvecs) == 1 {
-		var vecHits []vecEntry
-		if s.vectorInDB {
-			vecHits = s.vectorSearchDB(ctx, projectID, qvecs[0], k)
+		if s.Pg != nil {
+			pgHits, err := s.Pg.SearchVector(ctx, hexID(projectID), qvecs[0], k)
+			if err == nil {
+				for rank, r := range pgHits {
+					ranks[r.ID] += rank
+					hits[r.ID] = Hit{
+						ChunkID: r.ID, Content: r.Content,
+						SourceType: r.SourceType, SourceID: r.SourceID,
+						SourceName: r.SourceName, Score: r.Score,
+					}
+				}
+			}
 		} else {
-			vecHits = s.vectorSearch(ctx, projectID, qvecs[0], k)
-		}
-		for rank, e := range vecHits {
-			ranks[e.id] += rank
-			hits[e.id] = Hit{
-				ChunkID: e.id, Content: e.content,
-				SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
+			var vecHits []vecEntry
+			if s.vectorInDB {
+				vecHits = s.vectorSearchDB(ctx, projectID, qvecs[0], k)
+			} else {
+				vecHits = s.vectorSearch(ctx, projectID, qvecs[0], k)
+			}
+			for rank, e := range vecHits {
+				ranks[e.id] += rank
+				hits[e.id] = Hit{
+					ChunkID: e.id, Content: e.content,
+					SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
+				}
 			}
 		}
 	}
@@ -306,7 +355,7 @@ type bm25Index struct {
 	avg  float64
 }
 
-func (s *Store) bm25For(projectID store.UUID) *bm25Index {
+func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
 	key := projectID.String()
 	s.mu.RLock()
 	if idx, ok := s.bm25[key]; ok {
@@ -316,7 +365,19 @@ func (s *Store) bm25For(projectID store.UUID) *bm25Index {
 	s.mu.RUnlock()
 
 	var rows []IndexedChunk
-	_ = s.DB.Where("project_id = ?", projectID).Find(&rows).Error
+	if s.Pg != nil {
+		pgRows, err := s.Pg.SearchBM25(ctx, hexID(projectID))
+		if err == nil {
+			for _, r := range pgRows {
+				rows = append(rows, IndexedChunk{
+					ID: r.ID, ProjectID: projectID, SourceType: r.SourceType,
+					SourceName: r.SourceName, ChunkIdx: r.ChunkIdx, Content: r.Content,
+				})
+			}
+		}
+	} else {
+		_ = s.DB.Where("project_id = ?", projectID).Find(&rows).Error
+	}
 	idx := &bm25Index{
 		tf: map[string]map[string]int{},
 		df: map[string]int{},
@@ -347,7 +408,7 @@ func (s *Store) bm25For(projectID store.UUID) *bm25Index {
 }
 
 func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
-	idx := s.bm25For(projectID)
+	idx := s.bm25For(context.Background(), projectID)
 	if len(idx.docs) == 0 {
 		return nil
 	}
@@ -470,4 +531,9 @@ func VecLiteral(v []float32) string {
 	}
 	b.WriteByte(']')
 	return b.String()
+}
+
+// hexID store.UUID → 32 位无横线 hex（与主库 char(32) 列一致）。
+func hexID(u store.UUID) string {
+	return strings.ReplaceAll(u.String(), "-", "")
 }
