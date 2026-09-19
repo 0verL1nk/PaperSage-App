@@ -1,6 +1,6 @@
 # PaperSage 项目文档
 
-更新：2026-09-16。课题：基于大模型的科研论文写作AI辅助系统设计与实现。
+更新：2026-09-19。课题：基于大模型的科研论文写作AI辅助系统设计与实现。
 
 ## 当前定位
 
@@ -13,6 +13,9 @@
 | 文档 | 用途与状态 |
 |---|---|
 | [课题简介](DEFINITION.md) | 课题定位和核心任务 |
+| [毕设总体逻辑与决策台账](project/13-thesis-product-model.md) | 当前产品主线、范围分层、数据/Agent 边界与待确认问题；持续更新 |
+| [Agent 技能与知识空间治理](project/14-agent-skills-and-knowledge-governance.md) | Agent 路由、自主入库、证据追溯、代码/实验材料与 SSH 扩展边界 |
+| [事件驱动写作与多维审阅](project/15-event-driven-writing-and-review-model.md) | 开放式 Agent 触发、参考文献范式学习、Review Profile 与论文质量维度库 |
 | [调研驱动的实现方案](project/12-ai-writing-design.md) | 当前后续实施基线：场景、证据、修改确认、版本、测试 |
 | [开发路线图](project/11-roadmap.md) | 任务书时间节点与分阶段验收 |
 | [开题报告](proposal/交付/开题报告正文（含参考文献）.md) | 按学校模板组织的研究计划，不是软件完成报告 |
