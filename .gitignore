@@ -210,3 +210,9 @@ frontend/shots/
 server/devs3-data/
 server/.env
 .codegraph/
+
+# Local literature-search cache
+.firecrawl/
+
+# Proposal build scratch space; the reviewed Word/PDF bundle lives in docs/proposal/交付/.
+docs/proposal/.build-preview/
