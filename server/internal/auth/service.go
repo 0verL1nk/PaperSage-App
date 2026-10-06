@@ -216,7 +216,7 @@ func (s *Service) refresh(c *gin.Context) {
 	// 注册表校验（DB 持久化）：行存在、未吊销、未过期
 	row := store.RefreshToken{TokenHash: tokenHash(req.RefreshToken)}
 	err = s.DB.WithContext(ctx).Where("token_hash = ?", row.TokenHash).First(&row).Error
-	if err != nil || row.RevokedAt != nil || time.Now().After(row.ExpiresAt) {
+	if err != nil || row.RevokedAt != nil || time.Now().UTC().After(row.ExpiresAt) {
 		httpapi.WriteError(c.Writer, errBad("Refresh token has been revoked", http.StatusUnauthorized))
 		return
 	}
@@ -242,7 +242,7 @@ func (s *Service) refresh(c *gin.Context) {
 	access, _ := CreateAccessToken(s.Cfg.SecretKey, sub, s.Cfg.AccessTokenExpireMinutes)
 	newRefresh, _ := CreateRefreshToken(s.Cfg.SecretKey, sub, s.Cfg.RefreshTokenExpireDays)
 	// 真正的 refresh token rotation——签发新 token 时吊销旧行（DB）
-	now := time.Now()
+	now := time.Now().UTC()
 	_ = s.DB.WithContext(ctx).Model(&store.RefreshToken{}).
 		Where("token_hash = ?", tokenHash(req.RefreshToken)).
 		Update("revoked_at", now).Error
@@ -262,7 +262,7 @@ func (s *Service) logout(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	_ = s.DB.WithContext(c.Request.Context()).Model(&store.RefreshToken{}).
 		Where("token_hash = ? AND revoked_at IS NULL", tokenHash(req.RefreshToken)).
 		Update("revoked_at", now).Error
@@ -274,7 +274,7 @@ func (s *Service) storeRefresh(ctx context.Context, token string, uid store.UUID
 	row := store.RefreshToken{
 		TokenHash: tokenHash(token),
 		UserID:    uid,
-		ExpiresAt: time.Now().Add(ttl),
+		ExpiresAt: time.Now().UTC().Add(ttl),
 	}
 	_ = s.DB.WithContext(ctx).Where("token_hash = ?", row.TokenHash).FirstOrCreate(&row).Error
 }

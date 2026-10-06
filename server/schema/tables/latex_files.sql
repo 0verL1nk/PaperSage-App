@@ -14,7 +14,10 @@ CREATE TABLE `latex_files` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   `deleted_at` datetime(6) DEFAULT NULL,
-  UNIQUE KEY `uq_project_file_path` (`project_id`,`file_path`),
+  -- 逻辑删除时写入非零值（unix 微秒），活跃行为 0。
+  -- 唯一键包含它，使已删行不再永久占用 file_path（否则删除后无法重建同名文件）。
+  `deleted_seq` bigint NOT NULL DEFAULT '0',
+  UNIQUE KEY `uq_project_file_path` (`project_id`,`file_path`,`deleted_seq`),
   KEY `ix_latex_files_project_id` (`project_id`),
   KEY `ix_latex_files_content_hash` (`content_hash`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,

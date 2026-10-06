@@ -72,3 +72,21 @@ export const SETTINGS = {
   all: `${V1}/settings`,
   category: (category: string) => `${V1}/settings/${category}`,
 } as const
+
+// --- Agent ---
+export const AGENT = {
+  conversations: (projectId: string) => `${V1}/projects/${projectId}/agent/conversations`,
+  conversation: (conversationId: string) => `${V1}/agent/conversations/${conversationId}`,
+  messages: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/messages`,
+  /** 模式 B：先建 Run 再订阅事件 */
+  createRun: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/runs`,
+  runEvents: (runId: string, afterSeq?: number) =>
+    `${V1}/agent/runs/${runId}/events${afterSeq ? `?afterSeq=${afterSeq}` : ''}`,
+  cancelRun: (runId: string) => `${V1}/agent/runs/${runId}/cancel`,
+  retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
+  proposals: (projectId: string, status?: string) =>
+    `${V1}/projects/${projectId}/agent/proposals${status ? `?status=${status}` : ''}`,
+  applyProposal: (id: string) => `${V1}/agent/change-proposals/${id}/apply`,
+  rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
+  artifact: (id: string) => `${V1}/agent/artifacts/${id}`,
+} as const

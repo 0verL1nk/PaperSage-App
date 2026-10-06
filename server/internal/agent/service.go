@@ -2,18 +2,14 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
-	"github.com/cloudwego/eino/adk"
-	"github.com/cloudwego/eino/components/model"
-	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
@@ -43,21 +39,23 @@ type Service struct {
 	Queue   *latex.Queue
 	Cfg     *config.Settings
 	RAG     *rag.Store
+	// hub 只做进程内唤醒，事件的真相在 agent_events（多实例/重启不丢事件）。
+	hub *runHub
+	// cancels 登记进行中 Run 的取消函数（POST /runs/:id/cancel）。
+	cancelMu sync.Mutex
+	cancels  map[store.UUID]context.CancelFunc
+	// files 复用 latex 域的文件服务（路径校验 + 存储 + 缓存），应用建议时用。
+	// 必须复用同一个实例：FilesService 带自己的 LRU 内容缓存，各建一份会让
+	// 同一 S3 key 出现两份缓存、读出陈旧内容。
+	files *latex.FilesService
 }
 
-func NewService(db *gorm.DB, stg storage.Storage, q *latex.Queue, cfg *config.Settings, rg *rag.Store) *Service {
-	return &Service{DB: db, Storage: stg, Queue: q, Cfg: cfg, RAG: rg}
-}
-
-// sseEvent 流给前端的事件形状。
-type sseEvent struct {
-	Type           string `json:"type"` // delta|tool_call|tool_result|done|error
-	Delta          string `json:"delta,omitempty"`
-	Tool           string `json:"tool,omitempty"`
-	Args           string `json:"args,omitempty"`
-	Result         string `json:"result,omitempty"`
-	ConversationID string `json:"conversationId,omitempty"`
-	Message        string `json:"message,omitempty"`
+func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
+	q *latex.Queue, cfg *config.Settings, rg *rag.Store) *Service {
+	return &Service{
+		DB: db, Storage: stg, Queue: q, Cfg: cfg, RAG: rg, files: files,
+		hub: newRunHub(), cancels: map[store.UUID]context.CancelFunc{},
+	}
 }
 
 // chat POST /projects/:id/agent/chat {conversation_id?, content} → SSE
@@ -72,6 +70,8 @@ func (s *Service) chat(c *gin.Context) {
 	var req struct {
 		ConversationID string `json:"conversation_id"`
 		Content        string `json:"content"`
+		// ClientRequestID 幂等键：双击发送/网络重试不产生第二个 Turn。
+		ClientRequestID string `json:"clientRequestId"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
@@ -87,11 +87,8 @@ func (s *Service) chat(c *gin.Context) {
 		})
 		return
 	}
-	chatModel, err := NewChatModel(ctx, resolved)
-	if err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
+	// 模型实例由执行器按 Run 构建（无全局态）；这里只做「是否已配置」的同步校验，
+	// 使未配置模型能在创建 Run 的请求上直接 400，而不是等到流里才报错。
 
 	// 会话（新建或续接，校验归属）
 	conv, err := s.ensureConversation(ctx, store.UUID{UUID: pid}, uid, req.ConversationID, req.Content)
@@ -99,165 +96,58 @@ func (s *Service) chat(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
 		return
 	}
-	// 用户消息先落库
-	msg := store.AgentMessage{
-		ID: store.MustNewUUID(), ConversationID: conv.ID, Role: "user", Content: req.Content,
-	}
-	if err := s.DB.WithContext(ctx).Create(&msg).Error; err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-
-	// 历史消息（含本轮）→ schema.Messages
-	history, err := s.loadHistory(ctx, conv.ID)
+	// Turn 幂等 + Run（独立于 HTTP 连接存在）
+	turn, err := s.ensureTurn(ctx, conv.ID, req.ClientRequestID)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
-
-	// 工具 + Agent（ReAct）。search_references 是 agentic search：内部
-	// 子 agent 多跳检索（rag_search/wiki 读写）
-	tools, err := ProjectTools(s.DB, s.Storage, s.Queue, store.UUID{UUID: pid}, uid)
+	run, err := s.createRun(ctx, conv.ID, turn.ID, AgentKeyMain,
+		resolved.Source, resolved.Model, systemPromptVersion)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
-	if s.RAG != nil {
-		if tcm, ok := chatModel.(model.ToolCallingChatModel); ok {
-			if st, err := SearchTool(ctx, s.DB, s.RAG, store.UUID{UUID: pid}, uid, tcm); err == nil {
-				tools = append(tools, st)
-			}
-		}
+	// 用户消息先落库（文本作为第一个 part）
+	if _, err := s.createUserMessage(ctx, s.DB, conv.ID, turn.ID, req.Content); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
 	}
-	agent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "papersage-writing-assistant",
-		Description: "论文写作助手（可读写项目文件与文献、触发编译）",
-		Instruction: systemPrompt,
-		Model:       chatModel,
-		ToolsConfig: adk.ToolsConfig{
-			ToolsNodeConfig: compose.ToolsNodeConfig{Tools: tools},
-		},
+	_ = s.appendEvent(ctx, conv.ID, run.ID, "run.started", nil)
+
+	// 执行与订阅分离：Run 在独立 goroutine 中跑，HTTP 连接只订阅事件。
+	// 客户端断开后 Run 仍会跑完（参考架构 §3.2 模式 B）。
+	s.StartRun(runContext{
+		RunID:          run.ID,
+		ConversationID: conv.ID,
+		ProjectID:      store.UUID{UUID: pid},
+		UserID:         uid,
+		Content:        req.Content,
 	})
-	if err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{Agent: agent, EnableStreaming: true})
 
-	// SSE 头
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	flusher, ok := c.Writer.(http.Flusher)
+	sw, ok := newStreamWriter(c)
 	if !ok {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "streaming unsupported"})
 		return
 	}
-	writeEvent := func(e sseEvent) {
-		b, _ := json.Marshal(e)
-		_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", b)
-		flusher.Flush()
-	}
-	writeEvent(sseEvent{Type: "meta", ConversationID: conv.ID.String()})
-
-	// 流式执行（eino ADK 事件模型：工具调用挂在 assistant 消息的
-	// ToolCalls 上，结果以 Role=Tool 的消息出现；Next() 返回 (ev, ok)）
-	var final strings.Builder
-	type toolEvt struct {
-		Tool   string `json:"tool"`
-		Args   string `json:"args"`
-		Result string `json:"result"`
-	}
-	var toolEvents []toolEvt
-	toolNames := map[string]string{} // callID → tool 名（跨消息关联）
-
-	handleMsg := func(m *schema.Message) {
-		if m == nil {
-			return
-		}
-		switch m.Role {
-		case schema.Assistant:
-			for _, tc := range m.ToolCalls {
-				toolNames[tc.ID] = tc.Function.Name
-				writeEvent(sseEvent{Type: "tool_call", Tool: tc.Function.Name, Args: compactStr(tc.Function.Arguments)})
-			}
-			if m.Content != "" {
-				final.WriteString(m.Content)
-				writeEvent(sseEvent{Type: "delta", Delta: m.Content})
-			}
-		case schema.Tool:
-			name := toolNames[m.ToolCallID]
-			if name == "" {
-				name = "tool"
-			}
-			res := m.Content
-			if len(res) > 2000 {
-				res = res[:2000] + "…"
-			}
-			writeEvent(sseEvent{Type: "tool_result", Tool: name, Result: res})
-			toolEvents = append(toolEvents, toolEvt{Tool: name, Result: res})
-		}
-	}
-
-	iter := runner.Run(ctx, history) // 流式开关在 RunnerConfig.EnableStreaming
-	for {
-		ev, ok := iter.Next()
-		if !ok {
-			break
-		}
-		if ev.Err != nil {
-			writeEvent(sseEvent{Type: "error", Message: friendlyErr(ev.Err)})
-			s.finishAssistant(ctx, conv.ID, final.String(), toolEvents)
-			return
-		}
-		if ev.Output == nil || ev.Output.MessageOutput == nil {
-			continue
-		}
-		mo := ev.Output.MessageOutput
-		if mo.IsStreaming && mo.MessageStream != nil {
-			for {
-				chunk, err := mo.MessageStream.Recv()
-				if err != nil || chunk == nil {
-					break
-				}
-				// 工具调用也可能出现在流式 chunk 上
-				for _, tc := range chunk.ToolCalls {
-					toolNames[tc.ID] = tc.Function.Name
-					writeEvent(sseEvent{Type: "tool_call", Tool: tc.Function.Name, Args: compactStr(tc.Function.Arguments)})
-				}
-				if chunk.Content == "" {
-					continue
-				}
-				final.WriteString(chunk.Content)
-				writeEvent(sseEvent{Type: "delta", Delta: chunk.Content})
-			}
-		} else {
-			handleMsg(mo.Message)
-		}
-	}
-
-	if final.Len() == 0 && len(toolEvents) == 0 {
-		writeEvent(sseEvent{Type: "error", Message: "模型未返回内容，请重试"})
-		return
-	}
-	s.finishAssistant(ctx, conv.ID, final.String(), toolEvents)
-	writeEvent(sseEvent{Type: "done"})
+	_ = s.streamRun(ctx, sw, run.ID, conv.ID, 0)
 }
 
-// finishAssistant 落库助手消息（云端会话状态）。
-func (s *Service) finishAssistant(ctx context.Context, convID UUID0, content string, toolEvents any) {
-	var te datatypes.JSON
-	if b, err := json.Marshal(toolEvents); err == nil && len(b) > 4 {
-		te = b
+// systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
+// 值会快照进 Run，避免换了提示却仍声称同一实验条件。
+const systemPromptVersion = "v1"
+
+// finishAssistant 落库助手终答并收敛 Run（status 为 RunCompleted / RunFailed）。
+func (s *Service) finishAssistant(ctx context.Context, convID, runID store.UUID, content string, toolEvents any, status string) {
+	msg, err := s.createAssistantMessage(ctx, s.DB, convID, &runID, content, toolEvents)
+	if err != nil {
+		s.finishRun(ctx, runID, RunFailed, nil, "persist assistant message failed")
+		return
 	}
-	msg := store.AgentMessage{
-		ID: store.MustNewUUID(), ConversationID: convID,
-		Role: "assistant", Content: content, ToolEvents: te,
-	}
-	_ = s.DB.WithContext(ctx).Create(&msg).Error
-	_ = s.DB.WithContext(ctx).Exec(
-		"UPDATE agent_conversations SET updated_at = now() WHERE id = ?", convID.String()).Error
+	s.finishRun(ctx, runID, status, &msg.ID, "")
+	// 用应用层时间而非 SQL now()：SQLite 没有 now()，且错误会被丢弃（静默失效）。
+	_ = s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
+		Where("id = ?", convID).Update("updated_at", time.Now().UTC()).Error
 }
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
@@ -286,21 +176,44 @@ func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, i
 
 func (s *Service) loadHistory(ctx context.Context, convID UUID0) ([]*schema.Message, error) {
 	var msgs []store.AgentMessage
+	// 不按条数截断：定长上限会让超过该长度的会话**静默丢掉最近的消息**
+	//（本轮刚写入的用户提问也可能取不到），而且会把一次问答从中间劈开。
+	// 上下文长度应由 token 预算约束，不是这里的条数魔法数字。
 	if err := s.DB.WithContext(ctx).
 		Where("conversation_id = ?", convID).
-		Order("created_at ASC").Limit(50).Find(&msgs).Error; err != nil {
+		Order("created_at ASC").Find(&msgs).Error; err != nil {
 		return nil, err
 	}
 	out := []*schema.Message{{
 		Role:    schema.System,
 		Content: systemPrompt,
 	}}
+	if len(msgs) == 0 {
+		return out, nil
+	}
+	// 内容在 parts 里：取每条消息的 text part 按 ordinal 拼接。
+	ids := make([]store.UUID, 0, len(msgs))
+	for _, m := range msgs {
+		ids = append(ids, m.ID)
+	}
+	var parts []store.AgentMessagePart
+	if err := s.DB.WithContext(ctx).
+		Where("message_id IN ? AND type = ?", ids, PartText).
+		Order("ordinal ASC").Find(&parts).Error; err != nil {
+		return nil, err
+	}
+	byMsg := map[store.UUID]string{}
+	for _, p := range parts {
+		if p.TextContent != nil {
+			byMsg[p.MessageID] += *p.TextContent
+		}
+	}
 	for _, m := range msgs {
 		role := schema.User
 		if m.Role == "assistant" {
 			role = schema.Assistant
 		}
-		out = append(out, &schema.Message{Role: role, Content: m.Content})
+		out = append(out, &schema.Message{Role: role, Content: byMsg[m.ID]})
 	}
 	return out, nil
 }
@@ -317,13 +230,6 @@ func friendlyErr(err error) string {
 		msg = msg[:200]
 	}
 	return "模型调用失败：" + msg
-}
-
-func compactStr(s string) string {
-	if len(s) > 2000 {
-		return s[:2000]
-	}
-	return s
 }
 
 type UUID0 = store.UUID

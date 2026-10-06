@@ -43,11 +43,12 @@ func TestMigrateUpFreshDatabase(t *testing.T) {
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 
 	// 期望值跟随嵌入迁移数自动演进：每张表数 = 基线 8 + 基线后新增表
-	//（0002 refresh_tokens +1）。从迁移 FS 数版本数太绕，直接数业务表。
+	//（0002 refresh_tokens +1、0012 rag_index_generations +1、0013 agent 运行时 +9）。
+	// 从迁移 FS 数版本数太绕，直接数业务表。
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 15, count, "业务表总数（两方言一致；新增迁移时同步更新）")
+	assert.Equal(t, 25, count, "业务表总数（两方言一致；新增迁移时同步更新）")
 
 	// 幂等：再跑一次不报错（ErrNoChange 路径）
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))

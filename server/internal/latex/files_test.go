@@ -174,6 +174,46 @@ func TestFolderRenameAndDelete(t *testing.T) {
 	assert.Len(t, lm.Data.Files, 1, "仅剩 other/c.tex")
 }
 
+// 回归：逻辑删除不得阻止同名重建。
+// 删除走软删除（置 deleted_at），而唯一键 (project_id, file_path) 不区分已删行，
+// 判重用的 findByPath 又被软删过滤拦住 → 重建撞唯一键。
+func TestDeleteThenRecreateSamePath(t *testing.T) {
+	ts, p := seed(t)
+
+	const path = "chapters/recreate.tex"
+	body, _ := json.Marshal(map[string]any{"path": path, "content": "v1"})
+	resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+	require.Equal(t, 200, resp.StatusCode)
+
+	resp = ts.Do(t, http.MethodDelete, latexPath(p, "/"+path), nil)
+	require.Equal(t, 200, resp.StatusCode)
+
+	resp = ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+	require.Equal(t, 200, resp.StatusCode, "删除后应能重建同名文件")
+
+	resp = ts.Do(t, http.MethodGet, latexPath(p, "/"+path), nil)
+	require.Equal(t, 200, resp.StatusCode)
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+	assert.Equal(t, "v1", m["data"].(map[string]any)["content"])
+}
+
+// 回归：同一路径可反复删除与重建。
+func TestRepeatedDeleteAndRecreate(t *testing.T) {
+	ts, p := seed(t)
+
+	const path = "chapters/cycle.tex"
+	for i := 0; i < 3; i++ {
+		content := "v" + string(rune('1'+i))
+		body, _ := json.Marshal(map[string]any{"path": path, "content": content})
+		resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+		require.Equal(t, 200, resp.StatusCode, "第 %d 轮创建失败", i+1)
+
+		resp = ts.Do(t, http.MethodDelete, latexPath(p, "/"+path), nil)
+		require.Equal(t, 200, resp.StatusCode, "第 %d 轮删除失败", i+1)
+	}
+}
+
 func TestForeignProjectDenied(t *testing.T) {
 	ts := testutil.New(t)
 	other := store.User{Username: "latexother", PasswordHash: "x"}

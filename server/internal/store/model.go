@@ -29,6 +29,30 @@ func (b *BaseModel) BeforeCreate(*gorm.DB) error {
 	return nil
 }
 
+// SoftDeleteModel 用于唯一键需要包含 deleted_seq 的表。
+//
+// 与 BaseModel 的唯一区别是 DeletedAt 改用 SoftDeleteTime——逻辑删除时
+// 在同一条 UPDATE 里额外写入 deleted_seq，使唯一键可以带上它。
+// 使用本基类的模型 MUST 自行声明：
+//
+//	DeletedSeq int64 `gorm:"not null;default:0;uniqueIndex:<索引名>,priority:<末位>"`
+//
+// 否则删除行仍会占住唯一键（见 SoftDeleteTime 的说明）。
+type SoftDeleteModel struct {
+	ID        UUID           `gorm:"primaryKey"`
+	CreatedAt time.Time      `gorm:"not null;autoCreateTime"`
+	UpdatedAt time.Time      `gorm:"not null;autoUpdateTime"`
+	DeletedAt SoftDeleteTime `gorm:"index"`
+}
+
+// BeforeCreate 填充 uuid4 主键。
+func (b *SoftDeleteModel) BeforeCreate(*gorm.DB) error {
+	if b.ID.UUID == uuid.Nil {
+		b.ID = UUID{UUID: uuid.Must(uuid.NewV7())}
+	}
+	return nil
+}
+
 type User struct {
 	BaseModel
 	Username          string  `gorm:"size:50;not null;uniqueIndex"`
@@ -105,14 +129,16 @@ type Document struct {
 }
 
 type LatexFile struct {
-	BaseModel
-	ProjectID   UUID    `gorm:"not null;uniqueIndex:uq_project_file_path;index"`
-	FilePath    string  `gorm:"size:500;not null;uniqueIndex:uq_project_file_path"`
+	SoftDeleteModel
+	ProjectID   UUID    `gorm:"not null;uniqueIndex:uq_project_file_path,priority:1;index"`
+	FilePath    string  `gorm:"size:500;not null;uniqueIndex:uq_project_file_path,priority:2"`
 	ContentType *string `gorm:"size:100"`
 	SizeBytes   int64   `gorm:"not null;default:0"`
 	ContentHash *string `gorm:"size:64;index"`
 	S3Key       *string `gorm:"size:500"`
 	LastSavedAt *time.Time
+	// 逻辑删除时由 SoftDeleteTime 写入非零值，使已删行不再占用 uq_project_file_path。
+	DeletedSeq int64 `gorm:"not null;default:0;uniqueIndex:uq_project_file_path,priority:3"`
 
 	Project Project `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
 }
@@ -168,24 +194,33 @@ type VerificationToken struct {
 func (VerificationToken) TableName() string { return "verification_tokens" }
 
 // AgentConversation：AI 助手会话（云端化，DB 持久）。
+// 用 gorm.DeletedAt 而非 SoftDeleteTime：本表无唯一键，不需要 deleted_seq。
 type AgentConversation struct {
-	ID        UUID      `gorm:"column:id;primaryKey"`
-	ProjectID UUID      `gorm:"column:project_id;not null;index"`
-	UserID    UUID      `gorm:"column:user_id;not null"`
-	Title     string    `gorm:"column:title;size:200;default:新对话"`
-	CreatedAt time.Time `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt time.Time `gorm:"column:updated_at;autoUpdateTime"`
+	ID        UUID           `gorm:"column:id;primaryKey"`
+	ProjectID UUID           `gorm:"column:project_id;not null;index"`
+	UserID    UUID           `gorm:"column:user_id;not null"`
+	Title     string         `gorm:"column:title;size:200;default:新对话"`
+	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index"`
+	// 乐观锁：提交消息携带 expected_thread_version，不匹配则 409。
+	Version int64 `gorm:"column:version;not null;default:0"`
 }
 
 func (AgentConversation) TableName() string { return "agent_conversations" }
 
+// AgentMessage 不可变（表无 updated_at），故不复用 BaseModel。
+// 内容由 agent_message_parts 承载，不再有 content / tool_events 两列。
 type AgentMessage struct {
 	ID             UUID           `gorm:"column:id;primaryKey"`
-	ConversationID UUID           `gorm:"column:conversation_id;not null;index"`
+	ConversationID UUID           `gorm:"column:conversation_id;not null;index:ix_agent_messages_history,priority:1"`
+	TurnID         *UUID          `gorm:"column:turn_id"`
+	RunID          *UUID          `gorm:"column:run_id;index"`
 	Role           string         `gorm:"column:role;size:20;not null"`
-	Content        string         `gorm:"column:content;not null"`
-	ToolEvents     datatypes.JSON `gorm:"column:tool_events"`
-	CreatedAt      time.Time      `gorm:"column:created_at;autoCreateTime"`
+	Status         string         `gorm:"column:status;size:20;not null"`
+	CreatedAt      time.Time      `gorm:"column:created_at;autoCreateTime;index:ix_agent_messages_history,priority:2"`
+	CompletedAt    *time.Time     `gorm:"column:completed_at"`
+	DeletedAt      gorm.DeletedAt `gorm:"column:deleted_at;index"`
 }
 
 func (AgentMessage) TableName() string { return "agent_messages" }
@@ -202,14 +237,26 @@ type SystemSetting struct {
 
 func (SystemSetting) TableName() string { return "system_settings" }
 
-func AllModels() []any {
+// extraModels 由各域在 init() 中注册；rag 依赖 store，反向 import 会成环，
+// 故用注册口而非在 store 内重复声明域外结构（那会造成第二份真相源）。
+var extraModels []any
+
+// RegisterModels 注册域外模型参与 AutoMigrate（SQLite 建表路径）。
+func RegisterModels(models ...any) { extraModels = append(extraModels, models...) }
+
+func coreModels() []any {
 	return []any{
 		&User{}, &UserSettings{}, &ProjectGroup{}, &Project{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
 		&SystemSetting{}, &VerificationToken{},
-		&AgentConversation{}, &AgentMessage{},
+		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
+		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},
+		&AgentArtifact{}, &AgentChangeProposal{}, &AgentEvidence{}, &AgentWikiSource{},
 	}
 }
+
+// AllModels 返回 AutoMigrate 的完整模型集合。
+func AllModels() []any { return append(coreModels(), extraModels...) }
 
 // RefreshToken：refresh token 注册表行（DB 持久化，重启不丢）。
 // 只存 SHA-256 hash；本体不入库。

@@ -96,7 +96,8 @@ func TestAgenticSearchSubagent(t *testing.T) {
 		}
 		switch n {
 		case 1:
-			writeTool("t1", "search_references", `{"task":"调研对比学习"}`)
+			// DeepAgent 用 task 工具委派子 agent：目标写在 subagent_type 里
+			writeTool("t1", "task", `{"subagent_type":"search_references","description":"调研对比学习"}`)
 		case 2:
 			writeTool("t2", "rag_search", `{"query":"对比学习"}`)
 		case 3:
@@ -117,7 +118,7 @@ func TestAgenticSearchSubagent(t *testing.T) {
 		AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m"}
 	latexSvc, _ := latex.NewService(nil, cfg)
 	queue := latex.NewQueue(db, nil, latexSvc, cfg)
-	svc := agent.NewService(db, testutil.NewMemStorage(), queue, cfg, rg)
+	svc := agent.NewService(db, testutil.NewMemStorage(), nil, queue, cfg, rg)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
@@ -137,29 +138,61 @@ func TestAgenticSearchSubagent(t *testing.T) {
 	var kinds []string
 	sc := bufio.NewScanner(rec.Body)
 	sc.Buffer(make([]byte, 64*1024), 1024*1024)
-	var sawSearchTool, sawRagHit, sawFinal bool
+	var sawSearchTool, sawRagHit bool
+	var answer string
 	for sc.Scan() {
 		line := sc.Text()
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
+		payload := line[6:]
+		if payload == "[DONE]" { // 协议终止标记，不是 JSON part
+			continue
+		}
 		var e map[string]any
-		require.NoError(t, json.Unmarshal([]byte(line[6:]), &e))
+		require.NoError(t, json.Unmarshal([]byte(payload), &e))
 		kinds = append(kinds, toStr(e["type"]))
-		if e["type"] == "tool_call" && e["tool"] == "search_references" {
+		if e["type"] == "tool-input-start" && e["toolName"] == "task" {
 			sawSearchTool = true
 		}
-		if e["type"] == "tool_result" && strings.Contains(toStr(e["result"]), "对比学习") {
+		if e["type"] == "tool-output-available" && strings.Contains(toStr(e["output"]), "对比学习") {
 			sawRagHit = true
 		}
-		if e["type"] == "delta" && strings.Contains(toStr(e["delta"]), "来源") {
-			sawFinal = true
+		if e["type"] == "text-delta" {
+			// 同 id 的 delta 由前端 reducer 拼接；断言也必须拼接后再看，
+			// 否则等于在断言 chunk 边界（协议不保证边界落在哪里）。
+			answer += toStr(e["delta"])
 		}
 	}
-	assert.True(t, sawSearchTool, "主 agent 应调用 search_references")
-	assert.True(t, sawRagHit, "子 agent 的 rag 命中应作为 tool_result 流出")
-	assert.True(t, sawFinal, "终答应带出处")
-	assert.Equal(t, "done", kinds[len(kinds)-1])
+	t.Logf("事件类型=%v 终答=%q", kinds, answer)
+	assert.True(t, sawSearchTool, "主 agent 应通过 task 工具委派 search_references")
+	assert.True(t, sawRagHit, "子 agent 的 rag 命中应作为 tool-output-available 流出")
+	assert.Contains(t, answer, "来源", "终答应带出处")
+	assert.Equal(t, "finish", kinds[len(kinds)-1])
+
+	// 多 agent：子 agent 调用要留下子 Run（Run 树），而不只是一张工具卡片
+	var children []store.AgentRun
+	require.NoError(t, db.Where("parent_run_id IS NOT NULL").Find(&children).Error)
+	require.NotEmpty(t, children, "search_references 调用应创建子 Run")
+	assert.Equal(t, "search_references", children[0].AgentKey)
+	require.NotNil(t, children[0].ParentRunID)
+
+	var parent store.AgentRun
+	require.NoError(t, db.Where("id = ?", *children[0].ParentRunID).First(&parent).Error)
+	assert.Nil(t, parent.ParentRunID, "主 Run 不应再有父级（树只有一层）")
+	assert.Equal(t, children[0].ConversationID, parent.ConversationID, "子 Run 应属同一会话")
+
+	// 子 Run 应真正拥有自己的工具调用与事件，而不是 Run 树里的一个空节点
+	var childTools, childEvents int64
+	require.NoError(t, db.Model(&store.AgentToolCall{}).
+		Where("run_id = ?", children[0].ID).Count(&childTools).Error)
+	assert.NotZero(t, childTools, "子 agent 的工具调用应记在子 Run 名下，而非父 Run")
+	require.NoError(t, db.Model(&store.AgentEvent{}).
+		Where("run_id = ?", children[0].ID).Count(&childEvents).Error)
+	assert.NotZero(t, childEvents, "子 agent 的事件应写在子 Run 的日志里")
+
+	// 子 agent 的原文不得混入主回答——用户只面对一个 Assistant
+	assert.NotContains(t, answer, "检索完成：", "子 agent 的中间结论不应进入主回答")
 
 	// wiki 沉淀落库
 	var pages int64

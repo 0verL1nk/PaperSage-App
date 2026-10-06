@@ -16,12 +16,9 @@ import {
 } from '@/services/latex-api'
 import { LATEX } from '@/services/api-routes'
 
-// Query keys
-const latexKeys = {
-  files: (projectId: string) => ['latex-files', projectId] as const,
-  content: (projectId: string, filePath: string) =>
-    ['latex-file-content', projectId, filePath] as const,
-}
+// Query keys（定义在 @/lib/query-keys，供 AI 面板等复用而不引入重依赖）
+import { latexKeys } from '@/lib/query-keys'
+export { latexKeys }
 
 // --- Queries ---
 

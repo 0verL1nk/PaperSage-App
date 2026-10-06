@@ -20,3 +20,5 @@ export {
   unwrapApiEnvelope,
   type ApiRequestConfig,
 } from '@/services/client'
+
+export * from '@/services/agent-api'
