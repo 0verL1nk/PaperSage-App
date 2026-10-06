@@ -87,6 +87,10 @@ async function refreshAccessToken(): Promise<SessionTokens> {
 // Request interceptor: add auth header
 apiClient.interceptors.request.use(
   (config) => {
+    // 环境切换在这里生效：baseURL 按当前选中的目标（online/local）逐请求解析，
+    // 不在模块加载时固化——否则部署出去的静态前端切不回本地后端。
+    config.baseURL = getOptionalApiBaseUrl() || undefined
+
     withRequiredRuntimeConfig()
 
     const accessToken = getAccessToken()

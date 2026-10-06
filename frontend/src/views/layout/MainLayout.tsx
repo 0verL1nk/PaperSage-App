@@ -22,6 +22,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Sheet, SheetContent, SheetTrigger, SheetTitle } from '@/components/ui/sheet'
+import { ApiTargetToggle } from '@/components/shared/api-target-toggle'
 import { cn } from '@/lib/utils'
 import { logout } from '@/services/auth-api'
 import { useGroups } from '@/services/projects-api'
@@ -145,6 +146,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden">
             <Search className="size-4 text-muted-foreground" />
           </Button>
+          <ApiTargetToggle />
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted">
             <Bell className="size-4 text-muted-foreground" />
           </Button>

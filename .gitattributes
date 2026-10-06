@@ -1,0 +1,4 @@
+# Shell 脚本必须用 LF。Windows 上 core.autocrlf=true 会把工作区检出成 CRLF，
+# bash 读 `set -euo pipefail` 时会把 \r 当成选项名的一部分，直接报
+# `set: pipefail: invalid option name`（scripts/clsi/*.sh 实际踩过）。
+*.sh text eol=lf
