@@ -8,7 +8,6 @@ CREATE TABLE `refresh_tokens` (
   `expires_at` datetime(6) NOT NULL,
   `revoked_at` datetime(6) DEFAULT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `deleted_at` datetime(6) DEFAULT NULL,
   KEY `ix_refresh_tokens_user_id` (`user_id`),
   PRIMARY KEY (`token_hash`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_rt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE

@@ -7,7 +7,6 @@ CREATE TABLE `user_settings` (
   `category` varchar(100) NOT NULL,
   `settings` json NOT NULL,
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `deleted_at` datetime(6) DEFAULT NULL,
   PRIMARY KEY (`user_id`,`category`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_us_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

@@ -181,7 +181,32 @@ func (s *Service) deleteFolder(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Folder not found"})
 		return
 	}
-	_ = s.DB.WithContext(ctx).Delete(&f).Error // 文档经 FK SET NULL 归到项目根
+	// 软删除落的是 UPDATE，DB 的 ON DELETE SET NULL / CASCADE 都不会触发；
+	// 必须在同一事务里把**整棵子树**的文档解绑归项目根，再软删全部文件夹
+	// （对齐 deleteGroup）。子树按层展开：文件夹没有改父级的接口，不可能成环。
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		ids := []store.UUID{{UUID: fid}}
+		for level := ids; len(level) > 0; {
+			var children []store.UUID
+			if e := tx.Model(&store.Folder{}).
+				Where("owner_id = ? AND parent_id IN ?", store.UUID{UUID: uid}, level).
+				Pluck("id", &children).Error; e != nil {
+				return e
+			}
+			ids = append(ids, children...)
+			level = children
+		}
+		if e := tx.Model(&store.Document{}).
+			Where("folder_id IN ? AND owner_id = ?", ids, store.UUID{UUID: uid}).
+			Update("folder_id", nil).Error; e != nil {
+			return e
+		}
+		return tx.Where("id IN ?", ids).Delete(&store.Folder{}).Error
+	})
+	if err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"id": fid.String(), "deleted": true}, ""))
 }
 

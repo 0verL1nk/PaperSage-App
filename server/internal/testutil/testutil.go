@@ -133,7 +133,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 		t.Fatalf("rag store: %v", err2)
 	}
 	query.SetDefault(db) // 生成 DAO 全局入口（与 bootstrap 对齐）
-	agentSvc := agent.NewService(db, mem, compileQueue, cfg, ragStore)
+	agentSvc := agent.NewService(db, mem, latexFiles, compileQueue, cfg, ragStore)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)

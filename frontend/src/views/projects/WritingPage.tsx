@@ -2,7 +2,7 @@ import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
 import {
-  MessageSquareText, Search, Play, Download, Sparkles, Loader2,
+  Search, Play, Download, Sparkles, Loader2,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus,
 } from 'lucide-react'
@@ -27,8 +27,8 @@ import type { PdfRangeSource, CompileJobStatus, LatexFileItem } from '@/services
 import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
-import { ModelSelector } from '@/views/settings/model-selector'
-import { useSettingsStore } from '@/store/settings-store'
+import { AiPanel } from './ai-panel'
+import { useChatStore } from '@/store/chat-store'
 
 function toPdfFile(source: PdfRangeSource) {
   return source as Parameters<typeof Document>[0]['file']
@@ -147,6 +147,16 @@ export function WritingPage() {
   // Async compile state
   const [compileJobId, setCompileJobId] = useState<string | null>(null)
   const compileStatus = useCompileStatusPolling(projectId, compileJobId)
+
+  // 编译联动：助手调用 compile_project 后把 job id 交接过来，由这里启动轮询刷新预览。
+  // 没有这一步，助手触发的编译结果只能靠用户手动再点一次编译才看得到。
+  const pendingCompileJobId = useChatStore((s) => s.pendingCompileJobId)
+  const consumeCompileJobId = useChatStore((s) => s.consumeCompileJobId)
+  useEffect(() => {
+    if (!pendingCompileJobId) return
+    const id = consumeCompileJobId()
+    if (id) setCompileJobId(id)
+  }, [pendingCompileJobId, consumeCompileJobId])
 
   // Derived state
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
@@ -436,8 +446,8 @@ export function WritingPage() {
     <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <TabButton icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => setActiveTab('files')} />
-        <TabButton icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} />
+        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => setActiveTab('files')} />
+        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} />
         <div className="mt-auto flex flex-col gap-4">
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
@@ -486,7 +496,7 @@ export function WritingPage() {
                       />
                     </div>
                   ) : (
-                    <AIPanel />
+                    <AiPanel projectId={projectId} />
                   )}
                 </aside>
               </Resizable.Panel>
@@ -635,50 +645,15 @@ function ResizeHandle() {
   )
 }
 
-function TabButton({ icon, active, onClick }: { icon: React.ReactNode; active: boolean; onClick: () => void }) {
+function TabButton({ icon, active, onClick, testId }: { icon: React.ReactNode; active: boolean; onClick: () => void; testId?: string }) {
   return (
-    <button onClick={onClick} className={cn("p-2 rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}>
+    <button
+      data-testid={testId}
+      onClick={onClick}
+      className={cn("p-2 rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
+    >
       {icon}
     </button>
-  )
-}
-
-function AIPanel() {
-  const { settings } = useSettingsStore()
-  const agent = settings?.agent
-  const activeProvider = agent?.providers.find((p) => p.id === agent.active_provider_id)
-  const [sessionModel, setSessionModel] = useState<{ providerId: string; model: string } | null>(null)
-
-  const effectiveModel = sessionModel ?? {
-    providerId: agent?.active_provider_id ?? '',
-    model: activeProvider?.active_model ?? '',
-  }
-
-  return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden">
-      <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
-        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2">
-          <Sparkles size={14} className="text-primary" /> AI Assistant
-        </h3>
-        <ModelSelector
-          variant="compact"
-          value={effectiveModel}
-          onChange={setSessionModel}
-        />
-      </div>
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
-          <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">AI</div>
-          Ask me to refine your paragraphs.
-        </div>
-      </div>
-      <div className="p-4 border-t border-border/40 bg-muted/5 flex-none">
-        <div className="relative group">
-          <textarea placeholder="Ask AI..." className="w-full rounded-2xl border border-border/60 bg-background p-4 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28" />
-          <Button size="icon-xs" className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"><MessageSquareText size={14} /></Button>
-        </div>
-      </div>
-    </div>
   )
 }
 

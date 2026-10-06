@@ -92,7 +92,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 		IndexDocument: indexDocumentHook(s3, ragStore),
 	}
 
-	agentSvc := agent.NewService(db, s3, compileQueue, cfg, ragStore)
+	agentSvc := agent.NewService(db, s3, latexFiles, compileQueue, cfg, ragStore)
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)

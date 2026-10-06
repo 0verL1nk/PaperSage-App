@@ -7,7 +7,6 @@ CREATE TABLE `verification_tokens` (
   `user_id` char(32) NOT NULL,
   `expires_at` datetime(6) NOT NULL,
   `used_at` datetime(6) DEFAULT NULL,
-  `deleted_at` datetime(6) DEFAULT NULL,
   KEY `ix_vt_user` (`user_id`),
   PRIMARY KEY (`token_hash`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_vt_user` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE

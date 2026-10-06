@@ -1,7 +1,13 @@
 ## 1. 数据与迁移
 
+> ⚠️ **迁移号须在落地时重新确定**：本文档写的 `0011` 是立项时的占位。
+> `data-integrity-refactor` 已完成并占用 `0012`（见其 design.md）。golang-migrate 的
+> `Up` 只应用版本号**大于**当前记录值的迁移，若在本变更之前已有环境应用到 0012，
+> 再补一个 `0011` 将永远不会被执行，导致该环境与全新安装的 schema 静默分叉。
+> 落地时按当时的最大号顺延（当前应为 `0013`）。
+
 - [ ] 1.1 `server/schema/tables/projects.sql` 增 `scenario` 列；新增 `server/schema/tables/project_writing_states.sql`（真相源）
-- [ ] 1.2 `server/migrations/{postgres,mysql}/0011_writing_workbench.{up,down}.sql`：up 加列建表 / down 反向；登记 PG 集成测试
+- [ ] 1.2 `server/migrations/{postgres,mysql}/NNNN_writing_workbench.{up,down}.sql`：up 加列建表 / down 反向；登记 PG 集成测试
 - [ ] 1.3 store：`ProjectWritingState` 模型 + `AllModels()` 注册（SQLite AutoMigrate）；`make generate-dao` 生成 DAO
 
 ## 2. 后端：项目场景

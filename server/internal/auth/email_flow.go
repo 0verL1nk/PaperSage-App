@@ -219,10 +219,12 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 		return
 	}
 	// 注册表：hash 存储（与 refresh_tokens 同模式）
+	// 过期时刻以 UTC 写入；邮件展示复用同一时刻（HTML 内转北京时间）
+	expiresAt := time.Now().UTC().Add(verifyTokenTTL)
 	row := store.VerificationToken{
 		TokenHash: tokenHash(token),
 		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(verifyTokenTTL),
+		ExpiresAt: expiresAt,
 	}
 	_ = s.DB.WithContext(ctx).Create(&row).Error
 
@@ -237,7 +239,7 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 	}
 	mailer := s.resolveMailer()
 	link := appURL + "/auth/verify?token=" + token
-	html := verificationEmailHTML(link, time.Now().Add(verifyTokenTTL))
+	html := verificationEmailHTML(link, expiresAt)
 	if err := mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
 		// 日志不落 token（OWASP）
 		slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
@@ -280,7 +282,7 @@ func (s *Service) verifyEmail(c *gin.Context) {
 	}
 	var row store.VerificationToken
 	err = s.DB.Where("token_hash = ?", tokenHash(token)).First(&row).Error
-	if err != nil || time.Now().After(row.ExpiresAt) {
+	if err != nil || time.Now().UTC().After(row.ExpiresAt) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
@@ -296,7 +298,7 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
-	now := time.Now()
+	now := time.Now().UTC()
 	_ = s.DB.Model(&store.VerificationToken{}).
 		Where("token_hash = ?", row.TokenHash).Update("used_at", now).Error
 	_ = s.DB.Model(&store.User{}).
