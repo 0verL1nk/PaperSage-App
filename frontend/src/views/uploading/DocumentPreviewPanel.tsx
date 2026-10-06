@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { FileText, ZoomIn, ZoomOut, RotateCcw, X, AlertTriangle } from 'lucide-react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { Button } from '@/components/ui/button'
-import { appEnv } from '@/lib/env'
+import { getOptionalApiBaseUrl } from '@/lib/env'
 import { apiClient } from '@/services/client'
 import { toast } from 'sonner'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
@@ -22,7 +22,8 @@ const ZOOM_DEFAULT = 1.0
 const DEBOUNCE_MS = 400
 
 function buildPreviewUrl(docId: string): string {
-  return `${appEnv.apiBaseUrl}/api/v1/documents/${docId}/preview`
+  // 与 apiClient 一致：按当前选中的环境解析，切换后预览也跟着走
+  return `${getOptionalApiBaseUrl()}/api/v1/documents/${docId}/preview`
 }
 
 function authHeaders(): Record<string, string> {
