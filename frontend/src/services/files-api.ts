@@ -1,8 +1,15 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AxiosProgressEvent } from 'axios'
-import { getJson, postJson, deleteFetch, putJson, postMultipart } from './client'
+import { apiClient, getJson, postJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
 import { DOCUMENTS } from './api-routes'
+import { useSessionStore } from '@/store'
+import { confirmGuestDocument, deleteGuestDocument, getGuestDocumentBlob, listGuestDocuments, moveGuestDocument, saveGuestDocument, updateGuestDocumentRemark } from './guest-local-workspace'
+
+export function fetchDocumentPreviewBlob(documentId: string) {
+  if (useSessionStore.getState().isGuest) return getGuestDocumentBlob(documentId)
+  return apiClient.get<Blob>(DOCUMENTS.preview(documentId), { responseType: 'blob' }).then((response) => response.data)
+}
 
 function mapDocKeys(raw: Record<string, unknown>): ProjectDocument {
   return {
@@ -23,6 +30,7 @@ export function useDocuments(projectId: string, folderId: string | null) {
   return useQuery({
     queryKey: ['documents', projectId, folderId],
     queryFn: async () => {
+      if (useSessionStore.getState().isGuest) return listGuestDocuments(projectId, folderId)
       const url = folderId
         ? DOCUMENTS.listByFolder(folderId)
         : DOCUMENTS.listByProject(projectId)
@@ -36,7 +44,9 @@ export function useDocuments(projectId: string, folderId: string | null) {
 export function useDeleteDocument(projectId: string, folderId: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (documentId: string) => deleteFetch(DOCUMENTS.delete(documentId)),
+    mutationFn: (documentId: string) => useSessionStore.getState().isGuest
+      ? deleteGuestDocument(documentId)
+      : deleteFetch(DOCUMENTS.delete(documentId)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }
@@ -45,7 +55,9 @@ export function useMoveDocument(projectId: string, currentFolderId: string | nul
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ documentId, data }: { documentId: string; data: MoveDocumentInput }) =>
-      putJson<ProjectDocument>(DOCUMENTS.move(documentId), { folder_id: data.folderId }),
+      useSessionStore.getState().isGuest
+        ? moveGuestDocument(documentId, data.folderId)
+        : putJson<ProjectDocument>(DOCUMENTS.move(documentId), { folder_id: data.folderId }),
     onSuccess: (_, variables) => {
       qc.invalidateQueries({ queryKey: ['documents', projectId, currentFolderId] })
       qc.invalidateQueries({ queryKey: ['documents', projectId, variables.data.folderId] })
@@ -57,7 +69,9 @@ export function useUpdateRemark(projectId: string, folderId: string | null) {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: ({ documentId, data }: { documentId: string; data: UpdateRemarkInput }) =>
-      putJson<ProjectDocument>(DOCUMENTS.remark(documentId), data),
+      useSessionStore.getState().isGuest
+        ? updateGuestDocumentRemark(documentId, data.remark)
+        : putJson<ProjectDocument>(DOCUMENTS.remark(documentId), data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }
@@ -69,7 +83,9 @@ export type StagedUploadResult = ProjectDocument & { duplicate?: boolean }
 export function useConfirmDocument(projectId: string, folderId: string | null) {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (documentId: string) => postJson<ProjectDocument>(DOCUMENTS.confirm(documentId)),
+    mutationFn: (documentId: string) => useSessionStore.getState().isGuest
+      ? confirmGuestDocument(documentId)
+      : postJson<ProjectDocument>(DOCUMENTS.confirm(documentId)),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['documents', projectId, folderId] }),
   })
 }
@@ -81,6 +97,10 @@ export function useUploadDocument(projectId: string, folderId: string | null) {
       file: File; remark?: string; staged?: boolean
       onUploadProgress?: (e: AxiosProgressEvent) => void
     }) => {
+      if (useSessionStore.getState().isGuest) {
+        const document = await saveGuestDocument(projectId, file, folderId, remark)
+        return { ...document, duplicate: false }
+      }
       const formData = new FormData()
       formData.append('file', file)
       formData.append('projectId', projectId)

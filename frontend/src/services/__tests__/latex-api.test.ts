@@ -13,6 +13,7 @@ vi.mock('react-pdf', () => ({
 // Mock store for getAccessToken used in getPdfRangeSource
 vi.mock('@/store', () => ({
   getAccessToken: vi.fn().mockReturnValue('test-token'),
+  useSessionStore: { getState: () => ({ isGuest: false }) },
 }))
 
 // Mock PDF range transport

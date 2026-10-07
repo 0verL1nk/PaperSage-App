@@ -24,6 +24,10 @@ import (
 // Embedder 文本 → 向量。实现可注入（HTTP / 测试替身）。
 type Embedder interface {
 	Embed(ctx context.Context, texts []string) ([][]float32, error)
+	// Describe 返回模型标识与向量维度，供索引代次记录。
+	// 更换嵌入模型必须重建索引，因此代次上要能看出用的是哪个模型。
+	// 维度未知时返回 0（如 HTTP 嵌入器在首次调用前无从得知）。
+	Describe() (model string, dim int)
 }
 
 // HTTPEmbedder：OpenAI 兼容 POST {base}/embeddings。
@@ -81,9 +85,25 @@ func (e *HTTPEmbedder) Embed(ctx context.Context, texts []string) ([][]float32, 
 	return vecs, nil
 }
 
+// Describe 实现 Embedder。HTTP 嵌入器在首次调用前无从得知维度，故返回 0。
+func (e *HTTPEmbedder) Describe() (string, int) {
+	if e.Model == "" {
+		return "http", 0
+	}
+	return e.Model, 0
+}
+
 // HashEmbedder：确定性嵌入兜底（sha1 词袋哈希），语义无关但稳定，
 // 用于验证索引/检索管线而非语义质量。
 type HashEmbedder struct{ Dim int }
+
+// Describe 实现 Embedder。
+func (h HashEmbedder) Describe() (string, int) {
+	if h.Dim == 0 {
+		return "hash", 512
+	}
+	return "hash", h.Dim
+}
 
 func (h HashEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
 	dim := h.Dim

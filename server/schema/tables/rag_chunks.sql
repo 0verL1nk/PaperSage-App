@@ -11,10 +11,13 @@ CREATE TABLE `rag_chunks` (
   `chunk_idx` int NOT NULL DEFAULT '0',
   `content` text NOT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  `deleted_at` datetime(6) DEFAULT NULL,
+  -- 索引代次：片段归属哪一代；检索只命中项目当前 active 的代次。
+  -- 见 docs/project/12-ai-writing-design.md §6.3（建新代次—校验—切换活动代次）。
+  `generation` bigint NOT NULL DEFAULT '1',
   `embedding` vector DEFAULT NULL,
   KEY `ix_rag_chunks_project` (`project_id`),
   KEY `ix_rag_chunks_source` (`source_type`,`source_id`),
+  KEY `ix_rag_chunks_generation` (`project_id`,`generation`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_rc_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

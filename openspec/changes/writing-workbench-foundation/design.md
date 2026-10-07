@@ -46,8 +46,8 @@
 
 ### D5 前端信息架构与路由
 - 项目内导航（`WorkspaceLayout`）：资料库（保留 `/project/:id/uploading`）→ 写作准备（新 `/project/:id/prepare`）→ 内容撰写（保留 `/project/:id/writing`）→ 检查完善（新 `/project/:id/review`）。
-- 项目根 `/project/:id` 默认重定向从 `uploading` 改为 `prepare`（阶段优先；资料库仍一键可达）。
-- 移除 `classifying` / `logic-chain` / `generating` 占位路由，统一重定向到 `/project/:id/prepare`；移除 `ComingSoon` 用法与对应 i18n 占位词条。
+- 项目根 `/project/:id` 默认重定向到 `prepare`（阶段优先；资料库仍一键可达）。
+- `classifying` / `logic-chain` / `generating` 不再展示占位页，旧链接统一重定向到 `/project/:id/prepare`；保留兼容路由以免已有书签失效。
 - 备选：保留占位 tab 到后续变更（与主线 IA 冲突、答辩演示混乱）；否。
 
 ### D6 写作状态 JSON 形状（v1）
@@ -86,14 +86,15 @@
 
 ### D10 迁移与数据
 - `server/schema/tables/projects.sql` 增列；新增 `server/schema/tables/project_writing_states.sql`（MySQL 方言真相源）。
-- `server/migrations/postgres/0011_writing_workbench.{up,down}.sql` 与 `server/migrations/mysql/0011_writing_workbench.{up,down}.sql`。
+- 使用迁移 `0014_writing_workbench`（此前 `0012`、`0013` 已占用）；PostgreSQL 与 MySQL 双方言各有 up/down 文件。
 - `store.AllModels()` 注册新模型（SQLite AutoMigrate 路径）。
-- DAO：`internal/store/query` 由 `make generate-dao SCHEMA_DSN=...` 生成（CI/开发机执行）；本变更多数读写可在服务层用 GORM 表达。
+- `ProjectWritingState` 已注册到 `store.AllModels()`；本变更读写使用 GORM，未依赖生成 DAO。
 
 ### D11 测试策略
 - 后端契约测试：writingstate（默认合成 / 递增 / 409 载荷 / 404 越权 / 422 枚举与体积 / 旧数据逐键合并）；projects 补 scenario（创建、默认、返回）。
 - 前端：`writing-state-api` 单测（URL、请求体、错误归一化）；准备页组件测试（编辑保存、待补项、409 冲突 UI）；导航测试（阶段跳转、重定向、根路径）。
 - e2e：新建带场景项目 → 准备页编辑保存 → 刷新持久 → 撰写 ↔ 准备交叉跳转 → 检查页骨架可见。
+- 响应式 Playwright 检查覆盖 320/390/768/1024/1440px 宽度下的准备、检查、资料库与 LaTeX 写作页，检查文档横向溢出、导航遮挡、主内容起点、移动导航触控高度和编辑器宽度。
 
 ## Risks / Trade-offs
 
@@ -106,12 +107,12 @@
 
 ## Migration Plan
 
-1. 迁移 0011 上线（加列 + 建表，无破坏性变更）。
+1. 迁移 0014 上线（加列 + 建表，无破坏性变更）。
 2. 旧版本回滚时新表/列保留，旧代码忽略之；无需数据回填。
 3. 前端路由重定向兜底随发布生效。
 
-## Open Questions
+## Resolved Questions（2026-10-04 评审）
 
-- 待评审：移除三个占位 tab 与「默认落地写作准备页」是否接受（proposal 已标注 BREAKING / 动线变化）。
-- 材料概览是否需要「确认入库」快捷操作（当前设计仅只读 + 跳转资料库）。
-- 阶段状态是否允许三阶段均为 done 后继续编辑（本设计：允许，无锁）。
+- 移除三个占位 tab 与「默认落地写作准备页」**接受**，按 D5 执行（BREAKING 动线变化已在 proposal 标注）。
+- 材料概览**不加**「确认入库」快捷操作，保持 D7 只读汇总 + 跳转资料库；若后续需要，涉及 documents 域状态字段，另立变更。
+- 阶段状态**允许**三阶段均为 done 后继续编辑，无锁（与硬约束「不清空、不锁定」一致）。

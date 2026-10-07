@@ -17,9 +17,12 @@ export interface Project {
   owner_id: string
   group_id: string | null
   status: string
+  scenario: ProjectScenario
   is_deleted: boolean
   deleted_at: string | null
   created_at: string
   updated_at: string
   group?: ProjectGroup | null
 }
+
+export type ProjectScenario = 'undergraduate_thesis' | 'intro_paper'

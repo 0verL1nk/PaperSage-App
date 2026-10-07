@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { getOptionalApiBaseUrl, getRequiredApiBaseUrl } from '@/lib/env'
 import { AUTH } from '@/services/api-routes'
-import { clearSessionTokens, getAccessToken, getRefreshToken, setSessionTokens, type SessionTokens } from '@/store'
+import { clearSessionTokens, getAccessToken, getRefreshToken, mergeRefreshedTokens, setSessionTokens, useSessionStore, type SessionTokens } from '@/store'
 import { hideGlobalLoading, showGlobalLoading } from '@/store'
 import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
 import {
@@ -68,10 +68,10 @@ async function refreshAccessToken(): Promise<SessionTokens> {
       })
     }
 
-    const newTokens: SessionTokens = {
+    const newTokens = mergeRefreshedTokens({
       accessToken: response.data.data.accessToken,
       refreshToken: response.data.data.refreshToken,
-    }
+    }, useSessionStore.getState())
 
     // Save new tokens
     setSessionTokens(newTokens)
@@ -87,6 +87,10 @@ async function refreshAccessToken(): Promise<SessionTokens> {
 // Request interceptor: add auth header
 apiClient.interceptors.request.use(
   (config) => {
+    // 环境切换在这里生效：baseURL 按当前选中的目标（online/local）逐请求解析，
+    // 不在模块加载时固化——否则部署出去的静态前端切不回本地后端。
+    config.baseURL = getOptionalApiBaseUrl() || undefined
+
     withRequiredRuntimeConfig()
 
     const accessToken = getAccessToken()
@@ -133,6 +137,7 @@ apiClient.interceptors.response.use(
       error.response?.status === 401 &&
       !requestConfig?.url?.includes('/auth/login') &&
       !requestConfig?.url?.includes('/auth/register') &&
+      !requestConfig?.url?.includes('/auth/guest') &&
       !requestConfig?.url?.includes('/auth/refresh') &&
       !requestConfig?.skipAuthRefresh
     ) {
@@ -190,6 +195,7 @@ apiClient.interceptors.response.use(
     const isAuthEndpoint =
       requestConfig?.url?.includes('/auth/login') ||
       requestConfig?.url?.includes('/auth/register') ||
+      requestConfig?.url?.includes('/auth/guest') ||
       requestConfig?.url?.includes('/auth/refresh')
     if (!isAuthEndpoint && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()

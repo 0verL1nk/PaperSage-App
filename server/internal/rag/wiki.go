@@ -14,12 +14,14 @@ import (
 // WikiPage — LLM wiki：子 agent 检索过程的沉淀页（也被 hybrid 索引，
 // 下次检索可直达知识而非重读原文）。
 type WikiPage struct {
-	ID        store.UUID     `gorm:"column:id;primaryKey"`
-	ProjectID store.UUID     `gorm:"column:project_id;index"`
-	Title     string         `gorm:"column:title;size:200"`
-	Content   string         `gorm:"column:content"`
-	Meta      datatypes.JSON `gorm:"column:meta"`
-	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	ID          store.UUID     `gorm:"column:id;primaryKey"`
+	ProjectID   store.UUID     `gorm:"column:project_id;index"`
+	Title       string         `gorm:"column:title;size:200"`
+	Content     string         `gorm:"column:content"`
+	Meta        datatypes.JSON `gorm:"column:meta"`
+	SourceRunID *store.UUID    `gorm:"column:source_run_id"`
+	StaleAt     *time.Time     `gorm:"column:stale_at"`
+	UpdatedAt   time.Time      `gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (WikiPage) TableName() string { return "agent_wiki_pages" }

@@ -10,7 +10,12 @@ CREATE TABLE `agent_conversations` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   `deleted_at` datetime(6) DEFAULT NULL,
-  KEY `ix_agent_conversations_project` (`project_id`),
+  -- 乐观锁：提交消息时携带 expected_thread_version，不匹配则 409，
+  -- 避免两个标签页/设备各写一条而互相覆盖。
+  `version` bigint NOT NULL DEFAULT '0',
+  -- 会话列表：WHERE project_id AND user_id ORDER BY updated_at DESC
+  -- （project_id 单列索引是其前缀，不再单列重复建）
+  KEY `ix_agent_conversations_list` (`project_id`,`user_id`,`updated_at`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   KEY `fk_ac_user` (`user_id`),
   CONSTRAINT `fk_ac_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,

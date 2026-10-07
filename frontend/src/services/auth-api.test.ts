@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { FrontendApiError, postMultipart } from '@/services'
-import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
+import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
+import { confirmPasswordReset, getCurrentUser, loginWithPassword, registerWithEmail, requestPasswordReset } from '@/services/auth-api'
 import { sha256 as jsSha256 } from 'js-sha256'
 
 vi.mock('@/services', async () => {
@@ -8,7 +8,9 @@ vi.mock('@/services', async () => {
 
   return {
     ...actual,
+    getJson: vi.fn(),
     postMultipart: vi.fn(),
+    postJson: vi.fn(),
   }
 })
 
@@ -26,6 +28,36 @@ async function sha256WebCrypto(message: string): Promise<string> {
 describe('auth api', () => {
   beforeEach(() => {
     vi.mocked(postMultipart).mockReset()
+    vi.mocked(getJson).mockReset()
+    vi.mocked(postJson).mockReset()
+  })
+
+  it('reads the active account identity from the normal auth endpoint', async () => {
+    vi.mocked(getJson).mockResolvedValue({ isGuest: false, emailVerified: true })
+    await expect(getCurrentUser()).resolves.toMatchObject({ isGuest: false, emailVerified: true })
+    expect(getJson).toHaveBeenCalledWith('/api/v1/auth/me', { skipGlobalLoading: true })
+  })
+
+  it('requests a reset link without exposing whether the email exists', async () => {
+    vi.mocked(postJson).mockResolvedValue({ message: '如果该邮箱已验证并关联 PaperSage 账号，我们会发送密码重置链接。' })
+    await requestPasswordReset('alice@example.com')
+    expect(postJson).toHaveBeenCalledWith(
+      '/api/v1/auth/password-reset/request',
+      { email: 'alice@example.com' },
+      { skipGlobalLoading: true },
+    )
+  })
+
+  it('hashes a new password before submitting the reset token', async () => {
+    vi.mocked(postJson).mockResolvedValue({ message: '密码已重置' })
+    await confirmPasswordReset('opaque-reset-token', 'NewSecret123')
+    const [, payload] = vi.mocked(postJson).mock.calls[0] ?? []
+    expect(postJson).toHaveBeenCalledWith(
+      '/api/v1/auth/password-reset/confirm',
+      { token: 'opaque-reset-token', password: await sha256WebCrypto('NewSecret123') },
+      { skipGlobalLoading: true },
+    )
+    expect(payload).not.toHaveProperty('rawPassword')
   })
 
   it('hashes the password and submits login as multipart data', async () => {

@@ -44,7 +44,7 @@ frontend/src/
 └── views/              # Page-level view components
     ├── auth/           # Login/register views
     ├── layout/         # App shell, sidebar, navigation
-    ├── projects/       # Project list, writing page (LaTeX editor + PDF preview, file tree)
+    ├── projects/       # Project list, preparation/review workbench, LaTeX writing editor
     ├── settings/       # User settings (general / editor / agent)
     ├── trash/          # Trash/deleted items
     └── uploading/      # Reference upload module (folder tree, dropzone, data table)
@@ -57,6 +57,7 @@ frontend/src/
 - HTTP: Axios with token refresh interceptor (`services/client.ts`)
 - LaTeX editing: CodeMirror + Monaco editor integration
 - Auth: JWT (`accessToken` + `refreshToken`) stored in localStorage
+- Project workflow: `/project/:projectId/prepare`, `/writing`, `/review` plus the reference library at `/uploading`; old planned stage URLs redirect to preparation. Research brief, requirement notes, and user-maintained phase state use the owner-scoped `/projects/:id/writing-state` API with revision-based conflict handling.
 
 ### Backend (Go — gin + GORM, single binary)
 
@@ -88,7 +89,12 @@ server/
 **Key patterns:**
 - gin + 按域分包（域内 handler+service；store 集中放模型防 import 环）
 - 装配集中在 internal/bootstrap.Build()；cmd/ 只有进程生命周期
-- 软删除全表统一 gorm.DeletedAt（BaseModel 自带；回收站/恢复用 Unscoped）
+- 删除语义**分层**（不再"全表软删除"）：用户资产（projects/groups/folders/documents/latex_files）与会话记录（agent_conversations/agent_messages）走软删；派生索引（rag_chunks/agent_wiki_pages）与基础设施（refresh_tokens/verification_tokens/system_settings/user_settings）走硬删——给它们挂 `deleted_at` 只会让"已删除"的判定悬空（模型未映射时查询会返回已删行、`Delete()` 退化为物理删除）
+- 软删是 `UPDATE`，**不会触发出键的 `ON DELETE CASCADE` / `SET NULL`**：删除父级时必须显式处理子行（参见 `projects.deleteGroup`、`documents.deleteFolder`）
+- 唯一键需要"删除后同名可重建"的表用 `store.SoftDeleteModel` + `deleted_seq`（活跃 0 / 删除为 unix 微秒），唯一键带上该列；只用 `gorm.DeletedAt` 的表会被已删行永久占位（`server/internal/store/softdelete.go`）
+- 查询走 `.Model(...)` 而非 `.Table(...)`：后者没有挂模型，GORM 的软删过滤不会生效
+- 业务时间戳一律由应用层以 UTC 写入；`gorm.Config.NowFunc` 已固定 UTC（`store.gormConfig`），禁止裸方言时间函数（如 `now()`，SQLite 无此函数且错误会被静默丢弃）
+- `server/schema/tables/*.sql`、`server/migrations/{postgres,mysql}/`、Go 模型是同一 schema 的三份表述；`internal/store/schema_drift_test.go` 会逐表比对模型与 truth source 的列集合，漂移即测试失败
 - CRUD 走 gorm.io/gen 生成的类型安全 DAO（internal/store/query；`make generate-dao`）
 - SQL-first：schema/tables/*.sql 每表一份 DDL（真相源）；`make schema SCHEMA_DSN=...` 从真实库刷新；`make generate-dao SCHEMA_DSN=...` 从 SQL 建库生成 DAO
 - 构造函数依赖注入（无全局单例）；测试用 testutil 内存替身
@@ -98,6 +104,17 @@ server/
 - 测试覆盖率门槛 ≥80%（server-ci 强制）
 - 单二进制交付：`make build-server`；SPA fallback / assets immutable 缓存
 - 迁移：golang-migrate + Alembic 交接（存量 PG 库启动时自动接管，schema 不变）
+- **Agent 运行时（模式 B）**：一次提交 = Turn + Run；`POST /agent/conversations/:id/runs` 建 Run 并**立刻返回**，执行在独立 goroutine 里跑（`internal/agent/runexec.go`），客户端断开也照常跑完；`GET /agent/runs/:id/events` 订阅事件
+- **会话要先显式建**：`POST /projects/:id/agent/conversations`。Run 路径要求会话已存在，面板在**第一条消息**时先建会话再发 Run——没有这个入口，新项目的第一句话会静默丢失
+- **事件真相在 `agent_events`**（Run 内单调 sequence），进程内 hub 只做唤醒——多实例/重启不丢事件
+- **传输协议对齐 AI SDK UI Message Stream**（`internal/agent/protocol.go`，响应头 `x-vercel-ai-ui-message-stream: v1`）：part 词汇为 `start` / `text-*` / `tool-input-*` / `tool-output-*` / `data-*` / `finish` / `[DONE]`。工具事件带 `toolCallId`，**不再按同名工具配对**
+- **消息由 Part 组成**（`agent_message_parts`），不再有 `content` / `tool_events` 两列；前端用 Normalized Store + Reducer 按 part id 幂等归并（`frontend/src/store/chat-store.ts`）
+- **工具调用是可审计状态机**（`agent_tool_calls`）：`ready → executing → succeeded|failed`，需审批者停在 `awaiting_approval`；带 `seq` 与 `idempotency_key`
+- **助手不直接改稿**：主 agent 无写盘工具，`propose_edit` 只产出建议；用户确认后由服务端**重新校验基准版本**再应用（`internal/agent/proposals.go`）。旧建议在稿件变化后转 `stale`，不得用旧基准覆盖新内容
+- **Agent 基座用 Eino prebuilt `DeepAgent`**（`adk/prebuilt/deep`）：多 agent 是**声明式**的——子 agent 放进 `deep.Config.SubAgents`，由它生成 `task` 工具编排；**不要手工包 `adk.NewAgentTool`**，也不要自己解析工具参数去判断「哪个子 agent」——开 `ToolsConfig.EmitInternalEvents` 后 `AgentEvent.AgentName` 已经给出事件来源
+- **多 Agent 拓扑**：主 agent 只挂领域工具；`search_references` 是声明的子 agent，调用时开子 Run（`parent_run_id`）形成 Run 树。子 agent 的事件写进**它自己的子 Run** 留档，**不计入主回答**——用户始终只面对一个 Assistant。子 agent 只回最终结论，其多轮检索过程不外泄到主上下文
+- 不设 `Backend` / `Shell`（不注册文件系统与命令工具）、不设 `MaxIteration`：不凭空加能力，也不凭空定上限
+- 幂等：`clientRequestId`（Turn/Run）、`idempotency_key`（工具副作用）、`expectedThreadVersion` 乐观锁（会话版本）
 
 ### LaTeX Pipeline
 
@@ -159,8 +176,10 @@ golangci-lint run       # CI 使用
 ### Combined
 
 ```bash
-make check              # gofmt/vet + typecheck + lint (all)
-make test               # go test + vitest (all)
+make check-backend      # gofmt + go vet + 编译检查
+make check-frontend     # typecheck + lint
+make test-backend       # go test（后端）
+make test-frontend      # vitest（前端）
 make build-server       # 单二进制（前端 embed）
 make seed               # 种子数据（e2e/dev，幂等）
 make parity             # 双跑对比（迁移期验收工具）
@@ -221,6 +240,10 @@ Backend reads env vars via `server/internal/config`（变量名与旧 Python 版
 - **Redis**: `redis://localhost:6379/0` — falls back to in-memory
 - **S3**: Cloudflare R2 (`S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`)
 - **LaTeX**: `LATEX_CLSI_BASE_URL=http://localhost:3013`, `LATEX_CLSI_ENABLED`
+- **Agent（AI 助手）**: 优先用 per-user 设置里的 provider；服务端兜底用
+  `AGENT_API_KEY` / `AGENT_BASE_URL` / `AGENT_MODEL`（OpenAI 兼容；DeepSeek 走 BaseURL）。
+  嵌入用 `EMBED_API_KEY` / `EMBED_BASE_URL` / `EMBED_MODEL`，未配置则退回哈希嵌入（仅保证管线可用）。
+  两者都未配置时，创建 Run 的请求返回 400 + 引导文案，面板展示「去设置」入口。
 - **Email**: Resend (`RESEND_API_KEY`) or SMTP fallback
 - **Auth**: `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=7`
 

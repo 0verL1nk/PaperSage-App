@@ -4,6 +4,7 @@ package documents
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
@@ -159,7 +161,42 @@ func (s *Service) createFolder(c *gin.Context) {
 		Name: *req.Name, ParentID: parentID,
 		ProjectID: store.UUID{UUID: *projectID}, OwnerID: store.UUID{UUID: uid},
 	}
-	if err := s.DB.WithContext(ctx).Create(&f).Error; err != nil {
+	key, hasKey, keyErr := importreceipt.Parse(c.Request.Header)
+	if keyErr != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	if hasKey {
+		fingerprint, err := importreceipt.Fingerprint(struct {
+			Name      string
+			ProjectID uuid.UUID
+			ParentID  *uuid.UUID
+		}{Name: f.Name, ProjectID: *projectID, ParentID: parentUUID})
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+		f.ID = store.MustNewUUID()
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			resourceID, replay, err := importreceipt.Claim(tx, f.OwnerID, key, "folder", fingerprint, f.ID)
+			if err != nil {
+				return err
+			}
+			if replay {
+				f.ID = resourceID
+				return tx.Where("id = ? AND owner_id = ?", f.ID, f.OwnerID).First(&f).Error
+			}
+			return tx.Create(&f).Error
+		})
+		if errors.Is(err, importreceipt.ErrConflict) || errors.Is(err, gorm.ErrRecordNotFound) {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Import key conflicts with existing content or resource"})
+			return
+		}
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+	} else if err := s.DB.WithContext(ctx).Create(&f).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
@@ -181,7 +218,32 @@ func (s *Service) deleteFolder(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Folder not found"})
 		return
 	}
-	_ = s.DB.WithContext(ctx).Delete(&f).Error // 文档经 FK SET NULL 归到项目根
+	// 软删除落的是 UPDATE，DB 的 ON DELETE SET NULL / CASCADE 都不会触发；
+	// 必须在同一事务里把**整棵子树**的文档解绑归项目根，再软删全部文件夹
+	// （对齐 deleteGroup）。子树按层展开：文件夹没有改父级的接口，不可能成环。
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		ids := []store.UUID{{UUID: fid}}
+		for level := ids; len(level) > 0; {
+			var children []store.UUID
+			if e := tx.Model(&store.Folder{}).
+				Where("owner_id = ? AND parent_id IN ?", store.UUID{UUID: uid}, level).
+				Pluck("id", &children).Error; e != nil {
+				return e
+			}
+			ids = append(ids, children...)
+			level = children
+		}
+		if e := tx.Model(&store.Document{}).
+			Where("folder_id IN ? AND owner_id = ?", ids, store.UUID{UUID: uid}).
+			Update("folder_id", nil).Error; e != nil {
+			return e
+		}
+		return tx.Where("id IN ?", ids).Delete(&store.Folder{}).Error
+	})
+	if err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"id": fid.String(), "deleted": true}, ""))
 }
 

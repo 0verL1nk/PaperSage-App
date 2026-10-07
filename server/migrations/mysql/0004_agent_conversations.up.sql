@@ -8,7 +8,7 @@ CREATE TABLE agent_conversations (
     KEY ix_agent_conversations_project (project_id),
     CONSTRAINT fk_ac_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
     CONSTRAINT fk_ac_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE agent_messages (
     id              char(32)     PRIMARY KEY,
@@ -19,4 +19,4 @@ CREATE TABLE agent_messages (
     created_at      datetime(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     KEY ix_agent_messages_conversation (conversation_id),
     CONSTRAINT fk_am_conversation FOREIGN KEY (conversation_id) REFERENCES agent_conversations (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

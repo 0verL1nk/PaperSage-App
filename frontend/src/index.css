@@ -382,6 +382,31 @@ select {
   }
 
   .auth-grid {
+    background-image: radial-gradient(circle, color-mix(in oklab, var(--foreground) 12%, transparent) 0.75px, transparent 1px);
+    background-size: 30px 30px;
+    mask-image: radial-gradient(ellipse at center, black 8%, transparent 76%);
     animation: auth-grid-breathe 18s ease-in-out infinite;
+  }
+
+  @media (max-width: 640px) {
+    .auth-mesh,
+    .auth-mesh-reverse {
+      filter: blur(72px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .auth-mesh,
+    .auth-mesh-reverse,
+    .auth-grid,
+    .auth-page-content {
+      animation: none;
+      will-change: auto;
+    }
+
+    .auth-page-content {
+      transform: none !important;
+      opacity: 1 !important;
+    }
   }
 }

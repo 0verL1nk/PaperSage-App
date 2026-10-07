@@ -1,11 +1,10 @@
 {
   "nav": {
     "backToProjects": "Back to Projects",
+    "tabPrepare": "Preparation",
+    "tabReview": "Review",
     "tabUploading": "References",
     "tabWriting": "Writing",
-    "tabClassifying": "Classifying",
-    "tabLogicChain": "Logic Chain",
-    "tabGenerating": "Report",
     "projects": "All Projects",
     "trash": "Trash",
     "settings": "Settings",
@@ -14,7 +13,7 @@
   "comingSoon": {
     "badge": "Planned",
     "title": "{{name}} module is on the way",
-    "desc": "This module is part of the AI-assisted writing flow (v0.5 roadmap). The current release focuses on reference management and LaTeX writing. You can start with the first two steps: organize references, then start writing.",
+    "desc": "This page is now part of the preparation, writing, and review workspace.",
     "goWriting": "Go to Writing",
     "goUploading": "Go to References"
   },

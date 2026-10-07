@@ -28,6 +28,9 @@ vi.mock('@tanstack/react-router', async () => {
   return {
     ...actual,
     useNavigate: () => navigateMock,
+    Link: ({ to, children, ...props }: { to: string; children: React.ReactNode; className?: string }) => (
+      <a href={to} {...props}>{children}</a>
+    ),
   }
 })
 
@@ -73,6 +76,14 @@ describe('AuthPage', () => {
         to: '/app/projects',
       })
     })
+  })
+
+  it('offers guest mode as a quiet, clearly labeled secondary path', () => {
+    renderAuthPage()
+
+    const guestLink = screen.getByRole('link', { name: '以游客身份体验 PaperSage' })
+    expect(guestLink).toHaveAttribute('href', '/guest')
+    expect(screen.getByText(/无需注册 · 内容保存在本机/)).toBeInTheDocument()
   })
 
   // TODO: Fix this test - React Hook Form validation not triggering properly in test environment

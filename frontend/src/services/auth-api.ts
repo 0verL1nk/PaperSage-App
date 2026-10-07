@@ -10,6 +10,15 @@ type AuthPayload = {
 
 type LoginResponse = Partial<SessionTokens>
 
+export type CurrentUser = {
+  username: string
+  email: string | null
+  emailVerified: boolean
+  isGuest: boolean
+  guestExpiresAt?: string
+  isSuperuser: boolean
+}
+
 import { sha256 as jsSha256 } from 'js-sha256'
 
 async function sha256(message: string): Promise<string> {
@@ -59,6 +68,10 @@ export async function loginWithPassword(payload: AuthPayload) {
   }
 }
 
+export async function getCurrentUser(): Promise<CurrentUser> {
+  return getJson<CurrentUser>(AUTH.me, { skipGlobalLoading: true })
+}
+
 export async function registerWithEmail(email: string, rawPassword: string) {
   const formData = await buildRegisterFormData(email, rawPassword)
   const data = await postMultipart<{ message?: string }>(AUTH.register, formData, {
@@ -78,6 +91,17 @@ export async function resendVerification(email: string) {
 
 export async function verifyEmail(token: string) {
   return getJson<{ verified: boolean }>(`/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`)
+}
+
+export async function requestPasswordReset(email: string) {
+  return postJson<{ message?: string }>(AUTH.passwordResetRequest, { email }, { skipGlobalLoading: true })
+}
+
+export async function confirmPasswordReset(token: string, rawPassword: string) {
+  return postJson<{ message?: string }>(AUTH.passwordResetConfirm, {
+    token,
+    password: await sha256(rawPassword),
+  }, { skipGlobalLoading: true })
 }
 
 export async function logout() {

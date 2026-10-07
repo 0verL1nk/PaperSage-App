@@ -43,7 +43,7 @@ func newEngine(logger *slog.Logger) *API {
 	e.Use(cors.New(cors.Config{
 		AllowAllOrigins: true,
 		AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
-		AllowHeaders:    []string{"Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With"},
+		AllowHeaders:    []string{"Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-PaperSage-Import-Bundle-Id", "X-PaperSage-Import-Local-Id"},
 		ExposeHeaders:   []string{"Content-Disposition"},
 	}))
 

@@ -60,6 +60,11 @@ func (s *Service) authCheck(c *gin.Context) bool {
 			c.Abort()
 			return false
 		}
+		if claims.AuthVersion != user.AuthVersion {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusUnauthorized, Info: "Invalid token"})
+			c.Abort()
+			return false
+		}
 		c.Set(ctxUserKey, &user)
 		return true
 	}
