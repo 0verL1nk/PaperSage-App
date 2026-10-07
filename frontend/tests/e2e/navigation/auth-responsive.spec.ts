@@ -45,7 +45,7 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
     await expect(registerButton).toBeInViewport()
     expect(await registerButton.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
 
-    await page.getByRole('link', { name: '无需账号，进入游客工作区' }).click()
+    await page.getByRole('link', { name: '以游客身份体验 PaperSage' }).click()
     await expect(page).toHaveURL(/\/guest$/)
     await expect(page.getByRole('heading', { name: /先开始写作/ })).toBeVisible()
     await expect(page.getByText(/不会上传到云端/)).toBeVisible()

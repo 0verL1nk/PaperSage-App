@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Eye, EyeOff, MailCheck, ShieldCheck, Sparkles } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, HardDrive, MailCheck, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -181,7 +181,7 @@ export function AuthPage() {
         </div>
 
         {/* 统一风格的 Auth Card */}
-        <Card className="apple-popover overflow-hidden rounded-[2rem]">
+        <Card className="apple-popover gap-0 overflow-hidden rounded-[2rem] py-0">
           <CardContent className="p-0">
             <Tabs value={mode} onValueChange={(v) => {
               setAuthError('')
@@ -327,17 +327,29 @@ export function AuthPage() {
                 </TabsContent>
               </SmoothHeight>
             </Tabs>
+            <div className="mx-5 border-t border-border/35 sm:mx-8">
+              <Link
+                to="/guest"
+                aria-label="以游客身份体验 PaperSage"
+                className="group flex min-h-[68px] items-center justify-between gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-3"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-muted-foreground transition-colors group-hover:bg-background group-hover:text-foreground">
+                    <HardDrive className="size-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold text-foreground/85 transition-colors group-hover:text-foreground">先体验 PaperSage</span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">无需注册 · 内容保存在本机</span>
+                  </span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground/65 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </Link>
+            </div>
           </CardContent>
           <div className="border-t border-border/20 bg-secondary/20 px-5 py-4 text-center sm:px-8">
             <p className="text-[11px] font-medium text-muted-foreground">
               继续操作即代表您同意我们的 <a href="#" className="text-foreground font-semibold hover:underline transition-all">服务条款</a> 和 <a href="#" className="text-foreground font-semibold hover:underline transition-all">隐私政策</a>
             </p>
-            <Button asChild variant="ghost" className="mt-3 min-h-11 rounded-full px-5 text-sm font-semibold">
-              <Link to="/guest">
-                <Sparkles className="mr-1 size-4 text-amber-600" />
-                无需账号，进入游客工作区
-              </Link>
-            </Button>
           </div>
         </Card>
       </div>

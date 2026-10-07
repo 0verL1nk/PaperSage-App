@@ -78,6 +78,14 @@ describe('AuthPage', () => {
     })
   })
 
+  it('offers guest mode as a quiet, clearly labeled secondary path', () => {
+    renderAuthPage()
+
+    const guestLink = screen.getByRole('link', { name: '以游客身份体验 PaperSage' })
+    expect(guestLink).toHaveAttribute('href', '/guest')
+    expect(screen.getByText(/无需注册 · 内容保存在本机/)).toBeInTheDocument()
+  })
+
   // TODO: Fix this test - React Hook Form validation not triggering properly in test environment
   it.skip('validates password confirmation in register mode', async () => {
     renderAuthPage()
