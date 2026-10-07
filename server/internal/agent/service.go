@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
@@ -136,19 +135,6 @@ func (s *Service) chat(c *gin.Context) {
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
 // 值会快照进 Run，避免换了提示却仍声称同一实验条件。
 const systemPromptVersion = "v1"
-
-// finishAssistant 落库助手终答并收敛 Run（status 为 RunCompleted / RunFailed）。
-func (s *Service) finishAssistant(ctx context.Context, convID, runID store.UUID, content string, toolEvents any, status string) {
-	msg, err := s.createAssistantMessage(ctx, s.DB, convID, &runID, content, toolEvents)
-	if err != nil {
-		s.finishRun(ctx, runID, RunFailed, nil, "persist assistant message failed")
-		return
-	}
-	s.finishRun(ctx, runID, status, &msg.ID, "")
-	// 用应用层时间而非 SQL now()：SQLite 没有 now()，且错误会被丢弃（静默失效）。
-	_ = s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
-		Where("id = ?", convID).Update("updated_at", time.Now().UTC()).Error
-}
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
 	if idStr != "" {

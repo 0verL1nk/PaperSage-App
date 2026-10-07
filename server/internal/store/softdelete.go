@@ -125,7 +125,7 @@ func (sd softDeleteDeleteClause) ModifyStatement(stmt *gorm.Statement) {
 	if stmt.SQL.Len() != 0 || stmt.Statement.Unscoped {
 		return
 	}
-	now := stmt.DB.NowFunc()
+	now := stmt.NowFunc()
 	seq := now.UnixMicro()
 	stmt.AddClause(clause.Set{
 		{Column: clause.Column{Name: sd.field.DBName}, Value: now},

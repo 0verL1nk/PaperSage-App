@@ -73,7 +73,7 @@ func TestCORSAllowsLocalImportIdempotencyHeaders(t *testing.T) {
 	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-papersage-import-bundle-id,x-papersage-import-local-id")
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	defer resp.Body.Close()
+	defer func() { assert.NoError(t, resp.Body.Close()) }()
 	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
 	allowed := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers"))
 	assert.Contains(t, allowed, "x-papersage-import-bundle-id")

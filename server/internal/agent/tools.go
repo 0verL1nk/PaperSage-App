@@ -368,5 +368,3 @@ func findLatex(ctx context.Context, db *gorm.DB, stg storage.Storage,
 	}
 	return &f, string(content), nil
 }
-
-func ptr[T any](v T) *T { return &v }

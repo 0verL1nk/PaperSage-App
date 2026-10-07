@@ -246,7 +246,7 @@ func (s *FilesService) CreateFileBinaryWithImport(ctx context.Context, projectID
 			return err
 		}
 		if existing > 0 {
-			return fmt.Errorf("File already exists: %s", validated)
+			return fmt.Errorf("file already exists: %s", validated)
 		}
 		if err := s.Storage.Put(ctx, s3Key, content); err != nil {
 			return err

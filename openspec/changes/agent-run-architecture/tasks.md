@@ -7,13 +7,7 @@
 - [x] 1.3 双方言迁移 `0013_agent_run_architecture.{up,down}.sql`（含 down 尽力还原 content / tool_events）
 - [x] 1.4 数据迁移：`content` → text part、`tool_events` → tool part（整段保留，见迁移内注释说明为何不逐项展开）
 - [x] 1.5 `store` 模型（`internal/store/agentrun.go`）+ `AllModels()` 注册
-- [ ] 1.6 迁移测试：业务表计数已同步为 25；**PG/MySQL 实跑仍未执行**，阻塞点已查清：
-  本机 5432 确有 PostgreSQL，`papersage` 角色也存在，但密码不是仓库里记录过的任何默认值
-  （`papersage_dev_password` / `papersage` / `papersage_dev` 均认证失败，SQLSTATE 28P01）；
-  主 checkout 的 `server/.env` 只有 **TiDB Cloud** 的 MySQL DSN（云端），
-  拿它跑迁移会在生产库上执行 DDL——需用户明确授权才动。
-  本机无 3306（只有 33060 mysqlx），故 MySQL 侧也无本地库。
-  → 需要用户提供本地 PG 密码或指定一个可丢弃的测试库，即可跑通本项。
+- [x] 1.6 迁移测试：隔离 PG 与 MySQL 8.4 服务上的 fresh install + handoff 集成测试已通过，结果记录于 `docs/agents/handoff-2026-10-07.md`；当前业务表数为 27（0016 只加字段，不增加表）。测试使用隔离服务 DSN，不使用生产库做迁移测试。
 
 ## 2. 事件协议层
 
@@ -146,4 +140,3 @@
 - [x] 11.7 **顺带修掉一个真竞态**（修 11.5 后全量跑才暴露）：订阅端用「Run 是否终态」判断收流，而 `finishRunTx` 改状态与 `run.finished` 落库之间存在窗口 → 会把**已落库但尚未读到的终答整段丢掉**。改为「终态 **且** 已读到该 Run 的最大 sequence」才收流；连续 3 次全量并行验证通过
 
 被否掉的 9 条中一条值得记：有复核者认为 `listMessages` 的 `.Table(...)` 会让子 agent 文本泄漏 —— 复核判定**不可达**（该方法只服务主 Run），核对后同意，未改。
-
