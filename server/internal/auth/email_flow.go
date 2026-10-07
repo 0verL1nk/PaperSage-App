@@ -119,7 +119,10 @@ func (r *rateLimiter) allow(key string, max int) bool {
 }
 
 // 邮箱验证 token TTL（24h：注册验证通行值；密码重置类高危动作应更短）
-const verifyTokenTTL = 24 * time.Hour
+const (
+	emailVerifyPurpose = "email_verify"
+	verifyTokenTTL     = 24 * time.Hour
+)
 
 // 重发冷却由 limiter.allow("resend:"+email, 1) 实现：窗口即 rateWindow(1min)
 // ——resendCooldown 常量保留作语义文档锚点
@@ -225,6 +228,7 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 	row := store.VerificationToken{
 		TokenHash: tokenHash(token),
 		UserID:    user.ID,
+		Purpose:   emailVerifyPurpose,
 		ExpiresAt: expiresAt,
 	}
 	_ = s.DB.WithContext(ctx).Create(&row).Error
@@ -282,7 +286,7 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		return
 	}
 	var row store.VerificationToken
-	err = s.DB.Where("token_hash = ?", tokenHash(token)).First(&row).Error
+	err = s.DB.Where("token_hash = ? AND purpose = ?", tokenHash(token), emailVerifyPurpose).First(&row).Error
 	if err != nil || row.UserID.String() != claims.Subject || time.Now().UTC().After(row.ExpiresAt) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
@@ -302,7 +306,7 @@ func (s *Service) verifyEmail(c *gin.Context) {
 	now := time.Now().UTC()
 	err = s.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
 		var locked store.VerificationToken
-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("token_hash = ?", row.TokenHash).First(&locked).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("token_hash = ? AND purpose = ?", row.TokenHash, emailVerifyPurpose).First(&locked).Error; err != nil {
 			return err
 		}
 		if locked.UsedAt != nil || now.After(locked.ExpiresAt) {

@@ -93,6 +93,17 @@ export async function verifyEmail(token: string) {
   return getJson<{ verified: boolean }>(`/api/v1/auth/verify-email?token=${encodeURIComponent(token)}`)
 }
 
+export async function requestPasswordReset(email: string) {
+  return postJson<{ message?: string }>(AUTH.passwordResetRequest, { email }, { skipGlobalLoading: true })
+}
+
+export async function confirmPasswordReset(token: string, rawPassword: string) {
+  return postJson<{ message?: string }>(AUTH.passwordResetConfirm, {
+    token,
+    password: await sha256(rawPassword),
+  }, { skipGlobalLoading: true })
+}
+
 export async function logout() {
   try {
     await postMultipart<null>(AUTH.logout, new FormData(), {

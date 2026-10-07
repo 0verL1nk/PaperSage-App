@@ -19,6 +19,7 @@ CREATE TABLE `users` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   `is_email_registered` tinyint(1) NOT NULL DEFAULT '0',
+  `auth_version` bigint NOT NULL DEFAULT '0',
   `deleted_at` datetime(6) DEFAULT NULL,
   UNIQUE KEY `ix_users_username` (`username`),
   UNIQUE KEY `ix_users_email` (`email`),

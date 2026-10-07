@@ -1,4 +1,6 @@
 import { VerifyEmailPage } from '@/views/auth/verify-email-page'
+import { ForgotPasswordPage } from '@/views/auth/forgot-password-page'
+import { ResetPasswordPage } from '@/views/auth/reset-password-page'
 import { AdminPage } from '@/views/admin/AdminPage'
 import type { QueryClient } from '@tanstack/react-query'
 import {
@@ -96,6 +98,18 @@ const authRoute = createRoute({
     }
   },
   component: AuthPage,
+})
+
+const forgotPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/forgot-password',
+  component: ForgotPasswordPage,
+})
+
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/auth/reset-password',
+  component: ResetPasswordPage,
 })
 
 // Public entry that activates the browser-local guest workspace.
@@ -243,6 +257,8 @@ const projectGeneratingRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   indexRoute,
   authVerifyRoute,
+  forgotPasswordRoute,
+  resetPasswordRoute,
   authRoute,
   guestRoute,
   appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),

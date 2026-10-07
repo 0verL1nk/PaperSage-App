@@ -55,7 +55,7 @@ func TestMigrateUpFreshDatabase(t *testing.T) {
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 
 	// 期望值跟随嵌入迁移数自动演进：每张表数 = 基线 8 + 基线后新增表
-	//（0002 refresh_tokens +1、0012 rag_index_generations +1、0013 agent 运行时 +9、0014 writing state +1、0015 import receipts +1）。
+	//（0002 refresh_tokens +1、0012 rag_index_generations +1、0013 agent 运行时 +9、0014 writing state +1、0015 import receipts +1；0016 仅加字段）。
 	// 从迁移 FS 数版本数太绕，直接数业务表。
 	var count int
 	require.NoError(t, db.QueryRow(

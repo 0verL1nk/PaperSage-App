@@ -5,6 +5,7 @@
 CREATE TABLE `verification_tokens` (
   `token_hash` varchar(64) NOT NULL,
   `user_id` char(32) NOT NULL,
+  `purpose` varchar(32) NOT NULL DEFAULT 'email_verify',
   `expires_at` datetime(6) NOT NULL,
   `used_at` datetime(6) DEFAULT NULL,
   KEY `ix_vt_user` (`user_id`),

@@ -1,98 +1,39 @@
-# 前端鉴权与 Token 管理
+# 前端认证与密码找回
 
-## 概述
+本文对应当前 React + Go 实现。旧版 FastAPI 路径和 MD5 示例不再是运行契约。
 
-本文档描述 PaperSage 前端的鉴权流程和 Token 管理机制。
+## 登录与注册
 
-## Token 类型
+- 登录与邮箱注册沿用现有 `multipart/form-data` 请求。浏览器先对密码做 SHA-256，Go 后端再用 bcrypt 保存；登录和注册契约为兼容已有账号保留。
+- 邮箱注册账号必须先验证邮箱，登录接口在密码正确后检查 `email_verified`。
+- Access token 与 refresh token 保存在 session store 的 localStorage；API client 自动注入 access token，并在适用的 401 响应后刷新会话。
 
-| Token | 用途 | 存储方式 |
-|-------|------|----------|
-| `accessToken` | API 请求认证 | localStorage (`papersage_access_token`) |
-| `refreshToken` | 刷新 accessToken | localStorage (`papersage_refresh_token`) |
+## 密码找回
 
-## 核心模块
+1. 登录页的“忘记密码？”进入 `/auth/forgot-password`。前端提交邮箱到 `POST /api/v1/auth/password-reset/request`，无论邮箱是否存在，都显示相同的提示。
+2. 只有活跃且已验证邮箱的账号会收到重置邮件。邮件使用一次性 256-bit 随机 token，有效期 15 分钟；数据库只保存 SHA-256 token hash。
+3. 邮件链接将 token 放在 URL fragment（`/auth/reset-password#token=...`），不随页面请求发送到 Web 服务器。SPA 读取后立即移除地址栏 token；整个站点设置 `Referrer-Policy: no-referrer`。
+4. `/auth/reset-password` 检查至少 8 位密码及重复输入，再提交到 `POST /api/v1/auth/password-reset/confirm`。密码仍使用现有 SHA-256 + bcrypt 存储兼容契约。
+5. 后端在事务中单次消费 token、更新密码、作废此账号其他未用 token，并递增认证版本。旧 access token 立即失效，旧 refresh token 也不能续期；用户重新登录。系统会另发密码变更提醒邮件。
 
-### 1. Session Store (`src/shared/stores/session-store.ts`)
+密码找回不向游客工作区开放。无效、过期和已消费的 token 均提示重新申请，不改变密码。页面在 320px 手机视口起支持纵向滚动，操作按钮不小于 44px。
 
-负责 Token 的持久化和状态管理：
+## 邮件验证与接口
 
-- `setTokens(tokens)` - 保存 Token 到 localStorage
-- `clearTokens()` - 清除 Token
-- `restoreSession()` - 页面加载时恢复 Token
-- `getAccessToken()` - 获取当前 accessToken
-- `getRefreshToken()` - 获取当前 refreshToken
-- `hasSessionToken()` - 判断是否已登录
+| 接口 | 方法 | 作用 |
+|---|---|---|
+| `/api/v1/auth/register` | POST 表单 | 注册并发送邮箱验证邮件 |
+| `/api/v1/auth/verify-email?token=...` | GET | 消费邮箱验证 token |
+| `/api/v1/auth/resend-verification` | POST JSON | 限速重发验证邮件 |
+| `/api/v1/auth/password-reset/request` | POST JSON | 防枚举地申请密码重置 |
+| `/api/v1/auth/password-reset/confirm` | POST JSON | 消费重置 token 并更新密码 |
 
-### 2. API Client (`src/shared/api/client.ts`)
+验证邮件和密码重置共用 `verification_tokens`，通过 `purpose` 值隔离两种操作；无需另建 token 表。重置申请按进程内 IP 和邮箱限速。多实例部署时须将此限速器迁到 Redis 或边缘网关等共享组件。
 
-负责 Token 的自动注入和刷新：
+## 相关代码和测试
 
-#### 请求拦截器
-- 自动在请求头添加 `Authorization: Bearer <accessToken>`
-- 显示/隐藏全局 Loading
-
-#### 响应拦截器 (Token 刷新逻辑)
-```
-1. 收到 401 响应
-2. 检查是否正在刷新 Token：
-   - 是：等待刷新完成，订阅重试
-   - 否：开始刷新流程
-3. 调用刷新接口 `/api/v1/auth/refresh`
-4. 刷新成功：
-   - 保存新 Token
-   - 通知所有等待的请求重试
-   - 重试原始请求
-5. 刷新失败：
-   - 清除本地 Token
-   - 跳转到登录页
-```
-
-## API 端点
-
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/account/login` | POST | 登录（返回 accessToken + refreshToken） |
-| `/api/account/register` | POST | 注册 |
-| `/api/v1/auth/refresh` | POST | 刷新 Token |
-
-## 登录/注册流程
-
-1. 用户提交用户名密码
-2. 密码使用 MD5 哈希
-3. 使用 `multipart/form-data` 提交到 `/api/account/login`
-4. 响应包含 accessToken 和 refreshToken
-5. 调用 `setSessionTokens()` 保存到 localStorage
-
-## 路由守卫
-
-使用 `@tanstack/react-router` 的 `beforeLoad` 钩子：
-
-- 未登录访问受保护路由 → 重定向到 `/auth`
-- 已登录用户访问 `/auth` → 重定向到 `/app/documents`
-- 首页 `/` → 已登录跳 `/app/documents`，未登录跳 `/auth`
-
-## 测试
-
-```bash
-# 运行所有测试
-pnpm test
-
-# 测试文件
-src/features/auth/api.test.ts          # 登录/注册 API 测试
-src/features/auth/components/auth-page.test.tsx  # 登录页组件测试
-src/shared/api/token-refresh.test.ts   # Token 刷新模块测试
-```
-
-## 常见问题
-
-### Q: 为什么 Token 刷新需要单独的 axios 实例？
-避免刷新请求本身触发拦截器，造成无限循环。
-
-### Q: 如何禁用 Token 刷新？
-在请求配置中设置 `skipAuthRefresh: true`（仅限特殊场景）。
-
-### Q: 刷新失败会怎样？
-- 清除 localStorage 中的 Token
-- 跳转到 `/auth` 登录页
-- 用户需要重新登录
+- API 路由与 SHA-256：`frontend/src/services/api-routes.ts`、`frontend/src/services/auth-api.ts`
+- 页面路由：`frontend/src/views/auth/auth-page.tsx`、`forgot-password-page.tsx`、`reset-password-page.tsx`
+- 服务端实现：`server/internal/auth/email_flow.go`、`password_reset.go`
+- 安全方案及迁移：`docs/backend/password-recovery.md`、`server/migrations/mysql/0016_email_password_recovery.up.sql`、`server/migrations/postgres/0016_email_password_recovery.up.sql`
+- 自动化覆盖：`server/internal/auth/password_reset_test.go`、`frontend/src/views/auth/*password-page.test.tsx`、`frontend/tests/e2e/password-recovery.spec.ts`
