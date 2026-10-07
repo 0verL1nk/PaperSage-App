@@ -27,6 +27,8 @@ import { cn } from '@/lib/utils'
 import { logout } from '@/services/auth-api'
 import { useGroups } from '@/services/projects-api'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
+import { GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
+import { useSessionStore } from '@/store'
 
 interface MainLayoutProps {
   children: ReactNode
@@ -41,6 +43,7 @@ const mainNavItems = [
 import { useMe } from '@/hooks/use-me'
 
 export function MainLayout({ children }: MainLayoutProps) {
+  const isGuest = useSessionStore((session) => session.isGuest)
   const { data: me } = useMe()
   const location = useLocation()
   const currentPath = location.pathname
@@ -146,7 +149,7 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden">
             <Search className="size-4 text-muted-foreground" />
           </Button>
-          <ApiTargetToggle />
+          {!isGuest && <ApiTargetToggle />}
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted">
             <Bell className="size-4 text-muted-foreground" />
           </Button>
@@ -239,6 +242,7 @@ export function MainLayout({ children }: MainLayoutProps) {
 
         {/* Main Content: Only this part scrolls */}
         <main className="flex-1 bg-background overflow-y-auto relative">
+          <GuestSessionBadge />
           {children}
         </main>
       </div>

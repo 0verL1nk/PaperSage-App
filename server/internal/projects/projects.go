@@ -4,6 +4,7 @@ package projects
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -47,6 +49,7 @@ type projectResponse struct {
 	OwnerID     uuid.UUID      `json:"owner_id"`
 	GroupID     *uuid.UUID     `json:"group_id"`
 	Status      string         `json:"status"`
+	Scenario    string         `json:"scenario"`
 	IsDeleted   bool           `json:"is_deleted"`
 	DeletedAt   *dto.JSONTime  `json:"deleted_at"`
 	CreatedAt   dto.JSONTime   `json:"created_at"`
@@ -81,6 +84,7 @@ func toProjectResponse(p *store.Project, g *store.ProjectGroup) projectResponse 
 		CreatedAt: dto.JSONTime{Time: p.CreatedAt},
 		UpdatedAt: dto.JSONTime{Time: p.UpdatedAt},
 		Group:     toGroupResponse(g),
+		Scenario:  p.Scenario,
 	}
 	if p.DeletedAt.Valid {
 		t := dto.JSONTime{Time: p.DeletedAt.Time}
@@ -144,6 +148,7 @@ type createRequest struct {
 	Name        *string    `json:"name"`
 	Description *string    `json:"description"`
 	GroupID     *uuid.UUID `json:"group_id"`
+	Scenario    string     `json:"scenario"`
 }
 
 func (s *Service) create(c *gin.Context) {
@@ -155,14 +160,28 @@ func (s *Service) create(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-
-	var existing store.Project
-	err := s.DB.WithContext(ctx).
-		Where("owner_id = ? AND name = ?", store.UUID{UUID: uid}, *req.Name).
-		First(&existing).Error
-	if err == nil {
-		httpapi.WriteError(c.Writer, badReq("Project with this name already exists"))
+	if req.Scenario == "" {
+		req.Scenario = "undergraduate_thesis"
+	}
+	if req.Scenario != "undergraduate_thesis" && req.Scenario != "intro_paper" {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
+	}
+	importKey, hasImportKey, keyErr := importreceipt.Parse(c.Request.Header)
+	if keyErr != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+
+	if !hasImportKey {
+		var existing store.Project
+		err := s.DB.WithContext(ctx).
+			Where("owner_id = ? AND name = ?", store.UUID{UUID: uid}, *req.Name).
+			First(&existing).Error
+		if err == nil {
+			httpapi.WriteError(c.Writer, badReq("Project with this name already exists"))
+			return
+		}
 	}
 	if req.GroupID != nil {
 		var g store.ProjectGroup
@@ -178,17 +197,63 @@ func (s *Service) create(c *gin.Context) {
 	if req.GroupID != nil {
 		groupID = &store.UUID{UUID: *req.GroupID}
 	}
-	p := store.Project{Name: *req.Name, Description: req.Description, OwnerID: store.UUID{UUID: uid}, GroupID: groupID, Status: "active"}
-	if err := s.DB.WithContext(ctx).Create(&p).Error; err != nil {
+	p := store.Project{Name: *req.Name, Description: req.Description, OwnerID: store.UUID{UUID: uid}, GroupID: groupID, Status: "active", Scenario: req.Scenario}
+	if hasImportKey {
+		fingerprint, err := importreceipt.Fingerprint(struct {
+			Name        string
+			Description *string
+			GroupID     *uuid.UUID
+			Scenario    string
+		}{Name: p.Name, Description: p.Description, GroupID: req.GroupID, Scenario: p.Scenario})
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+		p.ID = store.MustNewUUID()
+		var replay bool
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			resourceID, wasReplay, err := importreceipt.Claim(tx, p.OwnerID, importKey, "project", fingerprint, p.ID)
+			if err != nil {
+				return err
+			}
+			replay = wasReplay
+			if replay {
+				p.ID = resourceID
+				return tx.Where("id = ? AND owner_id = ?", p.ID, p.OwnerID).First(&p).Error
+			}
+			var duplicate int64
+			if err := tx.Model(&store.Project{}).Where("owner_id = ? AND name = ?", p.OwnerID, p.Name).Count(&duplicate).Error; err != nil {
+				return err
+			}
+			if duplicate > 0 {
+				return errProjectNameExists
+			}
+			return tx.Create(&p).Error
+		})
+		if errors.Is(err, importreceipt.ErrConflict) || errors.Is(err, gorm.ErrRecordNotFound) {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Import key conflicts with existing content or resource"})
+			return
+		}
+		if errors.Is(err, errProjectNameExists) {
+			httpapi.WriteError(c.Writer, badReq("Project with this name already exists"))
+			return
+		}
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+	} else if err := s.DB.WithContext(ctx).Create(&p).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
 
-	if s.OnCreate != nil {
+	if s.OnCreate != nil && !hasImportKey {
 		_ = s.OnCreate(ctx, p.ID.UUID, uid) // 失败忽略（非关键）
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toProjectResponse(&p, s.loadGroup(ctx, &p)), ""))
 }
+
+var errProjectNameExists = errors.New("project name already exists")
 
 func (s *Service) listGroups(c *gin.Context) {
 	ctx := c.Request.Context()

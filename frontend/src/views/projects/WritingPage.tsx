@@ -1,10 +1,12 @@
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
+import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import {
   Search, Play, Download, Sparkles, Loader2,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus,
+  HardDrive,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -29,6 +31,7 @@ import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
 import { AiPanel } from './ai-panel'
 import { useChatStore } from '@/store/chat-store'
+import { useSessionStore } from '@/store'
 
 function toPdfFile(source: PdfRangeSource) {
   return source as Parameters<typeof Document>[0]['file']
@@ -97,6 +100,22 @@ type SidebarTab = 'files' | 'ai'
 
 export function WritingPage() {
   const { projectId = '' } = useParams({ strict: false })
+  const { data: writingState } = useWritingState(projectId)
+  const saveWritingState = useSaveWritingState(projectId)
+  const phaseSyncStarted = useRef(false)
+
+  useEffect(() => {
+    if (!writingState || phaseSyncStarted.current) return
+    phaseSyncStarted.current = true
+    if (writingState.current_phase === 'write') return
+    saveWritingState.mutate({
+      brief: writingState.brief,
+      requirements: writingState.requirements,
+      phases: writingState.phases,
+      current_phase: 'write',
+      revision: writingState.revision,
+    })
+  }, [writingState, saveWritingState])
 
   // UI state
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
@@ -744,6 +763,7 @@ function BinaryFilePlaceholder({ path, projectId }: { path: string, projectId: s
 }
 
 function SavingStatus({ isSaving }: { isSaving: boolean }) {
+  const isGuest = useSessionStore((session) => session.isGuest)
   const [showSaved, setShowSaved] = useState(false)
   const lastSaving = useRef(isSaving)
 
@@ -759,8 +779,8 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
   if (isSaving) {
     return (
       <div className="flex items-center gap-1 text-[10px] text-primary/60 animate-pulse">
-        <CloudUpload size={12} />
-        <span>Saving...</span>
+        {isGuest ? <HardDrive size={12} /> : <CloudUpload size={12} />}
+        <span>{isGuest ? 'Saving on this device...' : 'Saving...'}</span>
       </div>
     )
   }
@@ -769,15 +789,15 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
     return (
       <div className="flex items-center gap-1 text-[10px] text-green-600/70 animate-in fade-in zoom-in duration-300">
         <Check size={12} />
-        <span>Saved</span>
+        <span>{isGuest ? 'Saved on this device' : 'Saved'}</span>
       </div>
     )
   }
 
   return (
     <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40">
-      <Cloud size={12} />
-      <span>Synced</span>
+      {isGuest ? <HardDrive size={12} /> : <Cloud size={12} />}
+      <span>{isGuest ? 'Stored on this device' : 'Synced'}</span>
     </div>
   )
 }

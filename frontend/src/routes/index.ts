@@ -1,11 +1,10 @@
 export const appRouteManifest = {
-  public: ['/', '/auth'],
+  public: ['/', '/auth', '/guest'],
   main: ['/app/documents', '/app/trash', '/app/profile'],
   project: [
+    '/project/:projectId/prepare',
+    '/project/:projectId/review',
     '/project/:projectId/uploading',
-    '/project/:projectId/coding',
-    '/project/:projectId/classifying',
-    '/project/:projectId/logic-chain',
-    '/project/:projectId/generating',
+    '/project/:projectId/writing',
   ],
 } as const

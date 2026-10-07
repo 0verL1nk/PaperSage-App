@@ -66,6 +66,9 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './src/test/setup.ts',
     css: true,
+    // Keep JSDOM/React suites from saturating CI hosts with many logical CPUs;
+    // high worker counts caused otherwise trivial component tests to exceed 5s.
+    maxWorkers: 4,
   },
   resolve: {
     alias: {

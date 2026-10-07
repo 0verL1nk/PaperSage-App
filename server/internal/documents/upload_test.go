@@ -9,6 +9,7 @@ import (
 	"net/textproto"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -86,6 +87,60 @@ func TestUploadRejectsBadType(t *testing.T) {
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
 	assert.Equal(t, float64(400), m["code"])
 	assert.Contains(t, m["info"], "Unsupported file type")
+}
+
+func TestDocumentImportUploadIsIdempotentAndRejectsContentConflict(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	key := map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+		"X-PaperSage-Import-Local-Id":  uuid.NewString(),
+	}
+	upload := func(content string, headers map[string]string) *http.Response {
+		t.Helper()
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		_ = mw.WriteField("projectId", p.ID.String())
+		_ = mw.WriteField("staged", "true")
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition", `form-data; name="file"; filename="import.txt"`)
+		hdr.Set("Content-Type", "text/plain")
+		part, err := mw.CreatePart(hdr)
+		require.NoError(t, err)
+		_, err = part.Write([]byte(content))
+		require.NoError(t, err)
+		require.NoError(t, mw.Close())
+		req, err := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/documents/upload", &buf)
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer "+ts.Token)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		for name, value := range headers {
+			req.Header.Set(name, value)
+		}
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec,noctx // test
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return resp
+	}
+	first := upload("local draft", key)
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	var firstBody map[string]any
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstBody))
+	firstID := firstBody["data"].(map[string]any)["id"]
+
+	retry := upload("local draft", key)
+	require.Equal(t, http.StatusOK, retry.StatusCode)
+	var retryBody map[string]any
+	require.NoError(t, json.NewDecoder(retry.Body).Decode(&retryBody))
+	assert.Equal(t, firstID, retryBody["data"].(map[string]any)["id"])
+
+	conflict := upload("different bytes", key)
+	assert.Equal(t, http.StatusConflict, conflict.StatusCode)
+	partial := upload("partial", map[string]string{"X-PaperSage-Import-Bundle-Id": uuid.NewString()})
+	assert.Equal(t, http.StatusUnprocessableEntity, partial.StatusCode)
+	var count int64
+	require.NoError(t, ts.DB.Model(&store.Document{}).Where("owner_id = ?", ts.UserID()).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 func TestMoveRemarkDeleteFlow(t *testing.T) {

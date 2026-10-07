@@ -10,6 +10,15 @@ type AuthPayload = {
 
 type LoginResponse = Partial<SessionTokens>
 
+export type CurrentUser = {
+  username: string
+  email: string | null
+  emailVerified: boolean
+  isGuest: boolean
+  guestExpiresAt?: string
+  isSuperuser: boolean
+}
+
 import { sha256 as jsSha256 } from 'js-sha256'
 
 async function sha256(message: string): Promise<string> {
@@ -57,6 +66,10 @@ export async function loginWithPassword(payload: AuthPayload) {
     accessToken: data.accessToken,
     refreshToken: data.refreshToken,
   }
+}
+
+export async function getCurrentUser(): Promise<CurrentUser> {
+  return getJson<CurrentUser>(AUTH.me, { skipGlobalLoading: true })
 }
 
 export async function registerWithEmail(email: string, rawPassword: string) {

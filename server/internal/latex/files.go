@@ -5,9 +5,12 @@ package latex
 import (
 	"context"
 	"crypto/md5"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -20,6 +23,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -192,9 +196,83 @@ func (s *FilesService) CreateFileBinary(ctx context.Context, projectID uuid.UUID
 	return &f, nil
 }
 
+// CreateFileBinaryWithImport makes a browser import create replay-safe when a
+// stable import key is supplied. A nil key preserves the normal create path.
+func (s *FilesService) CreateFileBinaryWithImport(ctx context.Context, projectID uuid.UUID, p string, content []byte, contentType string, userID uuid.UUID, key *importreceipt.Key) (*store.LatexFile, error) {
+	if key == nil {
+		return s.CreateFileBinary(ctx, projectID, p, content, contentType, userID)
+	}
+	if err := s.verifyProjectAccess(ctx, projectID, userID); err != nil {
+		return nil, err
+	}
+	validated, err := validatePath(p)
+	if err != nil {
+		return nil, err
+	}
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	contentDigest := sha256.Sum256(content)
+	fingerprint, err := importreceipt.Fingerprint(struct {
+		ProjectID   uuid.UUID
+		Path        string
+		ContentType string
+		ContentSHA  string
+	}{ProjectID: projectID, Path: validated, ContentType: contentType, ContentSHA: hex.EncodeToString(contentDigest[:])})
+	if err != nil {
+		return nil, err
+	}
+	md5Digest := md5.Sum(content)
+	contentHash := hex.EncodeToString(md5Digest[:])
+	s3Key := storage.BuildKey(projectID.String(), "_imports/"+key.BundleID.String()+"/"+key.LocalID.String())
+	file := store.LatexFile{
+		ProjectID: store.UUID{UUID: projectID}, FilePath: validated,
+		ContentType: &contentType, SizeBytes: int64(len(content)), ContentHash: &contentHash,
+		S3Key: &s3Key, LastSavedAt: nowUTC(),
+	}
+	file.ID = store.MustNewUUID()
+	objectWritten := false
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		resourceID, replay, err := importreceipt.Claim(tx, store.UUID{UUID: userID}, *key, "latex_file", fingerprint, file.ID)
+		if err != nil {
+			return err
+		}
+		if replay {
+			file.ID = resourceID
+			return tx.Where("id = ? AND project_id = ?", file.ID, store.UUID{UUID: projectID}).First(&file).Error
+		}
+		var existing int64
+		if err := tx.Model(&store.LatexFile{}).Where("project_id = ? AND file_path = ?", store.UUID{UUID: projectID}, validated).Count(&existing).Error; err != nil {
+			return err
+		}
+		if existing > 0 {
+			return fmt.Errorf("File already exists: %s", validated)
+		}
+		if err := s.Storage.Put(ctx, s3Key, content); err != nil {
+			return err
+		}
+		objectWritten = true
+		return tx.Create(&file).Error
+	})
+	if err != nil {
+		if objectWritten {
+			_ = s.Storage.Delete(ctx, s3Key)
+		}
+		return nil, err
+	}
+	if strings.Contains(contentType, "text") {
+		s.cache.Add(s3Key, string(content))
+	}
+	return &file, nil
+}
+
 // CreateFile 创建文本文件（content_type=text/plain）。
 func (s *FilesService) CreateFile(ctx context.Context, projectID uuid.UUID, p, content string, userID uuid.UUID) (*store.LatexFile, error) {
 	return s.CreateFileBinary(ctx, projectID, p, []byte(content), "text/plain", userID)
+}
+
+func (s *FilesService) CreateFileWithImport(ctx context.Context, projectID uuid.UUID, p, content string, userID uuid.UUID, key *importreceipt.Key) (*store.LatexFile, error) {
+	return s.CreateFileBinaryWithImport(ctx, projectID, p, []byte(content), "text/plain", userID, key)
 }
 
 // UpdateFile 更新内容（md5 相同则跳过上传）。
@@ -437,6 +515,14 @@ func (e *ContractError) Error() string { return e.Message }
 
 func errText(code int, msg string) *httpapi.APIError { return &httpapi.APIError{Code: code, Info: msg} }
 
+func writeLatexCreateError(c *gin.Context, err error) {
+	if errors.Is(err, importreceipt.ErrConflict) || errors.Is(err, gorm.ErrRecordNotFound) {
+		httpapi.WriteError(c.Writer, errText(http.StatusConflict, "Import key conflicts with existing content or resource"))
+		return
+	}
+	httpapi.WriteError(c.Writer, errText(http.StatusBadRequest, err.Error()))
+}
+
 // MountFiles 注册 latex-files 路由（catch-all 内部分发，精确复刻 FastAPI 顺序匹配）。
 func MountFiles(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *FilesService) {
 	g := rg.Group("/projects/:project_id/latex-files", authMw)
@@ -609,6 +695,15 @@ func (s *FilesService) listHandler(projectID, uid func(*gin.Context) uuid.UUID) 
 func (s *FilesService) createHandler(projectID, uid func(*gin.Context) uuid.UUID) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		pid := projectID(c)
+		importKey, hasImportKey, keyErr := importreceipt.Parse(c.Request.Header)
+		if keyErr != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		var key *importreceipt.Key
+		if hasImportKey {
+			key = &importKey
+		}
 		if strings.Contains(c.GetHeader("Content-Type"), "multipart/form-data") {
 			fh, err := c.FormFile("file")
 			if err != nil {
@@ -628,9 +723,9 @@ func (s *FilesService) createHandler(projectID, uid func(*gin.Context) uuid.UUID
 				return
 			}
 			ct := fh.Header.Get("Content-Type")
-			f, err := s.CreateFileBinary(c.Request.Context(), pid, p, content, ct, uid(c))
+			f, err := s.CreateFileBinaryWithImport(c.Request.Context(), pid, p, content, ct, uid(c), key)
 			if err != nil {
-				httpapi.WriteError(c.Writer, errText(400, err.Error()))
+				writeLatexCreateError(c, err)
 				return
 			}
 			_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toFileResponse(f), ""))
@@ -644,9 +739,9 @@ func (s *FilesService) createHandler(projectID, uid func(*gin.Context) uuid.UUID
 			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 			return
 		}
-		f, err := s.CreateFile(c.Request.Context(), pid, req.Path, req.Content, uid(c))
+		f, err := s.CreateFileWithImport(c.Request.Context(), pid, req.Path, req.Content, uid(c), key)
 		if err != nil {
-			httpapi.WriteError(c.Writer, errText(400, err.Error()))
+			writeLatexCreateError(c, err)
 			return
 		}
 		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toFileResponse(f), ""))

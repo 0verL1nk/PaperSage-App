@@ -1,5 +1,11 @@
 import { getJson, putJson, requestApi } from './client'
 import { SETTINGS } from './api-routes'
+import { useSessionStore } from '@/store'
+import { GuestCapabilityError } from './guest-local-workspace'
+
+function requireAccountSettings() {
+  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError('AI 助手')
+}
 
 // --- Types ---
 
@@ -55,6 +61,7 @@ export interface CategoryResponse {
 // --- API functions ---
 
 export async function getSettings(): Promise<AllSettings> {
+  requireAccountSettings()
   const res = await getJson<{ settings: AllSettings }>(SETTINGS.all)
   return res.settings
 }
@@ -62,6 +69,7 @@ export async function getSettings(): Promise<AllSettings> {
 export async function getCategorySettings<T extends CategorySettings>(
   category: SettingsCategory,
 ): Promise<T> {
+  requireAccountSettings()
   const res = await getJson<CategoryResponse>(SETTINGS.category(category))
   return res.settings as T
 }
@@ -70,6 +78,7 @@ export async function updateCategory(
   category: SettingsCategory,
   settings: Partial<CategorySettings>,
 ): Promise<CategoryResponse> {
+  requireAccountSettings()
   return requestApi<CategoryResponse, { settings: Partial<CategorySettings> }>({
     method: 'patch',
     url: SETTINGS.category(category),
@@ -81,6 +90,7 @@ export async function replaceCategory(
   category: SettingsCategory,
   settings: CategorySettings,
 ): Promise<CategoryResponse> {
+  requireAccountSettings()
   return putJson<CategoryResponse, { settings: CategorySettings }>(
     SETTINGS.category(category),
     { settings },
@@ -90,6 +100,7 @@ export async function replaceCategory(
 export async function resetCategory(
   category: SettingsCategory,
 ): Promise<CategoryResponse> {
+  requireAccountSettings()
   return requestApi<CategoryResponse>({
     method: 'delete',
     url: SETTINGS.category(category),

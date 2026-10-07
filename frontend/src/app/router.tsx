@@ -1,4 +1,3 @@
-import { ComingSoon } from '@/components/domain/ComingSoon'
 import { VerifyEmailPage } from '@/views/auth/verify-email-page'
 import { AdminPage } from '@/views/admin/AdminPage'
 import type { QueryClient } from '@tanstack/react-query'
@@ -11,11 +10,15 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { AuthPage } from '@/views/auth/auth-page'
+import { GuestWorkspacePage } from '@/views/auth/guest-workspace-page'
+import { GuestImportGate } from '@/components/domain/GuestImportGate'
 import { MainLayout } from '@/views/layout/MainLayout'
 import { WorkspaceLayout } from '@/views/layout/WorkspaceLayout'
-import { hasSessionToken } from '@/store/session-store'
+import { hasSessionToken, hasWorkspaceSession } from '@/store/session-store'
 import { ProjectListPage } from '@/views/projects/ProjectListPage'
 import { WritingPage } from '@/views/projects/WritingPage'
+import { PreparePage } from '@/views/projects/PreparePage'
+import { ReviewPage } from '@/views/projects/ReviewPage'
 import { UploadingPage } from '@/views/uploading/UploadingPage'
 import { TrashPage } from '@/views/trash/TrashPage'
 import { UnderConstruction } from '@/components/shared/UnderConstruction'
@@ -27,7 +30,7 @@ export type AppRouterContext = {
 
 // Auth guard function
 function requireAuth() {
-  if (!hasSessionToken()) {
+  if (!hasWorkspaceSession()) {
     throw redirect({
       to: '/auth',
       search: {
@@ -39,7 +42,7 @@ function requireAuth() {
 
 // Root route - entry point
 const rootRoute = createRootRouteWithContext<AppRouterContext>()({
-  component: () => <Outlet />,
+  component: () => <><Outlet /><GuestImportGate /></>,
   beforeLoad: () => {
     // Check session restoration on app load
   },
@@ -51,7 +54,7 @@ const indexRoute = createRoute({
   path: '/',
   beforeLoad: () => {
     // Redirect to projects if logged in, otherwise go to auth
-    if (hasSessionToken()) {
+    if (hasWorkspaceSession()) {
       throw redirect({ to: '/app/projects' })
     } else {
       throw redirect({ to: '/auth' })
@@ -93,6 +96,13 @@ const authRoute = createRoute({
     }
   },
   component: AuthPage,
+})
+
+// Public entry that activates the browser-local guest workspace.
+const guestRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '/guest',
+  component: GuestWorkspacePage,
 })
 
 // App layout wrapper for protected routes
@@ -175,12 +185,12 @@ const projectLayoutRoute = createRoute({
   },
 })
 
-// Project root route — auto-redirect to uploading tab
+// Project root route — start with research preparation.
 const projectRootRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId',
   beforeLoad: ({ params }) => {
-    throw redirect({ to: '/project/$projectId/uploading', params })
+    throw redirect({ to: '/project/$projectId/prepare', params })
   },
 })
 
@@ -198,25 +208,35 @@ const projectWritingRoute = createRoute({
   component: WritingPage,
 })
 
-// Project classifying route
+const projectPrepareRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/project/$projectId/prepare',
+  component: PreparePage,
+})
+
+const projectReviewRoute = createRoute({
+  getParentRoute: () => projectLayoutRoute,
+  path: '/project/$projectId/review',
+  component: ReviewPage,
+})
+
+// Redirect old planned URLs into the current three-stage workflow.
 const projectClassifyingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/classifying',
-  component: () => <ComingSoon moduleKey="classifying" />
+  beforeLoad: ({ params }) => { throw redirect({ to: '/project/$projectId/prepare', params }) },
 })
 
-// Project logic-chain route
 const projectLogicChainRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/logic-chain',
-  component: () => <ComingSoon moduleKey="logic-chain" />
+  beforeLoad: ({ params }) => { throw redirect({ to: '/project/$projectId/prepare', params }) },
 })
 
-// Project generating route
 const projectGeneratingRoute = createRoute({
   getParentRoute: () => projectLayoutRoute,
   path: '/project/$projectId/generating',
-  component: () => <ComingSoon moduleKey="generating" />
+  beforeLoad: ({ params }) => { throw redirect({ to: '/project/$projectId/prepare', params }) },
 })
 
 // Build route tree
@@ -224,11 +244,14 @@ const routeTree = rootRoute.addChildren([
   indexRoute,
   authVerifyRoute,
   authRoute,
+  guestRoute,
   appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
+    projectPrepareRoute,
     projectUploadingRoute,
     projectWritingRoute,
+    projectReviewRoute,
     projectClassifyingRoute,
     projectLogicChainRoute,
     projectGeneratingRoute,
@@ -261,11 +284,10 @@ export function getPlannedRouteGroups() {
     main: ['/app/documents', '/app/trash', '/app/profile', '/app/settings'],
     project: [
       '/project/:projectId',
+      '/project/:projectId/prepare',
       '/project/:projectId/uploading',
       '/project/:projectId/writing',
-      '/project/:projectId/classifying',
-      '/project/:projectId/logic-chain',
-      '/project/:projectId/generating',
+      '/project/:projectId/review',
     ],
   } as const
 }

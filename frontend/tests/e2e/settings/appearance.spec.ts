@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { loginAs, e2eEnv } from '../helpers'
 
-test('theme + language + coming-soon pages', async ({ page }) => {
+test('theme + language + current project workflow navigation', async ({ page }) => {
   await loginAs(page, e2eEnv('E2E_USER', 'e2euser'), e2eEnv('E2E_PASS', 'e2epass1'))
 
   // 1) 主题：默认无 dark → 设置切深色 → html.dark 出现 + localStorage
@@ -32,12 +32,13 @@ test('theme + language + coming-soon pages', async ({ page }) => {
   const pid = e2eEnv('E2E_PROJECT_ID')
   await page.goto(`/project/${pid}/writing`)
   await expect(page.getByRole('button', { name: 'Writing', exact: true })).toBeVisible({ timeout: 10_000 })
-  await expect(page.getByRole('button', { name: 'Classifying', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Preparation', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review', exact: true })).toBeVisible()
 
-  // 3) ComingSoon 页
-  await page.getByRole('button', { name: 'Logic Chain', exact: true }).click()
-  await expect(page.getByText(/on the way|建设中/)).toBeVisible({ timeout: 5000 })
-  await expect(page.getByRole('button', { name: /Go to Writing|去论文撰写/ })).toBeVisible()
+  // 3) Legacy planned URLs redirect into the current three-stage workflow.
+  await page.goto(`/project/${pid}/logic-chain`)
+  await expect(page).toHaveURL(new RegExp(`/project/${pid}/prepare$`), { timeout: 5000 })
+  await expect(page.getByRole('heading', { name: /先把研究说清楚/ })).toBeVisible()
 
   // 还原：zh-CN + system（避免污染后续测试）
   await page.goto('/app/settings')

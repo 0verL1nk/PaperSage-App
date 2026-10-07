@@ -1,6 +1,11 @@
 import { getJson, postJson, deleteFetch, type ApiRequestConfig } from './client'
-import { getAccessToken } from '@/store'
+import { getAccessToken, useSessionStore } from '@/store'
 import { AGENT } from './api-routes'
+import { GuestCapabilityError } from './guest-local-workspace'
+
+function requireSignedInForAI() {
+  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError('AI 助手')
+}
 
 // --- Types（与后端 internal/agent 的 DTO 对应）---
 
@@ -60,6 +65,7 @@ export interface AgentRunHandle {
 // --- 会话 ---
 
 export function listConversations(projectId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return getJson<AgentConversation[]>(AGENT.conversations(projectId), config)
 }
 
@@ -71,14 +77,17 @@ export interface AgentConversationHandle {
 
 /** 新项目还没有会话时，第一条消息先建会话（Run 路径要求会话已存在）。 */
 export function createConversation(projectId: string, title?: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<AgentConversationHandle>(AGENT.conversations(projectId), { title: title ?? '' }, config)
 }
 
 export function listMessages(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return getJson<AgentMessage[]>(AGENT.messages(conversationId), config)
 }
 
 export function deleteConversation(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return deleteFetch(AGENT.conversation(conversationId), config)
 }
 
@@ -93,14 +102,17 @@ export interface CreateRunInput {
 }
 
 export function createRun(conversationId: string, input: CreateRunInput, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<AgentRunHandle>(AGENT.createRun(conversationId), input, config)
 }
 
 export function cancelRun(runId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<{ cancelled: boolean }>(AGENT.cancelRun(runId), {}, config)
 }
 
 export function retryRun(runId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<{ runId: string; streamUrl: string }>(AGENT.retryRun(runId), {}, config)
 }
 
@@ -124,6 +136,7 @@ export async function streamRun(
     onEvent: (event: RunStreamEvent) => void
   },
 ): Promise<void> {
+  requireSignedInForAI()
   const res = await fetch(AGENT.runEvents(runId, opts.afterSeq), {
     headers: {
       Accept: 'text/event-stream',
@@ -163,14 +176,17 @@ export async function streamRun(
 // --- 建议 ---
 
 export function listProposals(projectId: string, status?: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return getJson<AgentChangeProposal[]>(AGENT.proposals(projectId, status), config)
 }
 
 export function applyProposal(id: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<{ status: string }>(AGENT.applyProposal(id), {}, config)
 }
 
 export function rejectProposal(id: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
   return postJson<{ status: string }>(AGENT.rejectProposal(id), {}, config)
 }
 

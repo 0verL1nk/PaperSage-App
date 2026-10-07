@@ -44,7 +44,7 @@ frontend/src/
 └── views/              # Page-level view components
     ├── auth/           # Login/register views
     ├── layout/         # App shell, sidebar, navigation
-    ├── projects/       # Project list, writing page (LaTeX editor + PDF preview, file tree)
+    ├── projects/       # Project list, preparation/review workbench, LaTeX writing editor
     ├── settings/       # User settings (general / editor / agent)
     ├── trash/          # Trash/deleted items
     └── uploading/      # Reference upload module (folder tree, dropzone, data table)
@@ -57,6 +57,7 @@ frontend/src/
 - HTTP: Axios with token refresh interceptor (`services/client.ts`)
 - LaTeX editing: CodeMirror + Monaco editor integration
 - Auth: JWT (`accessToken` + `refreshToken`) stored in localStorage
+- Project workflow: `/project/:projectId/prepare`, `/writing`, `/review` plus the reference library at `/uploading`; old planned stage URLs redirect to preparation. Research brief, requirement notes, and user-maintained phase state use the owner-scoped `/projects/:id/writing-state` API with revision-based conflict handling.
 
 ### Backend (Go — gin + GORM, single binary)
 

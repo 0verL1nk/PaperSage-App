@@ -70,7 +70,7 @@ export function ProjectListPage() {
               回收站
             </Link>
           </Button>
-          <Button variant="default" size="sm" onClick={() => setIsCreateDialogOpen(true)} className="px-4">
+          <Button variant="default" size="sm" onClick={() => setIsCreateDialogOpen(true)} className="min-h-11 px-4">
             <Plus className="mr-2 h-4 w-4" />
             新建项目
           </Button>
@@ -118,7 +118,7 @@ export function ProjectListPage() {
           <p className="mb-8 max-w-[280px] text-sm text-muted-foreground leading-relaxed">
             您还没有创建任何项目，新建一个项目开始您的研究之旅。
           </p>
-          <Button variant="default" onClick={() => setIsCreateDialogOpen(true)} >
+          <Button variant="default" onClick={() => setIsCreateDialogOpen(true)} className="min-h-11">
             <Plus className="mr-2 h-4 w-4" />
             创建第一个项目
           </Button>

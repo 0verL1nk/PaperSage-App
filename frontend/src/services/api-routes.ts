@@ -8,6 +8,7 @@ const V1 = '/api/v1'
 // --- Auth ---
 export const AUTH = {
   login: `${V1}/auth/login`,
+  me: `${V1}/auth/me`,
   register: `${V1}/auth/register`,
   logout: `${V1}/auth/logout`,
   refresh: `${V1}/auth/refresh`,
@@ -22,6 +23,11 @@ export const PROJECTS = {
   trash: `${V1}/projects/trash`,
   restoreProject: (id: string) => `${V1}/projects/trash/project/${id}/restore`,
   deleteProjectPermanently: (id: string) => `${V1}/projects/trash/project/${id}`,
+} as const
+
+// --- Project writing state ---
+export const WRITING_STATE = {
+  project: (projectId: string) => `${V1}/projects/${projectId}/writing-state`,
 } as const
 
 // --- Documents ---

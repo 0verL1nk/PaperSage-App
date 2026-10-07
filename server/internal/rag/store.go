@@ -25,7 +25,7 @@ type Store struct {
 	DB         *gorm.DB
 	Embed      Embedder
 	Pg         *PgStore // Neon(pgvector) 后端；配置了 NEON_DATABASE_URL 时启用
-	vectorInDB bool     // TiDB/MySQL：VECTOR 列库端检索（Neon 未配置时的次选）
+	vectorInDB bool     // TiDB：VECTOR 列库端检索；普通 MySQL 使用二进制向量 + 内存检索
 
 	mu   sync.RWMutex
 	vec  map[string]*vecIndex
@@ -51,7 +51,13 @@ type vecEntry struct {
 func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
 	inDB := false
 	if db != nil { // nil DB：纯 Neon 后端模式（集成测试）
-		inDB = db.Dialector.Name() == "mysql" //nolint:staticcheck // QF1008: 方法而非嵌入字段
+		if db.Dialector.Name() == "mysql" { //nolint:staticcheck // QF1008: 方法而非嵌入字段
+			var version string
+			if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err != nil {
+				return nil, fmt.Errorf("detect MySQL vector capabilities: %w", err)
+			}
+			inDB = strings.Contains(strings.ToLower(version), "tidb")
+		}
 	}
 	return &Store{
 		DB: db, Embed: emb, vectorInDB: inDB,

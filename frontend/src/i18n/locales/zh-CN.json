@@ -1,11 +1,10 @@
 {
   "nav": {
     "backToProjects": "返回项目列表",
+    "tabPrepare": "写作准备",
+    "tabReview": "检查完善",
     "tabUploading": "上传资料",
     "tabWriting": "论文撰写",
-    "tabClassifying": "内容分类",
-    "tabLogicChain": "逻辑链条",
-    "tabGenerating": "报告生成",
     "projects": "所有项目",
     "trash": "回收站",
     "settings": "设置",
@@ -14,7 +13,7 @@
   "comingSoon": {
     "badge": "规划中",
     "title": "{{name}} 模块建设中",
-    "desc": "该模块属于 AI 辅助写作流程（v0.5 路线），当前版本聚焦文献管理与论文撰写。你可以先完成前两步：整理文献、开始写作。",
+    "desc": "此页面已并入写作准备、论文撰写和检查完善三阶段工作台。",
     "goWriting": "去论文撰写",
     "goUploading": "去上传资料"
   },

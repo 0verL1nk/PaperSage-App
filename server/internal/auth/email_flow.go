@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
@@ -275,14 +276,14 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	_, err := VerifyToken(token, s.Cfg.SecretKey, "email_verify")
+	claims, err := VerifyToken(token, s.Cfg.SecretKey, "email_verify")
 	if err != nil {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
 	var row store.VerificationToken
 	err = s.DB.Where("token_hash = ?", tokenHash(token)).First(&row).Error
-	if err != nil || time.Now().UTC().After(row.ExpiresAt) {
+	if err != nil || row.UserID.String() != claims.Subject || time.Now().UTC().After(row.ExpiresAt) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
@@ -299,10 +300,23 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		return
 	}
 	now := time.Now().UTC()
-	_ = s.DB.Model(&store.VerificationToken{}).
-		Where("token_hash = ?", row.TokenHash).Update("used_at", now).Error
-	_ = s.DB.Model(&store.User{}).
-		Where("id = ?", row.UserID).Update("email_verified", true).Error
+	err = s.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var locked store.VerificationToken
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("token_hash = ?", row.TokenHash).First(&locked).Error; err != nil {
+			return err
+		}
+		if locked.UsedAt != nil || now.After(locked.ExpiresAt) {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Model(&store.VerificationToken{}).Where("token_hash = ? AND used_at IS NULL", row.TokenHash).Update("used_at", now).Error; err != nil {
+			return err
+		}
+		return tx.Model(&store.User{}).Where("id = ?", row.UserID).Update("email_verified", true).Error
+	})
+	if err != nil {
+		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
+		return
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"verified": true}, ""))
 }
 
