@@ -24,9 +24,10 @@ describe('ApiTargetToggle', () => {
     render(<ApiTargetToggle />)
 
     expect(screen.getByTitle(/在线/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /当前：在线/ })).toHaveTextContent('在线')
 
     await user.click(screen.getByRole('button', { name: /切换接口环境/ }))
-    await user.click(await screen.findByText('本地'))
+    await user.click(await screen.findByRole('menuitem', { name: /本地/ }))
 
     expect(localStorage.getItem(KEY)).toBe('local')
     // 必须刷新：访问令牌与 React Query 缓存都绑在原来的后端上
@@ -39,9 +40,10 @@ describe('ApiTargetToggle', () => {
     render(<ApiTargetToggle />)
 
     expect(screen.getByTitle(/本地/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /当前：本地/ })).toHaveTextContent('本地')
 
     await user.click(screen.getByRole('button', { name: /切换接口环境/ }))
-    await user.click(await screen.findByText('本地'))
+    await user.click(await screen.findByRole('menuitem', { name: /本地/ }))
 
     expect(reload).not.toHaveBeenCalled()
   })

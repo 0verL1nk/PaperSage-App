@@ -40,17 +40,14 @@ export function ApiTargetToggle() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          size="icon-sm"
-          className="rounded-full hover:bg-muted"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 rounded-full border-border/55 bg-background/60 px-2.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/70 hover:text-foreground sm:px-3"
           title={isLocal ? `接口环境：本地（${appEnv.localApiBaseUrl}）` : '接口环境：在线'}
+          aria-label={`切换接口环境，当前：${isLocal ? '本地' : '在线'}`}
         >
-          {isLocal ? (
-            <HardDrive className="size-4 text-amber-600" />
-          ) : (
-            <Cloud className="size-4 text-muted-foreground" />
-          )}
-          <span className="sr-only">切换接口环境</span>
+          {isLocal ? <HardDrive className="size-3.5" /> : <Cloud className="size-3.5" />}
+          <span className="hidden sm:inline">{isLocal ? '本地' : '在线'}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
