@@ -62,6 +62,7 @@ type User struct {
 	IsEmailRegistered bool    `gorm:"not null;default:false"` // 邮箱注册制账号（验证门槛只约束这类）
 	IsActive          bool    `gorm:"not null;default:true"`
 	IsSuperuser       bool    `gorm:"not null;default:false"`
+	AuthVersion       int64   `gorm:"not null;default:0"`
 
 	Projects      []Project      `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
 	ProjectGroups []ProjectGroup `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
@@ -203,6 +204,7 @@ type CompileJob struct {
 type VerificationToken struct {
 	TokenHash string     `gorm:"column:token_hash;primaryKey;size:64"`
 	UserID    UUID       `gorm:"column:user_id;not null"`
+	Purpose   string     `gorm:"column:purpose;size:32;not null;default:email_verify"`
 	ExpiresAt time.Time  `gorm:"column:expires_at;not null"`
 	UsedAt    *time.Time `gorm:"column:used_at"`
 }

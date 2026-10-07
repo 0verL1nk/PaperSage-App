@@ -239,7 +239,7 @@ export function AuthPage() {
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between px-1">
                         <Label htmlFor="password" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">密码</Label>
-                        <button type="button" className="min-h-12 px-2 text-[11px] font-bold text-primary transition-opacity hover:opacity-80">忘记密码？</button>
+                        <Link to="/auth/forgot-password" className="flex min-h-12 items-center px-2 text-[11px] font-bold text-primary transition-opacity hover:opacity-80">忘记密码？</Link>
                       </div>
                       <div className="relative">
                         <Input

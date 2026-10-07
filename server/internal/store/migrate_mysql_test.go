@@ -44,8 +44,8 @@ func TestMySQLMigrateUpFreshDatabase(t *testing.T) {
 	schemaDSN := rebindMySQLDatabase(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN), "MySQL 方言迁移应全部执行成功")
 
-	// 数业务表（与 PG 对齐：0012 后 16 张 + 0013 的 agent 运行时 9 张 + 0014 writing state 1 张 + 0015 import receipts 1 张 = 27，
-	// 去掉 schema_migrations）
+	// 数业务表（0012 后 16 张 + 0013 agent 运行时 9 张 + 0014 writing state 1 张 +
+	// 0015 import receipts 1 张 = 27；0016 仅增加字段，不增加表；不含 schema_migrations）
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))

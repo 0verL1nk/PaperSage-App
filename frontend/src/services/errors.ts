@@ -80,6 +80,7 @@ const INFO_ZH: Record<string, string> = {
   'Invalid or expired refresh token': '登录已过期，请重新登录',
   'Refresh token has been revoked': '登录已失效，请重新登录',
   'Invalid or expired verification link': '验证链接无效或已过期，请重新发送验证邮件',
+  'Invalid or expired password reset link': '密码重置链接无效、已过期或已使用，请重新申请',
 }
 
 /** 前缀匹配（带动态后缀的串，如文件大小/类型） */

@@ -162,8 +162,8 @@ func (s *Service) login(c *gin.Context) {
 
 	s.maybePromoteSuperuser(c.Request.Context(), &user)
 	sub := user.ID.String()
-	access, _ := CreateAccessToken(s.Cfg.SecretKey, sub, s.Cfg.AccessTokenExpireMinutes)
-	refresh, _ := CreateRefreshToken(s.Cfg.SecretKey, sub, s.Cfg.RefreshTokenExpireDays)
+	access, _ := CreateVersionedAccessToken(s.Cfg.SecretKey, sub, user.AuthVersion, s.Cfg.AccessTokenExpireMinutes)
+	refresh, _ := CreateVersionedRefreshToken(s.Cfg.SecretKey, sub, user.AuthVersion, s.Cfg.RefreshTokenExpireDays)
 	s.storeRefresh(c.Request.Context(), refresh, user.ID, s.refreshTTL())
 
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(TokenResponse{
@@ -237,10 +237,14 @@ func (s *Service) refresh(c *gin.Context) {
 		httpapi.WriteError(c.Writer, errBad("User not found or inactive", http.StatusUnauthorized))
 		return
 	}
+	if claims.AuthVersion != user.AuthVersion {
+		httpapi.WriteError(c.Writer, errBad("Refresh token has been revoked", http.StatusUnauthorized))
+		return
+	}
 
 	sub := user.ID.String()
-	access, _ := CreateAccessToken(s.Cfg.SecretKey, sub, s.Cfg.AccessTokenExpireMinutes)
-	newRefresh, _ := CreateRefreshToken(s.Cfg.SecretKey, sub, s.Cfg.RefreshTokenExpireDays)
+	access, _ := CreateVersionedAccessToken(s.Cfg.SecretKey, sub, user.AuthVersion, s.Cfg.AccessTokenExpireMinutes)
+	newRefresh, _ := CreateVersionedRefreshToken(s.Cfg.SecretKey, sub, user.AuthVersion, s.Cfg.RefreshTokenExpireDays)
 	// 真正的 refresh token rotation——签发新 token 时吊销旧行（DB）
 	now := time.Now().UTC()
 	_ = s.DB.WithContext(ctx).Model(&store.RefreshToken{}).
