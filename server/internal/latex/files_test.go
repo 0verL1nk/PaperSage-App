@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -112,6 +113,39 @@ func TestFileCRUDFlow(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 	resp = ts.Do(t, http.MethodGet, latexPath(p, "/appendix/abstract.tex"), nil)
 	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestLatexImportCreateIsIdempotentAndRejectsContentConflict(t *testing.T) {
+	ts, p := seed(t)
+	key := map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+		"X-PaperSage-Import-Local-Id":  uuid.NewString(),
+	}
+	create := func(content string, headers map[string]string) *http.Response {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"path": "imported.tex", "content": content})
+		require.NoError(t, err)
+		return ts.DoWithHeaders(t, http.MethodPost, latexPath(p, "/"), body, headers)
+	}
+	first := create("\\section{local}", key)
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	var firstBody map[string]any
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstBody))
+	firstID := firstBody["data"].(map[string]any)["id"]
+
+	retry := create("\\section{local}", key)
+	require.Equal(t, http.StatusOK, retry.StatusCode)
+	var retryBody map[string]any
+	require.NoError(t, json.NewDecoder(retry.Body).Decode(&retryBody))
+	assert.Equal(t, firstID, retryBody["data"].(map[string]any)["id"])
+
+	conflict := create("\\section{changed}", key)
+	assert.Equal(t, http.StatusConflict, conflict.StatusCode)
+	partial := create("partial", map[string]string{"X-PaperSage-Import-Local-Id": uuid.NewString()})
+	assert.Equal(t, http.StatusUnprocessableEntity, partial.StatusCode)
+	var count int64
+	require.NoError(t, ts.DB.Model(&store.LatexFile{}).Where("project_id = ?", p.ID).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
 }
 
 // 二进制文件：GET 返回裸字节 + inline 头（非 JSON 信封）

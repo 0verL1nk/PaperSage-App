@@ -35,6 +35,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
+	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
 
 // TestServer 一套装配好的 API + 预置用户。
@@ -101,8 +102,8 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	// 可替换的邮件替身：注册制测试前 setEmailSender 换捕获器
 	ts := &TestServer{}
 	ts.mailer = &swappableSender{inner: email.Noop{}}
-	authSvc := auth.NewService(db, cfg, ts.mailer)
 	mem := NewMemStorage()
+	authSvc := auth.NewService(db, cfg, ts.mailer)
 	latexFiles, err := latex.NewFilesService(db, mem)
 	require.NoError(t, err)
 	compileCfg := &config.Settings{
@@ -125,6 +126,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	v1 := api.Group(httpapi.APIVersion)
 	auth.Mount(v1, authSvc)
 	projects.Mount(v1, authSvc.AuthRequired(), projSvc)
+	writingstate.Mount(v1, authSvc.AuthRequired(), writingstate.NewService(db))
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
 	syssettings.Mount(v1, authSvc.ChainMiddleware(auth.AdminRequired()), syssettings.NewService(db))
@@ -153,12 +155,19 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 
 // Do 发带认证的请求（body 非 nil 时按 JSON）。
 func (ts *TestServer) Do(t *testing.T, method, path string, body []byte) *http.Response {
+	return ts.DoWithHeaders(t, method, path, body, nil)
+}
+
+func (ts *TestServer) DoWithHeaders(t *testing.T, method, path string, body []byte, headers map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, ts.URL+path, bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Authorization", "Bearer "+ts.Token)
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)

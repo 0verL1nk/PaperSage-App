@@ -93,11 +93,27 @@ type Project struct {
 	OwnerID     UUID    `gorm:"not null;index"`
 	GroupID     *UUID   `gorm:"index"`
 	Status      string  `gorm:"size:20;not null;default:active"`
+	Scenario    string  `gorm:"size:32;not null;default:undergraduate_thesis"`
 
 	Owner      User          `gorm:"foreignKey:OwnerID"`
 	Group      *ProjectGroup `gorm:"foreignKey:GroupID"`
 	LatexFiles []LatexFile   `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
 }
+
+// ProjectWritingState 是项目级研究蓝图、要求与阶段状态的唯一权威记录。
+type ProjectWritingState struct {
+	ProjectID    UUID           `gorm:"column:project_id;primaryKey"`
+	Brief        datatypes.JSON `gorm:"column:brief;not null"`
+	Requirements datatypes.JSON `gorm:"column:requirements;not null"`
+	Phases       datatypes.JSON `gorm:"column:phases;not null"`
+	CurrentPhase string         `gorm:"column:current_phase;size:20;not null;default:prepare"`
+	Revision     int            `gorm:"column:revision;not null;default:1"`
+	CreatedAt    time.Time      `gorm:"column:created_at;not null;autoCreateTime"`
+	UpdatedAt    time.Time      `gorm:"column:updated_at;not null;autoUpdateTime"`
+	DeletedAt    gorm.DeletedAt `gorm:"column:deleted_at;index"`
+}
+
+func (ProjectWritingState) TableName() string { return "project_writing_states" }
 
 type Folder struct {
 	BaseModel
@@ -247,8 +263,9 @@ func RegisterModels(models ...any) { extraModels = append(extraModels, models...
 func coreModels() []any {
 	return []any{
 		&User{}, &UserSettings{}, &ProjectGroup{}, &Project{},
+		&ProjectWritingState{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
-		&SystemSetting{}, &VerificationToken{},
+		&SystemSetting{}, &VerificationToken{}, &ImportReceipt{},
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
 		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},
 		&AgentArtifact{}, &AgentChangeProposal{}, &AgentEvidence{}, &AgentWikiSource{},
@@ -269,3 +286,18 @@ type RefreshToken struct {
 }
 
 func (RefreshToken) TableName() string { return "refresh_tokens" }
+
+// ImportReceipt binds a stable browser-local item key to one cloud resource.
+// The composite key prevents retried imports from creating duplicate rows.
+type ImportReceipt struct {
+	ID           UUID      `gorm:"primaryKey"`
+	OwnerID      UUID      `gorm:"not null;uniqueIndex:uq_import_receipt_scope,priority:1"`
+	BundleID     UUID      `gorm:"not null;uniqueIndex:uq_import_receipt_scope,priority:2"`
+	ResourceType string    `gorm:"size:24;not null;uniqueIndex:uq_import_receipt_scope,priority:3"`
+	LocalID      UUID      `gorm:"not null;uniqueIndex:uq_import_receipt_scope,priority:4"`
+	Fingerprint  string    `gorm:"size:64;not null"`
+	ResourceID   UUID      `gorm:"not null"`
+	CreatedAt    time.Time `gorm:"not null;autoCreateTime"`
+}
+
+func (ImportReceipt) TableName() string { return "import_receipts" }

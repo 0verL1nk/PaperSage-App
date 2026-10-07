@@ -4,6 +4,7 @@ package documents
 
 import (
 	"context"
+	"errors"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,6 +13,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
@@ -159,7 +161,42 @@ func (s *Service) createFolder(c *gin.Context) {
 		Name: *req.Name, ParentID: parentID,
 		ProjectID: store.UUID{UUID: *projectID}, OwnerID: store.UUID{UUID: uid},
 	}
-	if err := s.DB.WithContext(ctx).Create(&f).Error; err != nil {
+	key, hasKey, keyErr := importreceipt.Parse(c.Request.Header)
+	if keyErr != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	if hasKey {
+		fingerprint, err := importreceipt.Fingerprint(struct {
+			Name      string
+			ProjectID uuid.UUID
+			ParentID  *uuid.UUID
+		}{Name: f.Name, ProjectID: *projectID, ParentID: parentUUID})
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+		f.ID = store.MustNewUUID()
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			resourceID, replay, err := importreceipt.Claim(tx, f.OwnerID, key, "folder", fingerprint, f.ID)
+			if err != nil {
+				return err
+			}
+			if replay {
+				f.ID = resourceID
+				return tx.Where("id = ? AND owner_id = ?", f.ID, f.OwnerID).First(&f).Error
+			}
+			return tx.Create(&f).Error
+		})
+		if errors.Is(err, importreceipt.ErrConflict) || errors.Is(err, gorm.ErrRecordNotFound) {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Import key conflicts with existing content or resource"})
+			return
+		}
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+	} else if err := s.DB.WithContext(ctx).Create(&f).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}

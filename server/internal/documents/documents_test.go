@@ -56,6 +56,38 @@ func TestFolderCreateSnakeCase(t *testing.T) {
 	assert.NotEmpty(t, m["data"].(map[string]any)["id"])
 }
 
+func TestFolderImportCreateIsIdempotentAndRejectsContentConflict(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	key := map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+		"X-PaperSage-Import-Local-Id":  uuid.NewString(),
+	}
+	create := func(name string) *http.Response {
+		t.Helper()
+		body, err := json.Marshal(map[string]any{"name": name, "projectId": p.ID.String()})
+		require.NoError(t, err)
+		return ts.DoWithHeaders(t, http.MethodPost, "/api/v1/folders/", body, key)
+	}
+	first := create("Imported folder")
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	var firstBody map[string]any
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstBody))
+	firstID := firstBody["data"].(map[string]any)["id"]
+
+	retry := create("Imported folder")
+	require.Equal(t, http.StatusOK, retry.StatusCode)
+	var retryBody map[string]any
+	require.NoError(t, json.NewDecoder(retry.Body).Decode(&retryBody))
+	assert.Equal(t, firstID, retryBody["data"].(map[string]any)["id"])
+
+	conflict := create("Changed folder")
+	assert.Equal(t, http.StatusConflict, conflict.StatusCode)
+	var count int64
+	require.NoError(t, ts.DB.Model(&store.Folder{}).Where("owner_id = ?", ts.UserID()).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}
+
 func TestDocumentMoveSnakeCase(t *testing.T) {
 	ts := testutil.New(t)
 	p := store.Project{Name: "M", OwnerID: ts.UserID()}

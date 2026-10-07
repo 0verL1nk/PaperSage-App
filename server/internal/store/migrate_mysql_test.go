@@ -10,10 +10,13 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"path"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/0verL1nk/GraduateProject/server/migrations"
 )
 
 func mysqlDSN(t *testing.T) string {
@@ -41,18 +44,18 @@ func TestMySQLMigrateUpFreshDatabase(t *testing.T) {
 	schemaDSN := rebindMySQLDatabase(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN), "MySQL 方言迁移应全部执行成功")
 
-	// 数业务表（与 PG 对齐：0012 后 16 张 + 0013 的 agent 运行时 9 张 = 25，
+	// 数业务表（与 PG 对齐：0012 后 16 张 + 0013 的 agent 运行时 9 张 + 0014 writing state 1 张 + 0015 import receipts 1 张 = 27，
 	// 去掉 schema_migrations）
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 25, count, "两方言业务表数量必须一致")
+	assert.Equal(t, 27, count, "两方言业务表数量必须一致")
 
 	// 幂等
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 }
 
-// 交接：预置业务表（无 alembic）→ stamp baseline 后接管
+// 交接：完整 baseline schema（无 alembic）→ stamp baseline 后接管。
 func TestMySQLMigrateUpHandover(t *testing.T) {
 	dsn := mysqlDSN(t)
 	db, err := sql.Open("mysql", toDriverDSN(dsn))
@@ -63,16 +66,18 @@ func TestMySQLMigrateUpHandover(t *testing.T) {
 	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS " + schema)
 	require.NoError(t, err)
 	t.Cleanup(func() { _, _ = db.Exec("DROP DATABASE IF EXISTS " + schema) })
-	// 模拟既有业务库（Python create_all 时代的最小集：0004/0005 的
-	// 外键会引用 users 与 projects，交接测试需预置两者）
-	_, err = db.Exec(fmt.Sprintf(
-		"CREATE TABLE %s.users (id char(32) PRIMARY KEY, username varchar(50) NOT NULL)", schema))
+	schemaDSN := rebindMySQLDatabase(dsn, schema)
+	fixtureDB, err := sql.Open("mysql", toDriverDSN(schemaDSN+"?multiStatements=true"))
 	require.NoError(t, err)
-	_, err = db.Exec(fmt.Sprintf(
-		"CREATE TABLE %s.projects (id char(32) PRIMARY KEY, name varchar(100) NOT NULL, owner_id char(32) NOT NULL)", schema))
+	fixtureDB.SetMaxOpenConns(1)
+	defer fixtureDB.Close()
+	baselineFS, baselineDir, err := migrations.FSFor("mysql")
+	require.NoError(t, err)
+	baselineSQL, err := baselineFS.ReadFile(path.Join(baselineDir, "0001_baseline.up.sql"))
+	require.NoError(t, err)
+	_, err = fixtureDB.Exec(string(baselineSQL))
 	require.NoError(t, err)
 
-	schemaDSN := rebindMySQLDatabase(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 
 	var version int64

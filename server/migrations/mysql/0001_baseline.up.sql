@@ -17,7 +17,7 @@ CREATE TABLE users (
     UNIQUE KEY ix_users_username (username),
     -- MySQL 唯一索引允许多个 NULL，天然等价 PG 的部分唯一索引
     UNIQUE KEY ix_users_email (email)
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE project_groups (
     id         char(32)     PRIMARY KEY,
@@ -28,7 +28,7 @@ CREATE TABLE project_groups (
     updated_at datetime(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     KEY ix_project_groups_owner_id (owner_id),
     CONSTRAINT fk_pg_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE projects (
     id          char(32)     PRIMARY KEY,
@@ -45,7 +45,7 @@ CREATE TABLE projects (
     KEY ix_projects_group_id (group_id),
     CONSTRAINT fk_proj_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE,
     CONSTRAINT fk_proj_group FOREIGN KEY (group_id) REFERENCES project_groups (id) ON DELETE SET NULL
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE folders (
     id         char(32)     PRIMARY KEY,
@@ -59,7 +59,7 @@ CREATE TABLE folders (
     CONSTRAINT fk_folder_parent FOREIGN KEY (parent_id) REFERENCES folders (id) ON DELETE CASCADE,
     CONSTRAINT fk_folder_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
     CONSTRAINT fk_folder_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE documents (
     id         char(32)     PRIMARY KEY,
@@ -79,7 +79,7 @@ CREATE TABLE documents (
     CONSTRAINT fk_doc_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
     CONSTRAINT fk_doc_folder FOREIGN KEY (folder_id) REFERENCES folders (id) ON DELETE SET NULL,
     CONSTRAINT fk_doc_owner FOREIGN KEY (owner_id) REFERENCES users (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE latex_files (
     id            char(32)     PRIMARY KEY,
@@ -96,7 +96,7 @@ CREATE TABLE latex_files (
     KEY ix_latex_files_project_id (project_id),
     KEY ix_latex_files_content_hash (content_hash),
     CONSTRAINT fk_lf_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE compile_jobs (
     id         char(32)     PRIMARY KEY,
@@ -116,7 +116,7 @@ CREATE TABLE compile_jobs (
     KEY ix_compile_jobs_status (status),
     CONSTRAINT fk_cj_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE,
     CONSTRAINT fk_cj_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE user_settings (
     user_id    char(32)     NOT NULL,
@@ -125,4 +125,4 @@ CREATE TABLE user_settings (
     updated_at datetime(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
     PRIMARY KEY (user_id, category),
     CONSTRAINT fk_us_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
+ ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

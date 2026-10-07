@@ -4,6 +4,7 @@ import {
   fetchLatexFileContent,
   saveLatexFile,
   createLatexFile,
+  uploadLatexFile,
   deleteLatexFile,
   deleteLatexFolder,
   renameLatexFile,
@@ -14,8 +15,6 @@ import {
   type CompileJobSubmitResponse,
   type PdfRangeSource,
 } from '@/services/latex-api'
-import { LATEX } from '@/services/api-routes'
-
 // Query keys（定义在 @/lib/query-keys，供 AI 面板等复用而不引入重依赖）
 import { latexKeys } from '@/lib/query-keys'
 export { latexKeys }
@@ -59,11 +58,7 @@ export function useCreateLatexFile(projectId: string) {
   return useMutation({
     mutationFn: async ({ path, content, file }: { path: string; content?: string; file?: File }) => {
       if (file) {
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('path', path)
-        const { postMultipart } = await import('@/services/client')
-        return postMultipart(LATEX.files(projectId), formData)
+        return uploadLatexFile(projectId, path, file)
       }
       return createLatexFile(projectId, path, content)
     },

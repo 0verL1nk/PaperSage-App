@@ -6,4 +6,4 @@ CREATE TABLE refresh_tokens (
     created_at  datetime(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
     KEY ix_refresh_tokens_user_id (user_id),
     CONSTRAINT fk_rt_user FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

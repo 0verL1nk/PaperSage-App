@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { getOptionalApiBaseUrl, getRequiredApiBaseUrl } from '@/lib/env'
 import { AUTH } from '@/services/api-routes'
-import { clearSessionTokens, getAccessToken, getRefreshToken, setSessionTokens, type SessionTokens } from '@/store'
+import { clearSessionTokens, getAccessToken, getRefreshToken, mergeRefreshedTokens, setSessionTokens, useSessionStore, type SessionTokens } from '@/store'
 import { hideGlobalLoading, showGlobalLoading } from '@/store'
 import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
 import {
@@ -68,10 +68,10 @@ async function refreshAccessToken(): Promise<SessionTokens> {
       })
     }
 
-    const newTokens: SessionTokens = {
+    const newTokens = mergeRefreshedTokens({
       accessToken: response.data.data.accessToken,
       refreshToken: response.data.data.refreshToken,
-    }
+    }, useSessionStore.getState())
 
     // Save new tokens
     setSessionTokens(newTokens)
@@ -137,6 +137,7 @@ apiClient.interceptors.response.use(
       error.response?.status === 401 &&
       !requestConfig?.url?.includes('/auth/login') &&
       !requestConfig?.url?.includes('/auth/register') &&
+      !requestConfig?.url?.includes('/auth/guest') &&
       !requestConfig?.url?.includes('/auth/refresh') &&
       !requestConfig?.skipAuthRefresh
     ) {
@@ -194,6 +195,7 @@ apiClient.interceptors.response.use(
     const isAuthEndpoint =
       requestConfig?.url?.includes('/auth/login') ||
       requestConfig?.url?.includes('/auth/register') ||
+      requestConfig?.url?.includes('/auth/guest') ||
       requestConfig?.url?.includes('/auth/refresh')
     if (!isAuthEndpoint && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()

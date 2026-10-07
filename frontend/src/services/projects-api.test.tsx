@@ -19,6 +19,7 @@ const mockProject: Project = {
   owner_id: '550e8400-e29b-41d4-a716-446655440001',
   group_id: '550e8400-e29b-41d4-a716-446655440002',
   status: 'active',
+  scenario: 'undergraduate_thesis',
   is_deleted: false,
   deleted_at: null,
   created_at: '2024-01-01T00:00:00Z',

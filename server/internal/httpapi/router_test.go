@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -59,4 +60,22 @@ func TestCORSHeaders(t *testing.T) {
 
 	assert.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
 	assert.Equal(t, "Content-Disposition", resp.Header.Get("Access-Control-Expose-Headers"))
+}
+
+func TestCORSAllowsLocalImportIdempotencyHeaders(t *testing.T) {
+	srv := httptest.NewServer(NewWithAssets(testLogger(), nil))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodOptions, srv.URL+"/api/v1/projects/", nil)
+	require.NoError(t, err)
+	req.Header.Set("Origin", "http://localhost:5173")
+	req.Header.Set("Access-Control-Request-Method", http.MethodPost)
+	req.Header.Set("Access-Control-Request-Headers", "authorization,content-type,x-papersage-import-bundle-id,x-papersage-import-local-id")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	assert.Equal(t, http.StatusNoContent, resp.StatusCode)
+	allowed := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers"))
+	assert.Contains(t, allowed, "x-papersage-import-bundle-id")
+	assert.Contains(t, allowed, "x-papersage-import-local-id")
 }

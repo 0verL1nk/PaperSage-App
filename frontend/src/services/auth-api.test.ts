@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { FrontendApiError, postMultipart } from '@/services'
-import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
+import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
+import { getCurrentUser, loginWithPassword, registerWithEmail } from '@/services/auth-api'
 import { sha256 as jsSha256 } from 'js-sha256'
 
 vi.mock('@/services', async () => {
@@ -8,7 +8,9 @@ vi.mock('@/services', async () => {
 
   return {
     ...actual,
+    getJson: vi.fn(),
     postMultipart: vi.fn(),
+    postJson: vi.fn(),
   }
 })
 
@@ -26,6 +28,14 @@ async function sha256WebCrypto(message: string): Promise<string> {
 describe('auth api', () => {
   beforeEach(() => {
     vi.mocked(postMultipart).mockReset()
+    vi.mocked(getJson).mockReset()
+    vi.mocked(postJson).mockReset()
+  })
+
+  it('reads the active account identity from the normal auth endpoint', async () => {
+    vi.mocked(getJson).mockResolvedValue({ isGuest: false, emailVerified: true })
+    await expect(getCurrentUser()).resolves.toMatchObject({ isGuest: false, emailVerified: true })
+    expect(getJson).toHaveBeenCalledWith('/api/v1/auth/me', { skipGlobalLoading: true })
   })
 
   it('hashes the password and submits login as multipart data', async () => {

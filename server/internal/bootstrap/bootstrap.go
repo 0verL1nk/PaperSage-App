@@ -27,6 +27,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
+	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
 
 // App 装配产物。调用方只拿它需要的东西（Engine 起服务、Closer 收尾）。
@@ -101,6 +102,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	auth.Mount(v1, authSvc)
 	projects.Mount(v1, authSvc.AuthRequired(), projSvc)
+	writingstate.Mount(v1, authSvc.AuthRequired(), writingstate.NewService(db))
 	documents.Mount(v1, authSvc.AuthRequired(), docSvc)
 	settings.Mount(v1, authSvc.AuthRequired(), setSvc)
 	syssettings.Mount(v1, adminMw, syssettings.NewService(db))

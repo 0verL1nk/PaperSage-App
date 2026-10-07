@@ -1,22 +1,22 @@
 import { useNavigate, useParams, Link, useLocation } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, FileUp, PenLine, Tags, GitBranch, Sparkles, Settings, ExternalLink } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, FileUp, PenLine, ClipboardCheck, Settings, ExternalLink } from 'lucide-react'
 import { type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
 import { useProject } from '@/services/projects-api'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
+import { GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
 
 interface WorkspaceLayoutProps {
   children: ReactNode
 }
 
 const projectTabs = [
-  { path: '/project/$projectId/uploading' as const, labelKey: 'nav.tabUploading', icon: FileUp, key: 'uploading' },
+  { path: '/project/$projectId/prepare' as const, labelKey: 'nav.tabPrepare', icon: BookOpenCheck, key: 'prepare' },
   { path: '/project/$projectId/writing' as const, labelKey: 'nav.tabWriting', icon: PenLine, key: 'writing' },
-  { path: '/project/$projectId/classifying' as const, labelKey: 'nav.tabClassifying', icon: Tags, key: 'classifying' },
-  { path: '/project/$projectId/logic-chain' as const, labelKey: 'nav.tabLogicChain', icon: GitBranch, key: 'logic-chain' },
-  { path: '/project/$projectId/generating' as const, labelKey: 'nav.tabGenerating', icon: Sparkles, key: 'generating' },
+  { path: '/project/$projectId/review' as const, labelKey: 'nav.tabReview', icon: ClipboardCheck, key: 'review' },
+  { path: '/project/$projectId/uploading' as const, labelKey: 'nav.tabUploading', icon: FileUp, key: 'uploading' },
 ]
 
 export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
@@ -83,9 +83,10 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
             return (
               <button
                 key={tab.key}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavigate(tab.path)}
                 className={cn(
-                  "group flex items-center gap-1.5 px-4 py-1.5 rounded-full text-[13px] font-medium transition-all duration-300 outline-none relative overflow-hidden",
+                  "group flex min-h-12 items-center gap-1.5 px-4 py-2 rounded-full text-[13px] font-medium transition-all duration-300 outline-none relative overflow-hidden",
                   isActive 
                     ? "bg-background text-primary shadow-[0_2px_10px_-3px_rgba(0,0,0,0.1)] ring-1 ring-border/50" 
                     : "text-muted-foreground hover:text-foreground hover:bg-muted hover:scale-105 active:scale-95"
@@ -102,7 +103,8 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center gap-1">
+        <div className="flex min-w-0 items-center gap-1">
+          <GuestSessionBadge />
           <Button variant="ghost" size="icon-sm" className="text-muted-foreground rounded-full hover:bg-muted/50 hover:text-foreground transition-all hover:rotate-12">
             <Settings className="size-4" />
           </Button>
@@ -120,9 +122,10 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
             return (
               <button
                 key={tab.key}
+                aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavigate(tab.path)}
                 className={cn(
-                  "flex-none px-4 h-full text-[13px] font-medium transition-all outline-none whitespace-nowrap border-b-2",
+                  "flex-none min-h-11 px-4 h-full text-[13px] font-medium transition-all outline-none whitespace-nowrap border-b-2",
                   isActive 
                     ? "text-primary border-primary bg-primary/5" 
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
