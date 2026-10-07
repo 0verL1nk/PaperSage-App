@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
+import { initializeGuestWorkspace } from '@/services/guest-local-workspace'
 import { AuthPage } from '@/views/auth/auth-page'
 import { setSessionTokens, useSessionStore } from '@/store'
 
@@ -14,6 +15,7 @@ vi.mock('@/services/auth-api', () => ({
   loginWithPassword: vi.fn(),
   registerWithEmail: vi.fn(),
 }))
+vi.mock('@/services/guest-local-workspace', () => ({ initializeGuestWorkspace: vi.fn() }))
 
 vi.mock('sonner', () => ({
   toast: {
@@ -56,6 +58,7 @@ describe('AuthPage', () => {
     toastErrorMock.mockReset()
     vi.mocked(loginWithPassword).mockReset()
     vi.mocked(registerWithEmail).mockReset()
+    vi.mocked(initializeGuestWorkspace).mockReset().mockResolvedValue(undefined)
     useSessionStore.setState({
       accessToken: '',
       refreshToken: '',
@@ -78,12 +81,22 @@ describe('AuthPage', () => {
     })
   })
 
-  it('offers guest mode as a quiet, clearly labeled secondary path', () => {
+  it('offers guest mode as a direct, clearly labeled secondary action', async () => {
     renderAuthPage()
 
-    const guestLink = screen.getByRole('link', { name: '以游客身份体验 PaperSage' })
-    expect(guestLink).toHaveAttribute('href', '/guest')
-    expect(screen.getByText(/无需注册 · 内容保存在本机/)).toBeInTheDocument()
+    const guestButton = screen.getByRole('button', { name: '以游客身份体验 PaperSage' })
+    expect(guestButton).toHaveTextContent('免注册体验 PaperSage')
+    expect(screen.getByText(/项目仅保存在此浏览器/)).toBeInTheDocument()
+    await userEvent.click(guestButton)
+
+    await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: '/app/projects' }))
+    expect(initializeGuestWorkspace).toHaveBeenCalledOnce()
+    expect(useSessionStore.getState()).toMatchObject({ isGuest: true, accessToken: '' })
+  })
+
+  it('shows the backend selector on the public auth page', () => {
+    renderAuthPage()
+    expect(screen.getByRole('button', { name: /切换后端，当前：在线/ })).toBeVisible()
   })
 
   // TODO: Fix this test - React Hook Form validation not triggering properly in test environment

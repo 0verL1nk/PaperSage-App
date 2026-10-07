@@ -19,7 +19,7 @@ import { appEnv, getApiTarget, setApiTarget, type ApiTarget } from '@/lib/env'
  * 切换后**整页刷新**——访问令牌与 React Query 缓存都绑定在原来的后端上，
  * 不刷新会拿到「A 后端签发的 token 去请求 B 后端」这种半坏状态。
  */
-export function ApiTargetToggle() {
+export function ApiTargetToggle({ prominent = false }: { prominent?: boolean }) {
   const [target, setTarget] = useState<ApiTarget>(() => getApiTarget())
 
   const choose = (next: ApiTarget) => {
@@ -42,16 +42,20 @@ export function ApiTargetToggle() {
         <Button
           variant="outline"
           size="sm"
-          className="h-8 gap-1.5 rounded-full border-border/55 bg-background/60 px-2.5 text-xs font-medium text-muted-foreground shadow-none transition-colors hover:bg-muted/70 hover:text-foreground sm:px-3"
+          className={cn(
+            'gap-1.5 rounded-full border-border/55 bg-background/75 px-2.5 font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background',
+            prominent ? 'h-[44px] px-3 text-xs sm:px-3.5' : 'h-8 text-xs sm:px-3',
+          )}
           title={isLocal ? `接口环境：本地（${appEnv.localApiBaseUrl}）` : '接口环境：在线'}
-          aria-label={`切换接口环境，当前：${isLocal ? '本地' : '在线'}`}
+          aria-label={`切换后端，当前：${isLocal ? '本地' : '在线'}`}
         >
           {isLocal ? <HardDrive className="size-3.5" /> : <Cloud className="size-3.5" />}
-          <span className="hidden sm:inline">{isLocal ? '本地' : '在线'}</span>
+          {prominent && <span>后端</span>}
+          <span>{isLocal ? '本地' : '在线'}</span>
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel>接口环境</DropdownMenuLabel>
+        <DropdownMenuLabel>后端环境</DropdownMenuLabel>
         {options.map((opt) => {
           const Icon = opt.icon
           const active = opt.value === target
