@@ -4,7 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io/fs"
 	"strings"
+	"testing/fstest"
 
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/mysql"  // 注册 mysql:// 驱动（TiDB 兼容）
@@ -85,7 +87,15 @@ func MigrateUp(ctx context.Context, dsn string) error {
 			return err
 		}
 	}
-	return runMigrations(dsn, dialect)
+	isTiDB := false
+	if dialect == "mysql" {
+		var version string
+		if err := db.QueryRowContext(ctx, `SELECT VERSION()`).Scan(&version); err != nil {
+			return fmt.Errorf("detect mysql-compatible server version: %w", err)
+		}
+		isTiDB = strings.Contains(strings.ToLower(version), "tidb")
+	}
+	return runMigrations(dsn, dialect, isTiDB)
 }
 
 // toDriverDSN 转成 database/sql 驱动可用的形式。
@@ -96,6 +106,7 @@ func toDriverDSN(dsn string) string {
 	if dialectOf(dsn) != "mysql" {
 		return dsn
 	}
+	isTiDB := strings.HasPrefix(dsn, "tidb://")
 	rest := dsn
 	for _, p := range []string{"mysql://", "tidb://"} {
 		rest = strings.TrimPrefix(rest, p)
@@ -112,26 +123,43 @@ func toDriverDSN(dsn string) string {
 		}
 		rest = userinfo + "@" + hostpart
 	}
-	// 必需参数（幂等追加）。tidb_skip_isolation_level_check：golang-migrate
-	// 默认设 SERIALIZABLE 隔离级，TiDB 报 8048——官方指引用该会话变量跳过
-	//（MySQL 8 忽略未知系统变量，不破坏兼容）。
-	if !strings.Contains(rest, "parseTime") {
-		if strings.Contains(rest, "?") {
-			rest += "&parseTime=true&loc=UTC&charset=utf8mb4&tidb_skip_isolation_level_check=1"
-		} else {
-			rest += "?parseTime=true&loc=UTC&charset=utf8mb4&tidb_skip_isolation_level_check=1"
+	// 必需参数（幂等追加）。TiDB 不支持 golang-migrate 设置的
+	// SERIALIZABLE 隔离级，通过 TiDB 专属会话变量跳过；普通 MySQL 不识别该变量。
+	params := []string{}
+	for key, value := range map[string]string{"parseTime": "true", "loc": "UTC", "charset": "utf8mb4"} {
+		if !strings.Contains(rest, key+"=") {
+			params = append(params, key+"="+value)
 		}
+	}
+	if isTiDB && !strings.Contains(rest, "tidb_skip_isolation_level_check=") {
+		params = append(params, "tidb_skip_isolation_level_check=1")
+	}
+	if len(params) > 0 {
+		separator := "?"
+		if strings.Contains(rest, "?") {
+			separator = "&"
+		}
+		rest += separator + strings.Join(params, "&")
 	}
 	return rest
 }
 
 // runMigrations 执行 golang-migrate up（需要真实数据库，由 CI 集成/E2E 覆盖）。
-func runMigrations(dsn, dialect string) error {
-	fs, subdir, err := migrations.FSFor(dialect)
+func runMigrations(dsn, dialect string, isTiDB bool) error {
+	var sourceFS fs.FS
+	var subdir string
+	var err error
+	if dialect == "mysql" && !isTiDB {
+		// MySQL 8 has no VECTOR type. Keep TiDB's vector-pushdown migration
+		// for tidb:// while the portable mysql:// path retains binary embeddings.
+		sourceFS, subdir, err = mysql8MigrationFS()
+	} else {
+		sourceFS, subdir, err = migrations.FSFor(dialect)
+	}
 	if err != nil {
 		return err
 	}
-	src, err := iofs.New(fs, subdir)
+	src, err := iofs.New(sourceFS, subdir)
 	if err != nil {
 		return fmt.Errorf("migration source: %w", err)
 	}
@@ -151,7 +179,15 @@ func runMigrations(dsn, dialect string) error {
 		for _, p := range []string{"mysql://", "tidb://"} {
 			migrateDSN = strings.TrimPrefix(migrateDSN, p)
 		}
-		migrateDSN = "mysql://" + toDriverDSN("mysql://"+migrateDSN)
+		driverDSN := toDriverDSN(dsn)
+		if isTiDB && !strings.Contains(driverDSN, "tidb_skip_isolation_level_check=") {
+			separator := "?"
+			if strings.Contains(driverDSN, "?") {
+				separator = "&"
+			}
+			driverDSN += separator + "tidb_skip_isolation_level_check=1"
+		}
+		migrateDSN = "mysql://" + driverDSN
 	}
 	m, err := migrate.NewWithSourceInstance("iofs", src, migrateDSN)
 	if err != nil {
@@ -161,6 +197,31 @@ func runMigrations(dsn, dialect string) error {
 		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
+}
+
+func mysql8MigrationFS() (fs.FS, string, error) {
+	base, subdir, err := migrations.FSFor("mysql")
+	if err != nil {
+		return nil, "", err
+	}
+	files := fstest.MapFS{}
+	err = fs.WalkDir(base, subdir, func(name string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		data, readErr := fs.ReadFile(base, name)
+		if readErr != nil {
+			return readErr
+		}
+		files[name] = &fstest.MapFile{Data: data}
+		return nil
+	})
+	if err != nil {
+		return nil, "", err
+	}
+	files[subdir+"/0010_vector_pushdown.up.sql"] = &fstest.MapFile{Data: []byte("-- MySQL 8 has no TiDB VECTOR type; retain binary float32 embeddings.\nALTER TABLE rag_chunks MODIFY COLUMN embedding VARBINARY(8192);\n")}
+	files[subdir+"/0010_vector_pushdown.down.sql"] = &fstest.MapFile{Data: []byte("-- MySQL 8 keeps the binary embedding representation.\nALTER TABLE rag_chunks MODIFY COLUMN embedding VARBINARY(8192);\n")}
+	return files, subdir, nil
 }
 
 func probeState(ctx context.Context, db *sql.DB, dialect string) (state, error) {
@@ -189,7 +250,7 @@ func tableExists(ctx context.Context, db *sql.DB, dialect, name string) (bool, e
 		).Scan(&exists)
 	} else {
 		err = db.QueryRowContext(ctx,
-			`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)`,
+			`SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)`,
 			name,
 		).Scan(&exists)
 	}

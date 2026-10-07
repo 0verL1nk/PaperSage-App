@@ -6,6 +6,5 @@ CREATE TABLE `system_settings` (
   `key` varchar(100) NOT NULL,
   `value` json NOT NULL,
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `deleted_at` datetime(6) DEFAULT NULL,
   PRIMARY KEY (`key`) /*T![clustered_index] CLUSTERED */
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

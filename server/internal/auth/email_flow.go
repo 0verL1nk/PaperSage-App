@@ -13,6 +13,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
@@ -118,7 +119,10 @@ func (r *rateLimiter) allow(key string, max int) bool {
 }
 
 // 邮箱验证 token TTL（24h：注册验证通行值；密码重置类高危动作应更短）
-const verifyTokenTTL = 24 * time.Hour
+const (
+	emailVerifyPurpose = "email_verify"
+	verifyTokenTTL     = 24 * time.Hour
+)
 
 // 重发冷却由 limiter.allow("resend:"+email, 1) 实现：窗口即 rateWindow(1min)
 // ——resendCooldown 常量保留作语义文档锚点
@@ -219,10 +223,13 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 		return
 	}
 	// 注册表：hash 存储（与 refresh_tokens 同模式）
+	// 过期时刻以 UTC 写入；邮件展示复用同一时刻（HTML 内转北京时间）
+	expiresAt := time.Now().UTC().Add(verifyTokenTTL)
 	row := store.VerificationToken{
 		TokenHash: tokenHash(token),
 		UserID:    user.ID,
-		ExpiresAt: time.Now().Add(verifyTokenTTL),
+		Purpose:   emailVerifyPurpose,
+		ExpiresAt: expiresAt,
 	}
 	_ = s.DB.WithContext(ctx).Create(&row).Error
 
@@ -237,7 +244,7 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 	}
 	mailer := s.resolveMailer()
 	link := appURL + "/auth/verify?token=" + token
-	html := verificationEmailHTML(link, time.Now().Add(verifyTokenTTL))
+	html := verificationEmailHTML(link, expiresAt)
 	if err := mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
 		// 日志不落 token（OWASP）
 		slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
@@ -273,14 +280,14 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	_, err := VerifyToken(token, s.Cfg.SecretKey, "email_verify")
+	claims, err := VerifyToken(token, s.Cfg.SecretKey, "email_verify")
 	if err != nil {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
 	var row store.VerificationToken
-	err = s.DB.Where("token_hash = ?", tokenHash(token)).First(&row).Error
-	if err != nil || time.Now().After(row.ExpiresAt) {
+	err = s.DB.Where("token_hash = ? AND purpose = ?", tokenHash(token), emailVerifyPurpose).First(&row).Error
+	if err != nil || row.UserID.String() != claims.Subject || time.Now().UTC().After(row.ExpiresAt) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
@@ -296,11 +303,24 @@ func (s *Service) verifyEmail(c *gin.Context) {
 		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
 		return
 	}
-	now := time.Now()
-	_ = s.DB.Model(&store.VerificationToken{}).
-		Where("token_hash = ?", row.TokenHash).Update("used_at", now).Error
-	_ = s.DB.Model(&store.User{}).
-		Where("id = ?", row.UserID).Update("email_verified", true).Error
+	now := time.Now().UTC()
+	err = s.DB.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		var locked store.VerificationToken
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("token_hash = ? AND purpose = ?", row.TokenHash, emailVerifyPurpose).First(&locked).Error; err != nil {
+			return err
+		}
+		if locked.UsedAt != nil || now.After(locked.ExpiresAt) {
+			return gorm.ErrRecordNotFound
+		}
+		if err := tx.Model(&store.VerificationToken{}).Where("token_hash = ? AND used_at IS NULL", row.TokenHash).Update("used_at", now).Error; err != nil {
+			return err
+		}
+		return tx.Model(&store.User{}).Where("id = ?", row.UserID).Update("email_verified", true).Error
+	})
+	if err != nil {
+		httpapi.WriteError(c.Writer, errBad("Invalid or expired verification link", http.StatusBadRequest))
+		return
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"verified": true}, ""))
 }
 

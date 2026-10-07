@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
-import { useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Eye, EyeOff, MailCheck, ShieldCheck } from 'lucide-react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { ArrowRight, Eye, EyeOff, HardDrive, MailCheck, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -93,6 +93,7 @@ function AllowedDomainsHint() {
 export function AuthPage() {
   const navigate = useNavigate()
   const accessToken = useSessionStore((state) => state.accessToken)
+  const guestImportPending = useSessionStore((state) => state.guestImportPending)
   const loginMutation = useLoginMutation()
   const registerMutation = useRegisterMutation()
   const [mode, setMode] = useState<AuthMode>('login')
@@ -149,24 +150,26 @@ export function AuthPage() {
   })
 
   return (
-    <div className="relative flex h-screen w-screen items-center justify-center overflow-hidden bg-background font-sans">
+    <div className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-background py-8 font-sans sm:py-10">
       {/* 银灰色系 Mesh 背景 (适配明暗主题) */}
       <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         {/* 光斑 1: 银白色/浅灰色 */}
-        <div className="absolute top-[-10%] left-[-10%] h-[80%] w-[80%] rounded-full bg-zinc-400/10 dark:bg-zinc-600/10 blur-[120px] animate-mesh" />
+        <div data-testid="auth-background-orb" className="auth-mesh absolute top-[-10%] left-[-10%] h-[80%] w-[80%] rounded-full bg-zinc-400/10 dark:bg-zinc-600/10 blur-[120px]" />
         {/* 光斑 2: 暖色调银色/琥珀色提示 */}
-        <div className="absolute bottom-[10%] right-[-5%] h-[70%] w-[70%] rounded-full bg-amber-200/5 dark:bg-amber-500/5 blur-[100px] animate-mesh" style={{ animationDelay: '-5s' }} />
+        <div className="auth-mesh-reverse absolute bottom-[10%] right-[-5%] h-[70%] w-[70%] rounded-full bg-amber-200/10 dark:bg-amber-500/10 blur-[100px]" />
         {/* 光斑 3: 中灰色 */}
-        <div className="absolute top-[20%] right-[10%] h-[60%] w-[60%] rounded-full bg-zinc-300/10 dark:bg-zinc-800/10 blur-[80px] animate-mesh" style={{ animationDelay: '-10s' }} />
+        <div className="auth-mesh absolute top-[20%] right-[10%] h-[60%] w-[60%] rounded-full bg-zinc-300/10 dark:bg-zinc-800/10 blur-[80px] [animation-delay:-10s]" />
+
+        <div className="auth-grid absolute inset-0" />
         
         {/* 微弱噪点层提升质感 */}
-        <div className="absolute inset-0 bg-noise opacity-[0.03] dark:opacity-[0.05] mix-blend-overlay" />
+        <div className="absolute inset-0 bg-noise opacity-[0.03] mix-blend-overlay dark:opacity-[0.05]" />
       </div>
 
-      <div className="relative z-10 w-full max-w-[420px] px-6 animate-in fade-in zoom-in-95 duration-700">
+      <div className="auth-page-content relative z-10 w-full max-w-[420px] px-4 animate-in fade-in zoom-in-95 duration-700 sm:px-6">
         {/* Branding */}
-        <div className="mb-10 flex flex-col items-center text-center">
-          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-foreground shadow-xl">
+        <div className="mb-7 flex flex-col items-center text-center sm:mb-10">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-foreground shadow-xl sm:mb-6 sm:h-16 sm:w-16">
             <span className="text-3xl font-bold italic tracking-tighter text-background">S</span>
           </div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
@@ -178,25 +181,25 @@ export function AuthPage() {
         </div>
 
         {/* 统一风格的 Auth Card */}
-        <Card className="apple-popover overflow-hidden rounded-[2rem]">
+        <Card className="apple-popover gap-0 overflow-hidden rounded-[2rem] py-0">
           <CardContent className="p-0">
             <Tabs value={mode} onValueChange={(v) => {
               setAuthError('')
               setNeedsVerify(false)
               setMode(v as AuthMode)
             }} className="w-full">
-              <div className="px-8 pt-8">
+              <div className="px-5 pt-5 sm:px-8 sm:pt-8">
                 <TabsList className="grid w-full grid-cols-2 rounded-xl bg-secondary/50 p-1">
-                  <TabsTrigger value="login" className="rounded-lg text-sm font-semibold transition-all duration-200">
+                  <TabsTrigger value="login" className="h-12 rounded-lg text-sm font-semibold transition-all duration-200">
                     账号登录
                   </TabsTrigger>
-                  <TabsTrigger value="register" className="rounded-lg text-sm font-semibold transition-all duration-200">
+                  <TabsTrigger value="register" className="h-12 rounded-lg text-sm font-semibold transition-all duration-200">
                     注册新账号
                   </TabsTrigger>
                 </TabsList>
               </div>
 
-              <SmoothHeight className="px-8 pb-6 pt-8" data-testid="auth-panels">
+              <SmoothHeight className="px-5 pb-5 pt-6 sm:px-8 sm:pb-6 sm:pt-8" data-testid="auth-panels">
                 <TabsContent value="login" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
                   {pendingVerifyEmail && (
                     <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
@@ -204,6 +207,7 @@ export function AuthPage() {
                       <div className="flex-1 text-[13px] leading-relaxed text-foreground/80">
                         验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
                         请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
+                        {guestImportPending && <p className="mt-2 text-xs leading-5 text-muted-foreground">当前浏览器中的游客项目仍保存在本机。验证并登录后，你可以检查内容并确认导入；不会自动上传。</p>}
                         <ResendButton email={pendingVerifyEmail} className="ml-1" />
                       </div>
                     </div>
@@ -235,7 +239,7 @@ export function AuthPage() {
                     <div className="space-y-2.5">
                       <div className="flex items-center justify-between px-1">
                         <Label htmlFor="password" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">密码</Label>
-                        <button type="button" className="text-[11px] font-bold text-primary hover:opacity-80 transition-opacity">忘记密码？</button>
+                        <Link to="/auth/forgot-password" className="flex min-h-12 items-center px-2 text-[11px] font-bold text-primary transition-opacity hover:opacity-80">忘记密码？</Link>
                       </div>
                       <div className="relative">
                         <Input
@@ -248,7 +252,7 @@ export function AuthPage() {
                         <button
                           type="button"
                           onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                          className="absolute right-1 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
                         >
                           {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                         </button>
@@ -323,8 +327,26 @@ export function AuthPage() {
                 </TabsContent>
               </SmoothHeight>
             </Tabs>
+            <div className="mx-5 border-t border-border/35 sm:mx-8">
+              <Link
+                to="/guest"
+                aria-label="以游客身份体验 PaperSage"
+                className="group flex min-h-[68px] items-center justify-between gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-3"
+              >
+                <span className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-muted-foreground transition-colors group-hover:bg-background group-hover:text-foreground">
+                    <HardDrive className="size-4" />
+                  </span>
+                  <span className="flex min-w-0 flex-col gap-0.5">
+                    <span className="text-[13px] font-semibold text-foreground/85 transition-colors group-hover:text-foreground">先体验 PaperSage</span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">无需注册 · 内容保存在本机</span>
+                  </span>
+                </span>
+                <ArrowRight className="size-4 shrink-0 text-muted-foreground/65 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+              </Link>
+            </div>
           </CardContent>
-          <div className="border-t border-border/20 bg-secondary/20 px-8 py-4 text-center">
+          <div className="border-t border-border/20 bg-secondary/20 px-5 py-4 text-center sm:px-8">
             <p className="text-[11px] font-medium text-muted-foreground">
               继续操作即代表您同意我们的 <a href="#" className="text-foreground font-semibold hover:underline transition-all">服务条款</a> 和 <a href="#" className="text-foreground font-semibold hover:underline transition-all">隐私政策</a>
             </p>

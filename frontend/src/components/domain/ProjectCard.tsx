@@ -73,12 +73,14 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
 
         <div className="flex items-center justify-between mt-4 relative z-10">
           <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 group-hover:text-muted-foreground transition-colors duration-300">
-            {formattedDate}
+            {project.scenario === 'intro_paper' ? '入门级学术小论文' : '本科毕业论文'}
           </span>
-          {project.group && (
+          {project.group ? (
             <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-muted/50 text-muted-foreground/70 group-hover:bg-primary/5 group-hover:text-primary transition-all duration-300">
               {project.group.name}
             </span>
+          ) : (
+            <span className="text-[10px] text-muted-foreground/50">{formattedDate}</span>
           )}
         </div>
         

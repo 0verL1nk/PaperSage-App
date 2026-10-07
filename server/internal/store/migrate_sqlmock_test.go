@@ -13,7 +13,7 @@ import (
 // 用 sqlmock 驱动交接探测与 stamp 的三条路径（runMigrations 需真实 PG，
 // 由 CI 集成与 E2E 覆盖）。
 
-const tableExistsSQL = "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1)"
+const tableExistsSQL = "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = current_schema() AND table_name = $1)"
 
 func newEqualMock() (*sqlDB, sqlmock.Sqlmock, error) {
 	return sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherEqual))

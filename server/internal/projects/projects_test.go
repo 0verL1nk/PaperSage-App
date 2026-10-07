@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -37,6 +38,7 @@ func TestProjectCRUDAndTrashFlow(t *testing.T) {
 	p := createProject(t, ts, "毕设论文")
 	require.NotEmpty(t, p["id"])
 	assert.Equal(t, "active", p["status"])
+	assert.Equal(t, "undergraduate_thesis", p["scenario"])
 	assert.Equal(t, false, p["is_deleted"])
 	assert.Equal(t, nil, p["group"], "无分组时 group 为 null")
 	assert.Contains(t, p, "created_at")
@@ -115,6 +117,51 @@ func TestProjectCRUDAndTrashFlow(t *testing.T) {
 		Data *[]any `json:"data"`
 	}{Data: &trash2}))
 	assert.Len(t, trash2, 0)
+}
+
+func TestProjectScenarioSelectionAndValidation(t *testing.T) {
+	ts := testutil.New(t)
+	body, _ := json.Marshal(map[string]any{"name": "入门论文", "scenario": "intro_paper"})
+	resp := ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	project := decodeData(t, resp)
+	assert.Equal(t, "intro_paper", project["scenario"])
+
+	body, _ = json.Marshal(map[string]any{"name": "错误场景", "scenario": "unknown"})
+	resp = ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
+	assert.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode)
+}
+
+func TestProjectImportCreateIsIdempotentAndRejectsContentConflict(t *testing.T) {
+	ts := testutil.New(t)
+	key := map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+		"X-PaperSage-Import-Local-Id":  uuid.NewString(),
+	}
+	create := func(name string) *http.Response {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"name": name})
+		require.NoError(t, err)
+		return ts.DoWithHeaders(t, http.MethodPost, "/api/v1/projects/", body, key)
+	}
+	first := create("Imported project")
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	firstData := decodeData(t, first)
+
+	retry := create("Imported project")
+	require.Equal(t, http.StatusOK, retry.StatusCode)
+	assert.Equal(t, firstData["id"], decodeData(t, retry)["id"])
+
+	conflict := create("Changed project content")
+	assert.Equal(t, http.StatusConflict, conflict.StatusCode)
+	var count int64
+	require.NoError(t, ts.DB.Model(&store.Project{}).Where("owner_id = ?", ts.UserID()).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+
+	partial := ts.DoWithHeaders(t, http.MethodPost, "/api/v1/projects/", []byte(`{"name":"Partial key"}`), map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+	})
+	assert.Equal(t, http.StatusUnprocessableEntity, partial.StatusCode)
 }
 
 func TestGroupsFlow(t *testing.T) {

@@ -1,0 +1,195 @@
+import { getJson, postJson, deleteFetch, type ApiRequestConfig } from './client'
+import { getAccessToken, useSessionStore } from '@/store'
+import { AGENT } from './api-routes'
+import { GuestCapabilityError } from './guest-local-workspace'
+
+function requireSignedInForAI() {
+  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError('AI 助手')
+}
+
+// --- Types（与后端 internal/agent 的 DTO 对应）---
+
+export interface AgentConversation {
+  id: string
+  title: string
+}
+
+/** 协议 part：词汇对齐 AI SDK UI Message Stream（见 server/internal/agent/protocol.go）。 */
+export type AgentPartType =
+  | 'text'
+  | 'tool'
+  | 'activity'
+  | 'approval'
+  | 'citation'
+  | 'artifact'
+  | 'error'
+
+export interface AgentPart {
+  id: string
+  ordinal: number
+  type: AgentPartType
+  status: string
+  text?: string
+  /** 结构化内容（工具入参出参、建议详情等）；后端直接内联 JSON 对象，无需二次 parse */
+  content?: unknown
+  createdAt: string
+  completedAt?: string
+}
+
+export interface AgentMessage {
+  id: string
+  role: 'user' | 'assistant'
+  status: string
+  runId?: string
+  createdAt: string
+  parts: AgentPart[]
+}
+
+export interface AgentChangeProposal {
+  id: string
+  filePath: string
+  oldText: string
+  newText: string
+  reason?: string
+  status: 'pending' | 'applied' | 'rejected' | 'stale'
+}
+
+export interface AgentRunHandle {
+  turnId: string
+  runId: string
+  userMessageId: string
+  streamUrl: string
+  threadVersion: number
+}
+
+// --- 会话 ---
+
+export function listConversations(projectId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<AgentConversation[]>(AGENT.conversations(projectId), config)
+}
+
+export interface AgentConversationHandle {
+  id: string
+  title: string
+  version: number
+}
+
+/** 新项目还没有会话时，第一条消息先建会话（Run 路径要求会话已存在）。 */
+export function createConversation(projectId: string, title?: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<AgentConversationHandle>(AGENT.conversations(projectId), { title: title ?? '' }, config)
+}
+
+export function listMessages(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<AgentMessage[]>(AGENT.messages(conversationId), config)
+}
+
+export function deleteConversation(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return deleteFetch(AGENT.conversation(conversationId), config)
+}
+
+// --- Run ---
+
+export interface CreateRunInput {
+  content: string
+  /** 幂等键：双击发送/网络重试不会产生第二个 Run */
+  clientRequestId?: string
+  /** 乐观锁：与当前会话版本不符时后端返回 409 并附最新版本 */
+  expectedThreadVersion?: number
+}
+
+export function createRun(conversationId: string, input: CreateRunInput, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<AgentRunHandle>(AGENT.createRun(conversationId), input, config)
+}
+
+export function cancelRun(runId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<{ cancelled: boolean }>(AGENT.cancelRun(runId), {}, config)
+}
+
+export function retryRun(runId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<{ runId: string; streamUrl: string }>(AGENT.retryRun(runId), {}, config)
+}
+
+export interface RunStreamEvent {
+  type: string
+  [key: string]: unknown
+}
+
+/**
+ * 订阅 Run 的事件流。
+ *
+ * 用 fetch + ReadableStream 而非 EventSource：EventSource 不支持 POST 与自定义头
+ * （鉴权要靠 Authorization），也拿不到我们需要的中止控制。协议见后端 protocol.go：
+ * SSE 的 data: 行承载 JSON part，末尾是终止标记 [DONE]（不是 JSON，必须跳过）。
+ */
+export async function streamRun(
+  runId: string,
+  opts: {
+    afterSeq?: number
+    signal?: AbortSignal
+    onEvent: (event: RunStreamEvent) => void
+  },
+): Promise<void> {
+  requireSignedInForAI()
+  const res = await fetch(AGENT.runEvents(runId, opts.afterSeq), {
+    headers: {
+      Accept: 'text/event-stream',
+      Authorization: `Bearer ${getAccessToken() ?? ''}`,
+    },
+    signal: opts.signal,
+  })
+  if (!res.ok || !res.body) {
+    throw new Error(`run stream failed: ${res.status}`)
+  }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    // 事件以空行分隔；只处理完整的事件块，半个 JSON 留在 buffer 里等下一片。
+    let idx: number
+    while ((idx = buffer.indexOf('\n\n')) >= 0) {
+      const chunk = buffer.slice(0, idx)
+      buffer = buffer.slice(idx + 2)
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue
+        const payload = line.slice(6)
+        if (payload === '[DONE]') return
+        try {
+          opts.onEvent(JSON.parse(payload) as RunStreamEvent)
+        } catch {
+          // 单个 part 解析失败不该中断整条流
+        }
+      }
+    }
+  }
+}
+
+// --- 建议 ---
+
+export function listProposals(projectId: string, status?: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<AgentChangeProposal[]>(AGENT.proposals(projectId, status), config)
+}
+
+export function applyProposal(id: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<{ status: string }>(AGENT.applyProposal(id), {}, config)
+}
+
+export function rejectProposal(id: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<{ status: string }>(AGENT.rejectProposal(id), {}, config)
+}
+
+export function artifactUrl(id: string) {
+  return AGENT.artifact(id)
+}

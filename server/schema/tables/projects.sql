@@ -9,6 +9,7 @@ CREATE TABLE `projects` (
   `owner_id` char(32) NOT NULL,
   `group_id` char(32) DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'active',
+  `scenario` varchar(32) NOT NULL DEFAULT 'undergraduate_thesis',
   `deleted_at` datetime(6) DEFAULT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),

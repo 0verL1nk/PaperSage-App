@@ -7,12 +7,14 @@ import { useNavigate, useSearch } from '@tanstack/react-router'
 import { CheckCircle2, XCircle, Loader2, MailCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { verifyEmail } from '@/services/auth-api'
+import { useSessionStore } from '@/store'
 
 type VerifyState = 'pending' | 'success' | 'error'
 
 export function VerifyEmailPage() {
   const navigate = useNavigate()
   const search = useSearch({ strict: false }) as { token?: string }
+  const guestImportPending = useSessionStore((session) => session.guestImportPending)
   const [state, setState] = useState<VerifyState>('pending')
   const [message, setMessage] = useState('')
 
@@ -52,7 +54,8 @@ export function VerifyEmailPage() {
         </h2>
         <p className="mb-8 text-[13px] leading-relaxed text-muted-foreground">
           {state === 'pending' && '请稍候，正在完成验证。'}
-          {state === 'success' && '你的账号已激活，现在可以使用学校邮箱登录 PaperSage。'}
+          {state === 'success' && guestImportPending && '账号已激活。游客项目仍保存在当前浏览器本机；登录后可以先检查，再确认导入到账号。'}
+          {state === 'success' && !guestImportPending && '你的账号已激活，现在可以使用学校邮箱登录 PaperSage。'}
           {state === 'error' && (message || '验证链接无效或已过期，请重新注册或重发验证邮件。')}
         </p>
         {state !== 'pending' && (

@@ -8,9 +8,12 @@ const V1 = '/api/v1'
 // --- Auth ---
 export const AUTH = {
   login: `${V1}/auth/login`,
+  me: `${V1}/auth/me`,
   register: `${V1}/auth/register`,
   logout: `${V1}/auth/logout`,
   refresh: `${V1}/auth/refresh`,
+  passwordResetRequest: `${V1}/auth/password-reset/request`,
+  passwordResetConfirm: `${V1}/auth/password-reset/confirm`,
 } as const
 
 // --- Projects ---
@@ -22,6 +25,11 @@ export const PROJECTS = {
   trash: `${V1}/projects/trash`,
   restoreProject: (id: string) => `${V1}/projects/trash/project/${id}/restore`,
   deleteProjectPermanently: (id: string) => `${V1}/projects/trash/project/${id}`,
+} as const
+
+// --- Project writing state ---
+export const WRITING_STATE = {
+  project: (projectId: string) => `${V1}/projects/${projectId}/writing-state`,
 } as const
 
 // --- Documents ---
@@ -71,4 +79,22 @@ export const LATEX = {
 export const SETTINGS = {
   all: `${V1}/settings`,
   category: (category: string) => `${V1}/settings/${category}`,
+} as const
+
+// --- Agent ---
+export const AGENT = {
+  conversations: (projectId: string) => `${V1}/projects/${projectId}/agent/conversations`,
+  conversation: (conversationId: string) => `${V1}/agent/conversations/${conversationId}`,
+  messages: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/messages`,
+  /** 模式 B：先建 Run 再订阅事件 */
+  createRun: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/runs`,
+  runEvents: (runId: string, afterSeq?: number) =>
+    `${V1}/agent/runs/${runId}/events${afterSeq ? `?afterSeq=${afterSeq}` : ''}`,
+  cancelRun: (runId: string) => `${V1}/agent/runs/${runId}/cancel`,
+  retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
+  proposals: (projectId: string, status?: string) =>
+    `${V1}/projects/${projectId}/agent/proposals${status ? `?status=${status}` : ''}`,
+  applyProposal: (id: string) => `${V1}/agent/change-proposals/${id}/apply`,
+  rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
+  artifact: (id: string) => `${V1}/agent/artifacts/${id}`,
 } as const

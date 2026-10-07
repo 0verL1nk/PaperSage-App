@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -25,7 +24,7 @@ import (
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
 func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
-	projectID, ownerID store.UUID) ([]tool.BaseTool, error) {
+	projectID, ownerID, runID store.UUID) ([]tool.BaseTool, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -137,12 +136,19 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 
 	// ── 写侧（agentic 分水岭）────────────────────────────
 
-	writeLatexFile, err := utils.InferTool(
-		"write_latex_file",
-		"写入/更新一个 LaTeX 源文件的全部内容（整文件覆盖）。修改论文后应建议用户编译验证。",
+	// ── 建议侧：只产出建议，不写盘 ────────────────────────
+	//
+	// 助手不再直接改稿。原先的 write_latex_file（整文件覆盖、无确认、无版本校验）
+	// 已摘除——docs/project/12-ai-writing-design.md §10 P0 要求「切断未经确认的
+	// 稿件覆盖」。改为产出带锚点的建议，由用户确认后经服务端校验基准版本再应用。
+	proposeEdit, err := utils.InferTool(
+		"propose_edit",
+		"提出对某个 LaTeX 源文件的修改建议（不直接改稿，用户确认后才应用）。需给出目标文件路径、要替换的原文片段、替换后的新文与理由。old_text 必须与文件当前内容逐字一致，否则会被拒绝——不确定时先 read_latex_file。",
 		func(ctx context.Context, in struct {
-			Path    string `json:"path" jsonschema:"description=文件路径"`
-			Content string `json:"content" jsonschema:"description=完整文件内容"`
+			Path    string `json:"path" jsonschema:"description=文件路径，如 main.tex"`
+			OldText string `json:"old_text" jsonschema:"description=要被替换的原文片段（必须与文件当前内容逐字一致）"`
+			NewText string `json:"new_text" jsonschema:"description=替换后的新文"`
+			Reason  string `json:"reason" jsonschema:"description=修改理由"`
 		}) (string, error) {
 			if err := verify(ctx); err != nil {
 				return "", err
@@ -150,37 +156,34 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 			if err := validateAgentPath(in.Path); err != nil {
 				return "", err
 			}
-			sum := md5.Sum([]byte(in.Content))
-			hash := hex.EncodeToString(sum[:])
-			s3Key := storage.BuildKey(projectID.String(), in.Path)
-			if err := stg.Put(ctx, s3Key, []byte(in.Content)); err != nil {
+			if in.OldText == "" {
+				return "", fmt.Errorf("old_text 不能为空")
+			}
+			_, content, err := findLatex(ctx, db, stg, projectID, in.Path)
+			if err != nil {
 				return "", err
 			}
-			now := time.Now().UTC()
-			var f store.LatexFile
-			err := db.WithContext(ctx).
-				Where("project_id = ? AND file_path = ?", projectID, in.Path).
-				First(&f).Error
-			if err != nil {
-				f = store.LatexFile{
-					ProjectID: projectID, FilePath: in.Path,
-					ContentType: ptr("text/x-tex"), S3Key: &s3Key,
-					SizeBytes: int64(len(in.Content)), ContentHash: &hash,
-					LastSavedAt: &now,
-				}
-				if err := db.WithContext(ctx).Create(&f).Error; err != nil {
-					return "", err
-				}
-			} else {
-				updates := map[string]any{
-					"s3_key": s3Key, "size_bytes": int64(len(in.Content)),
-					"content_hash": hash, "last_saved_at": now,
-				}
-				if err := db.WithContext(ctx).Model(&f).Updates(updates).Error; err != nil {
-					return "", err
-				}
+			if !strings.Contains(content, in.OldText) {
+				// 当场报错让模型自我纠正，而不是留下一条注定无法应用的无效建议。
+				return "", fmt.Errorf(
+					"old_text 在 %s 的当前内容中找不到。请先 read_latex_file 取回原文，再给出逐字一致的片段", in.Path)
 			}
-			return fmt.Sprintf("已写入 %s（%d 字节）。", in.Path, len(in.Content)), nil
+			sum := md5.Sum([]byte(content))
+			base := hex.EncodeToString(sum[:])
+			p := store.AgentChangeProposal{
+				ID: store.MustNewUUID(), ProjectID: projectID, RunID: &runID,
+				FilePath: in.Path, BaseContentHash: base,
+				OldText: in.OldText, NewText: in.NewText, Status: "pending",
+			}
+			if in.Reason != "" {
+				p.Reason = &in.Reason
+			}
+			if err := db.WithContext(ctx).Create(&p).Error; err != nil {
+				return "", err
+			}
+			return fmt.Sprintf(
+				"已生成修改建议（%s，建议 id %s），等待用户确认。不要声称已修改文件——用户确认后才会应用。",
+				in.Path, p.ID.String()), nil
 		})
 	if err != nil {
 		return nil, err
@@ -211,16 +214,18 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 
 	return []tool.BaseTool{
 		listDocuments, readDocument, listLatexFiles, readLatexFile,
-		writeLatexFile, compileProject,
+		proposeEdit, compileProject,
 	}, nil
 }
 
-// SearchTool 构建 agentic search 工具：内部是一个子 agent（检索专家，
-// AgentAsTool 模式），持有 rag_search（hybrid 检索）与 wiki_read/
-// wiki_write 工具，多跳检索（改写查询、读块、沉淀 wiki）后返回带
-// 出处的综合摘要。主 agent 只见一个 search_references 工具。
-func SearchTool(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
-	projectID, ownerID store.UUID, chatModel model.ToolCallingChatModel) (tool.BaseTool, error) {
+// SearchSubAgent 构建检索子 agent（检索专家）：持 rag_search（hybrid 检索）与
+// wiki_read/wiki_write，多跳检索（改写查询、读块、沉淀 wiki）后给出带出处的结论。
+//
+// 它作为 `deep.Config.SubAgents` 的一项交给主 agent：DeepAgent 会自动生成一个
+// `task` 工具（参数 subagent_type / description）来做编排，因此这里返回 agent 本身，
+// 不再手工包 AgentTool。用户视角仍只有一个 Assistant（参考架构 §9.1）。
+func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
+	projectID, ownerID store.UUID, chatModel model.ToolCallingChatModel) (adk.Agent, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -306,11 +311,15 @@ func SearchTool(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 			"你是文献检索专家。任务：针对给定的研究问题，在项目资料库中检索并综合出带出处的答案。",
 			"流程：",
 			"1. 先 rag_search 用原始问题检索；",
-			"2. 结果不足时改写关键词（同义词/英文术语）再检索，至多 4 轮；",
+			"2. 结果不足时改写关键词（同义词/英文术语）再检索；",
 			"3. 相关主题若 wiki_read 已有沉淀则优先引用；",
 			"4. 综合多路结果给出结论，每条结论标注 [来源: 文件名]；",
 			"5. 结论有沉淀价值时 wiki_write 存为知识页（标题概括主题）。",
-			"输出格式：先 2-3 句结论，再分点展开并注明出处。找不到就明说，不编造。",
+			// 压缩靠结构而非格式约定：父 agent 只收到本子 agent 的最终回答，
+			// 多轮检索过程留在子 Run 的 parts/events 里供审计，父上下文不会被撑满。
+			// 因此这里不规定固定输出模板——那等于把父 agent 的消费方式写死进
+			// 子 agent 的提示词，换个父 agent 或换个问题就得重写。
+			"回答要精炼，先给结论再给出处；找不到就明说，不编造。",
 		}, "\n"),
 		Model: chatModel,
 		ToolsConfig: adk.ToolsConfig{
@@ -322,7 +331,7 @@ func SearchTool(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 	if err != nil {
 		return nil, err
 	}
-	return adk.NewAgentTool(ctx, subAgent), nil
+	return subAgent, nil
 }
 
 // validateAgentPath 与 latex 域同规则：禁穿越、禁危险扩展。
@@ -359,5 +368,3 @@ func findLatex(ctx context.Context, db *gorm.DB, stg storage.Storage,
 	}
 	return &f, string(content), nil
 }
-
-func ptr[T any](v T) *T { return &v }

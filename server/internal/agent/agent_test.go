@@ -95,7 +95,7 @@ func TestAgentReActLoop(t *testing.T) {
 	hash := "h1"
 	f := store.LatexFile{ProjectID: pid, FilePath: "main.tex",
 		S3Key: &s3Key, SizeBytes: 5, ContentHash: &hash,
-		BaseModel: store.BaseModel{ID: store.MustNewUUID()}}
+		SoftDeleteModel: store.SoftDeleteModel{ID: store.MustNewUUID()}}
 	require.NoError(t, db.Create(&f).Error)
 
 	// 假模型服务 + 装配
@@ -112,7 +112,7 @@ func TestAgentReActLoop(t *testing.T) {
 	queue := latex.NewQueue(db, nil, latexSvc, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	agentSvc := agent.NewService(db, mem, queue, cfg, rgStore)
+	agentSvc := agent.NewService(db, mem, nil, queue, cfg, rgStore)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
@@ -140,30 +140,38 @@ func TestAgentReActLoop(t *testing.T) {
 	for sc.Scan() {
 		line := sc.Text()
 		if strings.HasPrefix(line, "data: ") {
+			payload := line[6:]
+			if payload == "[DONE]" { // 协议终止标记，不是 JSON part
+				continue
+			}
 			var e map[string]any
-			require.NoError(t, json.Unmarshal([]byte(line[6:]), &e))
+			require.NoError(t, json.Unmarshal([]byte(payload), &e))
 			evts = append(evts, e)
 		}
 	}
+	// AI SDK UI Message Stream：协议版本头必须存在，否则客户端不会按此协议解析
+	assert.Equal(t, "v1", rec.Header().Get("x-vercel-ai-ui-message-stream"))
+
 	kinds := make([]string, 0, len(evts))
 	for _, e := range evts {
 		kinds = append(kinds, e["type"].(string))
 	}
-	assert.Contains(t, kinds, "tool_call")
-	assert.Contains(t, kinds, "tool_result")
-	assert.Contains(t, kinds, "delta")
-	assert.Equal(t, "done", kinds[len(kinds)-1])
+	// 词汇见 internal/agent/protocol.go（对齐 AI SDK UI Message Stream Protocol）
+	assert.Contains(t, kinds, "tool-input-start")
+	assert.Contains(t, kinds, "tool-output-available")
+	assert.Contains(t, kinds, "text-delta")
+	assert.Equal(t, "finish", kinds[len(kinds)-1], "最后一个 part 应是 finish")
 
 	var convID string
 	var sawFile, sawFinal bool
 	for _, e := range evts {
-		if e["type"] == "meta" {
-			convID = e["conversationId"].(string)
+		if e["type"] == "data-conversation" {
+			convID = e["data"].(map[string]any)["conversationId"].(string)
 		}
-		if e["type"] == "tool_result" && strings.Contains(e["result"].(string), "main.tex") {
+		if e["type"] == "tool-output-available" && strings.Contains(e["output"].(string), "main.tex") {
 			sawFile = true
 		}
-		if e["type"] == "delta" && strings.Contains(e["delta"].(string), "main.tex") {
+		if e["type"] == "text-delta" && strings.Contains(e["delta"].(string), "main.tex") {
 			sawFinal = true
 		}
 	}
@@ -219,7 +227,7 @@ func TestAgentNoModelConfigured(t *testing.T) {
 	queue := latex.NewQueue(db, nil, latexSvc, cfg)
 	rgStore2, rerr2 := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr2)
-	agentSvc := agent.NewService(db, testutil.NewMemStorage(), queue, cfg, rgStore2)
+	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil, queue, cfg, rgStore2)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)

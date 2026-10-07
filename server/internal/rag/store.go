@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -24,7 +25,7 @@ type Store struct {
 	DB         *gorm.DB
 	Embed      Embedder
 	Pg         *PgStore // Neon(pgvector) 后端；配置了 NEON_DATABASE_URL 时启用
-	vectorInDB bool     // TiDB/MySQL：VECTOR 列库端检索（Neon 未配置时的次选）
+	vectorInDB bool     // TiDB：VECTOR 列库端检索；普通 MySQL 使用二进制向量 + 内存检索
 
 	mu   sync.RWMutex
 	vec  map[string]*vecIndex
@@ -50,7 +51,13 @@ type vecEntry struct {
 func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
 	inDB := false
 	if db != nil { // nil DB：纯 Neon 后端模式（集成测试）
-		inDB = db.Dialector.Name() == "mysql" //nolint:staticcheck // QF1008: 方法而非嵌入字段
+		if db.Dialector.Name() == "mysql" { //nolint:staticcheck // QF1008: 方法而非嵌入字段
+			var version string
+			if err := db.Raw("SELECT VERSION()").Scan(&version).Error; err != nil {
+				return nil, fmt.Errorf("detect MySQL vector capabilities: %w", err)
+			}
+			inDB = strings.Contains(strings.ToLower(version), "tidb")
+		}
 	}
 	return &Store{
 		DB: db, Embed: emb, vectorInDB: inDB,
@@ -81,6 +88,9 @@ type IndexedChunk struct {
 	ChunkIdx   int        `gorm:"column:chunk_idx"`
 	Content    string     `gorm:"column:content"`
 	Embedding  []byte     `gorm:"column:embedding"` // binary float32 小端
+	CreatedAt  time.Time  `gorm:"column:created_at;autoCreateTime"`
+	// Generation 标识片段属于哪一代索引；检索只命中项目当前 active 的代次。
+	Generation int64 `gorm:"column:generation;index"`
 }
 
 func (IndexedChunk) TableName() string { return "rag_chunks" }
@@ -108,6 +118,12 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 		return 0, nil
 	}
 
+	// 片段归属写侧代次（构建中的优先，否则活动代次）；检索只命中活动代次。
+	gen, err := s.WriteGeneration(ctx, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("resolve write generation: %w", err)
+	}
+
 	// 嵌入（批量；写路径唯一嵌入点）
 	texts := make([]string, len(chunks))
 	for i, c := range chunks {
@@ -125,14 +141,15 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 			ProjectID: projectID, SourceType: sourceType,
 			SourceID: sourceID, SourceName: sourceName,
 			ChunkIdx: c.Idx, Content: c.Content,
-			Embedding: EncodeVec(vecs[i]),
+			Embedding:  EncodeVec(vecs[i]),
+			Generation: gen,
 		}
 	}
 	if s.Pg != nil {
 		// Neon：chunk 与向量整体落 PG（主库不留副本，单一真相源）。
 		// hex 无横线（32 位）与主库列形态一致
 		if err := s.Pg.IndexSource(ctx, hexID(projectID), sourceType,
-			hexID(sourceID), sourceName, chunks, vecs); err != nil {
+			hexID(sourceID), sourceName, chunks, vecs, gen); err != nil {
 			return 0, err
 		}
 	} else if s.vectorInDB {
@@ -178,25 +195,38 @@ type Hit struct {
 	Score      float64 `json:"score"`
 }
 
-const rrfK = 60.0
-
 // Search 混合检索：向量 top-k 与 BM25 top-k，RRF 融合。
 // 查询文本嵌入是本函数唯一的嵌入调用。
 func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, k int) ([]Hit, error) {
 	if k <= 0 {
 		k = 5
 	}
-	ranks := map[string]int{}
+	// 检索只命中活动代次；下面的各条检索路径都以此为准。
+	gen, err := s.ActiveGeneration(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	// RRF：score(d) = Σ_i 1/(k + rank_i(d))，名次从 1 开始，逐路取倒数后**相加**。
+	// 未进入某路候选列表时该路贡献为 0；同一路重复片段只记一次。
+	// （docs/project/12-ai-writing-design.md §6.2）
+	const rrfK = 60.0
+	scores := map[string]float64{}
 	hits := map[string]Hit{}
+	// 名次从 1 开始（RRF 原式）；切片遍历顺序即该路的名次顺序。
+	nextRank := 0
+	nextRankFor := func() int { nextRank++; return nextRank }
+	addRanked := func(id string, rank int) {
+		scores[id] += 1.0 / (rrfK + float64(rank))
+	}
 
 	// 向量路
 	qvecs, err := s.Embed.Embed(ctx, []string{query})
 	if err == nil && len(qvecs) == 1 {
 		if s.Pg != nil {
-			pgHits, err := s.Pg.SearchVector(ctx, hexID(projectID), qvecs[0], k)
+			pgHits, err := s.Pg.SearchVector(ctx, hexID(projectID), qvecs[0], k, gen)
 			if err == nil {
-				for rank, r := range pgHits {
-					ranks[r.ID] += rank
+				for _, r := range pgHits {
+					addRanked(r.ID, nextRankFor())
 					hits[r.ID] = Hit{
 						ChunkID: r.ID, Content: r.Content,
 						SourceType: r.SourceType, SourceID: r.SourceID,
@@ -211,8 +241,8 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 			} else {
 				vecHits = s.vectorSearch(ctx, projectID, qvecs[0], k)
 			}
-			for rank, e := range vecHits {
-				ranks[e.id] += rank
+			for _, e := range vecHits {
+				addRanked(e.id, nextRankFor())
 				hits[e.id] = Hit{
 					ChunkID: e.id, Content: e.content,
 					SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
@@ -222,13 +252,16 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	}
 
 	// BM25 路
-	for rank, id := range s.bm25Search(projectID, query, k) {
+	bm := s.bm25For(ctx, projectID)
+	for _, id := range s.bm25Search(projectID, query, k) {
+		r := nextRankFor()
 		if _, ok := hits[id]; ok {
-			ranks[id] += rank
+			addRanked(id, r) // 两路共同命中：两路的倒数相加
 			continue
 		}
 		var row IndexedChunk
-		if err := s.DB.WithContext(ctx).Where("id = ?", id).First(&row).Error; err != nil {
+		if err := s.DB.WithContext(ctx).
+			Where("id = ? AND generation = ?", id, bm.generation).First(&row).Error; err != nil {
 			continue
 		}
 		hits[id] = Hit{
@@ -236,12 +269,16 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 			SourceType: row.SourceType, SourceID: row.SourceID.String(),
 			SourceName: row.SourceName,
 		}
-		ranks[id] += 10_000 // 未进向量路的 BM25 命中给大名次基数
+		// 其余分支：仅在 BM25 命中的片段也拿它的**真实名次**取倒数，
+		// 而不是一个人造的大基数。原先写 `+= 10_000` 会丢掉该路实际名次，
+		// 使这类片段分数塌到接近 0 并被 top-k 截掉——docs/project/
+		// 12-ai-writing-design.md §6.2 已把该实现标为不能当作标准 RRF 结果。
+		addRanked(id, r)
 	}
 
 	out := make([]Hit, 0, len(hits))
 	for id, h := range hits {
-		h.Score = 1.0 / (rrfK + float64(ranks[id]) + 1)
+		h.Score = scores[id]
 		out = append(out, h)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
@@ -270,10 +307,15 @@ func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID) *vecIndex
 	}
 	s.mu.RUnlock()
 
+	// 只加载活动代次的片段：代次切换会 invalidate 缓存，故缓存始终对应当前代次。
+	gen, gerr := s.ActiveGeneration(ctx, projectID)
+	if gerr != nil {
+		return &vecIndex{}
+	}
 	var rows []IndexedChunk
 	_ = s.DB.WithContext(ctx).
 		Select("id", "content", "source_type", "source_id", "source_name", "embedding").
-		Where("project_id = ?", projectID).Find(&rows).Error
+		Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error
 
 	idx := &vecIndex{}
 	for _, r := range rows {
@@ -353,6 +395,8 @@ type bm25Index struct {
 	tf   map[string]map[string]int
 	df   map[string]int
 	avg  float64
+	// generation 记录本索引由哪一代片段构建，供检索路径校验，避免混入其他代次。
+	generation int64
 }
 
 func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
@@ -364,9 +408,14 @@ func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
 	}
 	s.mu.RUnlock()
 
+	gen, gerr := s.ActiveGeneration(ctx, projectID)
+	if gerr != nil {
+		return &bm25Index{tf: map[string]map[string]int{}, df: map[string]int{}}
+	}
+
 	var rows []IndexedChunk
 	if s.Pg != nil {
-		pgRows, err := s.Pg.SearchBM25(ctx, hexID(projectID))
+		pgRows, err := s.Pg.SearchBM25(ctx, hexID(projectID), gen)
 		if err == nil {
 			for _, r := range pgRows {
 				rows = append(rows, IndexedChunk{
@@ -376,11 +425,12 @@ func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
 			}
 		}
 	} else {
-		_ = s.DB.Where("project_id = ?", projectID).Find(&rows).Error
+		_ = s.DB.Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error
 	}
 	idx := &bm25Index{
-		tf: map[string]map[string]int{},
-		df: map[string]int{},
+		tf:         map[string]map[string]int{},
+		df:         map[string]int{},
+		generation: gen,
 	}
 	total := 0
 	for _, r := range rows {
@@ -478,10 +528,10 @@ func DecodeVec(b []byte) []float32 {
 func (s *Store) insertVectorRows(ctx context.Context, rows []IndexedChunk, vecs [][]float32) error {
 	for i, r := range rows {
 		if err := s.DB.WithContext(ctx).Exec(
-			`INSERT INTO rag_chunks (id, project_id, source_type, source_id, source_name, chunk_idx, content, embedding, created_at)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(6))`,
+			`INSERT INTO rag_chunks (id, project_id, source_type, source_id, source_name, chunk_idx, content, embedding, generation, created_at)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6))`,
 			r.ID, r.ProjectID, r.SourceType, r.SourceID, r.SourceName,
-			r.ChunkIdx, r.Content, VecLiteral(vecs[i]),
+			r.ChunkIdx, r.Content, VecLiteral(vecs[i]), r.Generation,
 		).Error; err != nil {
 			return err
 		}
@@ -500,12 +550,16 @@ func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []fl
 		SourceID   store.UUID
 		SourceName string
 	}
+	gen, gerr := s.ActiveGeneration(ctx, projectID)
+	if gerr != nil {
+		return nil
+	}
 	err := s.DB.WithContext(ctx).Raw(
 		`SELECT id, content, source_type, source_id, source_name
 		 FROM rag_chunks
-		 WHERE project_id = ? AND embedding IS NOT NULL
+		 WHERE project_id = ? AND generation = ? AND embedding IS NOT NULL
 		 ORDER BY vec_cosine_distance(embedding, ?)
-		 LIMIT ?`, projectID, VecLiteral(q), k).Scan(&rows).Error
+		 LIMIT ?`, projectID, gen, VecLiteral(q), k).Scan(&rows).Error
 	if err != nil {
 		return nil
 	}

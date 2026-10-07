@@ -4,8 +4,10 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { FileText, ZoomIn, ZoomOut, RotateCcw, X, AlertTriangle } from 'lucide-react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { Button } from '@/components/ui/button'
-import { appEnv } from '@/lib/env'
+import { getOptionalApiBaseUrl } from '@/lib/env'
 import { apiClient } from '@/services/client'
+import { fetchDocumentPreviewBlob } from '@/services/files-api'
+import { useSessionStore } from '@/store'
 import { toast } from 'sonner'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import type { ProjectDocument } from '@/types/files'
@@ -22,7 +24,8 @@ const ZOOM_DEFAULT = 1.0
 const DEBOUNCE_MS = 400
 
 function buildPreviewUrl(docId: string): string {
-  return `${appEnv.apiBaseUrl}/api/v1/documents/${docId}/preview`
+  // 与 apiClient 一致：按当前选中的环境解析，切换后预览也跟着走
+  return `${getOptionalApiBaseUrl()}/api/v1/documents/${docId}/preview`
 }
 
 function authHeaders(): Record<string, string> {
@@ -393,8 +396,7 @@ function UnsupportedRenderer({ type }: { type: string }) {
   )
 }
 
-function PreviewContent({ doc }: { doc: ProjectDocument }) {
-  const url = buildPreviewUrl(doc.id)
+function PreviewContent({ doc, url }: { doc: ProjectDocument; url: string }) {
   const type = doc.type.toLowerCase()
 
   if (type === 'application/pdf') return <PdfRenderer url={url} />
@@ -404,6 +406,33 @@ function PreviewContent({ doc }: { doc: ProjectDocument }) {
 }
 
 export function DocumentPreviewPanel({ document: doc, onClose }: DocumentPreviewPanelProps) {
+  const isGuest = useSessionStore((state) => state.isGuest)
+  const [guestPreview, setGuestPreview] = useState<{ documentId: string; url: string; error?: string } | null>(null)
+
+  useEffect(() => {
+    let disposed = false
+    let objectUrl = ''
+    if (!isGuest) return
+    void fetchDocumentPreviewBlob(doc.id).then((blob) => {
+      if (disposed) return
+      objectUrl = URL.createObjectURL(blob)
+      setGuestPreview({ documentId: doc.id, url: objectUrl })
+    }).catch((error: unknown) => {
+      if (disposed) return
+      const message = error instanceof Error ? error.message : '本地文件读取失败'
+      setGuestPreview({ documentId: doc.id, url: '', error: message })
+      showErrorToast(message)
+    })
+    return () => {
+      disposed = true
+      if (objectUrl) URL.revokeObjectURL(objectUrl)
+    }
+  }, [doc.id, isGuest])
+
+  const guestResult = guestPreview?.documentId === doc.id ? guestPreview : null
+  const previewUrl = isGuest ? guestResult?.url ?? '' : buildPreviewUrl(doc.id)
+  const previewError = guestResult?.error ?? ''
+
   return (
     <div className="flex flex-col h-full">
       <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50 backdrop-blur-sm">
@@ -416,7 +445,7 @@ export function DocumentPreviewPanel({ document: doc, onClose }: DocumentPreview
         </Button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        <PreviewContent doc={doc} />
+        {previewError ? <ErrorState message={previewError} /> : previewUrl ? <PreviewContent doc={doc} url={previewUrl} /> : <LoadingSpinner text="读取文件中" className="p-8" />}
       </div>
     </div>
   )

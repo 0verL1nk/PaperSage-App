@@ -10,7 +10,7 @@ CREATE TABLE rag_chunks (
     KEY ix_rag_chunks_project (project_id),
     KEY ix_rag_chunks_source (source_type, source_id),
     CONSTRAINT fk_rc_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 CREATE TABLE agent_wiki_pages (
     id         char(32)     PRIMARY KEY,
@@ -21,4 +21,4 @@ CREATE TABLE agent_wiki_pages (
     KEY ix_wiki_project (project_id),
     UNIQUE KEY uq_wiki_project_title (project_id, title),
     CONSTRAINT fk_wp_project FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

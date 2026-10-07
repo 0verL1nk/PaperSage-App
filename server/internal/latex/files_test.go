@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -114,6 +115,39 @@ func TestFileCRUDFlow(t *testing.T) {
 	assert.Equal(t, 404, resp.StatusCode)
 }
 
+func TestLatexImportCreateIsIdempotentAndRejectsContentConflict(t *testing.T) {
+	ts, p := seed(t)
+	key := map[string]string{
+		"X-PaperSage-Import-Bundle-Id": uuid.NewString(),
+		"X-PaperSage-Import-Local-Id":  uuid.NewString(),
+	}
+	create := func(content string, headers map[string]string) *http.Response {
+		t.Helper()
+		body, err := json.Marshal(map[string]string{"path": "imported.tex", "content": content})
+		require.NoError(t, err)
+		return ts.DoWithHeaders(t, http.MethodPost, latexPath(p, "/"), body, headers)
+	}
+	first := create("\\section{local}", key)
+	require.Equal(t, http.StatusOK, first.StatusCode)
+	var firstBody map[string]any
+	require.NoError(t, json.NewDecoder(first.Body).Decode(&firstBody))
+	firstID := firstBody["data"].(map[string]any)["id"]
+
+	retry := create("\\section{local}", key)
+	require.Equal(t, http.StatusOK, retry.StatusCode)
+	var retryBody map[string]any
+	require.NoError(t, json.NewDecoder(retry.Body).Decode(&retryBody))
+	assert.Equal(t, firstID, retryBody["data"].(map[string]any)["id"])
+
+	conflict := create("\\section{changed}", key)
+	assert.Equal(t, http.StatusConflict, conflict.StatusCode)
+	partial := create("partial", map[string]string{"X-PaperSage-Import-Local-Id": uuid.NewString()})
+	assert.Equal(t, http.StatusUnprocessableEntity, partial.StatusCode)
+	var count int64
+	require.NoError(t, ts.DB.Model(&store.LatexFile{}).Where("project_id = ?", p.ID).Count(&count).Error)
+	assert.EqualValues(t, 1, count)
+}
+
 // 二进制文件：GET 返回裸字节 + inline 头（非 JSON 信封）
 func TestBinaryFileRawResponse(t *testing.T) {
 	ts, p := seed(t)
@@ -172,6 +206,46 @@ func TestFolderRenameAndDelete(t *testing.T) {
 	}
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&lm))
 	assert.Len(t, lm.Data.Files, 1, "仅剩 other/c.tex")
+}
+
+// 回归：逻辑删除不得阻止同名重建。
+// 删除走软删除（置 deleted_at），而唯一键 (project_id, file_path) 不区分已删行，
+// 判重用的 findByPath 又被软删过滤拦住 → 重建撞唯一键。
+func TestDeleteThenRecreateSamePath(t *testing.T) {
+	ts, p := seed(t)
+
+	const path = "chapters/recreate.tex"
+	body, _ := json.Marshal(map[string]any{"path": path, "content": "v1"})
+	resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+	require.Equal(t, 200, resp.StatusCode)
+
+	resp = ts.Do(t, http.MethodDelete, latexPath(p, "/"+path), nil)
+	require.Equal(t, 200, resp.StatusCode)
+
+	resp = ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+	require.Equal(t, 200, resp.StatusCode, "删除后应能重建同名文件")
+
+	resp = ts.Do(t, http.MethodGet, latexPath(p, "/"+path), nil)
+	require.Equal(t, 200, resp.StatusCode)
+	var m map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+	assert.Equal(t, "v1", m["data"].(map[string]any)["content"])
+}
+
+// 回归：同一路径可反复删除与重建。
+func TestRepeatedDeleteAndRecreate(t *testing.T) {
+	ts, p := seed(t)
+
+	const path = "chapters/cycle.tex"
+	for i := 0; i < 3; i++ {
+		content := "v" + string(rune('1'+i))
+		body, _ := json.Marshal(map[string]any{"path": path, "content": content})
+		resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+		require.Equal(t, 200, resp.StatusCode, "第 %d 轮创建失败", i+1)
+
+		resp = ts.Do(t, http.MethodDelete, latexPath(p, "/"+path), nil)
+		require.Equal(t, 200, resp.StatusCode, "第 %d 轮删除失败", i+1)
+	}
 }
 
 func TestForeignProjectDenied(t *testing.T) {

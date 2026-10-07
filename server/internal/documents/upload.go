@@ -1,6 +1,9 @@
 package documents
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -11,9 +14,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -103,22 +108,97 @@ func (s *Service) upload(c *gin.Context) {
 			return
 		}
 	}
+	importKey, hasImportKey, keyErr := importreceipt.Parse(c.Request.Header)
+	if keyErr != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
 
 	content, err := readFileHeader(c, fh)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
-	s3Key := path.Join("projects", pid.String(), "documents", uuid.Must(uuid.NewV7()).String(), fileName)
-	if err := s.Storage.Put(ctx, s3Key, content); err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-
 	// staged=true → 暂存行（不进默认列表），由显式 confirm 入库
 	status := "uploaded"
 	if v := c.PostForm("staged"); v == "true" || v == "1" {
 		status = "staged"
+	}
+	if hasImportKey {
+		sum := sha256.Sum256(content)
+		fingerprint, err := importreceipt.Fingerprint(struct {
+			ProjectID   uuid.UUID
+			FolderID    *store.UUID
+			Name        string
+			ContentType string
+			Remark      *string
+			Status      string
+			ContentSHA  string
+		}{ProjectID: pid, FolderID: folderID, Name: fileName, ContentType: contentType, Remark: remarkPtr, Status: status, ContentSHA: hex.EncodeToString(sum[:])})
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+		s3Key := path.Join("projects", pid.String(), "documents", "imports", importKey.BundleID.String(), importKey.LocalID.String(), fileName)
+		doc := store.Document{
+			BaseModel: store.BaseModel{ID: store.MustNewUUID()},
+			Name:      fileName, Type: contentType, Size: int64(len(content)), Status: status,
+			S3Key: s3Key, Remark: remarkPtr, ProjectID: store.UUID{UUID: pid}, FolderID: folderID, OwnerID: store.UUID{UUID: uid},
+		}
+		var duplicate bool
+		objectWritten := false
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			resourceID, replay, err := importreceipt.Claim(tx, doc.OwnerID, importKey, "document", fingerprint, doc.ID)
+			if err != nil {
+				return err
+			}
+			if replay {
+				doc.ID = resourceID
+				if err := tx.Where("id = ? AND owner_id = ?", doc.ID, doc.OwnerID).First(&doc).Error; err != nil {
+					return err
+				}
+				var count int64
+				if doc.Status == "uploaded" {
+					if err := tx.Model(&store.Document{}).Where("id <> ? AND project_id = ? AND name = ? AND size = ? AND status = ?", doc.ID, doc.ProjectID, doc.Name, doc.Size, doc.Status).Count(&count).Error; err != nil {
+						return err
+					}
+				}
+				duplicate = count > 0
+				return nil
+			}
+			if status == "uploaded" {
+				var count int64
+				if err := tx.Model(&store.Document{}).Where("project_id = ? AND name = ? AND size = ? AND status = ?", doc.ProjectID, fileName, int64(len(content)), "uploaded").Count(&count).Error; err != nil {
+					return err
+				}
+				duplicate = count > 0
+			}
+			if err := s.Storage.Put(ctx, s3Key, content); err != nil {
+				return err
+			}
+			objectWritten = true
+			return tx.Create(&doc).Error
+		})
+		if err != nil {
+			if objectWritten {
+				_ = s.Storage.Delete(ctx, s3Key)
+			}
+			if errors.Is(err, importreceipt.ErrConflict) || errors.Is(err, gorm.ErrRecordNotFound) {
+				httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Import key conflicts with existing content or resource"})
+				return
+			}
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			return
+		}
+		resp := toDocumentResponse(&doc)
+		resp.Duplicate = duplicate
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(resp, ""))
+		return
+	}
+	s3Key := path.Join("projects", pid.String(), "documents", uuid.Must(uuid.NewV7()).String(), fileName)
+	if err := s.Storage.Put(ctx, s3Key, content); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
 	}
 	// 查重：同项目内已入库的同名同大小文件（提示级，不阻断）
 	var dupCount int64

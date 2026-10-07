@@ -20,7 +20,7 @@ func newTestStore(t *testing.T) *Store {
 	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/rag.db"),
 		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&IndexedChunk{}))
+	require.NoError(t, db.AutoMigrate(&IndexedChunk{}, &RagIndexGeneration{}))
 	t.Cleanup(func() {
 		if sqlDB, e := db.DB(); e == nil {
 			_ = sqlDB.Close()

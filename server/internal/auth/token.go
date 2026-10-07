@@ -18,9 +18,10 @@ import (
 // 密钥：SECRET_KEY（任意长度字符串）经 HKDF-SHA256 派生 32 字节 KEK。
 
 type Claims struct {
-	Subject   string `json:"sub"`
-	ExpiresAt int64  `json:"exp"` // unix 秒
-	Type      string `json:"type"`
+	Subject     string `json:"sub"`
+	ExpiresAt   int64  `json:"exp"` // unix 秒
+	Type        string `json:"type"`
+	AuthVersion int64  `json:"av,omitempty"`
 }
 
 func (c *Claims) Expiry() time.Time { return time.Unix(c.ExpiresAt, 0) }
@@ -28,6 +29,12 @@ func (c *Claims) Expiry() time.Time { return time.Unix(c.ExpiresAt, 0) }
 // CreateAccessToken issues an encrypted access token.
 func CreateAccessToken(secret, sub string, expireMinutes int) (string, error) {
 	return encryptClaims(secret, sub, "access", time.Duration(expireMinutes)*time.Minute)
+}
+
+// CreateVersionedAccessToken binds an access token to the user's current
+// authentication version so password resets can revoke existing sessions.
+func CreateVersionedAccessToken(secret, sub string, authVersion int64, expireMinutes int) (string, error) {
+	return encryptClaimsWithVersion(secret, sub, "access", authVersion, time.Duration(expireMinutes)*time.Minute)
 }
 
 // CreateVerifyToken issues an encrypted one-time email-verification token.
@@ -40,11 +47,20 @@ func CreateRefreshToken(secret, sub string, expireDays int) (string, error) {
 	return encryptClaims(secret, sub, "refresh", time.Duration(expireDays)*24*time.Hour)
 }
 
+func CreateVersionedRefreshToken(secret, sub string, authVersion int64, expireDays int) (string, error) {
+	return encryptClaimsWithVersion(secret, sub, "refresh", authVersion, time.Duration(expireDays)*24*time.Hour)
+}
+
 func encryptClaims(secret, sub, typ string, ttl time.Duration) (string, error) {
+	return encryptClaimsWithVersion(secret, sub, typ, 0, ttl)
+}
+
+func encryptClaimsWithVersion(secret, sub, typ string, authVersion int64, ttl time.Duration) (string, error) {
 	payload, err := json.Marshal(Claims{
-		Subject:   sub,
-		ExpiresAt: time.Now().Add(ttl).Unix(),
-		Type:      typ,
+		Subject:     sub,
+		ExpiresAt:   time.Now().Add(ttl).Unix(),
+		Type:        typ,
+		AuthVersion: authVersion,
 	})
 	if err != nil {
 		return "", err

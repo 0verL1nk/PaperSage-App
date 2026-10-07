@@ -1,8 +1,18 @@
 import JSZip from 'jszip'
-import { getJson, postJson, putJson, deleteFetch, downloadBlob, type ApiRequestConfig } from './client'
+import { getJson, postJson, putJson, deleteFetch, downloadBlob, postMultipart, type ApiRequestConfig } from './client'
 import { getAccessToken } from '@/store'
+import { useSessionStore } from '@/store'
 import { LATEX } from './api-routes'
 import { createPdfSource } from '@/lib/pdf/range-transport'
+import {
+  createGuestLatexBlobFile, createGuestLatexFile, deleteGuestLatexFile, deleteGuestLatexFolder, getGuestLatexFile,
+  listGuestLatexFiles, moveGuestLatexFile, renameGuestLatexFile, renameGuestLatexFolder,
+  saveGuestLatexFile, GuestCapabilityError,
+} from './guest-local-workspace'
+
+function requireCloudLatex(capability: 'LaTeX 在线编译' | '云端 PDF' = 'LaTeX 在线编译') {
+  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError(capability)
+}
 
 // --- Types ---
 
@@ -79,15 +89,18 @@ interface LatexFileListEnvelope {
 }
 
 export function fetchLatexFiles(projectId: string, config?: ApiRequestConfig) {
+  if (useSessionStore.getState().isGuest) return listGuestLatexFiles(projectId)
   return getJson<LatexFileListEnvelope>(LATEX.files(projectId), config)
     .then((res) => res.files)
 }
 
 export function fetchLatexFileContent(projectId: string, filePath: string, config?: ApiRequestConfig) {
+  if (useSessionStore.getState().isGuest) return getGuestLatexFile(projectId, filePath)
   return getJson<LatexFileContent>(LATEX.fileContent(projectId, filePath), config)
 }
 
 export function saveLatexFile(projectId: string, filePath: string, content: string, config?: ApiRequestConfig<{ content: string }>) {
+  if (useSessionStore.getState().isGuest) return saveGuestLatexFile(projectId, filePath, content)
   return putJson<void, { content: string }>(
     LATEX.fileContent(projectId, filePath),
     { content },
@@ -96,13 +109,23 @@ export function saveLatexFile(projectId: string, filePath: string, content: stri
 }
 
 export function createLatexFile(projectId: string, path: string, content?: string) {
+  if (useSessionStore.getState().isGuest) return createGuestLatexFile(projectId, path, content)
   return postJson<LatexFileItem, { path: string; content?: string }>(
     LATEX.files(projectId),
     { path, content },
   )
 }
 
+export function uploadLatexFile(projectId: string, path: string, file: File) {
+  if (useSessionStore.getState().isGuest) return createGuestLatexBlobFile(projectId, path, file)
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('path', path)
+  return postMultipart<LatexFileItem>(LATEX.files(projectId), formData)
+}
+
 export function deleteLatexFile(projectId: string, filePath: string) {
+  if (useSessionStore.getState().isGuest) return deleteGuestLatexFile(projectId, filePath)
   return deleteFetch(LATEX.fileContent(projectId, filePath))
 }
 
@@ -112,6 +135,7 @@ export function deleteLatexFile(projectId: string, filePath: string) {
  * 文件夹路径必然 404。
  */
 export function deleteLatexFolder(projectId: string, folderPath: string) {
+  if (useSessionStore.getState().isGuest) return deleteGuestLatexFolder(projectId, folderPath)
   return deleteFetch<{ deleted_count: number; folder_path: string }, { folder_path: string }>(
     LATEX.deleteFolder(projectId),
     { data: { folder_path: folderPath } },
@@ -119,10 +143,12 @@ export function deleteLatexFolder(projectId: string, folderPath: string) {
 }
 
 export function renameLatexFile(projectId: string, oldPath: string, newPath: string) {
+  if (useSessionStore.getState().isGuest) return renameGuestLatexFile(projectId, oldPath, newPath)
   return postJson<LatexFileItem>(LATEX.renameFile(projectId, oldPath), { new_path: newPath })
 }
 
 export function renameLatexFolder(projectId: string, oldFolder: string, newFolder: string) {
+  if (useSessionStore.getState().isGuest) return renameGuestLatexFolder(projectId, oldFolder, newFolder)
   return postJson<{ renamed_count: number; old_folder: string; new_folder: string }>(
     LATEX.renameFolder(projectId),
     { folder_path: oldFolder, new_folder: newFolder },
@@ -130,6 +156,7 @@ export function renameLatexFolder(projectId: string, oldFolder: string, newFolde
 }
 
 export function moveLatexFile(projectId: string, filePath: string, newDir: string) {
+  if (useSessionStore.getState().isGuest) return moveGuestLatexFile(projectId, filePath, newDir)
   return postJson<LatexFileItem>(LATEX.moveFile(projectId, filePath), { new_dir: newDir })
 }
 
@@ -139,6 +166,7 @@ export function compileLatex(
   rootFile: string,
   compiler: string,
 ) {
+  requireCloudLatex()
   return postJson<CompileJobSubmitResponse, {
     root_file: string
     compiler: string
@@ -151,18 +179,22 @@ export function compileLatex(
 }
 
 export function getCompileStatus(projectId: string, jobId: string) {
+  requireCloudLatex()
   return getJson<CompileJobStatusResponse>(LATEX.compileStatus(projectId, jobId), { skipGlobalLoading: true })
 }
 
 export function cancelCompile(projectId: string, jobId: string) {
+  requireCloudLatex()
   return deleteFetch(`${LATEX.compile(projectId)}?job_id=${jobId}`)
 }
 
 export function getCompileHistory(projectId: string) {
+  requireCloudLatex()
   return getJson<CompileJobHistoryResponse>(LATEX.compileHistory(projectId))
 }
 
 export function getOutputZip(projectId: string, buildId: string) {
+  requireCloudLatex('云端 PDF')
   return downloadBlob(LATEX.outputZip(projectId, buildId))
 }
 
@@ -175,6 +207,7 @@ export async function getPdfRangeSource(
   projectId: string,
   buildId: string,
 ): Promise<PdfRangeSource> {
+  requireCloudLatex('云端 PDF')
   const token = getAccessToken()
   const headers: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {}
   const relativeUrl = LATEX.outputPdf(projectId, buildId)

@@ -7,8 +7,12 @@ CREATE TABLE `agent_wiki_pages` (
   `project_id` char(32) NOT NULL,
   `title` varchar(200) NOT NULL,
   `content` text NOT NULL,
+  `meta` json DEFAULT NULL,
+  -- 溯源：本页由哪次运行产出；来源变更后标记过期（stale_at），
+  -- 而不是把 wiki 当成新的原始事实。
+  `source_run_id` char(32) DEFAULT NULL,
+  `stale_at` datetime(6) DEFAULT NULL,
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
-  `deleted_at` datetime(6) DEFAULT NULL,
   KEY `ix_wiki_project` (`project_id`),
   UNIQUE KEY `uq_wiki_project_title` (`project_id`,`title`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,

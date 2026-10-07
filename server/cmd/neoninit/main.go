@@ -36,10 +36,12 @@ func main() {
 			chunk_idx   int NOT NULL DEFAULT 0,
 			content     text NOT NULL,
 			embedding   vector(1024),
+			generation  bigint NOT NULL DEFAULT 1,
 			created_at  timestamptz NOT NULL DEFAULT now()
 		)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_project ON rag_chunks (project_id)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_source ON rag_chunks (source_type, source_id)`,
+		`CREATE INDEX IF NOT EXISTS ix_rag_generation ON rag_chunks (project_id, generation)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_embedding_hnsw ON rag_chunks USING hnsw (embedding vector_cosine_ops)`,
 	}
 	for _, s := range stmts {
