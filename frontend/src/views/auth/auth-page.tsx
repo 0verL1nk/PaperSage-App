@@ -1,7 +1,7 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Eye, EyeOff, HardDrive, MailCheck, ShieldCheck } from 'lucide-react'
+import { ArrowRight, Eye, EyeOff, HardDrive, LoaderCircle, MailCheck, ShieldCheck } from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -18,6 +18,8 @@ import { SmoothHeight } from '@/components/shared/smooth-height'
 import { useQuery } from '@tanstack/react-query'
 import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
 import { getEmailDomains, resendVerification } from '@/services/auth-api'
+import { initializeGuestWorkspace } from '@/services/guest-local-workspace'
+import { ApiTargetToggle } from '@/components/shared/api-target-toggle'
 import { cn } from '@/lib/utils'
 import {
   loginSchema,
@@ -25,7 +27,7 @@ import {
   type LoginFormValues,
   type RegisterFormValues,
 } from '@/types/auth'
-import { setSessionTokens, useSessionStore } from '@/store'
+import { activateLocalGuestSession, setSessionTokens, useSessionStore } from '@/store'
 
 type AuthMode = 'login' | 'register'
 
@@ -102,6 +104,8 @@ export function AuthPage() {
   // 注册成功后待验证邮箱（常驻提醒，登录成功即清除）
   const [pendingVerifyEmail, setPendingVerifyEmail] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [guestStarting, setGuestStarting] = useState(false)
+  const [guestError, setGuestError] = useState('')
 
   useEffect(() => {
     if (accessToken) {
@@ -149,16 +153,28 @@ export function AuthPage() {
     }
   })
 
+  const handleGuestStart = async () => {
+    if (guestStarting) return
+    setGuestError('')
+    setGuestStarting(true)
+    try {
+      await initializeGuestWorkspace()
+      activateLocalGuestSession()
+      await navigate({ to: '/app/projects' })
+    } catch (cause) {
+      setGuestError(cause instanceof Error ? cause.message : '无法开启本机游客工作区，请检查浏览器存储设置后重试。')
+    } finally {
+      setGuestStarting(false)
+    }
+  }
+
   return (
     <div className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-background py-8 font-sans sm:py-10">
       {/* 银灰色系 Mesh 背景 (适配明暗主题) */}
-      <div className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
-        {/* 光斑 1: 银白色/浅灰色 */}
-        <div data-testid="auth-background-orb" className="auth-mesh absolute top-[-10%] left-[-10%] h-[80%] w-[80%] rounded-full bg-zinc-400/10 dark:bg-zinc-600/10 blur-[120px]" />
-        {/* 光斑 2: 暖色调银色/琥珀色提示 */}
-        <div className="auth-mesh-reverse absolute bottom-[10%] right-[-5%] h-[70%] w-[70%] rounded-full bg-amber-200/10 dark:bg-amber-500/10 blur-[100px]" />
-        {/* 光斑 3: 中灰色 */}
-        <div className="auth-mesh absolute top-[20%] right-[10%] h-[60%] w-[60%] rounded-full bg-zinc-300/10 dark:bg-zinc-800/10 blur-[80px] [animation-delay:-10s]" />
+      <div aria-hidden="true" className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+        <div data-testid="auth-background-orb" className="auth-aurora auth-mesh absolute -left-[22%] -top-[25%] h-[78%] w-[86%] rounded-full blur-[96px]" />
+        <div className="auth-aurora-warm auth-mesh-reverse absolute -bottom-[20%] -right-[20%] h-[72%] w-[78%] rounded-full blur-[100px]" />
+        <div className="auth-aurora-cool auth-mesh absolute right-[4%] top-[12%] h-[52%] w-[54%] rounded-full blur-[90px] [animation-delay:-11s]" />
 
         <div className="auth-grid absolute inset-0" />
         
@@ -166,7 +182,11 @@ export function AuthPage() {
         <div className="absolute inset-0 bg-noise opacity-[0.03] mix-blend-overlay dark:opacity-[0.05]" />
       </div>
 
-      <div className="auth-page-content relative z-10 w-full max-w-[420px] px-4 animate-in fade-in zoom-in-95 duration-700 sm:px-6">
+      <div className="absolute right-3 top-3 z-20 sm:right-6 sm:top-6">
+        <ApiTargetToggle prominent />
+      </div>
+
+      <div className="auth-page-content relative z-10 w-full max-w-[420px] px-4 pt-12 animate-in fade-in zoom-in-95 duration-700 sm:px-6 sm:pt-8">
         {/* Branding */}
         <div className="mb-7 flex flex-col items-center text-center sm:mb-10">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-foreground shadow-xl sm:mb-6 sm:h-16 sm:w-16">
@@ -327,23 +347,26 @@ export function AuthPage() {
                 </TabsContent>
               </SmoothHeight>
             </Tabs>
-            <div className="mx-5 border-t border-border/35 sm:mx-8">
-              <Link
-                to="/guest"
+            <div className="mx-5 border-t border-border/35 py-4 sm:mx-8">
+              {guestError && <Alert variant="destructive" className="mb-3 rounded-xl"><ShieldCheck className="size-4" /><AlertDescription>{guestError}</AlertDescription></Alert>}
+              <button
+                type="button"
+                onClick={handleGuestStart}
+                disabled={guestStarting}
                 aria-label="以游客身份体验 PaperSage"
-                className="group flex min-h-[68px] items-center justify-between gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-secondary/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-3"
+                className="group flex min-h-[68px] w-full items-center justify-between gap-3 rounded-2xl border border-primary/15 bg-gradient-to-r from-primary/[0.09] via-primary/[0.045] to-transparent px-3.5 py-3 text-left shadow-sm shadow-primary/[0.04] transition-all hover:border-primary/30 hover:from-primary/[0.13] hover:via-primary/[0.07] hover:shadow-md hover:shadow-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-75 sm:px-4"
               >
                 <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-secondary/70 text-muted-foreground transition-colors group-hover:bg-background group-hover:text-foreground">
-                    <HardDrive className="size-4" />
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
+                    {guestStarting ? <LoaderCircle className="size-[18px] animate-spin" /> : <HardDrive className="size-[18px]" />}
                   </span>
                   <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold text-foreground/85 transition-colors group-hover:text-foreground">先体验 PaperSage</span>
-                    <span className="text-[11px] leading-4 text-muted-foreground">无需注册 · 内容保存在本机</span>
+                    <span className="text-[13px] font-semibold text-foreground">{guestStarting ? '正在准备本机工作区…' : '免注册体验 PaperSage'}</span>
+                    <span className="text-[11px] leading-4 text-muted-foreground">项目仅保存在此浏览器，可稍后导入账号</span>
                   </span>
                 </span>
-                <ArrowRight className="size-4 shrink-0 text-muted-foreground/65 transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
-              </Link>
+                {!guestStarting && <ArrowRight className="size-4 shrink-0 text-primary/75 transition-transform group-hover:translate-x-0.5" />}
+              </button>
             </div>
           </CardContent>
           <div className="border-t border-border/20 bg-secondary/20 px-5 py-4 text-center sm:px-8">

@@ -7,6 +7,10 @@
 - 登录与邮箱注册沿用现有 `multipart/form-data` 请求。浏览器先对密码做 SHA-256，Go 后端再用 bcrypt 保存；登录和注册契约为兼容已有账号保留。
 - 邮箱注册账号必须先验证邮箱，登录接口在密码正确后检查 `email_verified`。
 - Access token 与 refresh token 保存在 session store 的 localStorage；API client 自动注入 access token，并在适用的 401 响应后刷新会话。
+- 登录与注册共用一张表单卡，认证页以缓慢漂移的 Aurora 光色作为背景；系统开启减少动态效果时停用背景动画。游客入口在卡片内作为独立的免注册按钮，点击后原地准备浏览器存储并直接进入项目列表，不再要求在单独说明页二次点击。
+- 登录页右上角和已登录工作台顶部都显示“后端 在线/本地”选择器。选择在线目标使用部署时注入的 API 地址，选择本地目标使用 `VITE_LOCAL_API_BASE_URL`（默认 `http://localhost:5478`）；切换后整页刷新以清理旧后端签发的会话和缓存。
+
+认证入口的信息层级参考 [GitHub 登录页](https://github.com/login) 的账号/密码、找回密码和注册路径组织，以及 [Linear 登录方式说明](https://linear.app/docs/login-methods) 对登录选项的清晰分组。本项目仅展示已经实现的学校邮箱与密码登录，不展示未接入的第三方认证；游客和后端环境作为可发现的次级操作。
 
 ## 密码找回
 

@@ -24,11 +24,14 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
   ]
 
   for (const viewport of viewports) {
-    await page.goto('/auth')
+    await page.goto('/auth', { waitUntil: 'domcontentloaded' })
     await page.evaluate(() => window.localStorage.clear())
-    await page.reload()
+    await page.reload({ waitUntil: 'domcontentloaded' })
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
     await expect(page.getByRole('tab', { name: '账号登录' })).toBeVisible()
+    const backendToggle = page.getByRole('button', { name: /切换后端，当前：在线/ })
+    await expect(backendToggle).toBeVisible()
+    expect(await backendToggle.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), {
       message: `auth must not overflow horizontally at ${viewport.name}`,
     }).toBe(true)
@@ -45,25 +48,27 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
     await expect(registerButton).toBeInViewport()
     expect(await registerButton.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
 
-    await page.getByRole('link', { name: '以游客身份体验 PaperSage' }).click()
-    await expect(page).toHaveURL(/\/guest$/)
-    await expect(page.getByRole('heading', { name: /先开始写作/ })).toBeVisible()
-    await expect(page.getByText(/不会上传到云端/)).toBeVisible()
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), {
-      message: `guest entry must not overflow horizontally at ${viewport.name}`,
-    }).toBe(true)
-    const guestButton = page.getByRole('button', { name: '开始游客体验' })
-    await guestButton.scrollIntoViewIfNeeded()
-    await expect(guestButton).toBeInViewport()
+    const guestButton = page.getByRole('button', { name: '以游客身份体验 PaperSage' })
+    await expect(guestButton).toBeVisible()
     expect(await guestButton.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     await guestButton.click()
     await expect(page).toHaveURL(/\/app\/projects$/)
     await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
     await expect(page.getByText('本机游客 · 未同步')).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), {
-      message: `local guest project dashboard must not overflow horizontally at ${viewport.name}`,
+      message: `guest project dashboard must not overflow horizontally at ${viewport.name}`,
     }).toBe(true)
   }
 
-  expect(unmockedApiRequests, 'auth and guest landing pages must not make unmocked API calls').toEqual([])
+  expect(unmockedApiRequests, 'auth and local guest entry must not make unmocked API calls').toEqual([])
+})
+
+test('auth aurora is animated by default and quiet for reduced-motion preference', async ({ page }) => {
+  await page.goto('/auth', { waitUntil: 'domcontentloaded' })
+  const orb = page.getByTestId('auth-background-orb')
+  await expect(orb).toBeVisible()
+  expect(await orb.evaluate((element) => getComputedStyle(element).animationName)).toContain('auth-mesh-drift')
+
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+  expect(await orb.evaluate((element) => getComputedStyle(element).animationName)).toBe('none')
 })

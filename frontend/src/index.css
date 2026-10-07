@@ -373,12 +373,33 @@ select {
 
   .auth-mesh {
     will-change: transform;
-    animation: auth-mesh-drift 26s ease-in-out infinite alternate;
+    animation: auth-mesh-drift 22s ease-in-out infinite alternate;
   }
 
   .auth-mesh-reverse {
     will-change: transform;
-    animation: auth-mesh-drift-reverse 32s ease-in-out infinite alternate;
+    animation: auth-mesh-drift-reverse 28s ease-in-out infinite alternate;
+  }
+
+  .auth-aurora {
+    background:
+      radial-gradient(ellipse at 32% 36%, color-mix(in oklab, var(--primary) 27%, transparent), transparent 68%),
+      radial-gradient(ellipse at 70% 68%, color-mix(in oklab, #8ccfbd 32%, transparent), transparent 66%);
+    opacity: 0.78;
+  }
+
+  .auth-aurora-warm {
+    background:
+      radial-gradient(ellipse at 62% 56%, color-mix(in oklab, #edc68c 34%, transparent), transparent 68%),
+      radial-gradient(ellipse at 30% 42%, color-mix(in oklab, #a8bde8 24%, transparent), transparent 68%);
+    opacity: 0.72;
+  }
+
+  .auth-aurora-cool {
+    background:
+      radial-gradient(ellipse at 50% 42%, color-mix(in oklab, #a5c4ef 30%, transparent), transparent 69%),
+      radial-gradient(ellipse at 70% 64%, color-mix(in oklab, var(--primary) 17%, transparent), transparent 68%);
+    opacity: 0.66;
   }
 
   .auth-grid {
@@ -391,13 +412,16 @@ select {
   @media (max-width: 640px) {
     .auth-mesh,
     .auth-mesh-reverse {
-      filter: blur(72px);
+      filter: blur(64px);
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
     .auth-mesh,
     .auth-mesh-reverse,
+    .auth-aurora,
+    .auth-aurora-warm,
+    .auth-aurora-cool,
     .auth-grid,
     .auth-page-content {
       animation: none;

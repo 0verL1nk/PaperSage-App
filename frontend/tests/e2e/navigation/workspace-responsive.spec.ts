@@ -131,11 +131,12 @@ test('browser-local guest can create and save a real project across mobile, tabl
   ]
   await page.setViewportSize({ width: 320, height: 640 })
   await page.goto('/guest')
-  await expect(page.getByRole('heading', { name: /先开始写作/ })).toBeVisible()
-  await page.getByRole('button', { name: /开始游客体验/ }).click()
   await expect(page).toHaveURL(/\/app\/projects$/)
   await expect(page.getByText('本机游客 · 未同步')).toBeVisible()
   await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
+  const backendToggle = page.getByRole('button', { name: /切换后端，当前：在线/ })
+  await expect(backendToggle).toBeVisible()
+  expect(await backendToggle.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
 
   await page.getByRole('button', { name: '创建第一个项目' }).click()
   const dialog = page.getByRole('dialog')
