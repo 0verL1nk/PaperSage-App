@@ -23,4 +23,4 @@
 
 ## 发布验收（依赖外部服务）
 
-- [ ] 4.3 在部署窗口应用 0016 迁移，并用授权的测试邮箱完成邮件收件箱到密码重置的真实闭环；MySQL/TiDB 和 PostgreSQL 隔离迁移集成环境也需再次运行。
+- [ ] 4.3 2026-10-07 已在生产 MySQL 应用 0016（schema 15→16）；GitHub 隔离 MySQL/PostgreSQL migration integration 通过。授权测试邮箱收到的重置邮件在 Resend 发送记录中状态为 delivered；从邮件内容取一次性链接完成重置、重放拒绝、旧密码拒绝、refresh 会话撤销均通过，临时测试账号与 token 已清理。仍待用户确认其实际收件箱中可见该邮件；未将 provider delivered 等同于用户收件箱目视验收。
