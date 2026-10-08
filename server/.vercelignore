@@ -1,0 +1,14 @@
+.env
+.env.*
+bin
+devs3-data
+tmp
+__pycache__
+*.pyc
+*.exe
+*.exe~
+*.db
+*.db-*
+cover.out
+web/assets/*
+!web/assets/.keep
