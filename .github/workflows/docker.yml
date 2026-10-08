@@ -31,6 +31,7 @@ jobs:
             dockerfile: server/Dockerfile
             image: papersage-app
           - context: latex_render
+            dockerfile: Dockerfile
             image: papersage-render
 
     steps:
@@ -53,6 +54,7 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: ./${{ matrix.context }}
+          file: ./${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
           cache-from: type=gha
