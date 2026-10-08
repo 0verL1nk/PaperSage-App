@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
+import { useSessionStore } from '@/store'
 
 const mutate = vi.fn()
 const state = {
@@ -25,6 +26,9 @@ vi.mock('@/services/writing-state-api', () => ({
   useSaveWritingState: () => ({ mutate, isPending: false }),
   getConflictState: (error: unknown) => error instanceof Error && 'details' in error ? (error as Error & { details: { data: typeof state } }).details.data : null,
 }))
+vi.mock('./ai-panel', () => ({
+  AiPanel: ({ mode }: { mode: string }) => <div data-testid="research-agent" data-mode={mode} />,
+}))
 
 import { PreparePage } from './PreparePage'
 
@@ -34,44 +38,29 @@ function Wrapper({ children }: { children: ReactNode }) {
 }
 
 describe('PreparePage', () => {
-  beforeEach(() => {
-    vi.useFakeTimers()
-    mutate.mockReset()
+  it('shows conversational preparation and derived next steps without field-by-field inputs', () => {
+    render(<Wrapper><PreparePage /></Wrapper>)
+    expect(screen.getByTestId('research-agent')).toHaveAttribute('data-mode', 'preparation')
+    expect(screen.getByText('和研究顾问一起理清思路')).toBeInTheDocument()
+    expect(screen.getByText('找到一个值得研究的问题')).toBeInTheDocument()
+    expect(screen.getByText('还没有研究蓝图。先从你感兴趣的方向聊起，不需要逐项填写表格。')).toBeInTheDocument()
+    expect(screen.queryByLabelText('研究主题')).not.toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '进入资料库' })).toHaveAttribute('href', '/project/$projectId/uploading')
   })
 
-  afterEach(() => vi.useRealTimers())
-
-  it('shows derived missing items without blocking access to work', () => {
+  it('renders the existing research brief as an agent-maintained summary', () => {
+    state.brief.topic = '校园阅读习惯研究'
     render(<Wrapper><PreparePage /></Wrapper>)
-    expect(screen.getByText('补充研究主题')).toBeInTheDocument()
-    expect(screen.getByText('明确核心研究问题')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /进入资料库/ })).toHaveAttribute('href', '/project/$projectId/uploading')
-    expect(screen.getByText('待补项')).toBeInTheDocument()
+    expect(screen.getByText('校园阅读习惯研究')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    state.brief.topic = ''
   })
 
-  it('debounces and saves the edited blueprint with its current revision', () => {
+  it('does not pretend the local guest workspace has an AI agent', () => {
+    useSessionStore.setState((current) => ({ ...current, isGuest: true }))
     render(<Wrapper><PreparePage /></Wrapper>)
-    fireEvent.change(screen.getByPlaceholderText('用一句话概括研究对象与问题'), { target: { value: '新的研究主题' } })
-    expect(mutate).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(799))
-    expect(mutate).not.toHaveBeenCalled()
-    act(() => vi.advanceTimersByTime(1))
-    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
-      brief: expect.objectContaining({ topic: '新的研究主题' }), revision: 0, current_phase: 'prepare',
-    }), expect.any(Object))
-  })
-
-  it('keeps local input and offers latest or overwrite actions on a revision conflict', () => {
-    const latest = { ...state, brief: { ...state.brief, topic: '其他标签页主题' }, revision: 4 }
-    const conflictError = Object.assign(new Error('conflict'), { details: { data: latest } })
-    mutate.mockImplementation((_request, options: { onError: (error: Error) => void }) => options.onError(conflictError))
-    render(<Wrapper><PreparePage /></Wrapper>)
-    const topic = screen.getByPlaceholderText('用一句话概括研究对象与问题') as HTMLInputElement
-    fireEvent.change(topic, { target: { value: '当前输入仍需保留' } })
-    act(() => vi.advanceTimersByTime(800))
-    expect(screen.getByRole('alert')).toHaveTextContent('内容已在其他位置更新')
-    expect(topic).toHaveValue('当前输入仍需保留')
-    fireEvent.click(screen.getByRole('button', { name: '加载最新版本' }))
-    expect(topic).toHaveValue('其他标签页主题')
+    expect(screen.getByText('研究顾问需要登录后使用')).toBeInTheDocument()
+    expect(screen.queryByTestId('research-agent')).not.toBeInTheDocument()
+    useSessionStore.setState((current) => ({ ...current, isGuest: false }))
   })
 })

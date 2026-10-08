@@ -1,7 +1,9 @@
 package projects_test
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -29,6 +31,24 @@ func createProject(t *testing.T, ts *testutil.TestServer, name string) map[strin
 	resp := ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
 	require.Equal(t, 200, resp.StatusCode, "创建项目应成功")
 	return decodeData(t, resp)
+}
+
+func TestProjectCreationFailsAndRollsBackWhenDefaultTemplateFails(t *testing.T) {
+	ts := testutil.New(t)
+	ts.ProjectService.OnCreate = func(context.Context, uuid.UUID, uuid.UUID) error {
+		return errors.New("object storage unavailable")
+	}
+	body, err := json.Marshal(map[string]any{"name": "缺少模板不能成功"})
+	require.NoError(t, err)
+	resp := ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
+	require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+	var envelope map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	assert.Contains(t, envelope["info"], "默认 LaTeX 模板创建失败")
+
+	var count int64
+	require.NoError(t, ts.DB.Unscoped().Model(&store.Project{}).Where("owner_id = ?", ts.UserID()).Count(&count).Error)
+	assert.Zero(t, count, "模板失败后不应保留一个表面创建成功的项目")
 }
 
 func TestProjectCRUDAndTrashFlow(t *testing.T) {

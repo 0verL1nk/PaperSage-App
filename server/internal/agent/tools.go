@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
 
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
@@ -212,9 +214,72 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 		return nil, err
 	}
 
+	writingStateService := writingstate.NewService(db)
+	getWritingState, err := utils.InferTool(
+		"get_writing_state",
+		"读取项目的研究蓝图、要求与阶段状态。写作准备对话开始或准备修改蓝图前先调用。",
+		func(ctx context.Context, _ struct{}) (string, error) {
+			state, err := writingStateService.GetForAgent(ctx, projectID.UUID, ownerID.UUID)
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(state)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	saveWritingBrief, err := utils.InferTool(
+		"save_writing_preparation",
+		"保存用户明确确认后的研究蓝图与课题要求。保存前必须先向用户展示拟保存内容并得到明确同意；不得把假设或未确认信息写成事实。未修改要求时应原样保留 get_writing_state 返回的 requirements。必须先调用 get_writing_state 并提交当前 revision。",
+		func(ctx context.Context, in struct {
+			ExpectedRevision int                        `json:"expected_revision" jsonschema:"description=get_writing_state 返回的 revision，防止覆盖并发修改"`
+			Topic            string                     `json:"topic"`
+			Background       string                     `json:"background"`
+			Questions        []string                   `json:"questions"`
+			Goals            []string                   `json:"goals"`
+			ScopeOut         []string                   `json:"scope_out"`
+			ObjectsAndData   string                     `json:"objects_and_data"`
+			Methods          string                     `json:"methods"`
+			KeyChapters      []string                   `json:"key_chapters"`
+			Milestones       []string                   `json:"milestones"`
+			Constraints      []string                   `json:"constraints"`
+			KnownFacts       []string                   `json:"known_facts"`
+			Assumptions      []string                   `json:"assumptions"`
+			Unverified       []string                   `json:"unverified"`
+			Requirements     []writingstate.Requirement `json:"requirements,omitempty" jsonschema:"description=课题或导师要求；未修改时传回当前值，明确清空时传空数组"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			brief := writingstate.Brief{
+				Topic: in.Topic, Background: in.Background,
+				Questions: in.Questions, Goals: in.Goals, ScopeOut: in.ScopeOut,
+				ObjectsAndData: in.ObjectsAndData, Methods: in.Methods,
+				KeyChapters: in.KeyChapters, Milestones: in.Milestones,
+				Constraints: in.Constraints, KnownFacts: in.KnownFacts,
+				Assumptions: in.Assumptions, Unverified: in.Unverified,
+			}
+			for _, list := range []*[]string{&brief.Questions, &brief.Goals, &brief.ScopeOut, &brief.KeyChapters, &brief.Milestones, &brief.Constraints, &brief.KnownFacts, &brief.Assumptions, &brief.Unverified} {
+				if *list == nil {
+					*list = []string{}
+				}
+			}
+			state, err := writingStateService.SavePreparationFromAgent(ctx, projectID.UUID, ownerID.UUID, in.ExpectedRevision, brief, in.Requirements)
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(state)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
 	return []tool.BaseTool{
 		listDocuments, readDocument, listLatexFiles, readLatexFile,
-		proposeEdit, compileProject,
+		proposeEdit, compileProject, getWritingState, saveWritingBrief,
 	}, nil
 }
 

@@ -17,6 +17,7 @@
 | [课题简介](DEFINITION.md) | 课题定位和核心任务 |
 | [毕设总体逻辑与决策台账](project/13-thesis-product-model.md) | 当前产品主线、范围分层、数据/Agent 边界与待确认问题；持续更新 |
 | [Agent 技能与知识空间治理](project/14-agent-skills-and-knowledge-governance.md) | Agent 路由、自主入库、证据追溯、代码/实验材料与 SSH 扩展边界 |
+| [写作准备：研究顾问对话](frontend/writing-preparation-agent.md) | 准备阶段对话、用户确认保存、游客边界与模板初始化 |
 | [事件驱动写作与多维审阅](project/15-event-driven-writing-and-review-model.md) | 开放式 Agent 触发、参考文献范式学习、Review Profile 与论文质量维度库 |
 | [调研驱动的实现方案](project/12-ai-writing-design.md) | 后续实施基线：具体任务契约、组织产物、证据、修改确认、依赖与分层评价 |
 | [开发路线图](project/11-roadmap.md) | 课题时间节点与材料组织—章节写作—整合检查的分阶段验收 |

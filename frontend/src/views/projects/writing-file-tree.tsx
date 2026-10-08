@@ -1,7 +1,8 @@
 /* eslint-disable react-refresh/only-export-components */
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, useImperativeHandle } from 'react'
-import { Tree, type TreeApi, type CreateHandler, type RenameHandler, type MoveHandler } from 'react-arborist'
-import { Plus, FolderPlus } from 'lucide-react'
+import { Tree, type TreeApi, type RenameHandler, type MoveHandler } from 'react-arborist'
+import { Check, FolderPlus, Plus, X } from 'lucide-react'
+import { toast } from 'sonner'
 import {
   ContextMenu,
   ContextMenuTrigger,
@@ -9,6 +10,8 @@ import {
   ContextMenuItem,
 } from '@/components/ui/context-menu'
 import type { LatexFileItem } from '@/services/latex-api'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { NodeRenderer, type NodeActions } from './file-tree-node'
 import { FileTreeSearch } from './file-tree-search'
 
@@ -100,6 +103,9 @@ export interface FileTreeHandle {
   createInternal: () => void
 }
 
+type CreationType = 'leaf' | 'internal'
+type PendingCreation = { type: CreationType; parentPath: string; name: string }
+
 interface FileTreeProps {
   files: LatexFileItem[]
   activeFilePath: string | null
@@ -130,6 +136,8 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
   const [treeWidth, setTreeWidth] = useState(300)
   const [searchTerm, setSearchTerm] = useState('')
   const [openState, setOpenState] = useState<Record<string, boolean>>({})
+  const [pendingCreation, setPendingCreation] = useState<PendingCreation | null>(null)
+  const [creating, setCreating] = useState(false)
 
   useEffect(() => {
     const el = containerRef.current
@@ -141,16 +149,44 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
     return () => ro.disconnect()
   }, [])
 
+  const beginCreate = useCallback((type: CreationType, parentPath = '') => {
+    setPendingCreation({ type, parentPath, name: type === 'internal' ? 'new_folder' : 'new_file.tex' })
+  }, [])
+
   useImperativeHandle(ref, () => ({
-    createLeaf: () => treeRef.current?.createLeaf(),
-    createInternal: () => treeRef.current?.createInternal(),
-  }), [])
+    createLeaf: () => beginCreate('leaf'),
+    createInternal: () => beginCreate('internal'),
+  }), [beginCreate])
+
+  const submitCreate = useCallback(async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!pendingCreation || !pendingCreation.name.trim() || creating) return
+    const name = pendingCreation.name.trim()
+    const path = pendingCreation.parentPath ? `${pendingCreation.parentPath}/${name}` : name
+    setCreating(true)
+    try {
+      if (pendingCreation.type === 'internal') await onCreateFile(`${path}/.gitkeep`, '')
+      else await onCreateFile(path, '')
+      setPendingCreation(null)
+    } catch (error) {
+      toast.error(pendingCreation.type === 'internal' ? '文件夹创建失败' : '文件创建失败', {
+        description: error instanceof Error ? error.message : '请检查网络和项目权限后重试。',
+      })
+    } finally {
+      setCreating(false)
+    }
+  }, [creating, onCreateFile, pendingCreation])
 
   const data = useMemo(() => toArboristData(files), [files])
 
   const actions = useMemo<NodeActions>(
-    () => ({ onDeleteFile, onDeleteFolder }),
-    [onDeleteFile, onDeleteFolder],
+    () => ({
+      onDeleteFile,
+      onDeleteFolder,
+      onStartCreateFile: (parentPath) => beginCreate('leaf', parentPath),
+      onStartCreateFolder: (parentPath) => beginCreate('internal', parentPath),
+    }),
+    [beginCreate, onDeleteFile, onDeleteFolder],
   )
 
   const handleActivate = useCallback(
@@ -158,27 +194,6 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
       if (!('children' in node.data) || node.data.children == null) onSelect(node.data.fullPath)
     },
     [onSelect],
-  )
-
-  const handleCreate: CreateHandler<FileNodeData> = useCallback(
-    async ({ parentId, type }) => {
-      const editingNode = treeRef.current?.get(treeRef.current.editingId ?? null)
-      const rawName = editingNode?.data?.name ?? (type === 'internal' ? 'new_folder' : 'new_file.tex')
-
-      if (!rawName.trim()) return null
-
-      if (type === 'internal') {
-        const dirPath = parentId ? `${parentId}/${rawName}` : rawName
-        const keepPath = `${dirPath}/.gitkeep`
-        await onCreateFile(keepPath, '').catch(() => {})
-        return { id: dirPath }
-      } else {
-        const filePath = parentId ? `${parentId}/${rawName}` : rawName
-        await onCreateFile(filePath, '').catch(() => {})
-        return { id: filePath }
-      }
-    },
-    [onCreateFile],
   )
 
   const handleRename: RenameHandler<FileNodeData> = useCallback(
@@ -256,14 +271,6 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
     return node.data.name.toLowerCase().includes(term.toLowerCase())
   }, [])
 
-  if (files.length === 0) {
-    return (
-      <div className="flex-1 overflow-y-auto py-3 scrollbar-none">
-        <p className="text-[11px] text-muted-foreground text-center py-8">暂无文件</p>
-      </div>
-    )
-  }
-
   const hasNoResults = searchTerm && !dataHasMatch(data, searchTerm.toLowerCase())
 
   return (
@@ -284,7 +291,28 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
         >
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <div className="min-h-full">
+              <div className="relative min-h-full">
+                {pendingCreation && (
+                  <form onSubmit={submitCreate} className="mx-2 mb-2 rounded-lg border border-primary/20 bg-background p-2 shadow-sm" data-testid="tree-create-form">
+                    <label htmlFor="tree-create-name" className="mb-1.5 block text-[11px] font-medium text-muted-foreground">
+                      {pendingCreation.type === 'internal' ? '新建文件夹' : '新建文件'}
+                      {pendingCreation.parentPath && <span className="ml-1">· {pendingCreation.parentPath}</span>}
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <Input
+                        id="tree-create-name"
+                        autoFocus
+                        value={pendingCreation.name}
+                        onChange={(event) => setPendingCreation({ ...pendingCreation, name: event.target.value })}
+                        onKeyDown={(event) => { if (event.key === 'Escape') setPendingCreation(null) }}
+                        className="h-9 min-w-0 text-xs"
+                        aria-label={pendingCreation.type === 'internal' ? '文件夹名称' : '文件名称'}
+                      />
+                      <Button type="submit" size="icon-sm" aria-label="确认创建" disabled={creating || !pendingCreation.name.trim()}><Check className="size-4" /></Button>
+                      <Button type="button" size="icon-sm" variant="ghost" aria-label="取消创建" disabled={creating} onClick={() => setPendingCreation(null)}><X className="size-4" /></Button>
+                    </div>
+                  </form>
+                )}
                 <Tree<FileNodeData>
                   ref={treeRef}
                   width={treeWidth}
@@ -296,7 +324,6 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
                   padding={0}
                   onActivate={handleActivate}
                   selection={activeFilePath ?? undefined}
-                  onCreate={handleCreate}
                   onRename={handleRename}
                   onMove={handleMove}
                   searchTerm={searchTerm}
@@ -304,13 +331,18 @@ export const WritingFileTree = forwardRef<FileTreeHandle, FileTreeProps>(functio
                 >
                   {(props) => <NodeRenderer {...props} actions={actions} activeFilePath={activeFilePath} />}
                 </Tree>
+                {files.length === 0 && (
+                  <div className="pointer-events-none absolute inset-x-0 top-8 text-center text-[11px] text-muted-foreground">
+                    暂无文件，点击上方 + 或文件夹按钮开始
+                  </div>
+                )}
               </div>
             </ContextMenuTrigger>
             <ContextMenuContent className="w-44">
-              <ContextMenuItem onClick={() => treeRef.current?.createLeaf()}>
+              <ContextMenuItem onClick={() => beginCreate('leaf')}>
                 <Plus size={14} className="mr-2" />新建文件
               </ContextMenuItem>
-              <ContextMenuItem onClick={() => treeRef.current?.createInternal()}>
+              <ContextMenuItem onClick={() => beginCreate('internal')}>
                 <FolderPlus size={14} className="mr-2" />新建文件夹
               </ContextMenuItem>
             </ContextMenuContent>

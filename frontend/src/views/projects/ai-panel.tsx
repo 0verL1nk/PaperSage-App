@@ -17,6 +17,7 @@ import { useSettingsStore } from '@/store/settings-store'
 import { useChatStore, type ChatMessage, type ChatPart } from '@/store/chat-store'
 import * as agentApi from '@/services/agent-api'
 import { latexKeys } from '@/lib/query-keys'
+import { writingStateKeys } from '@/services/writing-state-api'
 import { cn } from '@/lib/utils'
 
 /**
@@ -25,7 +26,7 @@ import { cn } from '@/lib/utils'
  * 三层信息密度（参考架构 §5.4）：对话主线 → 消息内活动（工具卡片/子 agent 活动）
  * → 按需展开的执行细节。默认简洁，工具细节折叠起来，不把执行轨迹倒进主线。
  */
-export function AiPanel({ projectId }: { projectId: string }) {
+export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mode?: 'default' | 'preparation' }) {
   const navigate = useNavigate()
   const { settings, fetchSettings, patchCategory } = useSettingsStore()
   const agent = settings?.agent
@@ -40,6 +41,7 @@ export function AiPanel({ projectId }: { projectId: string }) {
   }, [settings, fetchSettings])
 
   const chat = useChatStore()
+  const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement | null>(null)
@@ -53,6 +55,7 @@ export function AiPanel({ projectId }: { projectId: string }) {
   const conversations = convQuery.data ?? []
 
   const activeConversationId = chat.conversationId ?? conversations[0]?.id ?? null
+  const processedWritingStateTools = useRef(new Set<string>())
 
   // 打开面板即接上最近一次会话（没有就等用户发第一条）
   useEffect(() => {
@@ -65,10 +68,22 @@ export function AiPanel({ projectId }: { projectId: string }) {
     bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [chat.messages])
 
-  const send = async () => {
-    const content = input.trim()
+  useEffect(() => {
+    if (mode !== 'preparation') return
+    for (const message of chat.messages) {
+      for (const part of message.parts) {
+        const toolName = part.meta?.toolName
+        if (part.type !== 'tool' || part.status !== 'succeeded' || toolName !== 'save_writing_preparation' || processedWritingStateTools.current.has(part.id)) continue
+        processedWritingStateTools.current.add(part.id)
+        void queryClient.invalidateQueries({ queryKey: writingStateKeys.project(projectId) })
+      }
+    }
+  }, [chat.messages, mode, projectId, queryClient])
+
+  const send = async (message = input) => {
+    const content = message.trim()
     if (!content || chat.streaming) return
-    setInput('')
+    if (message === input) setInput('')
     // 第一条消息会在 store 里顺带建出会话：把会话列表拉一次，
     // 否则下拉框里看不到刚建的这个会话。
     const firstMessage = !activeConversationId
@@ -92,9 +107,9 @@ export function AiPanel({ projectId }: { projectId: string }) {
             <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
               <Sparkles size={18} className="text-muted-foreground" />
             </div>
-            <p className="text-[13px] font-medium mb-1">尚未配置 AI 模型</p>
-            <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
-              在设置里添加模型服务商后即可开始对话
+              <p className="text-[13px] font-medium mb-1">尚未配置 AI 模型</p>
+              <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
+              {mode === 'preparation' ? '配置模型后，研究顾问才能通过对话帮你梳理并保存研究计划。' : '在设置里添加模型服务商后即可开始对话'}
             </p>
             <Button size="sm" className="rounded-xl" onClick={() => void navigate({ to: '/app/settings' })}>
               去设置
@@ -165,7 +180,18 @@ export function AiPanel({ projectId }: { projectId: string }) {
               <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">
                 AI
               </div>
-              可以让我查看你的文件与资料、检索文献，或者对稿件提出修改建议。
+              {mode === 'preparation'
+                ? '告诉我你感兴趣的方向、已有想法或手头材料。我会一次聚焦一个问题，区分事实与假设，并在你确认后保存研究蓝图。'
+                : '可以让我查看你的文件与资料、检索文献，或者对稿件提出修改建议。'}
+              {mode === 'preparation' && (
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {[
+                    '我还没确定选题，想从兴趣方向开始梳理。',
+                    '我有一个初步想法，帮我判断怎么形成研究问题。',
+                    '我有任务书或导师要求，想一起拆解。',
+                  ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                </div>
+              )}
             </div>
           )}
           {chat.messages.map((m) => (
@@ -187,7 +213,7 @@ export function AiPanel({ projectId }: { projectId: string }) {
                 void send()
               }
             }}
-            placeholder="问点什么…"
+            placeholder={mode === 'preparation' ? '说说你的研究兴趣、初步想法或遇到的困难…' : '问点什么…'}
             className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28"
           />
           <Button

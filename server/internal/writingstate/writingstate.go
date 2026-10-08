@@ -2,7 +2,9 @@
 package writingstate
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -55,6 +57,98 @@ type State struct {
 type Service struct{ DB *gorm.DB }
 
 func NewService(db *gorm.DB) *Service { return &Service{DB: db} }
+
+// GetForAgent returns the current project preparation state after checking ownership.
+func (s *Service) GetForAgent(ctx context.Context, projectID, ownerID uuid.UUID) (State, error) {
+	var project store.Project
+	if err := s.DB.WithContext(ctx).Where("id = ? AND owner_id = ?", store.UUID{UUID: projectID}, store.UUID{UUID: ownerID}).First(&project).Error; err != nil {
+		return State{}, fmt.Errorf("project not accessible")
+	}
+	state := defaultState(project.ID.UUID, project.Scenario)
+	var row store.ProjectWritingState
+	err := s.DB.WithContext(ctx).Where("project_id = ?", project.ID).First(&row).Error
+	if err == gorm.ErrRecordNotFound {
+		return state, nil
+	}
+	if err != nil {
+		return State{}, err
+	}
+	state, err = mergeStored(row)
+	if err != nil {
+		return State{}, err
+	}
+	state.ProjectID, state.Scenario, state.Revision = project.ID.UUID, project.Scenario, row.Revision
+	return state, nil
+}
+
+// SavePreparationFromAgent applies confirmed preparation content with optimistic locking.
+// A nil requirements slice means the agent did not change requirements; phase progress is always preserved.
+func (s *Service) SavePreparationFromAgent(ctx context.Context, projectID, ownerID uuid.UUID, expectedRevision int, brief Brief, requirements []Requirement) (State, error) {
+	state, err := s.GetForAgent(ctx, projectID, ownerID)
+	if err != nil {
+		return State{}, err
+	}
+	state.Brief = brief
+	if requirements != nil {
+		state.Requirements = requirements
+	}
+	if err := validate(state); err != nil {
+		return State{}, err
+	}
+	briefJSON, err := json.Marshal(brief)
+	if err != nil {
+		return State{}, err
+	}
+	requirementsJSON, err := json.Marshal(state.Requirements)
+	if err != nil {
+		return State{}, err
+	}
+	var saved State
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var row store.ProjectWritingState
+		findErr := tx.Where("project_id = ?", store.UUID{UUID: projectID}).First(&row).Error
+		if findErr == gorm.ErrRecordNotFound {
+			if expectedRevision != 0 {
+				return fmt.Errorf("writing state changed; reload before saving")
+			}
+			defaults := defaultState(projectID, state.Scenario)
+			phasesJSON, _ := json.Marshal(defaults.Phases)
+			row = store.ProjectWritingState{
+				ProjectID: store.UUID{UUID: projectID}, Brief: datatypes.JSON(briefJSON),
+				Requirements: datatypes.JSON(requirementsJSON), Phases: datatypes.JSON(phasesJSON),
+				CurrentPhase: defaults.CurrentPhase, Revision: 1,
+			}
+			if err := tx.Create(&row).Error; err != nil {
+				return err
+			}
+			saved = state
+			saved.Revision = 1
+			return nil
+		}
+		if findErr != nil {
+			return findErr
+		}
+		if row.Revision != expectedRevision {
+			return fmt.Errorf("writing state changed; reload before saving")
+		}
+		result := tx.Model(&store.ProjectWritingState{}).
+			Where("project_id = ? AND revision = ?", store.UUID{UUID: projectID}, expectedRevision).
+			Updates(map[string]any{
+				"brief": datatypes.JSON(briefJSON), "requirements": datatypes.JSON(requirementsJSON),
+				"revision": gorm.Expr("revision + 1"), "updated_at": time.Now().UTC(),
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected != 1 {
+			return fmt.Errorf("writing state changed; reload before saving")
+		}
+		saved = state
+		saved.Revision = expectedRevision + 1
+		return nil
+	})
+	return saved, err
+}
 
 func defaultState(projectID uuid.UUID, scenario string) State {
 	return State{
