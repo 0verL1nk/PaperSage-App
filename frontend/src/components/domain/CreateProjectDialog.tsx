@@ -1,4 +1,3 @@
-import { cn } from '@/lib/utils'
 import { useState } from 'react'
 import { useCreateProject } from '@/services/projects-api'
 import type { ProjectGroup } from '@/types/projects'
@@ -14,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { ProjectScenario } from '@/types/projects'
 import { useSessionStore } from '@/store'
 
@@ -25,6 +25,8 @@ interface CreateProjectDialogProps {
   /** Available groups */
   groups: ProjectGroup[]
 }
+
+const NO_GROUP = '__no_group__'
 
 export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjectDialogProps) {
   const isGuest = useSessionStore((session) => session.isGuest)
@@ -118,15 +120,15 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
 
           <div className="space-y-2">
             <Label htmlFor="scenario" className="text-[13px] font-medium text-foreground">论文场景</Label>
-            <select
-              id="scenario"
-              value={scenario}
-              onChange={(event) => setScenario(event.target.value as ProjectScenario)}
-              className="flex h-12 w-full cursor-pointer appearance-none rounded-lg border border-border/40 bg-muted/40 px-3 text-[14px] transition-all focus:bg-background focus:outline-none focus:ring-1 focus:ring-foreground/20"
-            >
-              <option value="undergraduate_thesis">本科毕业论文</option>
-              <option value="intro_paper">入门级学术小论文</option>
-            </select>
+            <Select value={scenario} onValueChange={(value) => setScenario(value as ProjectScenario)}>
+              <SelectTrigger id="scenario" aria-label="论文场景" className="h-12 w-full rounded-lg border-border/40 bg-muted/40 px-3 text-sm focus:bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent position="popper" align="start" className="w-[var(--radix-select-trigger-width)]">
+                <SelectItem value="undergraduate_thesis">本科毕业论文</SelectItem>
+                <SelectItem value="intro_paper">入门级学术小论文</SelectItem>
+              </SelectContent>
+            </Select>
             <p className="text-[11px] leading-5 text-muted-foreground">场景用于展示对应写作流程，之后仍可自由往返各阶段。</p>
           </div>
 
@@ -141,21 +143,15 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
               <Label htmlFor="group" className="text-[13px] font-medium text-foreground">
                 分组
               </Label>
-              <select
-                id="group"
-                value={groupId ?? ''}
-                onChange={(e) => setGroupId(e.target.value || null)}
-                className={cn(
-                  "flex h-10 w-full items-center justify-between rounded-lg border border-border/40 bg-muted/40 px-3 py-2 text-[14px] ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-foreground/20 focus:bg-background disabled:cursor-not-allowed disabled:opacity-50 appearance-none transition-all cursor-pointer"
-                )}
-              >
-                <option value="">无分组</option>
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
+              <Select value={groupId ?? NO_GROUP} onValueChange={(value) => setGroupId(value === NO_GROUP ? null : value)}>
+                <SelectTrigger id="group" aria-label="分组" className="h-10 w-full rounded-lg border-border/40 bg-muted/40 px-3 text-sm focus:bg-background">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent position="popper" align="start" className="w-[var(--radix-select-trigger-width)]">
+                  <SelectItem value={NO_GROUP}>无分组</SelectItem>
+                  {groups.map((group) => <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
           )}
 

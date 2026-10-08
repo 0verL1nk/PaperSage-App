@@ -170,6 +170,9 @@ export function AuthPage() {
 
   return (
     <div className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-background py-8 font-sans sm:py-10">
+      <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
+        <ApiTargetToggle />
+      </div>
       {/* 银灰色系 Mesh 背景 (适配明暗主题) */}
       <div aria-hidden="true" className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
         <div data-testid="auth-background-orb" className="auth-aurora auth-mesh absolute -left-[22%] -top-[25%] h-[78%] w-[86%] rounded-full blur-[96px]" />
@@ -182,9 +185,6 @@ export function AuthPage() {
         <div className="absolute inset-0 bg-noise opacity-[0.03] mix-blend-overlay dark:opacity-[0.05]" />
       </div>
 
-      <div className="absolute right-3 top-3 z-20 sm:right-6 sm:top-6">
-        <ApiTargetToggle prominent />
-      </div>
 
       <div className="auth-page-content relative z-10 w-full max-w-[420px] px-4 pt-12 animate-in fade-in zoom-in-95 duration-700 sm:px-6 sm:pt-8">
         {/* Branding */}

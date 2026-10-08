@@ -26,18 +26,18 @@ describe('browser-local guest session', () => {
     expect(window.localStorage.getItem('papersage_guest_import_pending')).toBe('true')
   })
 
-  it('does not restore retired server guest tokens and keeps the local backup marker', () => {
+  it('keeps account tokens when stale retired guest metadata remains', () => {
     setGuestImportPending(true)
-    window.localStorage.setItem('papersage_access_token', 'retired-guest-token')
-    window.localStorage.setItem('papersage_refresh_token', 'retired-refresh')
+    window.localStorage.setItem('papersage_access_token', 'account-access')
+    window.localStorage.setItem('papersage_refresh_token', 'account-refresh')
     window.localStorage.setItem('papersage_is_guest', 'true')
     window.localStorage.setItem('papersage_session_expires_at', new Date(Date.now() + 60_000).toISOString())
     window.localStorage.setItem('papersage_local_guest_mode', 'true')
 
     const restored = useSessionStore.getState().restoreSession()
-    expect(restored).toMatchObject({ accessToken: '', refreshToken: '' })
-    expect(useSessionStore.getState()).toMatchObject({ accessToken: '', isGuest: true, guestImportPending: true })
-    expect(window.localStorage.getItem('papersage_access_token')).toBeNull()
+    expect(restored).toMatchObject({ accessToken: 'account-access', refreshToken: 'account-refresh' })
+    expect(useSessionStore.getState()).toMatchObject({ accessToken: 'account-access', isGuest: false, guestImportPending: true })
+    expect(window.localStorage.getItem('papersage_access_token')).toBe('account-access')
     expect(window.localStorage.getItem('papersage_is_guest')).toBeNull()
   })
 

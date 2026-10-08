@@ -4,7 +4,7 @@ import type { WritingState, SaveWritingState } from '@/services/writing-state-ap
 import type { LatexFileItem, LatexFileContent } from '@/services/latex-api'
 
 const DB_NAME = 'papersage-local-guest'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const BUNDLE_VERSION = 1 as const
 
 type StoreName = 'meta' | 'projects' | 'writingStates' | 'folders' | 'documents' | 'latexFiles' | 'importMappings'
@@ -107,27 +107,30 @@ function openDatabase(): Promise<IDBDatabase> {
     const request = indexedDB.open(DB_NAME, DB_VERSION)
     request.onupgradeneeded = () => {
       const db = request.result
+      const ensureIndex = (store: IDBObjectStore, name: string, keyPath: string | string[]) => {
+        if (!store.indexNames.contains(name)) store.createIndex(name, keyPath, { unique: name === 'projectPath' })
+      }
       if (!db.objectStoreNames.contains('meta')) db.createObjectStore('meta', { keyPath: 'key' })
       if (!db.objectStoreNames.contains('projects')) db.createObjectStore('projects', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('writingStates')) db.createObjectStore('writingStates', { keyPath: 'project_id' })
-      if (!db.objectStoreNames.contains('folders')) {
-        const store = db.createObjectStore('folders', { keyPath: 'id' })
-        store.createIndex('projectId', 'projectId', { unique: false })
-      }
-      if (!db.objectStoreNames.contains('documents')) {
-        const store = db.createObjectStore('documents', { keyPath: 'id' })
-        store.createIndex('projectId', 'projectId', { unique: false })
-        store.createIndex('folderId', 'folderId', { unique: false })
-      }
-      if (!db.objectStoreNames.contains('latexFiles')) {
-        const store = db.createObjectStore('latexFiles', { keyPath: 'id' })
-        store.createIndex('projectPath', ['projectId', 'file_path'], { unique: true })
-        store.createIndex('projectId', 'projectId', { unique: false })
-      }
-      if (!db.objectStoreNames.contains('importMappings')) {
-        const store = db.createObjectStore('importMappings', { keyPath: 'id' })
-        store.createIndex('accountBundle', ['accountId', 'bundleId'], { unique: false })
-      }
+      const folders = db.objectStoreNames.contains('folders')
+        ? request.transaction!.objectStore('folders')
+        : db.createObjectStore('folders', { keyPath: 'id' })
+      ensureIndex(folders, 'projectId', 'projectId')
+      const documents = db.objectStoreNames.contains('documents')
+        ? request.transaction!.objectStore('documents')
+        : db.createObjectStore('documents', { keyPath: 'id' })
+      ensureIndex(documents, 'projectId', 'projectId')
+      ensureIndex(documents, 'folderId', 'folderId')
+      const latexFiles = db.objectStoreNames.contains('latexFiles')
+        ? request.transaction!.objectStore('latexFiles')
+        : db.createObjectStore('latexFiles', { keyPath: 'id' })
+      ensureIndex(latexFiles, 'projectPath', ['projectId', 'file_path'])
+      ensureIndex(latexFiles, 'projectId', 'projectId')
+      const importMappings = db.objectStoreNames.contains('importMappings')
+        ? request.transaction!.objectStore('importMappings')
+        : db.createObjectStore('importMappings', { keyPath: 'id' })
+      ensureIndex(importMappings, 'accountBundle', ['accountId', 'bundleId'])
     }
     request.onsuccess = () => resolve(request.result)
     request.onerror = () => reject(normalizeStorageError(request.error))

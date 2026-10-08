@@ -149,7 +149,7 @@ export function WritingPage() {
   const { confirm, ConfirmDialog: DeleteConfirmDialog } = useConfirmDialog()
 
   // Data hooks
-  const { data: files = [] } = useLatexFiles(projectId)
+  const { data: files = [], error: filesError, refetch: refetchFiles } = useLatexFiles(projectId)
   const isEditable = activeFilePath ? isEditableFile(activeFilePath) : false
   const { data: fileContent, isPending: isContentLoading } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
   const saveMutation = useSaveLatexFile(projectId)
@@ -500,19 +500,29 @@ export function WritingPage() {
                           <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
                         </div>
                       </div>
-                      <WritingFileTree
-                        ref={fileTreeRef}
-                        files={files}
-                        activeFilePath={activeFilePath}
-                        onSelect={handleSelectFile}
-                        onDeleteFile={handleDeleteFile}
-                        onDeleteFolder={handleDeleteFolder}
-                        onCreateFile={handleTreeCreateFile}
-                        onRenameFile={handleTreeRenameFile}
-                        onRenameFolder={handleTreeRenameFolder}
-                        onMoveFile={handleTreeMoveFile}
-                        onExternalDrop={(fileList) => uploadFiles(fileList)}
-                      />
+                      {filesError ? (
+                        <div role="alert" className="m-3 space-y-2 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-xs">
+                          <p className="font-medium text-destructive">文件列表加载失败</p>
+                          <p className="break-words text-muted-foreground">{filesError.message}</p>
+                          <Button type="button" size="sm" variant="outline" className="min-h-10" onClick={() => void refetchFiles()}>
+                            重试
+                          </Button>
+                        </div>
+                      ) : (
+                        <WritingFileTree
+                          ref={fileTreeRef}
+                          files={files}
+                          activeFilePath={activeFilePath}
+                          onSelect={handleSelectFile}
+                          onDeleteFile={handleDeleteFile}
+                          onDeleteFolder={handleDeleteFolder}
+                          onCreateFile={handleTreeCreateFile}
+                          onRenameFile={handleTreeRenameFile}
+                          onRenameFolder={handleTreeRenameFolder}
+                          onMoveFile={handleTreeMoveFile}
+                          onExternalDrop={(fileList) => uploadFiles(fileList)}
+                        />
+                      )}
                     </div>
                   ) : (
                     <AiPanel projectId={projectId} />

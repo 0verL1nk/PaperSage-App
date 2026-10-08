@@ -40,18 +40,25 @@ export function ApiTargetToggle({ prominent = false }: { prominent?: boolean }) 
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="outline"
-          size="sm"
+          variant={prominent ? 'outline' : 'ghost'}
+          size={prominent ? 'sm' : 'icon'}
           className={cn(
-            'gap-1.5 rounded-full border-border/55 bg-background/75 px-2.5 font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background',
-            prominent ? 'h-[44px] px-3 text-xs sm:px-3.5' : 'h-8 text-xs sm:px-3',
+            prominent
+              ? 'h-[44px] gap-1.5 rounded-full border-border/55 bg-background/75 px-3 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background sm:px-3.5'
+              : 'relative size-9 rounded-full text-muted-foreground/75 hover:bg-muted/70 hover:text-foreground',
           )}
           title={isLocal ? `接口环境：本地（${appEnv.localApiBaseUrl}）` : '接口环境：在线'}
           aria-label={`切换后端，当前：${isLocal ? '本地' : '在线'}`}
         >
           {isLocal ? <HardDrive className="size-3.5" /> : <Cloud className="size-3.5" />}
-          {prominent && <span>后端</span>}
-          <span>{isLocal ? '本地' : '在线'}</span>
+          {prominent ? (
+            <><span>后端</span><span>{isLocal ? '本地' : '在线'}</span></>
+          ) : (
+            <span aria-hidden="true" className={cn(
+              'absolute bottom-1 right-1 size-1.5 rounded-full ring-2 ring-background',
+              isLocal ? 'bg-amber-500' : 'bg-emerald-500',
+            )} />
+          )}
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">

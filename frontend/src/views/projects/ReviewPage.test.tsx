@@ -1,54 +1,56 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 
-const mutate = vi.fn()
-const state = {
-  project_id: 'project-1',
-  scenario: 'undergraduate_thesis' as const,
-  brief: {
-    topic: '可解释的论文辅助', background: '', questions: ['如何验证效果？'], goals: [],
-    scope_out: [], objects_and_data: '', methods: '', key_chapters: [], milestones: [],
-    constraints: [], known_facts: [], assumptions: [], unverified: [],
-  },
-  requirements: [],
-  phases: { prepare: 'in_progress' as const, write: 'not_started' as const, review: 'not_started' as const },
-  current_phase: 'review' as const,
-  revision: 2,
-}
-
-vi.mock('@tanstack/react-router', () => ({ useParams: () => ({ projectId: 'project-1' }) }))
-vi.mock('@/services/writing-state-api', () => ({
-  useWritingState: () => ({ data: state, isLoading: false, error: null }),
-  useSaveWritingState: () => ({ mutate, isPending: false }),
+const { useLatexFiles, useLatexFileContent, refetch } = vi.hoisted(() => ({
+  useLatexFiles: vi.fn(),
+  useLatexFileContent: vi.fn(),
+  refetch: vi.fn(),
 }))
+
+vi.mock('@tanstack/react-router', () => ({
+  useParams: () => ({ projectId: 'project-1' }),
+  Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
+}))
+vi.mock('@/hooks/use-latex', () => ({ useLatexFiles, useLatexFileContent }))
 
 import { ReviewPage } from './ReviewPage'
 
-function Wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
-  return <QueryClientProvider client={client}>{children}</QueryClientProvider>
-}
+const mainFile = { id: 'main.tex', file_path: 'main.tex', content_type: 'text/x-tex', size_bytes: 40, last_saved_at: '' }
+const validMain = String.raw`\documentclass{article}
+\begin{document}
+正文
+\end{document}`
 
 describe('ReviewPage', () => {
-  beforeEach(() => mutate.mockReset())
-
-  it('shows manual phase progress and states that it does not fabricate review results', () => {
-    render(<Wrapper><ReviewPage /></Wrapper>)
-    expect(screen.getByRole('heading', { name: '完成情况由你确认' })).toBeInTheDocument()
-    expect(screen.getByText(/不会自动判定论文质量/)).toBeInTheDocument()
-    expect(screen.getByText('可解释的论文辅助')).toBeInTheDocument()
-    expect(screen.getAllByRole('button', { name: /点击切换/ })).toHaveLength(3)
+  beforeEach(() => {
+    useLatexFiles.mockReset().mockReturnValue({ data: [mainFile], isPending: false, error: null, refetch })
+    useLatexFileContent.mockReset().mockReturnValue({ data: { content: validMain }, isPending: false, error: null })
+    refetch.mockReset()
   })
 
-  it('persists the next selected manual phase status with the current revision', () => {
-    render(<Wrapper><ReviewPage /></Wrapper>)
-    fireEvent.click(screen.getByRole('button', { name: /写作准备状态/ }))
-    expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
-      phases: { ...state.phases, prepare: 'done' },
-      current_phase: 'review',
-      revision: 2,
-    }), expect.any(Object))
+  it('shows file-based checks and a direct path back to editing', () => {
+    render(<ReviewPage />)
+    expect(screen.getByRole('heading', { name: '提交前，把容易漏的地方过一遍' })).toBeInTheDocument()
+    expect(screen.getByText('LaTeX 文档结构')).toBeInTheDocument()
+    expect(screen.getAllByText('已通过').length).toBeGreaterThan(0)
+    expect(screen.getByText(/不会替你判断研究结论或学术质量/)).toBeInTheDocument()
+    expect(screen.queryByText(/阶段状态/)).not.toBeInTheDocument()
+  })
+
+  it('offers a fix path when the project has no main file', () => {
+    useLatexFiles.mockReturnValue({ data: [], isPending: false, error: null, refetch })
+    useLatexFileContent.mockReturnValue({ data: undefined, isPending: false, error: null })
+    render(<ReviewPage />)
+    expect(screen.getByText(/项目中没有 main\.tex/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /打开论文撰写/ })).toBeInTheDocument()
+  })
+
+  it('surfaces file-list errors and retries the query', () => {
+    useLatexFiles.mockReturnValue({ data: undefined, isPending: false, error: new Error('IndexedDB index missing'), refetch })
+    render(<ReviewPage />)
+    expect(screen.getByRole('alert')).toHaveTextContent('IndexedDB index missing')
+    fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
+    expect(refetch).toHaveBeenCalledOnce()
   })
 })
