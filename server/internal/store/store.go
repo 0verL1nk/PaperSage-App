@@ -28,7 +28,11 @@ func Open(ctx context.Context, cfg *config.Settings) (*gorm.DB, error) {
 
 	switch {
 	case isPostgresDSN(cfg.DSN()):
-		return openSQL(ctx, cfg, logLevel, "postgres", postgres.Open(cfg.DSN()))
+		// Neon transaction poolers can reuse server-side prepared statement
+		// names across sessions. Prefer the simple protocol to avoid pgx's
+		// implicit prepared statements colliding between Function instances.
+		pg := postgres.New(postgres.Config{DSN: cfg.DSN(), PreferSimpleProtocol: true})
+		return openSQL(ctx, cfg, logLevel, "postgres", pg)
 	case isMySQLDSN(cfg.DSN()):
 		return openSQL(ctx, cfg, logLevel, "mysql", gormmysql.Open(toDriverDSN(cfg.DSN())))
 	}
@@ -79,8 +83,10 @@ func sqliteRepair(db *gorm.DB) error {
 
 // openSQL SQL 后端公共装配：先迁移（含交接探测）再开 GORM，池参数统一。
 func openSQL(ctx context.Context, cfg *config.Settings, logLevel logger.LogLevel, dialect string, dialector gorm.Dialector) (*gorm.DB, error) {
-	if err := MigrateUp(ctx, cfg.DSN()); err != nil {
-		return nil, err
+	if cfg.RunDBMigrations {
+		if err := MigrateUp(ctx, cfg.MigrationDSN()); err != nil {
+			return nil, err
+		}
 	}
 	db, err := gorm.Open(dialector, gormConfig(logLevel))
 	if err != nil {
@@ -90,10 +96,26 @@ func openSQL(ctx context.Context, cfg *config.Settings, logLevel logger.LogLevel
 	if err != nil {
 		return nil, err
 	}
-	// 池参数对齐 Python 侧（pool 20 + overflow 30，recycle 1h）
-	sqlDB.SetMaxOpenConns(50)
-	sqlDB.SetMaxIdleConns(20)
-	sqlDB.SetConnMaxLifetime(time.Hour)
+	// Function 会按请求横向扩容；限制每个实例的本地连接池，避免实例数
+	// 与每实例 50 条连接相乘后压垮 PostgreSQL。Neon pooled URL 再负责跨实例复用。
+	maxOpen := cfg.DBMaxOpenConns
+	if maxOpen <= 0 {
+		maxOpen = 10
+	}
+	maxIdle := cfg.DBMaxIdleConns
+	if maxIdle < 0 {
+		maxIdle = 0
+	}
+	if maxIdle > maxOpen {
+		maxIdle = maxOpen
+	}
+	lifetime := time.Duration(cfg.DBConnMaxLifetimeSeconds) * time.Second
+	if lifetime <= 0 {
+		lifetime = 30 * time.Minute
+	}
+	sqlDB.SetMaxOpenConns(maxOpen)
+	sqlDB.SetMaxIdleConns(maxIdle)
+	sqlDB.SetConnMaxLifetime(lifetime)
 	return db, nil
 }
 

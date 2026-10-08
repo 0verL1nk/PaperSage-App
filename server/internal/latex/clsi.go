@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"time"
 )
@@ -76,6 +77,7 @@ type ClsiClient interface {
 type HTTPClsiClient struct {
 	BaseURL string
 	Client  *http.Client
+	Token   string
 }
 
 // NewClsiClient 构建客户端（timeout 秒）。
@@ -83,6 +85,7 @@ func NewClsiClient(baseURL string, timeoutSeconds int) *HTTPClsiClient {
 	return &HTTPClsiClient{
 		BaseURL: baseURL,
 		Client:  &http.Client{Timeout: time.Duration(timeoutSeconds) * time.Second},
+		Token:   os.Getenv("LATEX_CLSI_TOKEN"),
 	}
 }
 
@@ -240,6 +243,9 @@ func (c *HTTPClsiClient) do(ctx context.Context, method, path string, body []byt
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
 	}
 	return c.Client.Do(req)
 }

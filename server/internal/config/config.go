@@ -11,8 +11,13 @@ import (
 // Env keys and defaults mirror backend/app/config.py 1:1 (PORT default is the
 // single-binary serving port instead of uvicorn's 8000).
 type Settings struct {
-	DatabaseURL string `env:"DATABASE_URL" envDefault:"postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage"`
-	RedisURL    string `env:"REDIS_URL"`
+	DatabaseURL              string `env:"DATABASE_URL" envDefault:"postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage"`
+	DatabaseMigrationURL     string `env:"DATABASE_MIGRATION_URL"`
+	RunDBMigrations          bool   `env:"RUN_DB_MIGRATIONS" envDefault:"true"`
+	DBMaxOpenConns           int    `env:"DB_MAX_OPEN_CONNS" envDefault:"10"`
+	DBMaxIdleConns           int    `env:"DB_MAX_IDLE_CONNS" envDefault:"2"`
+	DBConnMaxLifetimeSeconds int    `env:"DB_CONN_MAX_LIFETIME_SECONDS" envDefault:"1800"`
+	RedisURL                 string `env:"REDIS_URL"`
 
 	SecretKey                string `env:"SECRET_KEY" envDefault:"dev-secret-key-change-in-production"`
 	AccessTokenExpireMinutes int    `env:"ACCESS_TOKEN_EXPIRE_MINUTES" envDefault:"30"`
@@ -96,6 +101,15 @@ func normalizeHosts(hosts []string) []string {
 // DSN returns the database URL normalized for Go drivers.
 func (s *Settings) DSN() string {
 	return NormalizeDatabaseURL(s.DatabaseURL)
+}
+
+// MigrationDSN prefers a direct database connection for one-off schema changes.
+// Runtime requests may use a provider pooler via DATABASE_URL.
+func (s *Settings) MigrationDSN() string {
+	if strings.TrimSpace(s.DatabaseMigrationURL) != "" {
+		return NormalizeDatabaseURL(strings.TrimSpace(s.DatabaseMigrationURL))
+	}
+	return s.DSN()
 }
 
 // NormalizeDatabaseURL converts SQLAlchemy-style URLs to Go driver style:

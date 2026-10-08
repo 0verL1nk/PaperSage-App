@@ -216,3 +216,5 @@ server/.env
 
 # Proposal build scratch space; the reviewed Word/PDF bundle lives in docs/proposal/交付/.
 docs/proposal/.build-preview/
+.neon
+.env.local
