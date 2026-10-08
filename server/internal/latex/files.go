@@ -191,6 +191,10 @@ func (s *FilesService) CreateFileBinary(ctx context.Context, projectID uuid.UUID
 		LastSavedAt: nowUTC(),
 	}
 	if err := s.DB.WithContext(ctx).Create(&f).Error; err != nil {
+		if deleteErr := s.Storage.Delete(ctx, s3Key); deleteErr != nil {
+			return nil, fmt.Errorf("save LaTeX file metadata: %w (clean up object: %v)", err, deleteErr)
+		}
+		s.cache.Remove(s3Key)
 		return nil, err
 	}
 	return &f, nil

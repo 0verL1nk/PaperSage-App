@@ -42,6 +42,13 @@ test('project workspace stages, writing editor, and reference library fit phone/
   await page.route(`**/api/v1/projects/${TEST_PROJECT_ID}/folders`, async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, data: [] }) })
   })
+  await page.route('**/api/v1/settings', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: { settings: { ui: {}, editor: {}, agent: { providers: [], active_provider_id: '' } } } }),
+    })
+  })
   await seedAuthTokens(page)
 
   await page.goto(`/project/${TEST_PROJECT_ID}`)
@@ -49,10 +56,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
   await page.goto(`/project/${TEST_PROJECT_ID}/logic-chain`)
   await expect(page).toHaveURL(new RegExp(`/project/${TEST_PROJECT_ID}/prepare$`))
 
-  await page.getByPlaceholder('用一句话概括研究对象与问题').fill('已通过接口持久化的研究主题')
-  await expect(page.getByText('所有更改已保存')).toBeVisible({ timeout: 5000 })
-  await page.reload()
-  await expect(page.getByPlaceholder('用一句话概括研究对象与问题')).toHaveValue('已通过接口持久化的研究主题')
+  await expect(page.getByText('响应式工作台验收')).toBeVisible()
 
   const viewports = [
     { name: 'small phone', width: 320, height: 640 },
@@ -62,7 +66,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
     { name: 'desktop', width: 1440, height: 900 },
   ]
   const pages = [
-    { path: 'prepare', heading: '先把研究说清楚' },
+    { path: 'prepare', heading: '和研究顾问一起理清思路' },
     { path: 'review', heading: '完成情况由你确认' },
     { path: 'uploading', heading: '参考文献' },
     { path: 'writing', heading: 'Explorer' },
@@ -95,6 +99,11 @@ test('project workspace stages, writing editor, and reference library fit phone/
       expect(geometry.mainTop, `${route.path} main should start below fixed workspace chrome at ${viewport.name}`).toBeGreaterThanOrEqual(Math.max(geometry.headerBottom, geometry.navBottom))
       if (route.path === 'writing' && geometry.editorExists) {
         expect(geometry.editorRight, `editor should stay within viewport at ${viewport.name}`).toBeLessThanOrEqual(viewport.width + 1)
+      }
+      if (route.path === 'prepare' && viewport.width < 1024) {
+        const chatTop = await page.getByRole('region', { name: '研究准备对话' }).evaluate((element) => element.getBoundingClientRect().top)
+        const summaryTop = await page.getByText('研究蓝图', { exact: true }).evaluate((element) => element.closest('aside')?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY)
+        expect(chatTop, `mobile preparation should put the conversation before the summary at ${viewport.name}`).toBeLessThan(summaryTop)
       }
       if (viewport.width < 768) {
         const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : route.path === 'uploading' ? '上传资料' : '论文撰写' })
@@ -154,13 +163,22 @@ test('browser-local guest can create and save a real project across mobile, tabl
   await expect(projectCard).toBeVisible()
   await projectCard.click()
   await expect(page).toHaveURL(/\/project\/.+\/prepare$/)
-  await expect(page.getByPlaceholder('用一句话概括研究对象与问题')).toBeVisible()
-
-  const topicInput = page.getByPlaceholder('用一句话概括研究对象与问题')
-  await topicInput.fill('本机游客工作区持久化验收')
-  await expect(page.getByText('已保存在此设备')).toBeVisible({ timeout: 10_000 })
+  await expect(page.getByText('研究顾问需要登录后使用')).toBeVisible()
+  const projectId = new URL(page.url()).pathname.split('/')[2]
+  await page.evaluate(async (id) => {
+    const local = await import('/src/services/guest-local-workspace.ts')
+    const state = await local.getGuestWritingState(id)
+    state.brief.topic = '本机游客工作区持久化验收'
+    await local.saveGuestWritingState(id, {
+      brief: state.brief,
+      requirements: state.requirements,
+      phases: state.phases,
+      current_phase: 'prepare',
+      revision: state.revision,
+    })
+  }, projectId)
   await page.reload()
-  await expect(topicInput).toHaveValue('本机游客工作区持久化验收')
+  await expect(page.getByText('本机游客工作区持久化验收')).toBeVisible()
 
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
@@ -170,7 +188,7 @@ test('browser-local guest can create and save a real project across mobile, tabl
     const activeStage = page.getByRole('button', { name: '写作准备' })
     await expect(activeStage).toBeVisible()
     expect(await activeStage.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
-    await expect(page.getByText('已保存在此设备')).toBeVisible()
+    await expect(page.getByText('本机游客工作区持久化验收')).toBeVisible()
   }
   expect(unmockedApiRequests, 'browser-local guest reads and writes must not call cloud APIs').toEqual([])
 })

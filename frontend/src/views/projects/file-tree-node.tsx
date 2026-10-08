@@ -69,6 +69,8 @@ export function InlineInput({ onSubmit, onCancel, defaultValue }: {
 export interface NodeActions {
   onDeleteFile: (path: string) => void
   onDeleteFolder: (path: string) => void
+  onStartCreateFile: (parentPath: string) => void
+  onStartCreateFolder: (parentPath: string) => void
 }
 
 // ---------------------------------------------------------------------------
@@ -218,10 +220,10 @@ function FolderNodeRow({
     <ContextMenu>
       <ContextMenuTrigger asChild>{header}</ContextMenuTrigger>
       <ContextMenuContent className="w-44">
-        <ContextMenuItem onClick={() => tree.create({ type: 'leaf', parentId: node.data.id })}>
+        <ContextMenuItem onClick={() => actions.onStartCreateFile(node.data.fullPath)}>
           <Plus size={14} className="mr-2" />新建文件
         </ContextMenuItem>
-        <ContextMenuItem onClick={() => tree.create({ type: 'internal', parentId: node.data.id })}>
+        <ContextMenuItem onClick={() => actions.onStartCreateFolder(node.data.fullPath)}>
           <FolderPlus size={14} className="mr-2" />新建文件夹
         </ContextMenuItem>
         <ContextMenuSeparator />

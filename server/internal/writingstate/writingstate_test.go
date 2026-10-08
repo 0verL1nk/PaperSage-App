@@ -1,6 +1,7 @@
 package writingstate_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
+	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
 
 func createProject(t *testing.T, ts *testutil.TestServer, name, scenario string) map[string]any {
@@ -127,6 +129,37 @@ func TestOwnerIsolationAndLegacyDefaultMerge(t *testing.T) {
 	assert.Equal(t, "done", phases["prepare"])
 	assert.Equal(t, "not_started", phases["review"])
 	assert.Equal(t, float64(3), merged["revision"])
+}
+
+func TestAgentBriefSaveRequiresCurrentRevisionAndPreservesOtherState(t *testing.T) {
+	ts := testutil.New(t)
+	project := createProject(t, ts, "Agent 研究蓝图", "undergraduate_thesis")
+	projectID := mustParseUUID(project["id"].(string))
+	service := writingstate.NewService(ts.DB)
+	initial, err := service.GetForAgent(context.Background(), projectID, ts.UserID().UUID)
+	require.NoError(t, err)
+
+	brief := initial.Brief
+	brief.Topic = "校园阅读习惯研究"
+	brief.Questions = []string{"哪些因素影响学生的阅读习惯？"}
+	requirement := writingstate.Requirement{ID: "req-1", Text: "需要分析真实案例", Source: "导师意见", Note: "至少三个案例"}
+	saved, err := service.SavePreparationFromAgent(context.Background(), projectID, ts.UserID().UUID, initial.Revision, brief, []writingstate.Requirement{requirement})
+	require.NoError(t, err)
+	assert.Equal(t, 1, saved.Revision)
+	assert.Equal(t, "校园阅读习惯研究", saved.Brief.Topic)
+	assert.Equal(t, []writingstate.Requirement{requirement}, saved.Requirements)
+	assert.Equal(t, "in_progress", saved.Phases["prepare"])
+
+	_, err = service.SavePreparationFromAgent(context.Background(), projectID, ts.UserID().UUID, initial.Revision, brief, []writingstate.Requirement{requirement})
+	require.ErrorContains(t, err, "changed")
+
+	latest, err := service.GetForAgent(context.Background(), projectID, ts.UserID().UUID)
+	require.NoError(t, err)
+	assert.Equal(t, saved.Revision, latest.Revision)
+	assert.Equal(t, "校园阅读习惯研究", latest.Brief.Topic)
+
+	_, err = service.GetForAgent(context.Background(), projectID, uuid.New())
+	require.Error(t, err, "agent state tools must enforce project ownership")
 }
 
 func mustParseUUID(value string) (id uuid.UUID) {

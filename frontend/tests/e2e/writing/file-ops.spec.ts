@@ -21,12 +21,12 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
     await expect(page.getByTestId('file-node').first()).toBeVisible({ timeout: 10_000 })
   })
 
-  test('creates a new file via header button', async ({ page }) => {
-    let createCalled = false
+  test('creates a new file via header button after showing a name field', async ({ page }) => {
+    let createdPath = ''
     await page.route(API_LATEX_FILES, async (route) => {
       if (route.request().method() === 'POST') {
-        createCalled = true
         const body = route.request().postDataJSON()
+        createdPath = body?.path ?? ''
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -34,7 +34,7 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
             code: 200,
             data: {
               id: 'f-new-test',
-              file_path: body?.file_path ?? 'new_file.tex',
+              file_path: body?.path ?? 'new_file.tex',
               content_type: 'text/x-tex',
               size_bytes: 0,
               last_saved_at: '2025-06-01T00:00:00Z',
@@ -46,23 +46,23 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
       await route.fallback()
     })
 
-    // Click the "New File" (+) button in the Explorer header
+    // Clicking the Explorer action must immediately show a name field.
     await page.getByRole('button', { name: '新建文件', exact: true }).click()
-
-    // The file is created immediately with a default name and opened
-    // in the editor. Verify the POST was called.
-    await expect.poll(() => createCalled, { timeout: 5_000 }).toBe(true)
-
-    // The editor tab should show the new file name
-    await expect(page.getByText('new_file.tex').first()).toBeVisible({ timeout: 3_000 })
+    const nameInput = page.getByLabel('文件名称')
+    await expect(nameInput).toBeVisible()
+    await expect(nameInput).toHaveValue('new_file.tex')
+    await nameInput.fill('chapter.tex')
+    await page.getByRole('button', { name: '确认创建' }).click()
+    await expect.poll(() => createdPath, { timeout: 5_000 }).toBe('chapter.tex')
+    await expect(nameInput).not.toBeVisible()
   })
 
-  test('creates a new folder via header button', async ({ page }) => {
-    let createCalled = false
+  test('creates a new folder via header button after showing a name field', async ({ page }) => {
+    let createdPath = ''
     await page.route(API_LATEX_FILES, async (route) => {
       if (route.request().method() === 'POST') {
-        createCalled = true
         const body = route.request().postDataJSON()
+        createdPath = body?.path ?? ''
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
@@ -70,7 +70,7 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
             code: 200,
             data: {
               id: 'f-new-folder',
-              file_path: body?.file_path?.replace('/.gitkeep', '') ?? 'new_folder',
+              file_path: body?.path ?? 'new_folder/.gitkeep',
               content_type: 'directory',
               size_bytes: 0,
               last_saved_at: '2025-06-01T00:00:00Z',
@@ -82,12 +82,15 @@ test.describe('File tree — CRUD operations (OpenSpec 10.2)', () => {
       await route.fallback()
     })
 
-    // Click the "New Folder" button in the Explorer header
+    // Clicking the Explorer action must immediately show a name field.
     await page.getByRole('button', { name: '新建文件夹', exact: true }).click()
-
-    // The folder is created immediately with a default name.
-    // Verify the POST was called.
-    await expect.poll(() => createCalled, { timeout: 5_000 }).toBe(true)
+    const nameInput = page.getByLabel('文件夹名称')
+    await expect(nameInput).toBeVisible()
+    await expect(nameInput).toHaveValue('new_folder')
+    await nameInput.fill('chapters')
+    await page.getByRole('button', { name: '确认创建' }).click()
+    await expect.poll(() => createdPath, { timeout: 5_000 }).toBe('chapters/.gitkeep')
+    await expect(nameInput).not.toBeVisible()
   })
 
   test('renames a file via F2 + Enter', async ({ page }) => {

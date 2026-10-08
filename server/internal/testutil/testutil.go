@@ -41,12 +41,13 @@ import (
 // TestServer 一套装配好的 API + 预置用户。
 type TestServer struct {
 	*httptest.Server
-	mailer       *swappableSender
-	Engine       *gin.Engine // 调试路由表用
-	CompileQueue *latex.Queue
-	DB           *gorm.DB
-	Token        string // 预置用户的 access token
-	UID          uuid.UUID
+	mailer         *swappableSender
+	Engine         *gin.Engine // 调试路由表用
+	CompileQueue   *latex.Queue
+	ProjectService *projects.Service
+	DB             *gorm.DB
+	Token          string // 预置用户的 access token
+	UID            uuid.UUID
 }
 
 // swappableSender 运行时可替换的邮件替身。
@@ -119,6 +120,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	compileQueue := latex.NewQueue(db, latexFiles, compileSvc, compileCfg)
 
 	projSvc := projects.NewService(db, latex.CreateTemplate(latexFiles)) // 项目创建 → main.tex 模板
+	ts.ProjectService = projSvc
 	docSvc := documents.NewService(db, mem)
 	setSvc := settings.NewService(db)
 
@@ -150,7 +152,13 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 
 	srv := httptest.NewServer(api)
 	t.Cleanup(srv.Close)
-	return &TestServer{Server: srv, Engine: api.Engine, CompileQueue: compileQueue, DB: db, Token: token, UID: uid}
+	ts.Server = srv
+	ts.Engine = api.Engine
+	ts.CompileQueue = compileQueue
+	ts.DB = db
+	ts.Token = token
+	ts.UID = uid
+	return ts
 }
 
 // Do 发带认证的请求（body 非 nil 时按 JSON）。

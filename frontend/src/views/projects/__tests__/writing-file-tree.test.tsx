@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
-import { WritingFileTree } from '../writing-file-tree'
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { createRef } from 'react'
+import { WritingFileTree, type FileTreeHandle } from '../writing-file-tree'
 import type { LatexFileItem } from '@/services/latex-api'
+
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
+import { toast } from 'sonner'
 
 beforeAll(() => {
   class MockResizeObserver {
@@ -91,7 +95,61 @@ describe('WritingFileTree', () => {
       />,
     )
 
-    expect(screen.getByText('暂无文件')).toBeInTheDocument()
+    expect(screen.getByText('暂无文件，点击上方 + 或文件夹按钮开始')).toBeInTheDocument()
+    expect(screen.getByRole('tree')).toBeInTheDocument()
+  })
+
+  it('keeps the empty tree interactive so the toolbar can start file creation', () => {
+    const ref = createRef<FileTreeHandle>()
+    const onCreateFile = vi.fn().mockResolvedValue(makeFile('introduction.tex'))
+    render(
+      <div style={{ height: 300 }}>
+        <WritingFileTree
+          ref={ref}
+          files={[]}
+          activeFilePath={null}
+          onSelect={() => {}}
+          onDeleteFile={() => {}}
+          onDeleteFolder={() => {}}
+          onCreateFile={onCreateFile}
+          onRenameFile={async () => makeFile('new_file.tex')}
+          onRenameFolder={async () => ({ renamed_count: 0 })}
+          onMoveFile={async () => makeFile('new_file.tex')}
+        />
+      </div>,
+    )
+
+    act(() => ref.current?.createLeaf())
+    expect(screen.getByDisplayValue('new_file.tex')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('文件名称'), { target: { value: 'introduction.tex' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }))
+    return waitFor(() => expect(onCreateFile).toHaveBeenCalledWith('introduction.tex', ''))
+  })
+
+  it('creates an empty folder by writing its keep file', async () => {
+    const ref = createRef<FileTreeHandle>()
+    const onCreateFile = vi.fn().mockResolvedValue(makeFile('chapter/.gitkeep'))
+    render(
+      <div style={{ height: 300 }}>
+        <WritingFileTree
+          ref={ref}
+          files={[]}
+          activeFilePath={null}
+          onSelect={() => {}}
+          onDeleteFile={() => {}}
+          onDeleteFolder={() => {}}
+          onCreateFile={onCreateFile}
+          onRenameFile={async () => makeFile('x.tex')}
+          onRenameFolder={async () => ({ renamed_count: 0 })}
+          onMoveFile={async () => makeFile('x.tex')}
+        />
+      </div>,
+    )
+
+    act(() => ref.current?.createInternal())
+    fireEvent.change(screen.getByLabelText('文件夹名称'), { target: { value: 'chapter' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }))
+    await waitFor(() => expect(onCreateFile).toHaveBeenCalledWith('chapter/.gitkeep', ''))
   })
 
   it('highlights active file', () => {
@@ -175,12 +233,14 @@ describe('WritingFileTree', () => {
 
   // --- Handler error handling (8.5) ---
 
-  it('handles onCreateFile rejection without crash', async () => {
+  it('shows a visible error and keeps the name form when file creation fails', async () => {
     const failingCreate = vi.fn().mockRejectedValue(new Error('network'))
-    const { container } = render(
+    const ref = createRef<FileTreeHandle>()
+    render(
       <div style={{ height: 300 }}>
         <WritingFileTree
-          files={[makeFile('main.tex')]}
+          ref={ref}
+          files={[]}
           activeFilePath={null}
           onSelect={() => {}}
           onDeleteFile={() => {}}
@@ -192,8 +252,11 @@ describe('WritingFileTree', () => {
         />
       </div>,
     )
-    expect(container).toBeInTheDocument()
-    expect(screen.getByText('main.tex')).toBeInTheDocument()
+    act(() => ref.current?.createLeaf())
+    fireEvent.change(screen.getByLabelText('文件名称'), { target: { value: 'fail.tex' } })
+    fireEvent.click(screen.getByRole('button', { name: '确认创建' }))
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('文件创建失败', { description: 'network' }))
+    expect(screen.getByTestId('tree-create-form')).toBeInTheDocument()
   })
 
   it('handles onRenameFile rejection without crash', () => {

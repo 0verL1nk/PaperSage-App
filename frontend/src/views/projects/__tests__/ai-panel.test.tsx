@@ -56,4 +56,20 @@ describe('AiPanel', () => {
     expect(screen.getByPlaceholderText('问点什么…')).toBeInTheDocument()
     expect(screen.queryByText('尚未配置 AI 模型')).not.toBeInTheDocument()
   })
+
+  it('写作准备模式提供对话入口和研究起步提示', () => {
+    useSettingsStore.setState({
+      settings: {
+        ui: {},
+        editor: {},
+        agent: { providers: [{ id: 'p', name: 'P', models: ['m'], active_model: 'm' }], active_provider_id: 'p' },
+      },
+    } as never)
+
+    render(<AiPanel projectId="p1" mode="preparation" />)
+
+    expect(screen.getByPlaceholderText('说说你的研究兴趣、初步想法或遇到的困难…')).toBeInTheDocument()
+    expect(screen.getByText(/一次聚焦一个问题/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /我还没确定选题/ })).toBeInTheDocument()
+  })
 })

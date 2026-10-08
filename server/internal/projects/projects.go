@@ -5,6 +5,7 @@ package projects
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,8 +18,8 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
-// TemplateCreator 为项目创建默认 main.tex 模板（由 latex 域注入；失败忽略，
-// 对齐 Python 的 try/except pass 语义）。nil 表示跳过。
+// TemplateCreator 为项目创建默认 main.tex 模板（由 latex 域注入）。
+// 默认模板是新项目工作区的必需内容，创建失败时项目接口必须返回失败。
 type TemplateCreator func(ctx context.Context, projectID, userID uuid.UUID) error
 
 // Service 项目域逻辑。
@@ -248,7 +249,15 @@ func (s *Service) create(c *gin.Context) {
 	}
 
 	if s.OnCreate != nil && !hasImportKey {
-		_ = s.OnCreate(ctx, p.ID.UUID, uid) // 失败忽略（非关键）
+		if err := s.OnCreate(ctx, p.ID.UUID, uid); err != nil {
+			if cleanupErr := s.DB.WithContext(ctx).Unscoped().Delete(&store.Project{}, "id = ?", p.ID).Error; cleanupErr != nil {
+				log.Printf("project template initialization failed (%v); project cleanup failed (%v)", err, cleanupErr)
+			} else {
+				log.Printf("project template initialization failed; project rolled back: %v", err)
+			}
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "默认 LaTeX 模板创建失败，项目未创建，请重试"})
+			return
+		}
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toProjectResponse(&p, s.loadGroup(ctx, &p)), ""))
 }

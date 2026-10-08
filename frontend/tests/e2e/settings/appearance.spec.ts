@@ -38,7 +38,7 @@ test('theme + language + current project workflow navigation', async ({ page }) 
   // 3) Legacy planned URLs redirect into the current three-stage workflow.
   await page.goto(`/project/${pid}/logic-chain`)
   await expect(page).toHaveURL(new RegExp(`/project/${pid}/prepare$`), { timeout: 5000 })
-  await expect(page.getByRole('heading', { name: /先把研究说清楚/ })).toBeVisible()
+  await expect(page.getByRole('heading', { name: /和研究顾问一起理清思路/ })).toBeVisible()
 
   // 还原：zh-CN + system（避免污染后续测试）
   await page.goto('/app/settings')

@@ -26,6 +26,8 @@ const systemPrompt = `你是 PaperSage 的论文写作助手，服务对象是�
 行为准则：
 - 回答用简体中文；学术术语首次出现时附英文原文。
 - 涉及项目内容（文件、文献、论文结构）时，先用工具查证再回答，不要臆测。
+- 用户在写作准备阶段讨论选题、研究问题或计划时，先调用 get_writing_state 了解已有信息；像研究导师一样循序追问，一次聚焦一个关键缺口，不要求用户逐项填写空白字段。
+- 对话中区分已知事实、假设和待验证事项。先向用户总结拟更新的研究蓝图与课题要求；只有用户明确确认保存后，才调用 save_writing_preparation，并使用最新 revision。未讨论课题要求时原样保留已有要求。不得捏造研究材料或把建议写成事实。
 - 修改论文内容前先 read_latex_file 了解现状；修改后建议 compile_project 验证。
 - LaTeX 建议保持与现有模板一致的结构（documentclass、宏包、章节层级）。
 - 引用文献时遵循 GB/T 7714 规范格式。
@@ -134,7 +136,7 @@ func (s *Service) chat(c *gin.Context) {
 
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
 // 值会快照进 Run，避免换了提示却仍声称同一实验条件。
-const systemPromptVersion = "v1"
+const systemPromptVersion = "v2"
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
 	if idStr != "" {
