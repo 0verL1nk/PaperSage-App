@@ -59,7 +59,7 @@ func TestResendSenderPropagatesError(t *testing.T) {
 	assert.Contains(t, err.Error(), "invalid from")
 }
 
-func TestNoopSenderAlwaysSucceeds(t *testing.T) {
+func TestNoopSenderReportsUnavailable(t *testing.T) {
 	s := email.Noop{}
-	require.NoError(t, s.Send(context.Background(), "a@b.c", "s", "b"))
+	require.ErrorContains(t, s.Send(context.Background(), "a@b.c", "s", "b"), "not configured")
 }

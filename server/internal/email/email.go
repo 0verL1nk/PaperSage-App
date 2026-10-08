@@ -8,9 +8,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/smtp"
 )
@@ -20,12 +20,12 @@ type Sender interface {
 	Send(ctx context.Context, to, subject, html string) error
 }
 
-// Noop：开发/测试替身——不发送，仅日志。
+// Noop：未配置邮件服务时的占位 sender。它必须返回错误，避免上层把
+// “没有发送”误报为“已发送”。需要测试替身时请使用明确的 fake sender。
 type Noop struct{}
 
-func (Noop) Send(_ context.Context, to, subject, _ string) error {
-	slog.Info("email (noop)", "to", to, "subject", subject)
-	return nil
+func (Noop) Send(_ context.Context, _, _, _ string) error {
+	return errors.New("email delivery is not configured")
 }
 
 // Resend：https://resend.com HTTP API。

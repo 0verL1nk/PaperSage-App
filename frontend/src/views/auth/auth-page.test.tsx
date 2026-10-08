@@ -103,7 +103,7 @@ describe('AuthPage', () => {
 
   it('shows registration failures in the active registration panel', async () => {
     const user = userEvent.setup()
-    vi.mocked(registerWithEmail).mockRejectedValue(new Error('服务暂时不可用，请稍后重试'))
+    vi.mocked(registerWithEmail).mockRejectedValue(new Error('验证邮件发送失败，请稍后重试；账号已保留，重试注册会重新发送。'))
 
     renderAuthPage()
     await user.click(screen.getByRole('tab', { name: '注册新账号' }))
@@ -112,7 +112,8 @@ describe('AuthPage', () => {
     await user.type(screen.getByLabelText('确认密码'), 'PaperSage123')
     await user.click(screen.getByRole('button', { name: '创建我的账号' }))
 
-    expect(await screen.findByText('服务暂时不可用，请稍后重试')).toBeVisible()
+    expect(await screen.findByText('验证邮件发送失败，请稍后重试；账号已保留，重试注册会重新发送。')).toBeVisible()
+    expect(toastSuccessMock).not.toHaveBeenCalled()
   })
 
   // TODO: Fix this test - React Hook Form validation not triggering properly in test environment
