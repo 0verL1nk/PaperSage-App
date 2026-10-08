@@ -29,3 +29,11 @@ class ResizeObserverStub implements ResizeObserver {
   disconnect() { this.targets.clear() }
 }
 globalThis.ResizeObserver = ResizeObserverStub as unknown as typeof ResizeObserver
+
+// Radix Select uses pointer capture for mouse selection; jsdom does not implement it.
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false
+  Element.prototype.setPointerCapture = () => undefined
+  Element.prototype.releasePointerCapture = () => undefined
+}
+if (!Element.prototype.scrollIntoView) Element.prototype.scrollIntoView = () => undefined

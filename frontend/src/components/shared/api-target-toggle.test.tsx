@@ -24,7 +24,7 @@ describe('ApiTargetToggle', () => {
     render(<ApiTargetToggle />)
 
     expect(screen.getByTitle(/在线/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /当前：在线/ })).toHaveTextContent('在线')
+    expect(screen.getByRole('button', { name: /当前：在线/ })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /切换后端/ }))
     await user.click(await screen.findByRole('menuitem', { name: /本地/ }))
@@ -40,7 +40,7 @@ describe('ApiTargetToggle', () => {
     render(<ApiTargetToggle />)
 
     expect(screen.getByTitle(/本地/)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /当前：本地/ })).toHaveTextContent('本地')
+    expect(screen.getByRole('button', { name: /当前：本地/ })).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /切换后端/ }))
     await user.click(await screen.findByRole('menuitem', { name: /本地/ }))

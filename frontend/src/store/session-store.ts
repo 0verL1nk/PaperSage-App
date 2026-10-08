@@ -41,11 +41,14 @@ function readStoredSession() {
   if (!canUseBrowserStorage()) {
     return { accessToken: '', refreshToken: '', isGuest: false, guestImportPending: false, tokenType: 'Bearer' }
   }
-  const hadRetiredServerGuest = window.localStorage.getItem(LEGACY_GUEST_KEYS[0]) === 'true'
+  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY) || ''
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY) || ''
   for (const key of LEGACY_GUEST_KEYS) window.localStorage.removeItem(key)
   return {
-    accessToken: hadRetiredServerGuest ? '' : window.localStorage.getItem(ACCESS_TOKEN_KEY) || '',
-    refreshToken: hadRetiredServerGuest ? '' : window.localStorage.getItem(REFRESH_TOKEN_KEY) || '',
+    // A stale marker from the retired server-guest flow must never override
+    // current account credentials. Token validity is handled by the API client.
+    accessToken,
+    refreshToken,
     isGuest: window.localStorage.getItem(LOCAL_GUEST_MODE_KEY) === 'true',
     guestImportPending: window.localStorage.getItem(GUEST_IMPORT_PENDING_KEY) === 'true',
     tokenType: window.localStorage.getItem(TOKEN_TYPE_KEY) || 'Bearer',
@@ -74,6 +77,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   tokenType: 'Bearer',
   restored: false,
   setTokens: (tokens) => {
+    if (canUseBrowserStorage()) {
+      for (const key of LEGACY_GUEST_KEYS) window.localStorage.removeItem(key)
+    }
     const next = {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,

@@ -1,5 +1,27 @@
 import { expect, test } from '@playwright/test'
 
+test('an existing account session skips the guest entry route', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('papersage_access_token', 'existing-account-token')
+    localStorage.setItem('papersage_refresh_token', 'existing-refresh-token')
+    localStorage.setItem('papersage_is_guest', 'true')
+  })
+  await page.route('**/api/**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ code: 200, data: [], info: '' }),
+  }))
+
+  await page.goto('/guest')
+  await expect(page).toHaveURL(/\/app\/projects$/)
+  const session = await page.evaluate(async () => {
+    const { useSessionStore } = await import('/src/store/session-store.ts')
+    return useSessionStore.getState()
+  })
+  expect(session).toMatchObject({ accessToken: 'existing-account-token', isGuest: false })
+  expect(await page.evaluate(() => localStorage.getItem('papersage_is_guest'))).toBeNull()
+})
+
 test('local guest workspace survives reload with writing state and file blobs', async ({ page }) => {
   const apiRequests: string[] = []
   await page.route('**/api/**', async (route) => {
@@ -15,6 +37,7 @@ test('local guest workspace survives reload with writing state and file blobs', 
   const created = await page.evaluate(async () => {
     const local = await import('/src/services/guest-local-workspace.ts')
     const project = await local.createGuestProject({ name: 'Local persistence check', scenario: 'undergraduate_thesis' })
+    const initialLatexFiles = await local.listGuestLatexFiles(project.id)
     const state = await local.getGuestWritingState(project.id)
     state.brief.topic = '存储回读主题'
     await local.saveGuestWritingState(project.id, {
@@ -43,7 +66,7 @@ test('local guest workspace survives reload with writing state and file blobs', 
     let compileBoundary = ''
     try { await agent.listConversations(project.id) } catch (error) { aiBoundary = error instanceof Error ? error.message : '' }
     try { await latexApi.compileLatex(project.id, [], 'main.tex', 'xelatex') } catch (error) { compileBoundary = error instanceof Error ? error.message : '' }
-    return { projectId: project.id, documentId: doc.id, folderId: folder.id, bundleId: bundle.bundleId, aiBoundary, compileBoundary, headers }
+    return { projectId: project.id, documentId: doc.id, folderId: folder.id, bundleId: bundle.bundleId, aiBoundary, compileBoundary, headers, initialLatexFiles }
   })
 
   await page.reload()
@@ -92,7 +115,44 @@ test('local guest workspace survives reload with writing state and file blobs', 
     'X-PaperSage-Import-Bundle-Id': created.bundleId,
     'X-PaperSage-Import-Local-Id': created.projectId,
   })
+  expect(created.initialLatexFiles).toHaveLength(1)
+  expect(created.initialLatexFiles[0].file_path).toBe('main.tex')
   expect(created.aiBoundary).toContain('AI 助手需要登录')
   expect(created.compileBoundary).toContain('LaTeX 在线编译需要登录')
   expect(apiRequests).toEqual([])
+})
+
+test('guest workspace upgrades old IndexedDB stores without losing LaTeX files', async ({ page }) => {
+  await page.goto('/auth')
+  const result = await page.evaluate(async () => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase('papersage-local-guest')
+      request.onsuccess = () => resolve()
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.open('papersage-local-guest', 1)
+      request.onupgradeneeded = () => {
+        const db = request.result
+        db.createObjectStore('meta', { keyPath: 'key' })
+        db.createObjectStore('projects', { keyPath: 'id' })
+        db.createObjectStore('writingStates', { keyPath: 'project_id' })
+        db.createObjectStore('folders', { keyPath: 'id' })
+        db.createObjectStore('documents', { keyPath: 'id' })
+        const latexFiles = db.createObjectStore('latexFiles', { keyPath: 'id' })
+        latexFiles.add({ id: 'old-file', projectId: 'old-project', file_path: 'draft.tex', content_type: 'text/x-tex', size_bytes: 8, last_saved_at: '', content: 'draft' })
+        db.createObjectStore('importMappings', { keyPath: 'id' })
+      }
+      request.onsuccess = () => { request.result.close(); resolve() }
+      request.onerror = () => reject(request.error)
+    })
+    const local = await import('/src/services/guest-local-workspace.ts')
+    const upgradedFiles = await local.listGuestLatexFiles('old-project')
+    const createdProject = await local.createGuestProject({ name: 'After schema upgrade' })
+    const newFiles = await local.listGuestLatexFiles(createdProject.id)
+    return { upgradedFiles, newFiles }
+  })
+
+  expect(result.upgradedFiles.map((file) => file.file_path)).toEqual(['draft.tex'])
+  expect(result.newFiles.map((file) => file.file_path)).toEqual(['main.tex'])
 })

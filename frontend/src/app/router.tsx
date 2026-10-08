@@ -116,6 +116,11 @@ const resetPasswordRoute = createRoute({
 const guestRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/guest',
+  beforeLoad: () => {
+    if (hasSessionToken()) {
+      throw redirect({ to: '/app/projects' })
+    }
+  },
   component: GuestWorkspacePage,
 })
 
