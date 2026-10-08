@@ -25,6 +25,7 @@
 | [开题报告](proposal/交付/开题报告正文（含参考文献）.md) | 面向科研新手全流程写作辅助的研究计划；测试由开发者自行开展 |
 | [文献来源与阅读边界](proposal/交付/文献来源与阅读边界.md) | 研究依据及适用范围；17 篇学术文献与 3 项产品官方资料分列 |
 | [OpenSpec 流程](agents/openspec-workflow.md) | 后续能力变更和验收管理 |
+| [Vercel Go 后端部署调研（2026-10-07）](backend/2026-10-07-vercel-go-backend-assessment.md) | Go/Gin 的 Vercel Go Runtime 配置与当前部署验证状态；生产 `/health` 已通过，业务链路仍待验证 |
 
 ## 已记录的代码基础
 

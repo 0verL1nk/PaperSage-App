@@ -13,6 +13,11 @@ func TestLoadDefaults(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "postgresql+asyncpg://papersage:papersage_dev_password@localhost:5432/papersage", s.DatabaseURL)
+	assert.Equal(t, "", s.DatabaseMigrationURL)
+	assert.True(t, s.RunDBMigrations)
+	assert.Equal(t, 10, s.DBMaxOpenConns)
+	assert.Equal(t, 2, s.DBMaxIdleConns)
+	assert.Equal(t, 1800, s.DBConnMaxLifetimeSeconds)
 	assert.Equal(t, "", s.RedisURL)
 	assert.Equal(t, "dev-secret-key-change-in-production", s.SecretKey)
 	assert.Equal(t, 30, s.AccessTokenExpireMinutes)
@@ -56,6 +61,11 @@ func TestLoadDefaults(t *testing.T) {
 
 func TestLoadOverrides(t *testing.T) {
 	t.Setenv("DATABASE_URL", "postgresql+asyncpg://u:p@db:5432/x")
+	t.Setenv("DATABASE_MIGRATION_URL", "postgresql://u:p@direct:5432/x")
+	t.Setenv("RUN_DB_MIGRATIONS", "false")
+	t.Setenv("DB_MAX_OPEN_CONNS", "6")
+	t.Setenv("DB_MAX_IDLE_CONNS", "1")
+	t.Setenv("DB_CONN_MAX_LIFETIME_SECONDS", "900")
 	t.Setenv("REDIS_URL", "redis://localhost:6379/0")
 	t.Setenv("SECRET_KEY", "prod-key")
 	t.Setenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15")
@@ -73,6 +83,11 @@ func TestLoadOverrides(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "postgresql+asyncpg://u:p@db:5432/x", s.DatabaseURL)
+	assert.Equal(t, "postgresql://u:p@direct:5432/x", s.DatabaseMigrationURL)
+	assert.False(t, s.RunDBMigrations)
+	assert.Equal(t, 6, s.DBMaxOpenConns)
+	assert.Equal(t, 1, s.DBMaxIdleConns)
+	assert.Equal(t, 900, s.DBConnMaxLifetimeSeconds)
 	assert.Equal(t, "redis://localhost:6379/0", s.RedisURL)
 	assert.Equal(t, "prod-key", s.SecretKey)
 	assert.Equal(t, 15, s.AccessTokenExpireMinutes)
@@ -114,4 +129,12 @@ func TestSettingsDSN(t *testing.T) {
 	s, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, "postgres://u:p@h:5432/db", s.DSN())
+}
+
+func TestMigrationDSN(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgresql+asyncpg://u:p@pooler:5432/db")
+	t.Setenv("DATABASE_MIGRATION_URL", "postgresql://u:p@direct:5432/db")
+	s, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "postgres://u:p@direct:5432/db", s.MigrationDSN())
 }

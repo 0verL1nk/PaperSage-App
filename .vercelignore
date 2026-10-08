@@ -1,0 +1,18 @@
+# Deploy only the Go backend project; keep unrelated worktrees and artifacts out.
+/*
+!/server
+!/server/**
+/server/**/.env
+/server/**/.env.*
+/server/bin
+/server/devs3-data
+/server/tmp
+/server/**/__pycache__
+/server/**/*.pyc
+/server/*.exe
+/server/*.exe~
+/server/*.db
+/server/*.db-*
+/server/cover.out
+/server/web/assets/*
+!/server/web/assets/.keep

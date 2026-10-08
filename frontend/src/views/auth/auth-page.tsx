@@ -294,6 +294,12 @@ export function AuthPage() {
                 </TabsContent>
 
                 <TabsContent value="register" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
+                  {authError && (
+                    <Alert variant="destructive" className="border-none bg-destructive/10 text-destructive rounded-xl py-3">
+                      <ShieldCheck className="mr-2 h-4 w-4" />
+                      <AlertDescription className="text-xs font-bold leading-normal">{authError}</AlertDescription>
+                    </Alert>
+                  )}
                   <form onSubmit={handleRegisterSubmit} className="space-y-5">
                     <div className="space-y-2.5">
                       <Label htmlFor="reg-email" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">学校邮箱</Label>

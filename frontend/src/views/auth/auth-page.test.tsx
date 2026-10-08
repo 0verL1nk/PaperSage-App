@@ -14,6 +14,8 @@ const toastErrorMock = vi.fn()
 vi.mock('@/services/auth-api', () => ({
   loginWithPassword: vi.fn(),
   registerWithEmail: vi.fn(),
+  getEmailDomains: vi.fn().mockResolvedValue(['hit.edu.cn']),
+  resendVerification: vi.fn(),
 }))
 vi.mock('@/services/guest-local-workspace', () => ({ initializeGuestWorkspace: vi.fn() }))
 
@@ -97,6 +99,20 @@ describe('AuthPage', () => {
   it('shows the backend selector on the public auth page', () => {
     renderAuthPage()
     expect(screen.getByRole('button', { name: /切换后端，当前：在线/ })).toBeVisible()
+  })
+
+  it('shows registration failures in the active registration panel', async () => {
+    const user = userEvent.setup()
+    vi.mocked(registerWithEmail).mockRejectedValue(new Error('服务暂时不可用，请稍后重试'))
+
+    renderAuthPage()
+    await user.click(screen.getByRole('tab', { name: '注册新账号' }))
+    await user.type(screen.getByLabelText('学校邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('设置密码'), 'PaperSage123')
+    await user.type(screen.getByLabelText('确认密码'), 'PaperSage123')
+    await user.click(screen.getByRole('button', { name: '创建我的账号' }))
+
+    expect(await screen.findByText('服务暂时不可用，请稍后重试')).toBeVisible()
   })
 
   // TODO: Fix this test - React Hook Form validation not triggering properly in test environment
