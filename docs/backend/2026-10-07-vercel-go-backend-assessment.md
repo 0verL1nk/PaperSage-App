@@ -50,7 +50,7 @@ Go Runtime 的 `cmd/server/main.go` 入口和共享启动包由 Vercel 根据 Go
 
 生产数据库此前缺少 `users` 等表；已执行 `go run ./cmd/migrate`，并关闭 Vercel Production 的启动自动迁移。Neon pooler 的 pgx prepared statement 冲突通过 simple protocol 规避。注册失败提示现在同时出现在注册面板；邮件发送错误、token 写库失败和重发失败都会返回 503，未配置的 `noop` sender 也会报错。Resend 查询到当天两封验证邮件的事件为 `delivered`，但这只证明收件方邮件服务器接受，不证明进入主收件箱；检查垃圾邮件或学校邮箱隔离区。邮件失败分支由 Go 测试覆盖，尚未通过真实生产 Provider 故障注入测试。客户端 LaTeX 编译仍是后续方向，后端仍保留 CLSI 集成。`.env` 与本地数据库/构建目录由各项目自身忽略规则排除。
 
-2026-10-09 检查新项目文件时发现，Neon 中的项目与 `latex_files` 元数据正常，但生产函数的 `S3_ENDPOINT` 指向 `http://localhost:9002`，请求 R2 对象时返回 404（连接被拒绝），所以编辑器显示无文件内容。已用正式 `main.tex` 模板补齐该项目的 R2 对象与数据库元数据，并将 Vercel Production 的 `S3_ENDPOINT`、`S3_REGION`、`S3_BUCKET`、`S3_ACCESS_KEY`、`S3_SECRET_KEY` 更新为 `server/.env` 中已验证可读写 R2 的配置。环境变量更新不会改写已创建的 Function；需由 Git 自动部署或手动重新部署后，再验证 `GET /latex-files/main.tex` 返回 200。
+2026-10-09 检查新项目文件时发现，Neon 中的项目与 `latex_files` 元数据正常，但生产函数的 `S3_ENDPOINT` 指向 `http://localhost:9002`，请求 R2 对象时失败，所以编辑器只显示空白内容。已用正式 `main.tex` 模板补齐该项目的 Cloudflare R2 对象与数据库元数据，并将 Vercel Production 的 `S3_ENDPOINT`、`S3_REGION`、`S3_BUCKET`、`S3_ACCESS_KEY`、`S3_SECRET_KEY` 更新为 `server/.env` 中已验证可读写 R2 的配置。随后已由 Git 触发生产重新部署，`api.paper.overlink.top/health` 返回 200；未带登录凭证访问文件接口返回预期的 401。当前浏览器没有登录会话，因此尚未从线上编辑器完成带认证的文件内容读取复验。
 
 ## 官方资料
 
