@@ -146,7 +146,7 @@ export function AuthPage() {
         password: values.password,
       })
       setPendingVerifyEmail(values.email)
-      toast.success('注册成功', { description: '验证邮件已发送，请查收并完成激活。' })
+      toast.success('请求已处理', { description: '如果该邮箱需要验证，请查收邮件；未收到时可重试注册以重新发送。' })
       setMode('login')
     } catch (error) {
       setAuthError(getErrorMessage(error))

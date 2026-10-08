@@ -130,8 +130,7 @@ const (
 // ── 邮箱注册 + 验证 ────────────────────────────────────────────
 
 // registerEmailFlow：邮箱注册制（email+password 表单）。
-// 防枚举：已注册邮箱与成功注册响应一致（恒 200 + 提示查邮件，
-// 已存在时静默不重发——对方若真是主人可走重发/登录路径）。
+// 已存在的未验证账号允许限速重发；已验证账号维持统一响应，避免枚举。
 func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 	// 域名白名单（admin 可配；未配置 = 不限制）
 	if ok, reason := EmailGate(s.DB, email); !ok {
@@ -144,9 +143,16 @@ func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 	var existing store.User
 	err := s.DB.Where("email = ?", email).First(&existing).Error
 	if err == nil {
-		// 防枚举：响应与成功一致。不自动补发（用户主导）——未收到
-		// 邮件时走登录 403 提示条 / 提醒条上的「重新发送」按钮，
-		// 或重发端点（均有限速）
+		if !existing.EmailVerified {
+			if !s.limiter.allow("resend:"+email, 1) {
+				httpapi.WriteError(c.Writer, errBad("Verification email is cooling down; please try again shortly.", http.StatusTooManyRequests))
+				return
+			}
+			if err := s.sendVerification(c.Request.Context(), &existing); err != nil {
+				s.writeVerificationSendError(c, email, err)
+				return
+			}
+		}
 		s.silentVerifyOK(c)
 		return
 	}
@@ -165,13 +171,22 @@ func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
 	}
-	s.sendVerification(c.Request.Context(), &user)
+	if err := s.sendVerification(c.Request.Context(), &user); err != nil {
+		s.writeVerificationSendError(c, email, err)
+		return
+	}
 	s.silentVerifyOK(c)
+}
+
+func (s *Service) writeVerificationSendError(c *gin.Context, to string, err error) {
+	// Never log tokens or provider credentials; the masked address helps correlate failures.
+	slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
+	httpapi.WriteError(c.Writer, errBad("Verification email could not be sent. Please try again shortly.", http.StatusServiceUnavailable))
 }
 
 func (s *Service) silentVerifyOK(c *gin.Context) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
-		"message": "注册成功，请查收验证邮件完成激活",
+		"message": "如果该邮箱需要验证，请查收邮件或使用重发功能",
 	}, ""))
 }
 
@@ -215,12 +230,11 @@ func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
 	return base + "_" + randSuffix(8), nil
 }
 
-// sendVerification 生成一次性 token 并发邮件（失败仅日志——注册流程
-// 不因邮件服务故障中断，用户可走重发）。
-func (s *Service) sendVerification(ctx context.Context, user *store.User) {
+// sendVerification 仅在验证 token 已持久化且邮件服务接受发送后返回成功。
+func (s *Service) sendVerification(ctx context.Context, user *store.User) error {
 	token, err := CreateVerifyToken(s.Cfg.SecretKey, user.ID.String(), verifyTokenTTL)
 	if err != nil {
-		return
+		return err
 	}
 	// 注册表：hash 存储（与 refresh_tokens 同模式）
 	// 过期时刻以 UTC 写入；邮件展示复用同一时刻（HTML 内转北京时间）
@@ -231,7 +245,9 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 		Purpose:   emailVerifyPurpose,
 		ExpiresAt: expiresAt,
 	}
-	_ = s.DB.WithContext(ctx).Create(&row).Error
+	if err := s.DB.WithContext(ctx).Create(&row).Error; err != nil {
+		return err
+	}
 
 	to := ""
 	if user.Email != nil {
@@ -245,10 +261,7 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) {
 	mailer := s.resolveMailer()
 	link := appURL + "/auth/verify?token=" + token
 	html := verificationEmailHTML(link, expiresAt)
-	if err := mailer.Send(ctx, to, "PaperSage 邮箱验证", html); err != nil {
-		// 日志不落 token（OWASP）
-		slogWarn("send verification email failed", "email", maskEmail(to), "err", err)
-	}
+	return mailer.Send(ctx, to, "PaperSage 邮箱验证", html)
 }
 
 // 邮件客户端禁 JS，无法实时倒计时；通行做法是标注失效时刻。
@@ -324,7 +337,7 @@ func (s *Service) verifyEmail(c *gin.Context) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"verified": true}, ""))
 }
 
-// resendVerification：POST {email} — 恒 200（防枚举）；真用户 60s 冷却。
+// resendVerification：POST {email} — 未知邮箱保持防枚举响应；真用户 60s 冷却。
 func (s *Service) resendVerification(c *gin.Context) {
 	var req struct {
 		Email string `json:"email"`
@@ -334,17 +347,22 @@ func (s *Service) resendVerification(c *gin.Context) {
 		return
 	}
 	if !s.limiter.allow("resend:"+req.Email, 1) {
-		// 冷却期内：同样 200（防枚举 + 防轰炸）
-		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"message": "如该邮箱已注册且未验证，验证邮件已发送"}, ""))
+		httpapi.WriteError(c.Writer, errBad("Verification email is cooling down; please try again shortly.", http.StatusTooManyRequests))
 		return
 	}
 	email := normalizeEmail(req.Email)
 	var user store.User
 	err := s.DB.Where("email = ? AND email_verified = false", email).First(&user).Error
 	if err == nil {
-		s.sendVerification(c.Request.Context(), &user)
+		if err := s.sendVerification(c.Request.Context(), &user); err != nil {
+			s.writeVerificationSendError(c, email, err)
+			return
+		}
+	} else if err != gorm.ErrRecordNotFound {
+		httpapi.WriteError(c.Writer, errBad("Unable to check verification status. Please try again shortly.", http.StatusServiceUnavailable))
+		return
 	}
-	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"message": "如该邮箱已注册且未验证，验证邮件已发送"}, ""))
+	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"message": "如果该邮箱已注册且未验证，我们会向你发送验证邮件"}, ""))
 }
 
 func slogWarn(msg string, kv ...any) { slog.Warn(msg, kv...) }

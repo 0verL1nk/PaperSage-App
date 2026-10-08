@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -33,6 +34,10 @@ func (c *captureSender) Send(_ context.Context, to, subject, html string) error 
 	c.sent = append(c.sent, struct{ to, subject, html string }{to, subject, html})
 	return nil
 }
+
+type failingSender struct{ err error }
+
+func (s failingSender) Send(context.Context, string, string, string) error { return s.err }
 
 func TestEmailRegistrationFlow(t *testing.T) {
 	srv := newAuthTestServer(t)
@@ -99,6 +104,47 @@ func TestResendVerification(t *testing.T) {
 	resp := postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "s002@hit.edu.cn"})
 	require.Equal(t, 200, resp.StatusCode)
 	assert.Len(t, cap.sent, 2, "应重发验证邮件")
+}
+
+func TestVerificationEmailFailureIsReported(t *testing.T) {
+	srv := newAuthTestServer(t)
+	defer srv.Close()
+	srv.setEmailSender(t, failingSender{err: errors.New("provider rejected request")})
+	srv.setupWhitelist(t, "hit.edu.cn")
+
+	form := url.Values{
+		"email":    {"failure@hit.edu.cn"},
+		"password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+	}
+	resp := postForm(t, srv.URL+"/api/v1/auth/register", form)
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	responseBody := bodyJSON(t, resp)
+	assert.Contains(t, responseBody["info"], "could not be sent")
+	assert.NotEqual(t, http.StatusOK, responseBody["code"])
+
+	// The account is retained after mail failure; retrying registration must
+	// attempt delivery again and still report a provider failure honestly.
+	resp = postForm(t, srv.URL+"/api/v1/auth/register", form)
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Contains(t, bodyJSON(t, resp)["info"], "could not be sent")
+}
+
+func TestResendVerificationFailureIsReported(t *testing.T) {
+	srv := newAuthTestServer(t)
+	defer srv.Close()
+	cap := &captureSender{}
+	srv.setEmailSender(t, cap)
+	srv.setupWhitelist(t, "hit.edu.cn")
+
+	resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
+		"email": {"retry@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+	})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	srv.setEmailSender(t, failingSender{err: errors.New("provider rejected request")})
+	resp = postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "retry@hit.edu.cn"})
+	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Contains(t, bodyJSON(t, resp)["info"], "could not be sent")
 }
 
 func extractVerifyToken(t *testing.T, html string) string {
