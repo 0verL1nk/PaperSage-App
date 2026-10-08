@@ -1,6 +1,11 @@
 # ── Stage: deps ──────────────────────────────────────────────
 FROM node:22-bookworm-slim AS deps
 
+# pprof has no prebuilt binary for every Node 22 ABI; allow node-gyp to compile it.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 make g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
