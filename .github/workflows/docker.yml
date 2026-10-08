@@ -31,7 +31,7 @@ jobs:
             dockerfile: server/Dockerfile
             image: papersage-app
           - context: latex_render
-            dockerfile: Dockerfile
+            dockerfile: latex_render/Dockerfile
             image: papersage-render
 
     steps:
