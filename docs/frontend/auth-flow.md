@@ -34,6 +34,8 @@
 
 验证邮件和密码重置共用 `verification_tokens`，通过 `purpose` 值隔离两种操作；无需另建 token 表。重置申请按进程内 IP 和邮箱限速。多实例部署时须将此限速器迁到 Redis 或边缘网关等共享组件。
 
+注册或重发时，验证 token 必须先成功写入数据库，邮件 Provider 也必须接受发送请求，API 才返回成功。邮件失败返回 `503`，注册账号会保留；用户重试注册时会对未验证账号限速重发。未配置邮件服务的 `noop` sender 会返回错误，不会伪装成投递成功。Resend 的 `delivered` 表示收件方邮件服务器已接收，不保证进入收件箱；未看到邮件时应检查垃圾邮件、隔离区和邮件规则。
+
 ## 相关代码和测试
 
 - API 路由与 SHA-256：`frontend/src/services/api-routes.ts`、`frontend/src/services/auth-api.ts`

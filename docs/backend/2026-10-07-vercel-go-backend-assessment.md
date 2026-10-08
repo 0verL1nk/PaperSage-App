@@ -1,6 +1,6 @@
 # PaperSage Go 后端部署到 Vercel 调研
 
-> 状态：已按 Go Framework Preset 部署到 `api.paper.overlink.top`。生产注册曾因 Neon 业务表未迁移而返回 500；已执行独立迁移，并修复 Neon pooler prepared statement 冲突和注册页不显示错误提示的问题。新版本 Git 自动部署及注册邮件仍待复测。核对日期：2026-10-08。
+> 状态：Go API 与 Vite 前端均通过 Git 自动部署到 Vercel；API 生产别名为 `api.paper.overlink.top`，前端为 `paper.overlink.top`。曾因仓库级 `.vercelignore` 同时排除 `.git` 与 `frontend/`，导致 Go 取 VCS 信息失败、前端找不到 Vite；已移除根级忽略并分别在 `server/` 配置忽略规则、在 `frontend/vercel.json` 固定 pnpm 构建。核对日期：2026-10-08。
 
 ## 结论
 
@@ -44,9 +44,11 @@ Vercel Services 的 path 前缀是入口路由规则，服务收到的请求路�
 5. **接入前端 Preview。** 设置 `VITE_API_BASE_URL` 为 API Preview 地址并重建前端；验证登录/刷新 token、项目 CRUD、文件上传下载、邮件验证、Agent SSE 和健康检查。核实 Vite build-time 环境变量确实来自同一 Preview 环境。
 6. **通过验证后绑定后端子域并评估同域 Services。** 在 Vercel 后端项目添加 `api.paper.overlink.top`，照 Vercel 给出的 DNS 目标在 Cloudflare 新增该主机记录；不要改写根域或现有 `api.overlink.top` 记录。生产数据库先单独备份并执行迁移，再更换 API 地址；监控 Function 终止、冷启动、数据库连接数、对象存储与邮件失败率。
 
-## 本次调研边界
+## 本次调研与生产核对
 
-Go Runtime 的 `cmd/server/main.go` 入口和共享启动包已在仓库中；`server/vercel.json` 使用 `framework: go`，由 Vercel 根据 Go 模块自动构建。Vercel 项目 `papersage-api` 关联到 GitHub 仓库 `0verL1nk/GraduateProject`，生产分支为 `main`，Root Directory 为 `server`，区域为 `sin1`，域名为 `api.paper.overlink.top`。生产部署使用 Go 1.26.6，Function 大小 18.32 MB。健康检查和公开邮箱域查询通过。注册曾返回 500：生产日志显示业务表 `users` 不存在，且 Neon pooler 出现 pgx prepared statement 名称冲突；已执行 `go run ./cmd/migrate`，关闭 Vercel Production 的启动自动迁移，并让 PostgreSQL 驱动使用 simple protocol。注册失败提示此前只挂在登录面板，现已添加注册面板错误提示和回归测试。新代码须经 Git push 触发自动部署后，才能完成生产注册与邮件复测。客户端 LaTeX 编译仍只是后续方向，后端仍保留 CLSI 集成。工作区另有未提交的 LaTeX/CLSI 修改，本次使用精确文件清单提交部署代码，不包含这些无关改动；`.vercelignore` 排除了 `.env`。
+Go Runtime 的 `cmd/server/main.go` 入口和共享启动包由 Vercel 根据 Go 模块自动构建。Vercel 项目 `papersage-api` 关联 GitHub 仓库 `0verL1nk/GraduateProject`，生产分支为 `main`，Root Directory 为 `server`，区域为 `sin1`，域名为 `api.paper.overlink.top`。2026-10-08 的最新生产部署使用 Go 1.26.6，Function 18.59 MB；`/health` 返回 200。修复部署配置后，`GET /api/v1/projects/{id}/writing-state` 在无认证请求下返回 401（已进入受保护路由），不再是 404；前端 `/auth` 与 `/` 均返回 200。
+
+生产数据库此前缺少 `users` 等表；已执行 `go run ./cmd/migrate`，并关闭 Vercel Production 的启动自动迁移。Neon pooler 的 pgx prepared statement 冲突通过 simple protocol 规避。注册失败提示现在同时出现在注册面板；邮件发送错误、token 写库失败和重发失败都会返回 503，未配置的 `noop` sender 也会报错。Resend 查询到当天两封验证邮件的事件为 `delivered`，但这只证明收件方邮件服务器接受，不证明进入主收件箱；检查垃圾邮件或学校邮箱隔离区。邮件失败分支由 Go 测试覆盖，尚未通过真实生产 Provider 故障注入测试。客户端 LaTeX 编译仍是后续方向，后端仍保留 CLSI 集成。`.env` 与本地数据库/构建目录由各项目自身忽略规则排除。
 
 ## 官方资料
 

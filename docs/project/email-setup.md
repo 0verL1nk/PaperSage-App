@@ -63,4 +63,6 @@ SUPERUSER_EMAILS=you@example.com   # 管理员邮箱（可选）
 - 邮件进垃圾箱：检查 SPF/DKIM/DMARC 三条记录是否齐（`resend domains get`）
 - `resend: status 403`：API key 无 Sending 权限或域名未 verify
 - 域名验证超时：DKIM 记录橙云没关；`resend domains verify` 重试
-- 发送日志：`resend logs list`
+- API 返回 `503 Verification email could not be sent`：检查服务端 Resend 配置及 API 日志；注册账号已保留，重试注册会重新发送。
+- Resend 的邮件事件为 `delivered` 但用户未看到：收件方服务器已接受邮件，继续检查垃圾邮件、学校邮箱隔离区、收件规则和转发设置。
+- 发送日志：Resend 控制台的 Emails/Events 页面；不要在日志或截图中暴露 API Key、邮件 token。
