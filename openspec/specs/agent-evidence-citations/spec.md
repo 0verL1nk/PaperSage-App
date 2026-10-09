@@ -18,4 +18,3 @@ The system SHALL let an authenticated project owner inspect the persisted eviden
 #### Scenario: User does not own the Run
 - **WHEN** evidence retrieval is requested for a Run the current user does not own
 - **THEN** the server returns the existing not-found response and the UI does not expose evidence details
-
