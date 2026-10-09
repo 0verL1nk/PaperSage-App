@@ -20,7 +20,7 @@ COPY frontend/ .
 RUN pnpm build
 
 # ── Stage 3: go build with embedded assets ──────────────────
-FROM golang:1.26.8-alpine AS gobuild
+FROM golang:1.26.9-alpine AS gobuild
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
