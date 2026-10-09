@@ -9,6 +9,8 @@ import { loginAs, logout, e2eEnv } from '../helpers'
  * in parallel without colliding in the e2euser table.
  */
 test.describe('Auth flow (real backend)', () => {
+  test.use({ storageState: { cookies: [], origins: [] } })
+
   test('login form renders both tabs', async ({ page }) => {
     await page.goto('/auth')
     await expect(page.getByRole('tab', { name: '账号登录' })).toBeVisible()
