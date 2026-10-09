@@ -66,3 +66,15 @@ SUPERUSER_EMAILS=you@example.com   # 管理员邮箱（可选）
 - API 返回 `503 Verification email could not be sent`：检查服务端 Resend 配置及 API 日志；注册账号已保留，重试注册会重新发送。
 - Resend 的邮件事件为 `delivered` 但用户未看到：收件方服务器已接受邮件，继续检查垃圾邮件、学校邮箱隔离区、收件规则和转发设置。
 - 发送日志：Resend 控制台的 Emails/Events 页面；不要在日志或截图中暴露 API Key、邮件 token。
+
+## 生产 API Key 轮换
+
+生产凭据轮换按“新旧并行—切换部署—验证—撤销旧值”执行，避免邮件发送在切换中断：
+
+1. 在 Resend 创建新的 `sending_access` key；如发信域已验证，限制到 PaperSage 发信域。新 key 仅在创建时显示一次，立即安全保存，不写入仓库、命令历史、日志或聊天内容。
+2. 在 Vercel 的 `papersage-api` 项目中，只更新确实使用该凭据的环境（至少 Production；Preview 仅在确实使用生产发信域时更新），变量名为 `RESEND_API_KEY`。不要把生产 key 放入浏览器可见变量或 Preview 的不相关环境。
+3. 重新部署后，先确认部署成功，再用已授权的测试邮箱走一遍验证/重置邮件链路，并检查 Resend 发送事件和应用日志；`delivered` 只表示收件方邮件服务器已接受。
+4. 确认新部署发信正常后，在 Resend 撤销旧 key；旧部署仍使用旧环境快照，必要时一并重部署。
+5. 不把 key、完整环境变量导出文件或含 token 的邮件链接提交到 Git；本地临时材料放在忽略目录并在验证后删除。
+
+不能只替换 Vercel 变量后立即删旧 key：Vercel 环境变量变更只对新部署生效。详见 [Vercel 安全轮换说明](https://vercel.com/docs/environment-variables/rotating-secrets)。
