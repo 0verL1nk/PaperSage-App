@@ -69,7 +69,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
   ]
   const pages = [
     { path: 'prepare', heading: '和研究顾问一起理清思路' },
-    { path: 'review', heading: '完成情况由你确认' },
+    { path: 'review', heading: '提交前，把容易漏的地方过一遍' },
     { path: 'uploading', heading: '参考文献' },
     { path: 'writing', heading: 'Explorer' },
   ]
@@ -145,9 +145,9 @@ test('browser-local guest can create and save a real project across mobile, tabl
   await expect(page).toHaveURL(/\/app\/projects$/)
   await expect(page.getByText('本机游客 · 未同步')).toBeVisible()
   await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
-  const backendToggle = page.getByRole('button', { name: /切换后端，当前：在线/ })
-  await expect(backendToggle).toBeVisible()
-  expect(await backendToggle.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+  // Browser-local guest workspaces never call an API, so the backend selector
+  // is intentionally omitted from the guest shell.
+  await expect(page.getByRole('button', { name: /切换后端/ })).toHaveCount(0)
 
   await page.getByRole('button', { name: '创建第一个项目' }).click()
   const dialog = page.getByRole('dialog')
