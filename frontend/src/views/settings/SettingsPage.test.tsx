@@ -1,5 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 
 import { useSettingsStore } from '@/store/settings-store'
 import type { AllSettings } from '@/services/settings-api'
@@ -55,15 +56,24 @@ describe('SettingsPage', () => {
   it('renders the three tab triggers', () => {
     installMockStore({ settings: fixtureSettings, loading: false })
     render(<SettingsPage />)
-    expect(screen.getByRole('tab', { name: 'General' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'Editor' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'AI Assistant' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '常规' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: '编辑器' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'AI 助手' })).toBeInTheDocument()
   })
 
   it('shows loading state when no settings and loading=true', () => {
     installMockStore({ settings: null, loading: true })
     render(<SettingsPage />)
-    expect(screen.getByText(/Loading settings/i)).toBeInTheDocument()
+    expect(screen.getByText('正在加载设置…')).toBeInTheDocument()
+  })
+
+  it('shows localized AI provider settings in Chinese', async () => {
+    installMockStore({ settings: fixtureSettings, loading: false })
+    render(<SettingsPage />)
+    await userEvent.click(screen.getByRole('tab', { name: 'AI 助手' }))
+    expect(screen.getByText('模型服务商')).toBeInTheDocument()
+    expect(screen.getByText('尚未配置服务商。点击 + 添加一个。')).toBeInTheDocument()
+    expect(screen.getByText('尚未配置模型，请先添加服务商。')).toBeInTheDocument()
   })
 
   it('invokes fetchSettings on mount when settings are not loaded', async () => {

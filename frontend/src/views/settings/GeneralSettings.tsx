@@ -38,7 +38,7 @@ export function GeneralSettings() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Appearance</CardTitle>
+          <CardTitle>{t('settings.appearanceTitle')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
@@ -78,7 +78,7 @@ export function GeneralSettings() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Navigation</CardTitle>
+          <CardTitle>{t('settings.navigationTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
@@ -87,7 +87,7 @@ export function GeneralSettings() {
               checked={ui.sidebar_collapsed}
               onCheckedChange={(v) => handleChange('sidebar_collapsed', !!v)}
             />
-            <Label htmlFor="sidebar-collapsed">Collapse sidebar by default</Label>
+            <Label htmlFor="sidebar-collapsed">{t('settings.collapseSidebar')}</Label>
           </div>
         </CardContent>
       </Card>
