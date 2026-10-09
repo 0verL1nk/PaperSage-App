@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 const viewports = [
   { width: 320, height: 640 },
   { width: 390, height: 844 },

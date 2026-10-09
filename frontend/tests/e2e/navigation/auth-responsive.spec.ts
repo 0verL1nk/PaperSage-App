@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 test('auth and browser-local guest entry remain usable on narrow phones through desktop', async ({ page }) => {
   const unmockedApiRequests: string[] = []
   await page.route('**/api/**', async (route) => {

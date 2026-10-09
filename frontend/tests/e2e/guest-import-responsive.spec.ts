@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 test('account import preview and confirmation remain usable from phone to desktop', async ({ page }) => {
   await page.goto('/auth')
   await page.evaluate(async () => {

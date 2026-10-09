@@ -7,7 +7,7 @@ test('theme + language + current project workflow navigation', async ({ page }) 
   // 1) 主题：默认无 dark → 设置切深色 → html.dark 出现 + localStorage
   expect(await page.evaluate(() => document.documentElement.classList.contains('dark'))).toBe(false)
   await page.goto('/app/settings')
-  await page.getByRole('tab', { name: /通用|General/ }).waitFor({ timeout: 10_000 })
+  await page.getByRole('tab', { name: /常规|General/ }).waitFor({ timeout: 10_000 })
   await page.locator('#theme').click()
   await page.getByRole('option', { name: '深色' }).click()
   await page.waitForTimeout(600)
@@ -42,7 +42,7 @@ test('theme + language + current project workflow navigation', async ({ page }) 
 
   // 还原：zh-CN + system（避免污染后续测试）
   await page.goto('/app/settings')
-  await page.getByRole('tab', { name: /通用|General/ }).waitFor({ timeout: 10_000 })
+  await page.getByRole('tab', { name: /常规|General/ }).waitFor({ timeout: 10_000 })
   await page.waitForTimeout(600)
   await page.locator('#language').click()
   await page.getByRole('option', { name: '简体中文' }).click().catch(() => {})

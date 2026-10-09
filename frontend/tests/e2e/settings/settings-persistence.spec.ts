@@ -11,10 +11,10 @@ test.describe('Settings (real backend)', () => {
   test('all three settings tabs render', async ({ page }) => {
     await loginAs(page)
     await page.goto('/app/settings')
-    // Tabs are General / Editor / AI Assistant
-    await expect(page.getByRole('tab', { name: 'General' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'Editor' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'AI Assistant' })).toBeVisible()
+    // Settings follow the user's current language.
+    await expect(page.getByRole('tab', { name: /常规|General/ })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /编辑器|Editor/ })).toBeVisible()
+    await expect(page.getByRole('tab', { name: /AI 助手|AI Assistant/ })).toBeVisible()
   })
 
   test('changing font size persists across reload', async ({ page }) => {
@@ -22,7 +22,7 @@ test.describe('Settings (real backend)', () => {
     await page.goto('/app/settings')
 
     // Switch to Editor tab
-    await page.getByRole('tab', { name: 'Editor' }).click()
+    await page.getByRole('tab', { name: /编辑器|Editor/ }).click()
     const fontSize = page.locator('#font-size')
     await expect(fontSize).toBeVisible({ timeout: 10_000 })
     await fontSize.fill('18')
@@ -30,7 +30,7 @@ test.describe('Settings (real backend)', () => {
 
     // Reload — the API should return the new value
     await page.reload()
-    await page.getByRole('tab', { name: 'Editor' }).click()
+    await page.getByRole('tab', { name: /编辑器|Editor/ }).click()
     await expect(page.locator('#font-size')).toHaveValue('18', { timeout: 10_000 })
   })
 

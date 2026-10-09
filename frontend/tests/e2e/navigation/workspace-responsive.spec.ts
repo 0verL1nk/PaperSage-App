@@ -1,6 +1,8 @@
 import { test, expect } from '@playwright/test'
 import { mockWritingPageAPIs, seedAuthTokens, TEST_PROJECT_ID } from '../helpers'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 const writingState = {
   project_id: TEST_PROJECT_ID,
   scenario: 'undergraduate_thesis',

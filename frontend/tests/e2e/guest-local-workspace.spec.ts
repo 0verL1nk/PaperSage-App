@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 test('an existing account session skips the guest entry route', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('papersage_access_token', 'existing-account-token')
