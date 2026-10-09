@@ -41,12 +41,7 @@ jobs:
       SECRET_KEY: ci-secret-not-for-prod
       REDIS_URL: ''
       LATEX_CLSI_ENABLED: 'false'
-      # IMPORTANT: the backend runs on the runner host (not in a container),
-      # so it cannot resolve the docker service hostname `minio`. GitHub
-      # Actions services expose their ports to the host via port mapping,
-      # therefore the host-side client must use `localhost:9000`. The mc
-      # init container uses `minio:9000` because IT is a sibling container
-      # and resolves docker DNS — see `services.minio-init` below.
+      # The backend and in-process fake S3 server both run on the runner host.
       S3_ENDPOINT: http://localhost:9000
       S3_ACCESS_KEY: ci-access
       S3_SECRET_KEY: ci-secret
@@ -70,36 +65,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ── Start MinIO ─────────────────────────────────────
-      - name: Start MinIO (docker run)
-        run: |
-          docker run -d --name minio \
-            -p 9000:9000 -p 9001:9001 \
-            -e MINIO_ROOT_USER=ci-access \
-            -e MINIO_ROOT_PASSWORD=ci-secret \
-            quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
-          for i in {1..30}; do
-            if curl -sf http://localhost:9000/minio/health/live >/dev/null 2>&1; then
-              echo "MinIO ready after ${i}s"
-              break
-            fi
-            sleep 1
-          done
-          docker run --rm --network host \
-            --entrypoint sh quay.io/minio/mc:RELEASE.2024-11-05T11-29-45Z \
-            -c "
-            mc alias set minio http://localhost:9000 ci-access ci-secret &&
-            mc mb --ignore-existing minio/papersage &&
-            mc anonymous set download minio/papersage &&
-            echo 'MinIO bucket ready'
-            "
-
       # ── Backend (Go) setup ────────────────────────────────
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+
+      # Use the repository's in-process S3 test server so CI does not depend
+      # on anonymous access to an external container registry.
+      - name: Start fake S3
+        working-directory: server
+        run: |
+          mkdir -p bin "$GITHUB_WORKSPACE/logs"
+          go build -o bin/fakes3 ./cmd/fakes3
+          nohup ./bin/fakes3 --addr :9000 --bucket papersage \
+            > "$GITHUB_WORKSPACE/logs/fakes3.log" 2>&1 &
+          echo $! > /tmp/fakes3.pid
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/ >/dev/null 2>&1; then
+              echo "Fake S3 ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Fake S3 did not start in 30s"
+          cat "$GITHUB_WORKSPACE/logs/fakes3.log" || true
+          exit 1
 
       # ── Frontend setup ────────────────────────────────────
       - name: Install pnpm
@@ -255,7 +247,7 @@ jobs:
       - name: Cleanup e2e db
         if: always()
         working-directory: server
-        run: rm -f e2e-go.db .env bin/papersage
+        run: rm -f e2e-go.db .env bin/papersage bin/fakes3
 
   # ── 真实 LaTeX 编译链路（TinyTeX 容器）─────────────────
   # 手动/周期触发：构建 Dockerfile.ci（TinyTeX ~700MB）跑 CLSI，
@@ -280,15 +272,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Start MinIO
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Start fake S3
+        working-directory: server
         run: |
-          docker run -d --name minio -p 9000:9000             -e MINIO_ROOT_USER=ci-access -e MINIO_ROOT_PASSWORD=ci-secret             quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z server /data
+          mkdir -p bin
+          go build -o bin/fakes3 ./cmd/fakes3
+          nohup ./bin/fakes3 --addr :9000 --bucket papersage >/tmp/fakes3-clsi.log 2>&1 &
           for i in {1..30}; do
-            curl -sf http://localhost:9000/minio/health/live >/dev/null && break
+            if curl -sf http://localhost:9000/ >/dev/null; then
+              echo "Fake S3 ready after ${i}s"
+              exit 0
+            fi
             sleep 1
           done
-          docker run --rm --network host --entrypoint sh             quay.io/minio/mc:RELEASE.2024-11-05T11-29-45Z -c             "mc alias set minio http://localhost:9000 ci-access ci-secret &&
-             mc mb --ignore-existing minio/papersage"
+          echo "Fake S3 did not start in 30s"
+          cat /tmp/fakes3-clsi.log || true
+          exit 1
 
       - name: Build TinyTeX CLSI image
         run: docker build -f latex_render/Dockerfile.ci -t papersage-render-ci latex_render
@@ -308,11 +312,6 @@ jobs:
           echo "── full clsi logs:"
           docker logs clsi 2>&1 | grep -v statfs | tail -120
           exit 1
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: server/go.mod
-          cache-dependency-path: server/go.sum
 
       - uses: pnpm/action-setup@v4
         with:
