@@ -231,7 +231,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	var subAgents []adk.Agent
 	if s.RAG != nil {
 		if tcm, ok := chatModel.(model.ToolCallingChatModel); ok {
-			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, tcm); serr == nil {
+			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, rc.RunID, tcm); serr == nil {
 				subAgents = append(subAgents, sa)
 			}
 		}

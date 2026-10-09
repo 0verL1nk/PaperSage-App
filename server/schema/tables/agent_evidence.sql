@@ -19,6 +19,7 @@ CREATE TABLE `agent_evidence` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY `ix_evidence_run` (`run_id`),
   KEY `ix_evidence_source` (`source_type`,`source_id`),
+  UNIQUE KEY `uq_evidence_run_chunk_version` (`run_id`,`chunk_id`,`source_version`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_evidence_run` FOREIGN KEY (`run_id`) REFERENCES `agent_runs` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

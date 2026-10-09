@@ -171,4 +171,32 @@ func TestRunLifecycleContract(t *testing.T) {
 	// 7. 越权：不存在/不属于自己的 Run → 404
 	rec = do(http.MethodGet, "/api/v1/agent/runs/00000000-0000-0000-0000-000000000000/events", "")
 	assert.Equal(t, 404, rec.Code)
+
+	// 8. Run evidence is owner-scoped and includes the exact stored excerpt version.
+	sourceID := store.MustNewUUID()
+	chunkID := "document:" + sourceID.String() + ":2"
+	sourceVersion := strings.Repeat("a", 64)
+	locator := "chunk:2"
+	quote := "a persisted source excerpt"
+	evidence := store.AgentEvidence{ID: store.MustNewUUID(), RunID: store.UUID{UUID: runUUID},
+		SourceType: "document", SourceID: sourceID, SourceVersion: &sourceVersion,
+		ChunkID: &chunkID, Locator: &locator, Quote: &quote}
+	require.NoError(t, db.Create(&evidence).Error)
+	rec = do(http.MethodGet, "/api/v1/agent/runs/"+created.Data.RunID+"/evidence", "")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), `"sourceVersion":"`+sourceVersion+`"`)
+	assert.Contains(t, rec.Body.String(), `"quote":"`+quote+`"`)
+
+	strangerID := store.MustNewUUID()
+	require.NoError(t, db.Create(&store.User{Username: "run-stranger", PasswordHash: "x",
+		BaseModel: store.BaseModel{ID: strangerID}}).Error)
+	strangerToken, err := auth.CreateAccessToken(cfg.SecretKey, strangerID.String(), 30)
+	require.NoError(t, err)
+	strangerReq := httptest.NewRequest(http.MethodGet,
+		"/api/v1/agent/runs/"+created.Data.RunID+"/evidence", nil)
+	strangerReq.Header.Set("Authorization", "Bearer "+strangerToken)
+	strangerRec := httptest.NewRecorder()
+	api.ServeHTTP(strangerRec, strangerReq)
+	assert.Equal(t, 404, strangerRec.Code)
+	assert.NotContains(t, strangerRec.Body.String(), quote)
 }

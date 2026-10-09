@@ -144,15 +144,16 @@ type AgentChangeProposal struct {
 
 func (AgentChangeProposal) TableName() string { return "agent_change_proposals" }
 
-// AgentEvidence 证据身份与版本。source_id 是多态引用（document / latex_file /
+// AgentEvidence 证据身份与版本。当前 source_version 记录检索摘录的 SHA-256，
+// 不代表整个来源文档的不可变版本。source_id 是多态引用（document / latex_file /
 // wiki / chunk），DB 层不设外键，由应用层保证。
 type AgentEvidence struct {
 	ID            UUID      `gorm:"column:id;primaryKey"`
-	RunID         UUID      `gorm:"column:run_id;not null;index"`
+	RunID         UUID      `gorm:"column:run_id;not null;index;uniqueIndex:uq_evidence_run_chunk_version,priority:1"`
 	SourceType    string    `gorm:"column:source_type;size:20;not null;index:ix_evidence_source,priority:1"`
 	SourceID      UUID      `gorm:"column:source_id;not null;index:ix_evidence_source,priority:2"`
-	SourceVersion *string   `gorm:"column:source_version;size:64"`
-	ChunkID       *string   `gorm:"column:chunk_id;size:80"`
+	SourceVersion *string   `gorm:"column:source_version;size:64;uniqueIndex:uq_evidence_run_chunk_version,priority:3"`
+	ChunkID       *string   `gorm:"column:chunk_id;size:80;uniqueIndex:uq_evidence_run_chunk_version,priority:2"`
 	Locator       *string   `gorm:"column:locator;size:255"`
 	Quote         *string   `gorm:"column:quote"`
 	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime"`

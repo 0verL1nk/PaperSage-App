@@ -31,6 +31,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	// 模式 B：先建 Run 再订阅（Run 独立于连接，可取消、可重试、可断线恢复）
 	g.POST("/agent/conversations/:conversation_id/runs", s.createRunHandler)
 	g.GET("/agent/runs/:run_id/events", s.subscribeRun)
+	g.GET("/agent/runs/:run_id/evidence", s.listRunEvidence)
 	g.POST("/agent/runs/:run_id/cancel", s.cancelRun)
 	g.POST("/agent/runs/:run_id/retry", s.retryRun)
 
