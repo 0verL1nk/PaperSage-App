@@ -4,5 +4,5 @@
 - [x] 2.1 Add a responsive, accessible “参考材料” disclosure with source name and exact quote; hide internal IDs/hashes and hide the disclosure when no evidence exists.
 - [x] 2.2 Distinguish loading, empty, and failed states and provide retry; ensure long quotes wrap without horizontal overflow.
 - [x] 3.1 Add component/store/API and handler tests for source-name persistence, live and historical messages, empty/failure states, and owner isolation.
-- [ ] 3.2 Run Go tests/vet/migration integration, frontend typecheck/lint/Vitest/build, relevant Playwright coverage, and OpenSpec validation.
+- [x] 3.2 Run Go tests/vet, PostgreSQL/MySQL migration integration, frontend typecheck/lint/Vitest/build, Playwright coverage, and OpenSpec validation. Evidence: Server CI `37889776544` (all jobs passed); Frontend CI `37890583523` (all jobs passed); E2E `37890583504` (67 passed, 1 skipped for real CLSI); local Go tests/vet and frontend checks passed; `openspec validate agent-evidence-citations` passed.
 - [x] 4.1 Update AI writing design and handoff to state that evidence is user-visible while source-level revocation/version governance remains open.
