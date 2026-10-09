@@ -90,6 +90,7 @@ export const AGENT = {
   createRun: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/runs`,
   runEvents: (runId: string, afterSeq?: number) =>
     `${V1}/agent/runs/${runId}/events${afterSeq ? `?afterSeq=${afterSeq}` : ''}`,
+  runEvidence: (runId: string) => `${V1}/agent/runs/${runId}/evidence`,
   cancelRun: (runId: string) => `${V1}/agent/runs/${runId}/cancel`,
   retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
   proposals: (projectId: string, status?: string) =>

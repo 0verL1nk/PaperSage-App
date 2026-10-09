@@ -261,12 +261,50 @@ function MessageRow({ message, projectId }: { message: ChatMessage; projectId: s
       {message.parts.map((p) => (
         <PartView key={p.id} part={p} projectId={projectId} />
       ))}
+      {message.runId && <RunEvidence runId={message.runId} />}
       {message.status === 'streaming' && (
         <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
           <Loader2 size={11} className="animate-spin" /> 正在生成
         </div>
       )}
     </div>
+  )
+}
+
+function RunEvidence({ runId }: { runId: string }) {
+  const evidence = useQuery({
+    queryKey: ['agent-run-evidence', runId],
+    queryFn: () => agentApi.listRunEvidence(runId),
+  })
+  if (evidence.isLoading) {
+    return <p className="text-[11px] text-muted-foreground">正在读取本次回答使用的依据…</p>
+  }
+  if (evidence.isError) {
+    return (
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+        <span>依据暂时无法读取</span>
+        <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => void evidence.refetch()}>
+          重试
+        </button>
+      </div>
+    )
+  }
+  const rows = evidence.data ?? []
+  if (rows.length === 0) return null
+  return (
+    <details className="rounded-xl border border-border/40 bg-muted/15 text-[11px]">
+      <summary className="cursor-pointer list-none px-3 py-2 font-medium text-muted-foreground hover:text-foreground">
+        参考材料 · {rows.length}
+      </summary>
+      <div className="space-y-2 border-t border-border/40 p-3">
+        {rows.map((row) => (
+          <article key={row.id} className="min-w-0 rounded-lg bg-background/70 p-2.5">
+            <h4 className="break-words text-[11px] font-medium">{row.sourceName || '项目资料'}</h4>
+            {row.quote && <blockquote className="mt-2 whitespace-pre-wrap break-words border-l-2 border-primary/30 pl-2.5 leading-relaxed">{row.quote}</blockquote>}
+          </article>
+        ))}
+      </div>
+    </details>
   )
 }
 

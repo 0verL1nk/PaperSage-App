@@ -36,7 +36,7 @@ const PROVIDER = {
 
 async function mockAgentApis(
   page: import('@playwright/test').Page,
-  opts: { withProvider: boolean; stream?: string; emptyConversations?: boolean; onCreateConversation?: () => void },
+  opts: { withProvider: boolean; stream?: string; emptyConversations?: boolean; onCreateConversation?: () => void; messages?: unknown[] },
 ) {
   // 用正则而不是 glob：`**/api/v1/settings` 匹配不到带尾斜杠的 `/api/v1/settings/`，
   // 那样面板会一直显示「尚未配置 AI 模型」（真实踩到过）。
@@ -91,6 +91,18 @@ async function mockAgentApis(
     const url = route.request().url()
     const method = route.request().method()
 
+    if (url.includes('/evidence') && method === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          code: 200,
+          info: '',
+          data: [{ id: 'e1', sourceName: '研究计划.pdf', quote: '这是一段可回查的原文依据。' }],
+        }),
+      })
+      return
+    }
     if (url.endsWith('/runs') && method === 'POST') {
       await route.fulfill({
         status: 200,
@@ -121,7 +133,7 @@ async function mockAgentApis(
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ code: 200, data: [], info: '' }),
+        body: JSON.stringify({ code: 200, data: opts.messages ?? [], info: '' }),
       })
       return
     }
@@ -168,6 +180,34 @@ test.describe('AI 助手面板', () => {
     await page.getByPlaceholder('问点什么…').press('Enter')
 
     await expect(page.getByText('你的项目里有 main.tex')).toBeVisible()
+    await expect(page.getByText('参考材料 · 1')).toBeVisible()
+    await expect(page.getByText('研究计划.pdf')).toBeVisible()
+    await expect(page.getByText('这是一段可回查的原文依据。')).toBeVisible()
+  })
+
+  test('刷新后仍能从历史助手消息回查 Run 依据', async ({ page }) => {
+    await page.goto('/')
+    await seedAuthTokens(page)
+    await mockWritingPageAPIs(page)
+    await mockAgentApis(page, {
+      withProvider: true,
+      messages: [{
+        id: 'm-history',
+        role: 'assistant',
+        status: 'completed',
+        runId: 'r-history',
+        createdAt: new Date().toISOString(),
+        parts: [{ id: 'text', ordinal: 0, type: 'text', status: 'completed', text: '历史回答', createdAt: new Date().toISOString() }],
+      }],
+    })
+
+    await page.goto(WRITING_URL)
+    await page.getByTestId('writing-tab-ai').click()
+
+    await expect(page.getByText('历史回答')).toBeVisible()
+    await expect(page.getByText('参考材料 · 1')).toBeVisible()
+    await expect(page.getByText('研究计划.pdf')).toBeVisible()
+    await expect(page.getByText('这是一段可回查的原文依据。')).toBeVisible()
   })
 
   test('建议卡片可应用，应用后刷新文件树', async ({ page }) => {

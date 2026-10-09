@@ -12,6 +12,7 @@ CREATE TABLE `agent_evidence` (
   `run_id` char(32) NOT NULL,
   `source_type` varchar(20) NOT NULL,
   `source_id` char(32) NOT NULL,
+  `source_name` varchar(255) NOT NULL DEFAULT '',
   `source_version` char(64) DEFAULT NULL,
   `chunk_id` varchar(80) DEFAULT NULL,
   `locator` varchar(255) DEFAULT NULL,

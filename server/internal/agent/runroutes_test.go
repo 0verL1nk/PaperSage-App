@@ -178,14 +178,16 @@ func TestRunLifecycleContract(t *testing.T) {
 	sourceVersion := strings.Repeat("a", 64)
 	locator := "chunk:2"
 	quote := "a persisted source excerpt"
+	sourceName := "research-plan.pdf"
 	evidence := store.AgentEvidence{ID: store.MustNewUUID(), RunID: store.UUID{UUID: runUUID},
-		SourceType: "document", SourceID: sourceID, SourceVersion: &sourceVersion,
+		SourceType: "document", SourceID: sourceID, SourceName: sourceName, SourceVersion: &sourceVersion,
 		ChunkID: &chunkID, Locator: &locator, Quote: &quote}
 	require.NoError(t, db.Create(&evidence).Error)
 	rec = do(http.MethodGet, "/api/v1/agent/runs/"+created.Data.RunID+"/evidence", "")
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	assert.Contains(t, rec.Body.String(), `"sourceVersion":"`+sourceVersion+`"`)
 	assert.Contains(t, rec.Body.String(), `"quote":"`+quote+`"`)
+	assert.Contains(t, rec.Body.String(), `"sourceName":"`+sourceName+`"`)
 
 	strangerID := store.MustNewUUID()
 	require.NoError(t, db.Create(&store.User{Username: "run-stranger", PasswordHash: "x",

@@ -45,6 +45,12 @@ export interface AgentMessage {
   parts: AgentPart[]
 }
 
+export interface AgentRunEvidence {
+  id: string
+  sourceName: string
+  quote: string
+}
+
 export interface AgentChangeProposal {
   id: string
   filePath: string
@@ -114,6 +120,11 @@ export function cancelRun(runId: string, config?: ApiRequestConfig) {
 export function retryRun(runId: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
   return postJson<{ runId: string; streamUrl: string }>(AGENT.retryRun(runId), {}, config)
+}
+
+export function listRunEvidence(runId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<AgentRunEvidence[]>(AGENT.runEvidence(runId), config)
 }
 
 export interface RunStreamEvent {

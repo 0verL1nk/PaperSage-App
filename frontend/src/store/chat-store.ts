@@ -23,6 +23,7 @@ export interface ChatPart {
 
 export interface ChatMessage {
   id: string
+  runId?: string
   role: 'user' | 'assistant'
   status: 'streaming' | 'completed'
   parts: ChatPart[]
@@ -154,12 +155,18 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
       return next
     }
     case 'abort': {
+      const msg = next.messages[next.messages.length - 1]
+      if (msg?.role === 'assistant' && next.activeRunId) msg.runId = next.activeRunId
       next.streaming = false
+      next.activeRunId = null
       return next
     }
     case 'finish': {
       const msg = next.messages[next.messages.length - 1]
-      if (msg) msg.status = 'completed'
+      if (msg) {
+        msg.status = 'completed'
+        if (msg.role === 'assistant' && next.activeRunId) msg.runId = next.activeRunId
+      }
       next.streaming = false
       next.activeRunId = null
       return next
@@ -173,6 +180,7 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
 export function messagesFromApi(rows: AgentMessage[]): ChatMessage[] {
   return rows.map((m) => ({
     id: m.id,
+    runId: m.runId,
     role: m.role,
     status: 'completed',
     parts: m.parts.map((p) => ({

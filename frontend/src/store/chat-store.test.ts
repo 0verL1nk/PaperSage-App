@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { emptyChatState, reduceChatEvent, useChatStore, type ChatState } from '@/store/chat-store'
+import { emptyChatState, messagesFromApi, reduceChatEvent, useChatStore, type ChatState } from '@/store/chat-store'
 import * as api from '@/services/agent-api'
 import type { RunStreamEvent } from '@/services/agent-api'
 
@@ -91,6 +91,33 @@ describe('reduceChatEvent', () => {
     ])
     expect(s.conversationId).toBe('c1')
     expect(s.activeRunId).toBe('r1')
+  })
+
+  it('完成和中止的助手消息保留 Run ID 以便回查依据', () => {
+    const completed = feed([
+      { type: 'start', messageId: 'm1' },
+      { type: 'data-conversation', data: { runId: 'r1' } },
+      { type: 'text-delta', id: 't1', delta: '已完成' },
+      { type: 'finish' },
+    ])
+    expect(completed.messages[0].runId).toBe('r1')
+    expect(completed.activeRunId).toBeNull()
+
+    const aborted = feed([
+      { type: 'start', messageId: 'm2' },
+      { type: 'data-conversation', data: { runId: 'r2' } },
+      { type: 'abort' },
+    ])
+    expect(aborted.messages[0].runId).toBe('r2')
+    expect(aborted.activeRunId).toBeNull()
+  })
+
+  it('从历史 API 消息恢复 Run ID', () => {
+    const rows = messagesFromApi([{
+      id: 'm-history', role: 'assistant', status: 'completed', runId: 'r-history', createdAt: '',
+      parts: [{ id: 'p1', ordinal: 0, type: 'text', status: 'completed', text: '历史回答', createdAt: '' }],
+    }])
+    expect(rows[0].runId).toBe('r-history')
   })
 
   it('错误既记进 error 也留成 part', () => {

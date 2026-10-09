@@ -1,6 +1,6 @@
 # 调研驱动的 AI 写作实现方案
 
-更新：2026-10-04。状态：**后续实施基线，不是已实现或已通过测试的声明**。已纳入文献比较、章节论证计划与跨章节检查；本轮仅调整文档，不修改业务代码、数据库或既有 OpenSpec 完成状态。
+更新：2026-10-09。状态：**后续实施基线，不是已实现或已通过测试的声明**。已纳入文献比较、章节论证计划与跨章节检查；当前实现状态以各节带日期的记录和代码/测试为准。
 
 ## 1. 定位与范围
 
@@ -41,6 +41,20 @@
 | [SurveyForge，ACL 2025](https://aclanthology.org/2025.acl-long.609/) 借鉴人工综述结构，分别评价参考文献、大纲与内容 | 说明结构的适用理由；分别评价组织产物、正文和证据支持情况 |
 
 新增四项研究主要面向综述写作，其中 InteractiveSurvey 为预印本，不能据此断言本科毕设全流程或新手学习效果已被验证。下文的数据结构、API、版本控制及错误处理均是本项目的工程方案，不冒称由上述论文直接给出。采纳记录见 [设计评审](16-literature-informed-design-review.md)。
+
+### 3.1 AI 应用工程的近期经验
+
+技术博客提供的是工程团队的实践经验和产品案例，不等同于同行评审的效果研究。本项目从 OpenAI 与 Anthropic 的公开材料中提炼可验证的设计约束，而不是照搬其内部系统或平台：
+
+| 官方材料 | 公开经验 | 对 PaperSage 的落地要求 |
+|---|---|---|
+| Anthropic，[Building Effective Agents](https://www.anthropic.com/engineering/building-effective-agents) | 按任务选择固定工作流或开放式 agent；agent 通过工具结果观察环境并设停止条件，复杂度与错误累积成本随自主性上升 | 准备向导、候选修改、确认保存等路径保持可预期；仅在步骤无法预先确定的资料研究/缺口诊断中开放规划，并由服务端限制工具、预算、超时和写入权限 |
+| Anthropic，[Effective Context Engineering for AI Agents](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) | 上下文是有限资源；每轮从指令、工具、历史和外部资料中重新挑选高信号内容，并让工具结果简洁、清晰 | 服务端按当前任务装配项目蓝图、选区/稿件快照、规范和必要原文；不把项目全文或完整聊天历史一股脑追加。检索片段保留可读来源名与原文摘录 |
+| Anthropic，[Contextual Retrieval](https://www.anthropic.com/engineering/contextual-retrieval) | 独立分块可能丢失文档上下文；检索方案应从真实失败案例中诊断，而非只调提示词 | 维护带章节/来源上下文的检索样例，分别检查召回和最终回答；是否增加上下文化分块、混合检索或重排由固定任务集结果决定 |
+| OpenAI，[Inside our in-house data agent](https://openai.com/index/inside-our-in-house-data-agent/) | 数据 agent 需要将结构元数据、领域注释、历史用法和组织上下文组合起来；中间结果可检查并驱动后续修正 | 知识空间除文件正文外还要管理类型、来源、主题、章节用途、处理状态和用户纠正；将其视为案例启发，不能把 OpenAI 内部案例当成本系统效果证据 |
+| OpenAI，[Evaluate agent workflows](https://developers.openai.com/api/docs/guides/agent-evals)；Anthropic，[Demystifying evals for AI agents](https://www.anthropic.com/engineering/demystifying-evals-for-ai-agents) | Trace 可暴露模型、工具、守卫和交接；多轮 agent 评价应检查任务终态，并通过固定任务、明确 grader 和重复试验发现回归 | 评价不只看回答是否流畅：检查证据是否相关可回查、候选是否经用户确认、确认后稿件是否按预期变化、失败/未检查是否如实呈现；模型生成项需记录配置并在固定任务上重复运行 |
+
+据此，本项目采用“确定流程优先、开放规划有界、状态变化可核验”的应用原则。Run/Trace 是开发诊断材料，不直接展示成用户功能；用户界面应给出可理解的资料名、原文摘录、建议和实际保存结果。检索分数、模型自报置信度、工具调用成功，都不能单独作为事实正确或任务完成的证明。上述工程原则已反映在 §5、§6 与 §9 的方案中，实施仍按路线图和 OpenSpec 验收。
 
 ## 4. 两场景、三阶段的工作台
 
@@ -113,7 +127,9 @@ excerpt / retrieval_method / retrieval_score
 
 > **已落地的第一段（2026-10-09，`agent-evidence-provenance`）**：`rag_search` 命中的每个片段在交给模型前写入 `agent_evidence`，绑定用户可见的 root Run、来源类型/ID、稳定 chunk ID、精确摘录和摘录 SHA-256；同一 Run、chunk 与摘录版本重复检索会复用同一证据记录。模型看到持久 `evidence_id`，登录用户可通过 `GET /agent/runs/:run_id/evidence` 回查，服务端校验会话与项目归属。当前 `source_version` 是**片段文本哈希**，不是整个文档版本；locator 只表示索引 chunk 序号，不冒充 PDF 页码。
 >
-> **仍未实现**：来源级不可变版本、来源删除/撤权后使证据与派生 wiki 失效、wiki 页的来源依赖，以及前端引用卡片/原文定位。不可把目前的片段回查描述成这些能力已经完成。
+> **当前进展（2026-10-09，OpenSpec `agent-evidence-citations` 进行中）**：AI 对话计划展示可展开的“参考材料”，显示资料名快照和精确原文摘录，不暴露 UUID、哈希或内部 chunk 序号；覆盖当前及历史回答，空、加载和失败状态分别处理。该改动已完成实现与本地检查，待完整 CI/E2E 后更新验收状态。它提供的是“本次回答取用了哪些片段”的回查，不代表论断已核实。
+>
+> **仍未实现**：来源级不可变版本、来源删除/撤权后使证据与派生 wiki 失效、wiki 页的来源依赖，以及用户可从摘录跳转到文件原文的定位能力。
 
 PDF 优先提取物理页序号，并标明与印刷页码的区别；坐标准确时才高亮。DOCX/TXT 使用段落或文本区间定位，不捏造 DOCX 的固定页码。提取失败、扫描件或无法定位时明确提示，提供文件与摘录回查，不显示虚假的精确位置。分块长度和重叠量属于待调参数，应记录实际计量单位，不能把字符数当作 token 数。
 
