@@ -32,8 +32,12 @@ Vite auto-bumps the port if `--port` is busy; the env var keeps the spec in sync
 
 Import from `../helpers` (sibling of `auth/` and `features/`). Two required for the writing page:
 
-- `seedAuthTokens(page)` — sets `papersage_access_token` / `papersage_refresh_token` in localStorage. **Must run before the first navigation to a protected route** (call it after `page.goto('/')`).
+- `seedAuthTokens(page)` — uses `page.addInitScript` to set `papersage_access_token` / `papersage_refresh_token` before the app initializes. Call it before the first app navigation.
 - `mockWritingPageAPIs(page)` — installs `page.route` mocks for `/auth/me`, `/projects/{id}`, and `/projects/{id}/latex-files/`. **Must run before `page.goto(WRITING_URL)`** so the mocks intercept the page's initial fetches.
+
+`seedAuthTokens` uses `page.addInitScript` so Zustand sees the test session on its first app render. Do not navigate to `/` before calling it; writing the token after app startup only changes localStorage and leaves the in-memory session unauthenticated. Install route mocks after `seedAuthTokens` and before the protected-route navigation.
+
+Playwright's global setup logs in once and saves `playwright/.auth/user.json` for backend-backed UI specs, avoiding repeated login rate limits. The real auth-flow spec opts out of this saved state so its login/logout checks still exercise authentication. CI must start both the Go backend and Vite before Playwright; local runs need the same services.
 
 If a test needs extra mocks (e.g. catch a DELETE), register them AFTER `mockWritingPageAPIs` and BEFORE `page.goto`. The most recently registered matching route wins; use `route.fallback()` to defer to the earlier mock.
 
@@ -96,5 +100,4 @@ await page.keyboard.press('Delete')
 
 ## TODO (future cleanup)
 
-- The 4 pre-existing specs (auth/login, auth/register, features/compile, features/projects) inline the same `seedAuthTokens` + `mockWritingPageAPIs` logic. Refactor them to import from `tests/e2e/helpers.ts` to match the new convention.
-- Add a `webServer` entry to `playwright.config.ts` so `pnpm test:e2e` boots vite automatically instead of requiring a manual `pnpm dev`.
+- Add a dedicated local E2E launcher that starts the isolated Go test backend, fake S3, and Vite together. Playwright starts Vite on its own for local runs, but global auth setup and real-backend specs still require the backend fixtures.

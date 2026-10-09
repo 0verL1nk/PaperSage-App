@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 
+test.use({ storageState: { cookies: [], origins: [] } })
+
 /**
  * SmoothHeight 裁剪回归（2026-09 真实事故）：
  * 提交按钮是 inline-flex，挂在行框基线下沿会溢出行框 ~31px；内层块盒的

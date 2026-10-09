@@ -94,13 +94,13 @@ test.describe('Folder operations (real backend)', () => {
     // Click "New Folder" button
     await page.getByTitle('新建文件夹').click()
 
-    // Inline input appears for naming
-    const renameInput = page.getByTestId('inline-rename-input')
-    await expect(renameInput).toBeVisible({ timeout: 8_000 })
+    // The tree opens its inline creation form with a folder name field.
+    const folderNameInput = page.getByLabel('文件夹名称')
+    await expect(folderNameInput).toBeVisible({ timeout: 8_000 })
 
     const folderName = await newFixtureName('create')
-    await renameInput.fill(folderName)
-    await renameInput.press('Enter')
+    await folderNameInput.fill(folderName)
+    await page.getByRole('button', { name: '确认创建' }).click()
 
     const resp = await createResponse
     expect(resp.status(), `创建响应体: ${await resp.text()}`).toBe(200)

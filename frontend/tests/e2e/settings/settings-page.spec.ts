@@ -11,7 +11,7 @@ test.describe('Settings (real backend)', () => {
     await page.goto('/app/settings')
 
     // 三个标签页可见
-    await expect(page.getByRole('tab', { name: /通用|General/ })).toBeVisible({ timeout: 10_000 })
+    await expect(page.getByRole('tab', { name: /常规|General/ })).toBeVisible({ timeout: 10_000 })
     await expect(page.getByRole('tab', { name: /编辑器|Editor/ })).toBeVisible()
     await expect(page.getByRole('tab', { name: /AI|助手/ })).toBeVisible()
   })
