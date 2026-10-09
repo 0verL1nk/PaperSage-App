@@ -31,12 +31,12 @@ export const ACCESS_TOKEN_KEY = 'papersage_access_token'
 export const REFRESH_TOKEN_KEY = 'papersage_refresh_token'
 
 /**
- * Seed fake JWTs into localStorage so the auth guard lets the page load.
- * Must run BEFORE the first navigation to a protected route.
+ * Seed fake JWTs before the app initializes its Zustand session store.
+ * Route mocks should be installed after this call and before the first
+ * navigation to a protected route.
  */
 export async function seedAuthTokens(page: Page) {
-  await page.goto('/')
-  await page.evaluate(
+  await page.addInitScript(
     ([access, refresh]) => {
       window.localStorage.setItem(access, 'fake-access-token')
       window.localStorage.setItem(refresh, 'fake-refresh-token')
@@ -56,6 +56,20 @@ export const MOCK_USER = {
 export const MOCK_PROJECT = {
   id: TEST_PROJECT_ID,
   name: 'Test Project',
+}
+
+const MOCK_WRITING_STATE = {
+  project_id: TEST_PROJECT_ID,
+  scenario: 'undergraduate_thesis',
+  brief: {
+    topic: '', background: '', questions: [], goals: [], scope_out: [],
+    objects_and_data: '', methods: '', key_chapters: [], milestones: [],
+    constraints: [], known_facts: [], assumptions: [], unverified: [],
+  },
+  requirements: [],
+  phases: { prepare: 'not_started', write: 'not_started', review: 'not_started' },
+  current_phase: 'prepare',
+  revision: 1,
 }
 
 /**
@@ -86,6 +100,8 @@ export const MOCK_LATEX_FILES = {
  * checks.
  */
 export async function mockWritingPageAPIs(page: Page) {
+  let writingState = { ...MOCK_WRITING_STATE }
+
   await page.route(API_AUTH_ME, async (route) => {
     await route.fulfill({
       status: 200,
@@ -99,6 +115,17 @@ export async function mockWritingPageAPIs(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ code: 200, data: MOCK_PROJECT }),
+    })
+  })
+
+  await page.route(`**/api/v1/projects/${TEST_PROJECT_ID}/writing-state`, async (route) => {
+    if (route.request().method() === 'PUT') {
+      writingState = { ...writingState, ...route.request().postDataJSON(), revision: writingState.revision + 1 }
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: writingState }),
     })
   })
 
