@@ -19,7 +19,7 @@ test.describe('Auth flow (real backend)', () => {
     await loginAs(page)
     await expect(page).toHaveURL(/\/app\/projects/)
     // Sidebar or page header should mention project list
-    await expect(page.getByText('所有项目')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
   })
 
   test('wrong password shows an error and stays on /auth', async ({ page }) => {
@@ -59,15 +59,12 @@ test.describe('Auth flow (real backend)', () => {
     await page.getByPlaceholder('请再次输入密码').fill(password)
     await page.getByRole('button', { name: '创建我的账号' }).click()
 
-    // 注册成功 → 提示查邮件并切回登录 tab
-    await expect(page.getByRole('tab', { name: '账号登录' })).toHaveAttribute(
-      'data-state',
-      'active',
-      { timeout: 5000 },
-    )
+    // CI has no SMTP server: registration must report mail failure instead
+    // of acknowledging success, while keeping the account for a retry.
+    await expect(page.getByRole('alert')).toContainText('验证邮件发送失败', { timeout: 5000 })
 
-    // 未验证登录被拦截（403）——完整验证闭环由后端集成测试覆盖
-    //（CI 的 mailer 是 noop，验证链接拿不到）
+    // The account exists but cannot log in until the verification email is sent.
+    await page.getByRole('tab', { name: '账号登录' }).click()
     await page.getByPlaceholder('请输入您的账号').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
     await page.getByRole('button', { name: '立即登录' }).click()

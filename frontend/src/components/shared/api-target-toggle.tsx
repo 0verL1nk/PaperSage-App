@@ -45,7 +45,7 @@ export function ApiTargetToggle({ prominent = false }: { prominent?: boolean }) 
           className={cn(
             prominent
               ? 'h-[44px] gap-1.5 rounded-full border-border/55 bg-background/75 px-3 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background sm:px-3.5'
-              : 'relative size-9 rounded-full text-muted-foreground/75 hover:bg-muted/70 hover:text-foreground',
+              : 'relative size-12 rounded-full text-muted-foreground/75 hover:bg-muted/70 hover:text-foreground',
           )}
           title={isLocal ? `接口环境：本地（${appEnv.localApiBaseUrl}）` : '接口环境：在线'}
           aria-label={`切换后端，当前：${isLocal ? '本地' : '在线'}`}
