@@ -181,6 +181,7 @@ test.describe('AI 助手面板', () => {
 
     await expect(page.getByText('你的项目里有 main.tex')).toBeVisible()
     await expect(page.getByText('参考材料 · 1')).toBeVisible()
+    await page.getByText('参考材料 · 1').click()
     await expect(page.getByText('研究计划.pdf')).toBeVisible()
     await expect(page.getByText('这是一段可回查的原文依据。')).toBeVisible()
   })
@@ -206,6 +207,7 @@ test.describe('AI 助手面板', () => {
 
     await expect(page.getByText('历史回答')).toBeVisible()
     await expect(page.getByText('参考材料 · 1')).toBeVisible()
+    await page.getByText('参考材料 · 1').click()
     await expect(page.getByText('研究计划.pdf')).toBeVisible()
     await expect(page.getByText('这是一段可回查的原文依据。')).toBeVisible()
   })
