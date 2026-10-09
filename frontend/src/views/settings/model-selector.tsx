@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useTranslation } from 'react-i18next'
 import { ChevronsUpDown } from 'lucide-react'
 import { useSettingsStore } from '@/store/settings-store'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ interface ModelSelectorProps {
 }
 
 export function ModelSelector({ variant = 'full', value, onChange }: ModelSelectorProps) {
+  const { t } = useTranslation()
   const { settings, fetchSettings } = useSettingsStore()
   const providers = settings?.agent.providers ?? []
 
@@ -46,17 +48,17 @@ export function ModelSelector({ variant = 'full', value, onChange }: ModelSelect
 
   if (providers.length === 0) {
     return variant === 'full' ? (
-      <p className="text-sm text-muted-foreground">No models configured. Add a provider above.</p>
+      <p className="text-sm text-muted-foreground">{t('modelSelector.noneConfigured')}</p>
     ) : (
-      <span className="text-xs text-muted-foreground">No models</span>
+      <span className="text-xs text-muted-foreground">{t('modelSelector.none')}</span>
     )
   }
 
   if (variant === 'compact') {
-    return <CompactSelector providers={providers} value={value} onChange={onChange} />
+    return <CompactSelector providers={providers} value={value} onChange={onChange} t={t} />
   }
 
-  return <FullSelector providers={providers} value={value} onChange={onChange} />
+  return <FullSelector providers={providers} value={value} onChange={onChange} t={t} />
 }
 
 type ProviderItem = {
@@ -69,10 +71,12 @@ function FullSelector({
   providers,
   value,
   onChange,
+  t,
 }: {
   providers: ProviderItem[]
   value: ModelSelection
   onChange: (s: ModelSelection) => void
+  t: (key: string) => string
 }) {
   const selectValue = `${value.providerId}::${value.model}`
 
@@ -85,7 +89,7 @@ function FullSelector({
       }}
     >
       <SelectTrigger className="w-full">
-        <SelectValue placeholder="Select a model" />
+        <SelectValue placeholder={t('modelSelector.selectModel')} />
       </SelectTrigger>
       <SelectContent>
         {providers.map((p) => (
@@ -107,15 +111,17 @@ function CompactSelector({
   providers,
   value,
   onChange,
+  t,
 }: {
   providers: ProviderItem[]
   value: ModelSelection
   onChange: (s: ModelSelection) => void
+  t: (key: string) => string
 }) {
   const activeProvider = providers.find((p) => p.id === value.providerId)
   const label = activeProvider
-    ? `${activeProvider.name} / ${value.model || 'Select'}`
-    : 'Select model'
+    ? `${activeProvider.name} / ${value.model || t('modelSelector.select')}`
+    : t('modelSelector.selectModel')
 
   return (
     <DropdownMenu>
@@ -138,7 +144,7 @@ function CompactSelector({
               {i > 0 && <DropdownMenuSeparator />}
               <DropdownMenuLabel>{p.name}</DropdownMenuLabel>
               {p.models.length === 0 && (
-                <DropdownMenuItem disabled>No models</DropdownMenuItem>
+                <DropdownMenuItem disabled>{t('modelSelector.none')}</DropdownMenuItem>
               )}
               {p.models.map((m) => (
                 <DropdownMenuRadioItem key={`${p.id}::${m}`} value={`${p.id}::${m}`}>

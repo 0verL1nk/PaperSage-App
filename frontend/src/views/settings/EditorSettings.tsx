@@ -1,10 +1,12 @@
 import { useSettingsStore } from '@/store/settings-store'
+import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
 
 export function EditorSettings() {
+  const { t } = useTranslation()
   const { settings, patchCategory } = useSettingsStore()
   const editor = settings?.editor
 
@@ -18,11 +20,11 @@ export function EditorSettings() {
     <div className="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Display</CardTitle>
+          <CardTitle>{t('editor.display')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label htmlFor="font-size">Font Size</Label>
+            <Label htmlFor="font-size">{t('editor.fontSize')}</Label>
             <Input
               id="font-size"
               type="number"
@@ -35,7 +37,7 @@ export function EditorSettings() {
           </div>
 
           <div className="flex items-center justify-between">
-            <Label htmlFor="tab-size">Tab Size</Label>
+            <Label htmlFor="tab-size">{t('editor.tabSize')}</Label>
             <Input
               id="tab-size"
               type="number"
@@ -53,14 +55,14 @@ export function EditorSettings() {
               checked={editor.word_wrap}
               onCheckedChange={(v) => handleChange('word_wrap', !!v)}
             />
-            <Label htmlFor="word-wrap">Word wrap</Label>
+            <Label htmlFor="word-wrap">{t('editor.wordWrap')}</Label>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Auto Save</CardTitle>
+          <CardTitle>{t('editor.autoSave')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
@@ -69,12 +71,12 @@ export function EditorSettings() {
               checked={editor.auto_save}
               onCheckedChange={(v) => handleChange('auto_save', !!v)}
             />
-            <Label htmlFor="auto-save">Enable auto save</Label>
+            <Label htmlFor="auto-save">{t('editor.enableAutoSave')}</Label>
           </div>
 
           {editor.auto_save && (
             <div className="flex items-center justify-between">
-              <Label htmlFor="auto-save-interval">Interval (seconds)</Label>
+              <Label htmlFor="auto-save-interval">{t('editor.intervalSeconds')}</Label>
               <Input
                 id="auto-save-interval"
                 type="number"

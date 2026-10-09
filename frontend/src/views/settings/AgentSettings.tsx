@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useSettingsStore } from '@/store/settings-store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -11,23 +12,24 @@ import type { ProviderConfig, ProviderType } from '@/services/settings-api'
 import { ModelSelector } from './model-selector'
 
 const TEMPERATURE_OPTIONS = [
-  { value: '0.0', label: 'Precise (0.0)' },
-  { value: '0.3', label: 'Conservative (0.3)' },
-  { value: '0.7', label: 'Balanced (0.7)' },
-  { value: '1.0', label: 'Creative (1.0)' },
-  { value: '1.5', label: 'Inventive (1.5)' },
+  { value: '0.0', labelKey: 'agent.precise' },
+  { value: '0.3', labelKey: 'agent.conservative' },
+  { value: '0.7', labelKey: 'agent.balanced' },
+  { value: '1.0', labelKey: 'agent.creative' },
+  { value: '1.5', labelKey: 'agent.inventive' },
 ]
 
 const WRITING_STYLES = [
-  { value: 'academic', label: 'Academic' },
-  { value: 'formal', label: 'Formal' },
-  { value: 'casual', label: 'Casual' },
-  { value: 'concise', label: 'Concise' },
+  { value: 'academic', labelKey: 'agent.academic' },
+  { value: 'formal', labelKey: 'agent.formal' },
+  { value: 'casual', labelKey: 'agent.casual' },
+  { value: 'concise', labelKey: 'agent.concise' },
 ]
 
 const TEMP_ID = '__new__'
 
 export function AgentSettings() {
+  const { t } = useTranslation()
   const { settings, patchCategory } = useSettingsStore()
   const agent = settings?.agent
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -87,15 +89,15 @@ export function AgentSettings() {
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-          <CardTitle className="text-base">Model Providers</CardTitle>
-          <Button variant="ghost" size="icon-sm" onClick={handleAddProvider}>
+          <CardTitle className="text-base">{t('agent.providers')}</CardTitle>
+          <Button variant="ghost" size="icon-sm" aria-label={t('agent.addProvider')} onClick={handleAddProvider}>
             <Plus className="size-4" />
           </Button>
         </CardHeader>
         <CardContent className="space-y-3">
           {a.providers.length === 0 && !editingId && (
             <p className="text-sm text-muted-foreground py-2">
-              No providers configured. Click + to add one.
+              {t('agent.noProviders')}
             </p>
           )}
 
@@ -134,7 +136,7 @@ export function AgentSettings() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Default Model</CardTitle>
+          <CardTitle className="text-base">{t('agent.defaultModel')}</CardTitle>
         </CardHeader>
         <CardContent>
           <ModelSelector
@@ -157,11 +159,11 @@ export function AgentSettings() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Generation</CardTitle>
+          <CardTitle className="text-base">{t('agent.generation')}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <Label htmlFor="temperature">Temperature</Label>
+            <Label htmlFor="temperature">{t('agent.temperature')}</Label>
             <Select
               value={String(a.temperature)}
               onValueChange={(v) => handleChange('temperature', parseFloat(v))}
@@ -172,7 +174,7 @@ export function AgentSettings() {
               <SelectContent>
                 {TEMPERATURE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -180,7 +182,7 @@ export function AgentSettings() {
           </div>
 
           <div className="flex items-center justify-between">
-            <Label htmlFor="writing-style">Writing Style</Label>
+            <Label htmlFor="writing-style">{t('agent.writingStyle')}</Label>
             <Select
               value={a.writing_style}
               onValueChange={(v) => handleChange('writing_style', v)}
@@ -191,7 +193,7 @@ export function AgentSettings() {
               <SelectContent>
                 {WRITING_STYLES.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {opt.label}
+                    {t(opt.labelKey)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -202,7 +204,7 @@ export function AgentSettings() {
 
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-base">Memory</CardTitle>
+          <CardTitle className="text-base">{t('agent.memory')}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex items-center gap-3">
@@ -212,7 +214,7 @@ export function AgentSettings() {
               onCheckedChange={(v) => handleChange('memory_enabled', !!v)}
             />
             <Label htmlFor="memory-enabled">
-              Enable AI memory (remembers context across sessions)
+              {t('agent.enableMemory')}
             </Label>
           </div>
         </CardContent>
@@ -248,6 +250,7 @@ function ProviderCard({
   onSave,
   onCancel,
 }: ProviderCardProps) {
+  const { t } = useTranslation()
   const [newModel, setNewModel] = useState('')
 
   if (isEditing && editDraft) {
@@ -280,13 +283,13 @@ function ProviderCard({
     return (
       <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
-          <Label className="text-xs text-muted-foreground">Name</Label>
+          <Label className="text-xs text-muted-foreground">{t('agent.name')}</Label>
           <Input
             value={d.name}
             onChange={(e) => onDraftChange({ ...editDraft, name: e.target.value })}
             className="h-8 text-sm"
           />
-          <Label className="text-xs text-muted-foreground">Type</Label>
+          <Label className="text-xs text-muted-foreground">{t('agent.type')}</Label>
           <Select
             value={d.type}
             onValueChange={(v) => onDraftChange({ ...editDraft, type: v as ProviderType })}
@@ -295,18 +298,18 @@ function ProviderCard({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="openai_compatible">OpenAI Compatible</SelectItem>
+              <SelectItem value="openai_compatible">{t('agent.compatible')}</SelectItem>
               <SelectItem value="anthropic">Anthropic</SelectItem>
             </SelectContent>
           </Select>
-          <Label className="text-xs text-muted-foreground">Base URL</Label>
+          <Label className="text-xs text-muted-foreground">{t('agent.baseUrl')}</Label>
           <Input
             value={d.base_url}
             onChange={(e) => onDraftChange({ ...editDraft, base_url: e.target.value })}
             placeholder="https://api.openai.com/v1"
             className="h-8 text-sm"
           />
-          <Label className="text-xs text-muted-foreground">API Key</Label>
+          <Label className="text-xs text-muted-foreground">{t('agent.apiKey')}</Label>
           <Input
             type="password"
             value={d.api_key}
@@ -318,7 +321,7 @@ function ProviderCard({
 
         {/* Models list */}
         <div className="space-y-2">
-          <Label className="text-xs text-muted-foreground">Models</Label>
+          <Label className="text-xs text-muted-foreground">{t('agent.models')}</Label>
           {d.models.length > 0 && (
             <div className="space-y-1">
               {d.models.map((m, idx) => (
@@ -330,7 +333,7 @@ function ProviderCard({
                     onClick={() => onDraftChange({ ...editDraft, active_model: m })}
                   >
                     {m}
-                    {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">active</span>}
+                    {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">{t('agent.active')}</span>}
                   </Button>
                   <Button variant="ghost" size="icon-xs" onClick={() => removeModel(idx)}>
                     <X className="size-3" />
@@ -355,10 +358,10 @@ function ProviderCard({
 
         <div className="flex justify-end gap-2">
           <Button variant="ghost" size="sm" onClick={onCancel}>
-            <X className="size-3 mr-1" /> Cancel
+            <X className="size-3 mr-1" /> {t('agent.cancel')}
           </Button>
           <Button variant="default" size="sm" onClick={() => onSave(flushPendingModel())}>
-            <Check className="size-3 mr-1" /> Save
+            <Check className="size-3 mr-1" /> {t('agent.save')}
           </Button>
         </div>
       </div>
@@ -377,12 +380,12 @@ function ProviderCard({
           <span className="text-sm font-medium">{provider.name}</span>
           {isActive && (
             <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground font-medium">
-              Active
+              {t('agent.active')}
             </span>
           )}
         </div>
         <div className="text-xs text-muted-foreground truncate">
-          {provider.active_model || 'No model'} · {provider.type === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {provider.base_url || 'No URL'}
+          {provider.active_model || t('agent.noModel')} · {provider.type === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {provider.base_url || t('agent.noUrl')}
         </div>
         {provider.models.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">

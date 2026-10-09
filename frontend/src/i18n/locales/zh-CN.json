@@ -10,6 +10,28 @@
     "settings": "设置",
     "documents": "文档"
   },
+  "layout": {
+    "navigationMenu": "导航菜单",
+    "library": "工作区",
+    "systemSettings": "系统设置",
+    "search": "搜索",
+    "searchPlaceholder": "搜索文档和项目…",
+    "notifications": "通知"
+  },
+  "account": {
+    "menu": "用户菜单",
+    "localGuest": "本机游客",
+    "guestAvatar": "客",
+    "guestStorage": "内容仅保存在此浏览器",
+    "loading": "正在加载…",
+    "unavailable": "账号信息暂不可用",
+    "noEmail": "未提供邮箱",
+    "profile": "个人资料",
+    "settings": "设置",
+    "logout": "退出登录",
+    "loginOrRegister": "登录或注册",
+    "retry": "重新加载账号信息"
+  },
   "comingSoon": {
     "badge": "规划中",
     "title": "{{name}} 模块建设中",
@@ -18,6 +40,13 @@
     "goUploading": "去上传资料"
   },
   "settings": {
+    "pageTitle": "设置",
+    "tabGeneral": "常规",
+    "tabEditor": "编辑器",
+    "tabAgent": "AI 助手",
+    "appearanceTitle": "外观",
+    "navigationTitle": "导航",
+    "collapseSidebar": "默认收起侧边栏",
     "appearance": "外观",
     "theme": "主题",
     "themeSystem": "跟随系统",
@@ -26,5 +55,60 @@
     "language": "语言",
     "langZh": "简体中文",
     "langEn": "English"
+  },
+  "editor": {
+    "display": "显示",
+    "fontSize": "字体大小",
+    "tabSize": "缩进空格数",
+    "wordWrap": "自动换行",
+    "autoSave": "自动保存",
+    "enableAutoSave": "启用自动保存",
+    "intervalSeconds": "保存间隔（秒）"
+  },
+  "agent": {
+    "providers": "模型服务商",
+    "addProvider": "添加服务商",
+    "noProviders": "尚未配置服务商。点击 + 添加一个。",
+    "defaultModel": "默认模型",
+    "generation": "生成设置",
+    "temperature": "生成温度",
+    "writingStyle": "写作风格",
+    "memory": "记忆",
+    "enableMemory": "启用 AI 记忆（跨会话记住上下文）",
+    "name": "名称",
+    "type": "类型",
+    "baseUrl": "接口地址",
+    "apiKey": "API 密钥",
+    "models": "模型",
+    "active": "当前使用",
+    "noModel": "未选择模型",
+    "noUrl": "未填写接口地址",
+    "compatible": "OpenAI 兼容接口",
+    "cancel": "取消",
+    "save": "保存",
+    "precise": "精确（0.0）",
+    "conservative": "稳健（0.3）",
+    "balanced": "平衡（0.7）",
+    "creative": "创意（1.0）",
+    "inventive": "发散（1.5）",
+    "academic": "学术",
+    "formal": "正式",
+    "casual": "轻松",
+    "concise": "简洁"
+  },
+  "modelSelector": {
+    "noneConfigured": "尚未配置模型，请先添加服务商。",
+    "none": "暂无模型",
+    "select": "选择模型",
+    "selectModel": "请选择模型"
+  },
+  "writing": {
+    "explorer": "文件资源管理器",
+    "preview": "预览",
+    "readyToCompile": "准备好后即可编译"
+  },
+  "common": {
+    "loadingSettings": "正在加载设置…",
+    "recoverableError": "可恢复的错误"
   }
 }

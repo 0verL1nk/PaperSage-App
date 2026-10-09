@@ -10,6 +10,28 @@
     "settings": "Settings",
     "documents": "Documents"
   },
+  "layout": {
+    "navigationMenu": "Navigation menu",
+    "library": "Workspace",
+    "systemSettings": "System Settings",
+    "search": "Search",
+    "searchPlaceholder": "Search documents and projects…",
+    "notifications": "Notifications"
+  },
+  "account": {
+    "menu": "User menu",
+    "localGuest": "Local guest",
+    "guestAvatar": "G",
+    "guestStorage": "Content is stored in this browser only",
+    "loading": "Loading…",
+    "unavailable": "Account details unavailable",
+    "noEmail": "No email provided",
+    "profile": "Profile",
+    "settings": "Settings",
+    "logout": "Log out",
+    "loginOrRegister": "Log in or register",
+    "retry": "Reload account details"
+  },
   "comingSoon": {
     "badge": "Planned",
     "title": "{{name}} module is on the way",
@@ -18,6 +40,13 @@
     "goUploading": "Go to References"
   },
   "settings": {
+    "pageTitle": "Settings",
+    "tabGeneral": "General",
+    "tabEditor": "Editor",
+    "tabAgent": "AI Assistant",
+    "appearanceTitle": "Appearance",
+    "navigationTitle": "Navigation",
+    "collapseSidebar": "Collapse sidebar by default",
     "appearance": "Appearance",
     "theme": "Theme",
     "themeSystem": "System",
@@ -26,5 +55,60 @@
     "language": "Language",
     "langZh": "简体中文",
     "langEn": "English"
+  },
+  "editor": {
+    "display": "Display",
+    "fontSize": "Font size",
+    "tabSize": "Tab size",
+    "wordWrap": "Word wrap",
+    "autoSave": "Auto save",
+    "enableAutoSave": "Enable auto save",
+    "intervalSeconds": "Interval (seconds)"
+  },
+  "agent": {
+    "providers": "Model providers",
+    "addProvider": "Add provider",
+    "noProviders": "No providers configured. Click + to add one.",
+    "defaultModel": "Default model",
+    "generation": "Generation",
+    "temperature": "Temperature",
+    "writingStyle": "Writing style",
+    "memory": "Memory",
+    "enableMemory": "Enable AI memory (remembers context across sessions)",
+    "name": "Name",
+    "type": "Type",
+    "baseUrl": "Base URL",
+    "apiKey": "API key",
+    "models": "Models",
+    "active": "Active",
+    "noModel": "No model selected",
+    "noUrl": "No URL",
+    "compatible": "OpenAI Compatible",
+    "cancel": "Cancel",
+    "save": "Save",
+    "precise": "Precise (0.0)",
+    "conservative": "Conservative (0.3)",
+    "balanced": "Balanced (0.7)",
+    "creative": "Creative (1.0)",
+    "inventive": "Inventive (1.5)",
+    "academic": "Academic",
+    "formal": "Formal",
+    "casual": "Casual",
+    "concise": "Concise"
+  },
+  "modelSelector": {
+    "noneConfigured": "No models configured. Add a provider above.",
+    "none": "No models",
+    "select": "Select",
+    "selectModel": "Select a model"
+  },
+  "writing": {
+    "explorer": "Explorer",
+    "preview": "Preview",
+    "readyToCompile": "Ready to compile"
+  },
+  "common": {
+    "loadingSettings": "Loading settings…",
+    "recoverableError": "Recoverable error"
   }
 }

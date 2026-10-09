@@ -12,6 +12,7 @@ import { ShieldCheck,
   Menu,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
@@ -28,21 +29,33 @@ import { logout } from '@/services/auth-api'
 import { useGroups } from '@/services/projects-api'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
 import { GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
+import { useSessionStore } from '@/store'
 
 interface MainLayoutProps {
   children: ReactNode
 }
 
 const mainNavItems = [
-  { path: '/app/projects', label: 'Projects', icon: FolderOpen },
-  { path: '/app/documents', label: 'Documents', icon: FileText },
-  { path: '/app/trash', label: 'Trash', icon: Trash2 },
+  { path: '/app/projects', labelKey: 'nav.projects', icon: FolderOpen },
+  { path: '/app/documents', labelKey: 'nav.documents', icon: FileText },
+  { path: '/app/trash', labelKey: 'nav.trash', icon: Trash2 },
 ]
 
 import { useMe } from '@/hooks/use-me'
 
+function avatarInitials(username: string | undefined) {
+  const value = username?.trim()
+  if (!value) return '·'
+  const parts = value.split(/[\s._\-@]+/).filter(Boolean)
+  if (parts.length > 1) return `${Array.from(parts[0])[0]}${Array.from(parts[1])[0]}`.toLocaleUpperCase()
+  return Array.from(value).slice(0, 2).join('').toLocaleUpperCase()
+}
+
 export function MainLayout({ children }: MainLayoutProps) {
-  const { data: me } = useMe()
+  const isGuest = useSessionStore((session) => session.isGuest)
+  const { t } = useTranslation()
+  const { data: me, isLoading: isMeLoading, isError: isMeError, refetch: refetchMe } = useMe()
+  const accountLabel = isGuest ? t('account.localGuest') : me?.username ?? t(isMeLoading ? 'account.loading' : 'account.unavailable')
   const location = useLocation()
   const currentPath = location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -63,10 +76,10 @@ export function MainLayout({ children }: MainLayoutProps) {
                 </Button>
               </SheetTrigger>
               <SheetContent side="left" className="p-0 w-64 flex flex-col">
-                <SheetTitle className="sr-only">Navigation Menu</SheetTitle>
+                <SheetTitle className="sr-only">{t('layout.navigationMenu')}</SheetTitle>
                 <div className="p-4 flex items-center justify-between flex-none border-b border-border">
                   <span className="px-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
-                    Library
+                    {t('layout.library')}
                   </span>
                   <Button variant="ghost" size="icon-xs" className="rounded-md" onClick={() => { setMobileMenuOpen(false); setCreateProjectOpen(true); }}>
                     <Plus className="size-3" />
@@ -90,7 +103,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                         )}
                       >
                         <Icon className={cn("size-4", isActive ? "text-inherit" : "opacity-60")} />
-                        {item.label}
+                        {t(item.labelKey)}
                       </Link>
                     )
                   })}
@@ -117,7 +130,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                     className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <Settings className="size-4 opacity-60" />
-                    <span>System Settings</span>
+                    <span>{t('layout.systemSettings')}</span>
                   </Link>
                 </div>
               </SheetContent>
@@ -137,57 +150,68 @@ export function MainLayout({ children }: MainLayoutProps) {
           <Search className="absolute left-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
-            placeholder="Search documents, projects..."
+            aria-label={t('layout.search')}
+            placeholder={t('layout.searchPlaceholder')}
             className="h-8 w-full bg-muted border-none text-sm rounded-lg pl-9 focus-visible:ring-1 focus-visible:ring-ring"
           />
         </div>
 
         {/* Right: Actions */}
         <div className="flex items-center justify-end lg:w-64 gap-1">
-          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden">
+          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden" aria-label={t('layout.search')}>
             <Search className="size-4 text-muted-foreground" />
           </Button>
-          <ApiTargetToggle prominent />
-          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted">
+          {!isGuest && <ApiTargetToggle />}
+          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted" aria-label={t('layout.notifications')}>
             <Bell className="size-4 text-muted-foreground" />
           </Button>
           <div className="h-4 w-px bg-border mx-1 md:mx-2" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-muted transition-colors outline-none">
-                <div className="flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-bold">
-                  JS
+              <button aria-label={`${t('account.menu')}: ${accountLabel}`} className="flex items-center gap-2 pl-1 pr-2 py-1 rounded-full hover:bg-muted transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <div aria-hidden="true" className="flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold">
+                  {isGuest ? t('account.guestAvatar') : avatarInitials(me?.username)}
                 </div>
-                <span className="text-sm font-medium hidden lg:inline">User Name</span>
+                <span className="max-w-36 truncate text-sm font-medium hidden lg:inline">{accountLabel}</span>
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
               <div className="px-3 py-2">
-                <p className="text-sm font-semibold">User Name</p>
-                <p className="text-xs text-muted-foreground">user@example.com</p>
+                <p className="truncate text-sm font-semibold">{accountLabel}</p>
+                <p className="truncate text-xs text-muted-foreground">{isGuest ? t('account.guestStorage') : me?.email ?? (isMeLoading ? t('account.loading') : t('account.noEmail'))}</p>
               </div>
               <DropdownMenuSeparator />
-
+              {isGuest ? (
+                <DropdownMenuItem asChild>
+                  <Link to="/auth"><User className="mr-2 h-4 w-4" /><span>{t('account.loginOrRegister')}</span></Link>
+                </DropdownMenuItem>
+              ) : (
+                <>
               <DropdownMenuItem asChild>
                 <Link to="/app/settings">
                   <User className="mr-2 h-4 w-4" />
-                  <span>Profile</span>
+                  <span>{t('account.profile')}</span>
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
                 <Link to="/app/settings">
                   <Settings className="mr-2 h-4 w-4" />
-                  <span>Settings</span>
+                  <span>{t('account.settings')}</span>
                 </Link>
               </DropdownMenuItem>
+                </>
+              )}
+              {isMeError && !isGuest && <DropdownMenuItem onSelect={() => void refetchMe()}>{t('account.retry')}</DropdownMenuItem>}
+              {!isGuest && <>
               <DropdownMenuSeparator />
               <DropdownMenuItem
                 className="text-destructive focus:text-destructive cursor-pointer"
                 onClick={() => logout()}
               >
                 <LogOut className="mr-2 h-4 w-4" />
-                <span>Logout</span>
+                <span>{t('account.logout')}</span>
               </DropdownMenuItem>
+              </>}
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -198,7 +222,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         <aside className="hidden w-64 flex-none flex-col border-r border-border bg-muted/30 lg:flex overflow-hidden">
           <div className="p-4 flex items-center justify-between flex-none">
             <span className="px-2 text-xs font-bold text-muted-foreground uppercase tracking-widest">
-              Library
+              {t('layout.library')}
             </span>
             <Button variant="ghost" size="icon-xs" className="rounded-md" onClick={() => setCreateProjectOpen(true)}>
               <Plus className="size-3" />
@@ -221,7 +245,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                   )}
                 >
                   <Icon className={cn("size-4", isActive ? "text-inherit" : "opacity-60")} />
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               )
             })}
@@ -233,7 +257,7 @@ export function MainLayout({ children }: MainLayoutProps) {
               className="flex items-center gap-3 px-3 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
             >
               <Settings className="size-4 opacity-60" />
-              <span>System Settings</span>
+              <span>{t('layout.systemSettings')}</span>
             </Link>
           </div>
         </aside>
