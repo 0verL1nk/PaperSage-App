@@ -42,7 +42,7 @@ func TestPersistRunEvidenceIsVersionedAndIdempotent(t *testing.T) {
 	hit := rag.Hit{
 		ChunkID:    "document:8a8aef17-b11c-4d31-bce1-5b9ea4226348:3",
 		SourceType: "document", SourceID: "8a8aef17-b11c-4d31-bce1-5b9ea4226348",
-		Content: "exact excerpt from the indexed source",
+		SourceName: "research-plan.pdf", Content: "exact excerpt from the indexed source",
 	}
 	first, err := persistRunEvidence(context.Background(), db, runID, []rag.Hit{hit})
 	require.NoError(t, err)
@@ -52,6 +52,7 @@ func TestPersistRunEvidenceIsVersionedAndIdempotent(t *testing.T) {
 	require.Len(t, second, 1, "duplicate hits in a Run collapse to the same evidence row")
 	assert.Equal(t, first[0].ID, second[0].ID, "repeated retrieval reuses the persistent evidence identity")
 	assert.Equal(t, hit.Content, *first[0].Quote)
+	assert.Equal(t, hit.SourceName, first[0].SourceName)
 	assert.Equal(t, "chunk:3", *first[0].Locator)
 	digest := sha256.Sum256([]byte(hit.Content))
 	assert.Equal(t, hex.EncodeToString(digest[:]), *first[0].SourceVersion)

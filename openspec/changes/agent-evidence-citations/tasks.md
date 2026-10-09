@@ -1,0 +1,8 @@
+- [x] 1.1 Persist and return a human-readable source-name snapshot on evidence; add PostgreSQL/MySQL migrations, source DDL/model, and backfill where the matching RAG source remains.
+- [x] 1.2 Add typed frontend evidence DTO and authenticated API client for the existing Run evidence endpoint; test request path and response mapping.
+- [x] 1.3 Preserve `runId` on completed/aborted assistant messages and map historical message `runId`; test live reducer and history restoration.
+- [x] 2.1 Add a responsive, accessible “参考材料” disclosure with source name and exact quote; hide internal IDs/hashes and hide the disclosure when no evidence exists.
+- [x] 2.2 Distinguish loading, empty, and failed states and provide retry; ensure long quotes wrap without horizontal overflow.
+- [x] 3.1 Add component/store/API and handler tests for source-name persistence, live and historical messages, empty/failure states, and owner isolation.
+- [ ] 3.2 Run Go tests/vet/migration integration, frontend typecheck/lint/Vitest/build, relevant Playwright coverage, and OpenSpec validation.
+- [x] 4.1 Update AI writing design and handoff to state that evidence is user-visible while source-level revocation/version governance remains open.

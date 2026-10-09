@@ -45,6 +45,7 @@ func persistRunEvidence(ctx context.Context, db *gorm.DB, runID store.UUID, hits
 			evidence := store.AgentEvidence{
 				ID: store.MustNewUUID(), RunID: runID,
 				SourceType: hit.SourceType, SourceID: store.UUID{UUID: sourceUUID},
+				SourceName:    strings.TrimSpace(hit.SourceName),
 				SourceVersion: &version, ChunkID: &chunkID, Locator: &locator, Quote: &hit.Content,
 			}
 			if err := tx.Clauses(clause.OnConflict{
@@ -86,6 +87,7 @@ type runEvidenceDTO struct {
 	ID            string `json:"id"`
 	SourceType    string `json:"sourceType"`
 	SourceID      string `json:"sourceId"`
+	SourceName    string `json:"sourceName"`
 	SourceVersion string `json:"sourceVersion"`
 	ChunkID       string `json:"chunkId"`
 	Locator       string `json:"locator"`
@@ -126,7 +128,7 @@ func (s *Service) listRunEvidence(c *gin.Context) {
 	out := make([]runEvidenceDTO, 0, len(evidence))
 	for _, row := range evidence {
 		item := runEvidenceDTO{
-			ID: row.ID.String(), SourceType: row.SourceType, SourceID: row.SourceID.String(),
+			ID: row.ID.String(), SourceType: row.SourceType, SourceID: row.SourceID.String(), SourceName: row.SourceName,
 		}
 		if row.SourceVersion != nil {
 			item.SourceVersion = *row.SourceVersion

@@ -152,6 +152,7 @@ type AgentEvidence struct {
 	RunID         UUID      `gorm:"column:run_id;not null;index;uniqueIndex:uq_evidence_run_chunk_version,priority:1"`
 	SourceType    string    `gorm:"column:source_type;size:20;not null;index:ix_evidence_source,priority:1"`
 	SourceID      UUID      `gorm:"column:source_id;not null;index:ix_evidence_source,priority:2"`
+	SourceName    string    `gorm:"column:source_name;size:255;not null;default:''"`
 	SourceVersion *string   `gorm:"column:source_version;size:64;uniqueIndex:uq_evidence_run_chunk_version,priority:3"`
 	ChunkID       *string   `gorm:"column:chunk_id;size:80;uniqueIndex:uq_evidence_run_chunk_version,priority:2"`
 	Locator       *string   `gorm:"column:locator;size:255"`
