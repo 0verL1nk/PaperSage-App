@@ -44,7 +44,7 @@
 - [x] 8.2 Playwright route-mock 测试覆盖项目根/旧路由重定向、准备内容保存刷新、工作台及资料库/LaTeX 页跨阶段浏览；mock 未命中的 API 请求会中止并断言为空，不访问开发数据库。
 - [x] 8.3 响应式 Playwright 检查手机/平板/桌面 viewport：320×640、390×844、768×1024、1024×768、1440×900；覆盖 PreparePage、ReviewPage、参考资料库、LaTeX 写作页的横向溢出、主内容与 header/mobile tabs 遮挡、编辑器宽度、移动导航触控高度与键盘 Enter/Tab/`aria-current`。
 - [x] 8.4 PostgreSQL/MySQL 真实 migration integration（fresh install + baseline handoff）已在隔离服务实跑通过。
-- [ ] 8.5 最终整库验证已在 2026-10-07 复跑：`go vet ./...`、`go test ./...`、前端 typecheck/lint、Vitest（214 passed、1 skipped）、build 均通过；响应式/游客/密码找回 Playwright 7 passed。Server CI 的 Linux/Windows race+shuffle 与 PG/MySQL migration job 通过；Linux 覆盖率门槛实际失败（48.1%，要求 80%），同机对合并前 `origin/main` 测得 43.5%。本分支已提升基线但仍未达到门槛，不能记为通过。CI 发现的 5 项 lint 问题已在后续提交修复，本地 golangci-lint v2.14.0 为 0 issues；需要在新提交上复跑云端 workflow。整库覆盖率目标仍待达到或经维护者单独调整策略。
+- [x] 8.5 最终整库验证：2026-10-09 GitHub Server CI（run `37886749372`）全绿，包含 Linux/Windows race+shuffle、Go vet/lint、govulncheck、PostgreSQL/MySQL migration integration；Linux 覆盖率 48.6%，通过当前 ≥48% 回归门槛。GitHub E2E（run `37886749393`）为 66 passed、1 skipped（真实 CLSI 编译用例）；Frontend CI（run `37885329512`）通过。80% 仍是长期覆盖率目标，不是当前 CI 门槛或已达成指标。
 
 ## 9. 文档同步
 
