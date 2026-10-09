@@ -3,6 +3,10 @@ import { test, expect } from '@playwright/test'
 test.use({ storageState: { cookies: [], origins: [] } })
 
 test('auth and browser-local guest entry remain usable on narrow phones through desktop', async ({ page }) => {
+  // This acceptance checks five full flows (login, registration, guest start)
+  // across five viewports. CI is slower than a local browser, so give it a
+  // realistic test-level budget instead of failing at the generic 30s limit.
+  test.setTimeout(120_000)
   const unmockedApiRequests: string[] = []
   await page.route('**/api/**', async (route) => {
     if (route.request().url().includes('/api/v1/auth/email-domains')) {
@@ -25,11 +29,15 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
     { name: 'desktop', width: 1440, height: 900 },
   ]
 
-  for (const viewport of viewports) {
-    await page.goto('/auth', { waitUntil: 'domcontentloaded' })
-    await page.evaluate(() => window.localStorage.clear())
-    await page.reload({ waitUntil: 'domcontentloaded' })
+  for (const [index, viewport] of viewports.entries()) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })
+    // Guest activation persists the session in localStorage. Reset it between
+    // viewports, then open the public route in the clean session.
+    if (index > 0) {
+      await page.evaluate(() => window.localStorage.clear())
+      await page.reload({ waitUntil: 'domcontentloaded' })
+    }
+    await page.goto('/auth', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('tab', { name: '账号登录' })).toBeVisible()
     const backendToggle = page.getByRole('button', { name: /切换后端，当前：在线/ })
     await expect(backendToggle).toBeVisible()

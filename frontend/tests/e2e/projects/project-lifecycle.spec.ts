@@ -69,7 +69,7 @@ test.describe('Project lifecycle (golden path)', () => {
   test('user can restore a project from trash', async ({ page }) => {
     // Navigate to trash page
     await loginAs(page)
-    await page.getByRole('link', { name: /回收站|Trash/i }).click()
+    await page.getByRole('navigation').getByRole('link', { name: /回收站|Trash/i }).click()
     await expect(page).toHaveURL(/trash/, { timeout: 5_000 })
 
     // If there are items in trash, try to restore the first one
