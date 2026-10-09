@@ -290,7 +290,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 // `task` 工具（参数 subagent_type / description）来做编排，因此这里返回 agent 本身，
 // 不再手工包 AgentTool。用户视角仍只有一个 Assistant（参考架构 §9.1）。
 func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
-	projectID, ownerID store.UUID, chatModel model.ToolCallingChatModel) (adk.Agent, error) {
+	projectID, ownerID, rootRunID store.UUID, chatModel model.ToolCallingChatModel) (adk.Agent, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -319,9 +319,28 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 			if len(hits) == 0 {
 				return "（资料库中无相关内容）", nil
 			}
+			evidence, err := persistRunEvidence(ctx, db, rootRunID, hits)
+			if err != nil {
+				return "", err
+			}
+			evidenceByChunk := make(map[string]store.AgentEvidence, len(evidence))
+			for _, row := range evidence {
+				if row.ChunkID != nil {
+					evidenceByChunk[*row.ChunkID] = row
+				}
+			}
 			var b strings.Builder
 			for i, h := range hits {
-				fmt.Fprintf(&b, "[%d] 来源=%s 名称=%s\n%s\n\n", i+1, h.SourceType, h.SourceName, h.Content)
+				row, ok := evidenceByChunk[h.ChunkID]
+				if !ok {
+					return "", fmt.Errorf("persisted evidence missing for chunk %s", h.ChunkID)
+				}
+				version := ""
+				if row.SourceVersion != nil {
+					version = *row.SourceVersion
+				}
+				fmt.Fprintf(&b, "[%d] evidence_id=%s source=%s source_id=%s source_version=%s chunk_id=%s 名称=%s\n%s\n\n",
+					i+1, row.ID.String(), h.SourceType, h.SourceID, version, h.ChunkID, h.SourceName, h.Content)
 			}
 			return b.String(), nil
 		})

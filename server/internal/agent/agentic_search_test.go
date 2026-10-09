@@ -4,7 +4,10 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,7 +70,12 @@ func TestAgenticSearchSubagent(t *testing.T) {
 	require.NoError(t, err)
 
 	var call atomic.Int32
+	var modelSawEvidenceID atomic.Bool
 	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestBody, _ := io.ReadAll(r.Body)
+		if bytes.Contains(requestBody, []byte("evidence_id=")) {
+			modelSawEvidenceID.Store(true)
+		}
 		n := call.Add(1)
 		w.Header().Set("Content-Type", "text/event-stream")
 		fl := w.(http.Flusher)
@@ -167,6 +175,7 @@ func TestAgenticSearchSubagent(t *testing.T) {
 	t.Logf("事件类型=%v 终答=%q", kinds, answer)
 	assert.True(t, sawSearchTool, "主 agent 应通过 task 工具委派 search_references")
 	assert.True(t, sawRagHit, "子 agent 的 rag 命中应作为 tool-output-available 流出")
+	assert.True(t, modelSawEvidenceID.Load(), "后续模型调用应收到带持久证据 ID 的检索结果")
 	assert.Contains(t, answer, "来源", "终答应带出处")
 	assert.Equal(t, "finish", kinds[len(kinds)-1])
 
@@ -181,6 +190,25 @@ func TestAgenticSearchSubagent(t *testing.T) {
 	require.NoError(t, db.Where("id = ?", *children[0].ParentRunID).First(&parent).Error)
 	assert.Nil(t, parent.ParentRunID, "主 Run 不应再有父级（树只有一层）")
 	assert.Equal(t, children[0].ConversationID, parent.ConversationID, "子 Run 应属同一会话")
+
+	var evidence []store.AgentEvidence
+	require.NoError(t, db.Where("run_id = ?", parent.ID).Find(&evidence).Error)
+	require.NotEmpty(t, evidence, "RAG 命中应保存到用户可见的 root Run")
+	foundDocumentEvidence := false
+	for _, row := range evidence {
+		if row.SourceID != docID {
+			continue
+		}
+		foundDocumentEvidence = true
+		assert.Equal(t, "document", row.SourceType)
+		require.NotNil(t, row.ChunkID)
+		require.NotNil(t, row.SourceVersion)
+		require.NotNil(t, row.Quote)
+		digest := sha256.Sum256([]byte(*row.Quote))
+		assert.Equal(t, hex.EncodeToString(digest[:]), *row.SourceVersion)
+		assert.Contains(t, *row.Quote, "对比学习")
+	}
+	assert.True(t, foundDocumentEvidence, "retrieved document chunk should be traceable to its source ID")
 
 	// 子 Run 应真正拥有自己的工具调用与事件，而不是 Run 树里的一个空节点
 	var childTools, childEvents int64

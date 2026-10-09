@@ -1,0 +1,9 @@
+- [x] 1.1 Add an OpenSpec requirement for stable evidence identity, excerpt versioning, idempotent persistence, and owner-scoped retrieval.
+- [x] 1.2 Add a unique `(run_id, chunk_id, source_version)` index to the source DDL and MySQL/PostgreSQL migrations; align the GORM model.
+- [x] 2.1 Implement evidence persistence from RAG hits, including exact excerpt digest and chunk locator.
+- [x] 2.2 Pass the root Run ID into the search sub-agent and return persisted evidence IDs in `rag_search` output.
+- [x] 2.3 Add an authenticated Run evidence endpoint with deterministic DTO ordering and ownership isolation.
+- [x] 3.1 Add unit/contract tests for stable digest, idempotent writes, query shape, and unauthorized Run access.
+- [x] 3.2 Extend the agentic search integration test to assert stored source identity/version and matching quoted excerpt.
+- [ ] 3.3 Run Go tests/vet, database migration integration tests, OpenSpec validation, and relevant CI checks.
+- [x] 4.1 Update the AI writing design and handoff to distinguish implemented excerpt-level provenance from remaining source-revocation/wiki dependency work.
