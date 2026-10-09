@@ -4,6 +4,7 @@ const isCI = !!process.env.CI
 
 export default defineConfig({
   testDir: './tests/e2e',
+  globalSetup: './tests/e2e/global-setup.ts',
   // Re-enable parallel runs in CI; specs use unique resource names
   // (project id with UUID suffix) to avoid cross-spec clashes.
   fullyParallel: true,
@@ -29,6 +30,7 @@ export default defineConfig({
       ],
   use: {
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:5173',
+    storageState: 'playwright/.auth/user.json',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',

@@ -12,17 +12,17 @@ test.describe('Cross-route navigation', () => {
     await loginAs(page)
     await expect(page).toHaveURL(/\/app\/projects/)
     // Sidebar / header should be present
-    await expect(page.getByText('所有项目')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
   })
 
   test('user can navigate to settings and back', async ({ page }) => {
     await loginAs(page)
     await page.goto('/app/settings')
-    await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible({
+    await expect(page.getByRole('heading', { name: /设置|Settings/ })).toBeVisible({
       timeout: 10_000,
     })
     await page.goto('/app/projects')
-    await expect(page.getByText('所有项目')).toBeVisible()
+    await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
   })
 
   test('user can navigate to trash and back', async ({ page }) => {

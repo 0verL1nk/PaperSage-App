@@ -310,6 +310,16 @@ export async function loginAs(
   username?: string,
   password?: string,
 ): Promise<void> {
+  await page.goto('/')
+  const hasStoredSession = await page.evaluate(() =>
+    Boolean(localStorage.getItem('papersage_access_token') && localStorage.getItem('papersage_refresh_token')),
+  ).catch(() => false)
+  if (hasStoredSession) {
+    await page.goto('/app/projects')
+    await page.waitForURL(/\/app\/projects/, { timeout: 15_000 })
+    return
+  }
+
   const u = username ?? process.env.E2E_USER ?? 'e2euser'
   const p = password ?? process.env.E2E_PASS ?? 'e2epass1'
   await page.goto('/auth')
