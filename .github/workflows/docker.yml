@@ -34,8 +34,29 @@ jobs:
             dockerfile: latex_render/Dockerfile
             image: papersage-render
 
+    # The production CLSI image imports a full TeX Live distribution. Free
+    # space consumed by unrelated preinstalled runner toolchains before BuildKit
+    # expands that image; the Go app image does not need this cleanup.
+    timeout-minutes: 60
+
     steps:
       - uses: actions/checkout@v4
+
+      - name: Free disk space for full TeX Live image
+        if: matrix.image == 'papersage-render'
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          tool-cache: false
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Check available disk space
+        if: matrix.image == 'papersage-render'
+        run: df -h /
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
