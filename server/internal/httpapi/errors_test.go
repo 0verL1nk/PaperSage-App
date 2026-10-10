@@ -104,6 +104,7 @@ func TestNotFoundRoute(t *testing.T) {
 
 	resp := get(t, srv.URL+"/definitely/not/registered")
 	assert.Equal(t, 404, resp.StatusCode)
+	assert.Equal(t, "no-store", resp.Header.Get("Cache-Control"))
 	assertBody(t, resp, `{"detail":"Not Found"}`)
 }
 

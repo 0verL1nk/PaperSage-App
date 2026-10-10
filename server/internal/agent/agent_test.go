@@ -22,7 +22,6 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -107,12 +106,9 @@ func TestAgentReActLoop(t *testing.T) {
 	mem := testutil.NewMemStorage()
 	require.NoError(t, mem.Put(context.Background(), s3Key, []byte("hello")))
 
-	latexSvc, err := latex.NewService(nil, cfg)
-	require.NoError(t, err)
-	queue := latex.NewQueue(db, nil, latexSvc, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	agentSvc := agent.NewService(db, mem, nil, queue, cfg, rgStore)
+	agentSvc := agent.NewService(db, mem, nil, cfg, rgStore)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
@@ -223,11 +219,9 @@ func TestAgentNoModelConfigured(t *testing.T) {
 		BaseModel: store.BaseModel{ID: pid}}).Error)
 
 	cfg := &config.Settings{SecretKey: "t"} // 无 AGENT_*，用户也无设置
-	latexSvc, _ := latex.NewService(nil, cfg)
-	queue := latex.NewQueue(db, nil, latexSvc, cfg)
 	rgStore2, rerr2 := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr2)
-	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil, queue, cfg, rgStore2)
+	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rgStore2)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)

@@ -2,3 +2,8 @@
 # bash 读 `set -euo pipefail` 时会把 \r 当成选项名的一部分，直接报
 # `set: pipefail: invalid option name`（scripts/clsi/*.sh 实际踩过）。
 *.sh text eol=lf
+
+# Reproducible engine glue and receipts are SHA-256 pinned by the runtime manifest.
+frontend/public/latex-engines/swiftlatexpdftex.js text eol=lf
+frontend/public/latex-engines/swiftlatexxetex.js text eol=lf
+frontend/public/latex-engines/swiftlatex-build-receipt.json text eol=lf

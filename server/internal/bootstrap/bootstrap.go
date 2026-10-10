@@ -72,7 +72,9 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 		return nil, fmt.Errorf("latex compile init: %w", err)
 	}
 	compileQueue := latex.NewQueue(db, latexFiles, compileSvc, cfg)
-	compileQueue.RecoverOnStartup(ctx) // 对应 Python lifespan 的孤儿任务恢复
+	// Legacy CLSI jobs remain in the database for possible later reactivation,
+	// but must not resume while browser compilation is the only supported path.
+	// compileQueue.RecoverOnStartup(ctx)
 
 	// ── RAG（嵌入端点：管理后台 embed 组 → env；都未配置哈希兜底）──
 	embedder := defaultEmbedder(cfg, db)
@@ -93,10 +95,13 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 		IndexDocument: indexDocumentHook(s3, ragStore),
 	}
 
-	agentSvc := agent.NewService(db, s3, latexFiles, compileQueue, cfg, ragStore)
+	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)
+	if err := latex.MountResources(engine.Engine, s3, cfg.LatexResourceProfile, cfg.LatexResourceRepository); err != nil {
+		return nil, fmt.Errorf("latex resource resolver init: %w", err)
+	}
 	v1 := engine.Group(httpapi.APIVersion)
 	adminMw := authSvc.ChainMiddleware(auth.AdminRequired())
 

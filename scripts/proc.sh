@@ -11,7 +11,9 @@ LOG_DIR="${PROJECT_ROOT}/logs"
 # Service definitions: name|health_url|health_method|start_command
 # Order matters: started top-to-bottom, stopped bottom-to-top
 SERVICES=(
-    "clsi|http://localhost:3013/status|GET|source '${PROJECT_ROOT}/scripts/clsi/env.sh' && mkdir -p '${PROJECT_ROOT}/latex_render/services/clsi/compiles' '${PROJECT_ROOT}/latex_render/services/clsi/output' '${PROJECT_ROOT}/latex_render/services/clsi/cache'; node --watch '${PROJECT_ROOT}/latex_render/services/clsi/app.js'"
+    # CLSI is temporarily parked while browser compilation becomes the active path.
+    # Restore the service tuple below if the old backend compiler is re-enabled:
+    # "clsi|http://localhost:3013/status|GET|source '${PROJECT_ROOT}/scripts/clsi/env.sh' && mkdir -p '${PROJECT_ROOT}/latex_render/services/clsi/compiles' '${PROJECT_ROOT}/latex_render/services/clsi/output' '${PROJECT_ROOT}/latex_render/services/clsi/cache'; node --watch '${PROJECT_ROOT}/latex_render/services/clsi/app.js'"
     "backend|http://localhost:5478/health|GET|cd '${PROJECT_ROOT}/server' && DATABASE_URL='sqlite:///./papersage.db' LATEX_CLSI_ENABLED=false go run ./cmd/papersage"
     "frontend|http://localhost:5173|TCP|cd '${PROJECT_ROOT}/frontend' && pnpm dev --host"
 )

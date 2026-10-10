@@ -1,0 +1,15 @@
+[package]
+name = "papersage-eps-pdf-wasm"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license = "MIT OR Apache-2.0"
+description = "Browser worker wrapper for converting EPS to PDF with Stet"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+console_error_panic_hook = "=0.1.7"
+stet = { version = "=0.8.4", default-features = false, features = ["pdf-output"] }
+wasm-bindgen = "=0.2.129"

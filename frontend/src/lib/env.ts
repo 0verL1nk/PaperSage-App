@@ -14,9 +14,10 @@ const rawApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() ?? ''
 const rawLocalApiBaseUrl =
   import.meta.env.VITE_LOCAL_API_BASE_URL?.trim() || 'http://localhost:5478'
 
-export type ApiTarget = 'online' | 'local'
+export type ApiTarget = 'online' | 'local' | 'custom'
 
 const API_TARGET_KEY = 'papersage_api_target'
+const CUSTOM_API_BASE_URL_KEY = 'papersage_custom_api_base_url'
 
 export const appEnv = Object.freeze({
   apiBaseUrl: rawApiBaseUrl,
@@ -30,7 +31,10 @@ export const appEnv = Object.freeze({
 /** 当前选中的目标；未设置或值非法时回落 online。 */
 export function getApiTarget(): ApiTarget {
   if (typeof localStorage === 'undefined') return 'online'
-  return localStorage.getItem(API_TARGET_KEY) === 'local' ? 'local' : 'online'
+  const target = localStorage.getItem(API_TARGET_KEY)
+  if (target === 'local') return 'local'
+  if (target === 'custom' && getCustomApiBaseUrl()) return 'custom'
+  return 'online'
 }
 
 export function setApiTarget(target: ApiTarget) {
@@ -38,9 +42,39 @@ export function setApiTarget(target: ApiTarget) {
   localStorage.setItem(API_TARGET_KEY, target)
 }
 
+export function getCustomApiBaseUrl(): string {
+  if (typeof localStorage === 'undefined') return ''
+  return localStorage.getItem(CUSTOM_API_BASE_URL_KEY) ?? ''
+}
+
+export function normalizeApiBaseUrl(value: string): string {
+  const candidate = value.trim()
+  if (!candidate) throw new Error('请输入后端地址')
+  if (!/^https?:\/\//i.test(candidate)) {
+    throw new Error('请输入包含 http:// 或 https:// 的完整地址')
+  }
+  let url: URL
+  try {
+    url = new URL(candidate)
+  } catch {
+    throw new Error('请输入包含 http:// 或 https:// 的完整地址')
+  }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) {
+    throw new Error('后端地址只支持 http(s) URL，且不能包含账号、密码、查询参数或片段')
+  }
+  return url.href.replace(/\/+$/, '')
+}
+
+export function setCustomApiBaseUrl(value: string) {
+  if (typeof localStorage === 'undefined') return
+  localStorage.setItem(CUSTOM_API_BASE_URL_KEY, normalizeApiBaseUrl(value))
+}
+
 /** 目标对应的 base URL；online 为空串表示同源。 */
 export function getApiBaseUrlFor(target: ApiTarget) {
-  return target === 'local' ? rawLocalApiBaseUrl : rawApiBaseUrl
+  if (target === 'local') return rawLocalApiBaseUrl
+  if (target === 'custom') return getCustomApiBaseUrl()
+  return rawApiBaseUrl
 }
 
 export function getOptionalApiBaseUrl() {

@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "sourceRepository": "https://github.com/0verL1nk/papersage-swiftlatex",
+  "sourceRevision": "4f6851dbc016a924659394f334d49dd89735b238",
+  "texLiveXeTeXSourceCommit": "ef78b612ce99951b9f133e389d2ea84f80d7f2cc",
+  "buildRecipes": [
+    "make -C pdftex.wasm all -j2",
+    "make -C xetex.wasm all -j2"
+  ],
+  "toolchain": {
+    "operatingSystem": "ubuntu-22.04",
+    "emscriptenVersion": "3.1.64"
+  },
+  "license": "AGPL-3.0",
+  "files": [
+    {
+      "engine": "pdftex",
+      "path": "pdftex.wasm/swiftlatexpdftex.js",
+      "bytes": 78210,
+      "sha256": "81a2809fbf3bf08ecba62116b691540784719a37806823797f67f7544a1172d3"
+    },
+    {
+      "engine": "pdftex",
+      "path": "pdftex.wasm/swiftlatexpdftex.wasm",
+      "bytes": 1796927,
+      "sha256": "da024397ba4216088f146a53a1efaa530b3bbc23c2490e7a60f540beda518129"
+    },
+    {
+      "engine": "xetex",
+      "path": "xetex.wasm/swiftlatexxetex.js",
+      "bytes": 77311,
+      "sha256": "58464629cc774fbe3e7d3cde1df3aca17f16c415ba8b1298cdfc06e7a0c44e50"
+    },
+    {
+      "engine": "xetex",
+      "path": "xetex.wasm/swiftlatexxetex.wasm",
+      "bytes": 3073788,
+      "sha256": "fe4e0cea4bfde521ae35ef335d9233c09b8ab26a5676725705a78f46674aa0cd"
+    }
+  ]
+}

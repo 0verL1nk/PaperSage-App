@@ -37,8 +37,8 @@ export interface ChatState {
   streaming: boolean
   error: string | null
   proposals: Record<string, AgentChangeProposal>
-  /** 助手触发了编译：把 job id 交给写作页去轮询（见 WritingPage 的 compileJobId）。 */
-  pendingCompileJobId: string | null
+  /** 助手触发了浏览器编译：把入口文件交给当前写作页启动 WASM。 */
+  pendingBrowserCompileRequest: { rootFile: string } | null
 }
 
 export const emptyChatState: ChatState = {
@@ -49,11 +49,11 @@ export const emptyChatState: ChatState = {
   streaming: false,
   error: null,
   proposals: {},
-  pendingCompileJobId: null,
+  pendingBrowserCompileRequest: null,
 }
 
-/** 从 compile_project 的工具结果里取出 job id（工具返回文案含 `job id: <uuid>`）。 */
-const COMPILE_JOB_RE = /job id:\s*([0-9a-fA-F-]{36})/
+/** Agent tool emits a machine-readable browser request; the page creates its own browser job. */
+const BROWSER_COMPILE_REQUEST_RE = /browser_compile_request:(\{[^\r\n]+\})/
 
 function findOrCreatePart(msg: ChatMessage, id: string, type: ChatPartType): ChatPart {
   let part = msg.parts.find((p) => p.id === id)
@@ -120,10 +120,25 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
       const part = findOrCreatePart(ensureAssistant(), String(event.toolCallId ?? ''), 'tool')
       part.meta = { ...(part.meta ?? {}), output: event.output }
       part.status = 'succeeded'
-      // 编译联动：助手提交了编译任务时，把 job id 交给写作页去轮询刷新预览
+      // 编译联动：交接入口文件，由写作页按用户当前所选引擎创建浏览器任务。
       const toolName = (part.meta as { toolName?: string }).toolName
-      const m = typeof event.output === 'string' ? event.output.match(COMPILE_JOB_RE) : null
-      if (toolName === 'compile_project' && m) next.pendingCompileJobId = m[1]
+      const match = typeof event.output === 'string' ? event.output.match(BROWSER_COMPILE_REQUEST_RE) : null
+      if (toolName === 'compile_project' && match) {
+        try {
+          const request: unknown = JSON.parse(match[1])
+          if (
+            typeof request === 'object'
+            && request !== null
+            && 'root_file' in request
+            && typeof request.root_file === 'string'
+            && request.root_file.length > 0
+          ) {
+            next.pendingBrowserCompileRequest = { rootFile: request.root_file }
+          }
+        } catch {
+          // Keep malformed tool output visible without starting an unintended compile.
+        }
+      }
       return next
     }
     case 'tool-output-denied': {
@@ -199,7 +214,7 @@ type ChatStore = ChatState & {
   cancel: () => Promise<void>
   retire: () => void
   decideProposal: (id: string, approve: boolean) => Promise<void>
-  consumeCompileJobId: () => string | null
+  consumeBrowserCompileRequest: () => { rootFile: string } | null
   reset: () => void
 }
 
@@ -255,11 +270,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     })
   },
 
-  // 取走并清空：job id 是一次性交接，避免重复触发轮询
-  consumeCompileJobId: () => {
-    const id = get().pendingCompileJobId
-    if (id) set({ pendingCompileJobId: null })
-    return id
+  // 取走并清空：浏览器编译请求是一次性交接，避免重放时重复编译。
+  consumeBrowserCompileRequest: () => {
+    const request = get().pendingBrowserCompileRequest
+    if (request) set({ pendingBrowserCompileRequest: null })
+    return request
   },
 
   reset: () => set({ ...emptyChatState }),

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { FileText, ZoomIn, ZoomOut, RotateCcw, X, AlertTriangle } from 'lucide-react'
 import { Document, Page, pdfjs } from 'react-pdf'
+import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import { Button } from '@/components/ui/button'
 import { getOptionalApiBaseUrl } from '@/lib/env'
 import { apiClient } from '@/services/client'
@@ -184,6 +185,7 @@ function PdfRenderer({ url }: { url: string }) {
       <div ref={containerRef} className="flex-1 overflow-auto p-4">
         <Document
           file={fileConfig}
+          options={pdfDocumentOptions}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
           onLoadError={handleLoadError}
           onLoadProgress={({ loaded, total }) => {

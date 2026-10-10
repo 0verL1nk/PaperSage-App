@@ -37,7 +37,6 @@ const systemPrompt = `你是 PaperSage 的论文写作助手，服务对象是�
 type Service struct {
 	DB      *gorm.DB
 	Storage storage.Storage
-	Queue   *latex.Queue
 	Cfg     *config.Settings
 	RAG     *rag.Store
 	// hub 只做进程内唤醒，事件的真相在 agent_events（多实例/重启不丢事件）。
@@ -52,9 +51,9 @@ type Service struct {
 }
 
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
-	q *latex.Queue, cfg *config.Settings, rg *rag.Store) *Service {
+	cfg *config.Settings, rg *rag.Store) *Service {
 	return &Service{
-		DB: db, Storage: stg, Queue: q, Cfg: cfg, RAG: rg, files: files,
+		DB: db, Storage: stg, Cfg: cfg, RAG: rg, files: files,
 		hub: newRunHub(), cancels: map[store.UUID]context.CancelFunc{},
 	}
 }

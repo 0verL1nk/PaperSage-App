@@ -17,7 +17,6 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -64,11 +63,9 @@ func TestDeleteConversationIsSoftDelete(t *testing.T) {
 		ID: foreignID, ProjectID: pid, UserID: uid2, Title: "theirs"}).Error)
 
 	cfg := &config.Settings{SecretKey: "t"}
-	latexSvc, _ := latex.NewService(nil, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil,
-		latex.NewQueue(db, nil, latexSvc, cfg), cfg, rgStore)
+	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rgStore)
 
 	api := httpapi.New(nil)
 	agent.Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), agentSvc)
@@ -158,11 +155,9 @@ func TestCreateConversationThenRun(t *testing.T) {
 		BaseModel: store.BaseModel{ID: foreignPid}}).Error)
 
 	cfg := &config.Settings{SecretKey: "t"}
-	latexSvc, _ := latex.NewService(nil, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil,
-		latex.NewQueue(db, nil, latexSvc, cfg), cfg, rgStore)
+	agentSvc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rgStore)
 
 	api := httpapi.New(nil)
 	agent.Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), agentSvc)

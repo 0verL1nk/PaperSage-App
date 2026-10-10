@@ -12,6 +12,7 @@
     "test:e2e": "playwright test",
     "test:watch": "vitest",
     "typecheck": "tsc -b",
+    "check:latex-manifest": "node ../scripts/latex_resources/validate_browser_engine_manifest.mjs",
     "lezer-latex:generate": "lezer-generator src/lib/lezer-latex/latex.grammar -o src/lib/lezer-latex/latex.mjs"
   },
   "dependencies": {

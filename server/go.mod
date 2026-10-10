@@ -28,6 +28,7 @@ require (
 	github.com/redis/go-redis/v9 v9.7.3
 	github.com/spf13/afero v1.15.0
 	github.com/stretchr/testify v1.12.1
+	github.com/ulikunitz/xz v0.5.15
 	golang.org/x/crypto v0.57.0
 	gorm.io/datatypes v1.2.4
 	gorm.io/driver/mysql v1.5.7

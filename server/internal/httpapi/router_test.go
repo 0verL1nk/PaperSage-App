@@ -59,7 +59,11 @@ func TestCORSHeaders(t *testing.T) {
 	t.Cleanup(func() { _ = resp.Body.Close() })
 
 	assert.Equal(t, "*", resp.Header.Get("Access-Control-Allow-Origin"))
-	assert.Equal(t, "Content-Disposition", resp.Header.Get("Access-Control-Expose-Headers"))
+	exposed := strings.ToLower(resp.Header.Get("Access-Control-Expose-Headers"))
+	assert.Contains(t, exposed, "content-disposition")
+	assert.Contains(t, exposed, "fileid")
+	assert.Contains(t, exposed, "fontid")
+	assert.Contains(t, exposed, "x-papersage-resource-revision")
 }
 
 func TestCORSAllowsLocalImportIdempotencyHeaders(t *testing.T) {
@@ -78,4 +82,5 @@ func TestCORSAllowsLocalImportIdempotencyHeaders(t *testing.T) {
 	allowed := strings.ToLower(resp.Header.Get("Access-Control-Allow-Headers"))
 	assert.Contains(t, allowed, "x-papersage-import-bundle-id")
 	assert.Contains(t, allowed, "x-papersage-import-local-id")
+	assert.Contains(t, allowed, "x-vercel-trusted-oidc-idp-token")
 }

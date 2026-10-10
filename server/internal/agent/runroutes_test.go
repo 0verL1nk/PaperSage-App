@@ -21,7 +21,6 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -82,11 +81,9 @@ func TestRunLifecycleContract(t *testing.T) {
 	fake := fakeOpenAI(t)
 	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "k",
 		AgentBaseURL: fake.URL, AgentModel: "test-model"}
-	latexSvc, _ := latex.NewService(nil, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	svc := agent.NewService(db, testutil.NewMemStorage(), nil,
-		latex.NewQueue(db, nil, latexSvc, cfg), cfg, rgStore)
+	svc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rgStore)
 
 	api := httpapi.New(nil)
 	agent.Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), svc)

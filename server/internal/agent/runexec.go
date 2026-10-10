@@ -221,7 +221,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("读取历史失败")
 		return
 	}
-	tools, err := ProjectTools(s.DB, s.Storage, s.Queue, rc.ProjectID, rc.UserID, rc.RunID)
+	tools, err := ProjectTools(s.DB, s.Storage, rc.ProjectID, rc.UserID, rc.RunID)
 	if err != nil {
 		fail("构建工具失败")
 		return

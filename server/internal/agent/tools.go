@@ -16,7 +16,6 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/extract"
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -25,7 +24,7 @@ import (
 
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
-func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
+func ProjectTools(db *gorm.DB, stg storage.Storage,
 	projectID, ownerID, runID store.UUID) ([]tool.BaseTool, error) {
 
 	verify := func(ctx context.Context) error {
@@ -193,7 +192,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 
 	compileProject, err := utils.InferTool(
 		"compile_project",
-		"触发项目 LaTeX 编译（异步任务）。修改论文后用来验证能否编译通过。",
+		"请求当前写作页在用户浏览器中运行 LaTeX 编译。修改论文后用来验证能否编译通过。",
 		func(ctx context.Context, in struct {
 			RootFile string `json:"root_file,omitempty" jsonschema:"description=编译入口文件，默认 main.tex 可省略"`
 		}) (string, error) {
@@ -204,11 +203,19 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, queue *latex.Queue,
 			if root == "" {
 				root = "main.tex"
 			}
-			job, err := queue.Submit(ctx, projectID.UUID, ownerID.UUID, root, "pdflatex")
+			var file store.LatexFile
+			if err := db.WithContext(ctx).
+				Where("project_id = ? AND file_path = ?", projectID, root).
+				First(&file).Error; err != nil {
+				return "", fmt.Errorf("LaTeX root file %q was not found in this project", root)
+			}
+			request, err := json.Marshal(struct {
+				RootFile string `json:"root_file"`
+			}{RootFile: root})
 			if err != nil {
 				return "", err
 			}
-			return fmt.Sprintf("编译任务已提交（job id: %s），用户可在编译面板查看进度。", job.ID.String()), nil
+			return "browser_compile_request:" + string(request), nil
 		})
 	if err != nil {
 		return nil, err

@@ -1,56 +1,91 @@
-## ADDED Requirements
+## Purpose
+
+Persist project compile jobs and expose their status/history. The old CLSI queue
+implementation remains available for explicit future reactivation, while
+current LaTeX compilation runs in browser workers.
+## Requirements
+
+This capability documents persisted compile jobs and the retained legacy CLSI
+queue. Normal compilation now runs in browser workers; the legacy queue remains
+in source but is dormant and is not started or used as a browser-compilation
+fallback. Queue-specific requirements below apply only if that legacy path is
+explicitly reactivated in a future change.
 
 ### Requirement: Compile job persistence
-系统 SHALL 将每次编译请求持久化到 `compile_jobs` 数据库表，包含 `id`, `project_id`, `user_id`, `status`, `root_file`, `compiler`, `build_id`, `error`, `logs`, `created_at`, `updated_at` 字段。
+The system SHALL persist each browser compile job in `compile_jobs` with its
+project/user identity, status, root file, compiler, build ID, error, logs, and
+timestamps. Browser jobs start in `running`; `pending` is used only by the
+dormant legacy queue if it is explicitly reactivated.
 
 #### Scenario: Submit compile job
-- **WHEN** 用户提交编译请求
-- **THEN** 系统创建 `compile_jobs` 记录，初始状态为 `pending`，返回 `job_id`
+- **WHEN** the writing page submits a browser compile job
+- **THEN** the system persists it with `running` status and returns its `job_id`
 
 #### Scenario: Query compile history
 - **WHEN** 用户查询项目的编译历史
 - **THEN** 系统返回该项目最近 20 条编译记录，按 `created_at` 降序排列
 
 ### Requirement: Compile job state machine
-编译任务 SHALL 遵循状态机：`pending` → `running` → `success` / `failed` / `timeout` / `cancelled`。状态转换 SHALL 不可逆（只能向前）。
+Browser compile jobs SHALL transition from `running` to a terminal state
+(`success`, `failed`, `timeout`, or `cancelled`) exactly once. If the legacy
+queue is explicitly reactivated, its queued jobs may transition from `pending`
+to `running` before reaching a terminal state. Terminal states SHALL be
+immutable.
 
 #### Scenario: Normal compilation flow
-- **WHEN** 编译任务被队列取出执行
-- **THEN** 状态从 `pending` 变为 `running`，编译完成后变为 `success` 或 `failed`
+- **WHEN** a browser worker completes a compile job
+- **THEN** the backend records its terminal `success` or `failed` state against the existing job
 
 #### Scenario: Compilation timeout
-- **WHEN** 编译执行超过配置的超时时间（默认 120 秒）
-- **THEN** 状态变为 `timeout`，系统终止 CLSI 编译进程并清理资源
+- **WHEN** browser compilation exceeds its configured worker command limit, or an explicitly reactivated CLSI process exceeds its configured server limit
+- **THEN** the job becomes `timeout` and the corresponding worker or CLSI process is terminated
 
 #### Scenario: User cancellation
-- **WHEN** 用户在编译过程中请求取消
-- **THEN** 状态从 `running` 变为 `cancelled`，系统终止 CLSI 编译进程
+- **WHEN** the user requests cancellation while a browser job is running
+- **THEN** the system records `cancelled` and terminates the browser worker
 
 #### Scenario: Invalid state transition
 - **WHEN** 尝试将 `success` 状态的任务变为 `pending`
 - **THEN** 系统拒绝该操作，保持原状态不变
 
 ### Requirement: Async compile API
-编译 API SHALL 改为异步模式：POST 提交返回 `job_id`，GET 轮询获取状态。
+Compile jobs SHALL support browser execution while preserving the existing asynchronous job identity and status polling. Browser-originated jobs SHALL NOT be routed to a server-side TeX compiler.
 
 #### Scenario: Submit compilation
-- **WHEN** 用户 POST `/api/v1/projects/{id}/latex/compile`
-- **THEN** 系统创建编译任务，立即返回 `{ job_id, status: "pending" }`，HTTP 202
+- **WHEN** the project editor POSTs `/api/v1/projects/{id}/latex/compile/browser` for a supported browser engine
+- **THEN** the backend creates a persisted `running` job, returns its `job_id` with HTTP 202, and does not enqueue CLSI work
 
 #### Scenario: Poll job status
-- **WHEN** 用户 GET `/api/v1/projects/{id}/latex/compile/{job_id}/status`
-- **THEN** 系统返回 `{ job_id, status, build_id?, error?, logs?, elapsed_seconds? }`
+- **WHEN** the client GETs `/api/v1/projects/{id}/latex/compile/{job_id}/status`
+- **THEN** the backend returns that authorized job's current or terminal status and available build ID, diagnostics, and elapsed time
 
 #### Scenario: Job not found
-- **WHEN** 用户查询不存在的 `job_id`
-- **THEN** 系统返回 HTTP 404
+- **WHEN** a client polls a job ID that does not exist or does not belong to the requested project
+- **THEN** the API returns HTTP 404
 
 #### Scenario: Unauthorized access
-- **WHEN** 用户查询不属于自己项目的编译任务
-- **THEN** 系统返回 HTTP 403
+- **WHEN** a client polls a compile job for a project the user cannot access
+- **THEN** the API returns HTTP 403 without disclosing the job data
 
-### Requirement: Concurrency control via Semaphore
-系统 SHALL 使用 `asyncio.Semaphore` 限制同时运行的编译进程数量。超出限制的任务在队列中等待。
+#### Scenario: Complete a browser-executed job
+- **WHEN** a browser worker successfully compiles a project and submits its artifacts
+- **THEN** the backend associates the result with the authorized compile job, stores the artifacts, and exposes the terminal state through the existing job polling API
+
+#### Scenario: Browser cannot run a required capability
+- **WHEN** the selected browser engine cannot run a required engine or project capability
+- **THEN** the job reports an actionable unsupported-capability error through the existing job polling API and is not sent to CLSI
+
+#### Scenario: Legacy server compile submission is disabled
+- **WHEN** a client submits a compile through the legacy server-side endpoint
+- **THEN** the API returns a clear deprecation response and does not enqueue CLSI work
+
+#### Scenario: Agent requests compilation
+- **WHEN** the agent invokes `compile_project` for a valid project root file
+- **THEN** the current writing page starts a browser job using the user's selected browser engine and the backend does not compile the source
+
+### Requirement: Bounded concurrency for the legacy queue
+If the retained legacy CLSI queue is explicitly reactivated, the server SHALL
+bound the number of concurrent CLSI processes and keep excess jobs queued.
 
 #### Scenario: Within concurrency limit
 - **WHEN** 当前运行 2 个编译任务，限制为 3
@@ -64,19 +99,25 @@
 - **WHEN** 一个编译任务完成（成功或失败），且有 `pending` 任务等待
 - **THEN** 队列自动取出下一个 `pending` 任务开始执行
 
-### Requirement: Startup recovery
-服务启动时 SHALL 扫描数据库中的残留任务并恢复状态。
+### Requirement: Legacy queue startup recovery
+While the legacy CLSI queue is dormant, server startup SHALL NOT resume queued
+CLSI work or mark browser-originated jobs as orphaned CLSI processes. If a
+future change explicitly reactivates the queue, it SHALL define recovery for
+that queue before enabling it.
 
 #### Scenario: Recover pending jobs
-- **WHEN** 服务启动，数据库中存在 `pending` 状态的任务
+- **WHEN** legacy CLSI 队列已由后续变更显式重新启用，服务启动且数据库中存在 `pending` 状态的队列任务
 - **THEN** 系统将这些任务重新提交到编译队列
 
 #### Scenario: Mark orphaned running jobs
-- **WHEN** 服务启动，数据库中存在 `running` 状态的任务
+- **WHEN** legacy CLSI 队列已由后续变更显式重新启用，服务启动且数据库中存在 `running` 状态的 CLSI 任务
 - **THEN** 系统将这些任务标记为 `failed`，error 字段记录 "Process restarted during compilation"
 
-### Requirement: Compile timeout and resource cleanup
-系统 SHALL 对每个编译任务设置超时，超时后强制终止并清理资源。
+### Requirement: Timeout and resource cleanup for the legacy queue
+If the retained legacy CLSI queue is explicitly reactivated, each CLSI process
+SHALL have a configured timeout and SHALL release server-side resources on
+timeout or failure. Browser jobs use the browser worker execution limits and
+do not start a CLSI process.
 
 #### Scenario: Timeout triggers cleanup
 - **WHEN** 编译任务执行超过 `LATEX_COMPILE_TIMEOUT` 秒（默认 120）

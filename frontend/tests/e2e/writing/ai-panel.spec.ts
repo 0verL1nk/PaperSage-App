@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
 import { WRITING_URL, mockWritingPageAPIs, seedAuthTokens } from '../helpers'
 
 /**
@@ -33,6 +35,7 @@ const PROVIDER = {
   models: ['demo-model'],
   active_model: 'demo-model',
 }
+const samplePdfPath = fileURLToPath(new URL('../fixtures/sample.pdf', import.meta.url))
 
 async function mockAgentApis(
   page: import('@playwright/test').Page,
@@ -184,6 +187,56 @@ test.describe('AI 助手面板', () => {
     await page.getByText('参考材料 · 1').click()
     await expect(page.getByText('研究计划.pdf')).toBeVisible()
     await expect(page.getByText('这是一段可回查的原文依据。')).toBeVisible()
+  })
+
+  test('Agent compile_project routes the requested root file through the browser engine', async ({ page }) => {
+    const stream = [
+      { type: 'start', messageId: 'm-compile' },
+      { type: 'tool-input-start', toolCallId: 'compile-call', toolName: 'compile_project' },
+      { type: 'tool-output-available', toolCallId: 'compile-call', output: `browser_compile_request:${JSON.stringify({ root_file: 'sections/intro.tex' })}` },
+      { type: 'finish' },
+    ].map((event) => `data: ${JSON.stringify(event)}\n\n`).join('') + 'data: [DONE]\n\n'
+    const pdfBase64 = (await readFile(samplePdfPath)).toString('base64')
+    const compilerModule = `
+      export async function compileLatexInBrowser(_files, rootFile, compiler, options = {}) {
+        options.onProgress?.({ stage: 'compile', message: 'agent browser compile', pass: 1, totalPasses: 1 });
+        if (rootFile !== 'sections/intro.tex' || !['pdflatex', 'xelatex'].includes(compiler)) throw new Error('unexpected browser compile input');
+        return { pdf: Uint8Array.from(atob(${JSON.stringify(pdfBase64)}), char => char.charCodeAt(0)), log: 'agent fixture log' };
+      }
+    `
+    let browserJobBody: Record<string, unknown> | null = null
+    let artifactUploaded = false
+
+    await page.goto('/')
+    await seedAuthTokens(page)
+    await mockWritingPageAPIs(page)
+    await mockAgentApis(page, { withProvider: true, stream })
+    await page.route('**/src/lib/latex/swiftlatex-browser-compiler.ts*', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/javascript', body: compilerModule })
+    })
+    await page.route(`**/api/v1/projects/*/latex/compile/browser`, async (route) => {
+      browserJobBody = route.request().postDataJSON() as Record<string, unknown>
+      await route.fulfill({ status: 202, contentType: 'application/json', body: JSON.stringify({ code: 200, data: { job_id: 'agent-browser-job', status: 'running' } }) })
+    })
+    await page.route('**/api/v1/projects/*/latex/compile/agent-browser-job/browser-result', async (route) => {
+      artifactUploaded = true
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, data: { job_id: 'agent-browser-job', build_id: 'agent-browser-build', status: 'success' } }) })
+    })
+    await page.route('**/api/v1/projects/*/latex/compile/agent-browser-job/status/', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ code: 200, data: { job_id: 'agent-browser-job', build_id: 'agent-browser-build', status: 'success' } }) })
+    })
+    await page.route('**/api/v1/projects/*/latex/output/**', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/pdf', body: await readFile(samplePdfPath) })
+    })
+
+    await page.goto(WRITING_URL)
+    await page.getByTestId('writing-tab-ai').click()
+    await page.getByPlaceholder('问点什么…').fill('编译章节')
+    await page.getByPlaceholder('问点什么…').press('Enter')
+
+    await expect.poll(() => browserJobBody, { timeout: 15_000 }).not.toBeNull()
+    await expect.poll(() => artifactUploaded).toBe(true)
+    expect(browserJobBody).toMatchObject({ root_file: 'sections/intro.tex' })
   })
 
   test('刷新后仍能从历史助手消息回查 Run 依据', async ({ page }) => {

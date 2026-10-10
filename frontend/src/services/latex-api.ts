@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { getJson, postJson, putJson, deleteFetch, downloadBlob, postMultipart, type ApiRequestConfig } from './client'
+import { apiClient, getJson, postJson, putJson, deleteFetch, downloadBlob, postMultipart, type ApiRequestConfig } from './client'
 import { getAccessToken } from '@/store'
 import { useSessionStore } from '@/store'
 import { LATEX } from './api-routes'
@@ -176,6 +176,39 @@ export function compileLatex(
     compiler,
     files,
   })
+}
+
+export function createBrowserCompileJob(projectId: string, rootFile: string, compiler: string) {
+  return postJson<CompileJobSubmitResponse, { root_file: string; compiler: string }>(
+    LATEX.browserCompile(projectId),
+    { root_file: rootFile, compiler },
+  )
+}
+
+export async function uploadBrowserCompileResult(projectId: string, jobId: string, pdf: Uint8Array, logs: string) {
+  const form = new FormData()
+  const pdfBytes = pdf.buffer.slice(pdf.byteOffset, pdf.byteOffset + pdf.byteLength) as ArrayBuffer
+  form.set('pdf', new Blob([pdfBytes], { type: 'application/pdf' }), 'output.pdf')
+  form.set('logs', logs)
+  const response = await apiClient.post<{ code: number; data: { build_id: string; status: string }; info: string }>(
+    LATEX.browserCompileResult(projectId, jobId),
+    form,
+    { timeout: 10 * 60 * 1000 },
+  )
+  if (response.data.code !== 200) throw new Error(response.data.info || 'PDF 上传失败')
+  return response.data.data
+}
+
+export function reportBrowserCompileFailure(projectId: string, jobId: string, error: string, logs: string) {
+  return postJson<{ job_id: string; status: string }, { error: string; logs: string }>(
+    LATEX.browserCompileFailure(projectId, jobId),
+    { error, logs },
+  )
+}
+
+export async function fetchLatexFileBytes(projectId: string, filePath: string): Promise<Uint8Array> {
+  const blob = await downloadBlob(`${LATEX.fileContent(projectId, filePath)}?raw=true`)
+  return new Uint8Array(await blob.arrayBuffer())
 }
 
 export function getCompileStatus(projectId: string, jobId: string) {

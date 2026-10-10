@@ -5,6 +5,8 @@ import {
   getApiBaseUrlFor,
   getApiTarget,
   getOptionalApiBaseUrl,
+  normalizeApiBaseUrl,
+  setCustomApiBaseUrl,
   setApiTarget,
 } from '@/lib/env'
 
@@ -35,5 +37,18 @@ describe('接口环境解析', () => {
 
   it('两个目标的地址互不相同（否则切换没有意义）', () => {
     expect(getApiBaseUrlFor('online')).not.toBe(getApiBaseUrlFor('local'))
+  })
+
+  it('支持保存并切换到自定义后端地址', () => {
+    setCustomApiBaseUrl(' https://preview-api.example.test/ ')
+    setApiTarget('custom')
+    expect(getApiTarget()).toBe('custom')
+    expect(getOptionalApiBaseUrl()).toBe('https://preview-api.example.test')
+  })
+
+  it('只接受安全的 http(s) 基础地址', () => {
+    expect(normalizeApiBaseUrl('http://localhost:5478/')).toBe('http://localhost:5478')
+    expect(() => normalizeApiBaseUrl('localhost:5478')).toThrow(/完整地址/)
+    expect(() => normalizeApiBaseUrl('https://user:pass@example.test')).toThrow(/账号、密码/)
   })
 })
