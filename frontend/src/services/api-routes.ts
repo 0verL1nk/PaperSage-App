@@ -65,6 +65,11 @@ export const LATEX = {
   moveFile: (projectId: string, path: string) =>
     `${V1}/projects/${projectId}/latex-files/${encodeURIComponent(path)}/move`,
   compile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/`,
+  browserCompile: (projectId: string) => `${V1}/projects/${projectId}/latex/compile/browser`,
+  browserCompileResult: (projectId: string, jobId: string) =>
+    `${V1}/projects/${projectId}/latex/compile/${jobId}/browser-result`,
+  browserCompileFailure: (projectId: string, jobId: string) =>
+    `${V1}/projects/${projectId}/latex/compile/${jobId}/browser-failure`,
   compileStatus: (projectId: string, jobId: string) =>
     `${V1}/projects/${projectId}/latex/compile/${jobId}/status/`,
   compileHistory: (projectId: string) =>

@@ -15,6 +15,10 @@ export default defineConfig({
         target: 'http://localhost:5478',
         changeOrigin: true,
       },
+      '/texlive': {
+        target: 'http://localhost:5478',
+        changeOrigin: true,
+      },
     },
   },
   build: {

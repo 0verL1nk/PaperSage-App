@@ -1,5 +1,14 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "go",
-  "regions": ["sin1"]
+  "regions": ["sin1"],
+  "headers": [
+    {
+      "source": "/texlive/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Expose-Headers", "value": "fileid, fontid, X-PaperSage-Resource-Revision, ETag, Content-Length" }
+      ]
+    }
+  ]
 }

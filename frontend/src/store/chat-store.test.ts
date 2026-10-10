@@ -129,30 +129,39 @@ describe('reduceChatEvent', () => {
     expect(s.messages[0].parts.some((p) => p.type === 'error')).toBe(true)
   })
 
-  it('编译联动：从 compile_project 的结果里取出 job id 交给写作页', () => {
+  it('编译联动：从 compile_project 的结果里取出入口文件交给浏览器编译器', () => {
     const s = feed([
       { type: 'start', messageId: 'm1' },
       { type: 'tool-input-start', toolCallId: 'c1', toolName: 'compile_project' },
       {
         type: 'tool-output-available',
         toolCallId: 'c1',
-        output: '编译任务已提交（job id: 11111111-2222-3333-4444-555555555555），可在编译面板查看进度。',
+        output: 'browser_compile_request:{"root_file":"chapters/intro.tex"}',
       },
     ])
-    expect(s.pendingCompileJobId).toBe('11111111-2222-3333-4444-555555555555')
+    expect(s.pendingBrowserCompileRequest).toEqual({ rootFile: 'chapters/intro.tex' })
   })
 
-  it('编译联动不误取其他工具结果里的 job id', () => {
+  it('编译联动不误取其他工具结果中的浏览器请求标记', () => {
     const s = feed([
       { type: 'start', messageId: 'm1' },
       { type: 'tool-input-start', toolCallId: 'c1', toolName: 'list_latex_files' },
       {
         type: 'tool-output-available',
         toolCallId: 'c1',
-        output: 'job id: 11111111-2222-3333-4444-555555555555',
+        output: 'browser_compile_request:{"root_file":"main.tex"}',
       },
     ])
-    expect(s.pendingCompileJobId).toBeNull()
+    expect(s.pendingBrowserCompileRequest).toBeNull()
+  })
+
+  it('忽略格式错误的 Agent 编译请求，不触发默认编译', () => {
+    const s = feed([
+      { type: 'start', messageId: 'm1' },
+      { type: 'tool-input-start', toolCallId: 'c1', toolName: 'compile_project' },
+      { type: 'tool-output-available', toolCallId: 'c1', output: 'browser_compile_request:{bad-json}' },
+    ])
+    expect(s.pendingBrowserCompileRequest).toBeNull()
   })
 })
 

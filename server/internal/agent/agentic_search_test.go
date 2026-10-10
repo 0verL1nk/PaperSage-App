@@ -24,7 +24,6 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -124,9 +123,7 @@ func TestAgenticSearchSubagent(t *testing.T) {
 
 	cfg := &config.Settings{SecretKey: "t",
 		AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m"}
-	latexSvc, _ := latex.NewService(nil, cfg)
-	queue := latex.NewQueue(db, nil, latexSvc, cfg)
-	svc := agent.NewService(db, testutil.NewMemStorage(), nil, queue, cfg, rg)
+	svc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rg)
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)

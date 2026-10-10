@@ -43,8 +43,8 @@ func newEngine(logger *slog.Logger) *API {
 	e.Use(cors.New(cors.Config{
 		AllowAllOrigins: true,
 		AllowMethods:    []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"},
-		AllowHeaders:    []string{"Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-PaperSage-Import-Bundle-Id", "X-PaperSage-Import-Local-Id"},
-		ExposeHeaders:   []string{"Content-Disposition"},
+		AllowHeaders:    []string{"Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-PaperSage-Import-Bundle-Id", "X-PaperSage-Import-Local-Id", "X-Vercel-Trusted-OIDC-IdP-Token"},
+		ExposeHeaders:   []string{"Content-Disposition", "ETag", "Content-Length", "fileid", "fontid", "X-PaperSage-Resource-Revision"},
 	}))
 
 	// 未匹配路由/方法 → Starlette 实测形态：裸 {"detail": ...}（双跑验证，
@@ -79,6 +79,7 @@ func newEngine(logger *slog.Logger) *API {
 			api.spaFallback(c)
 			return
 		}
+		c.Header("Cache-Control", "no-store")
 		writeDetail(c, http.StatusNotFound, "Not Found")
 	})
 	e.NoMethod(func(c *gin.Context) {
@@ -86,7 +87,6 @@ func newEngine(logger *slog.Logger) *API {
 	})
 
 	e.GET("/health", healthHandler)
-
 	_ = e.Group(APIVersion) // 领域路由挂载点
 
 	return api

@@ -29,9 +29,15 @@ type Settings struct {
 	Host string `env:"HOST" envDefault:"0.0.0.0"`
 	Port int    `env:"PORT" envDefault:"5478"`
 
-	LatexCLSIEnabled        bool   `env:"LATEX_CLSI_ENABLED" envDefault:"true"`
+	// CLSI stays in source for possible reactivation, but is disabled by default
+	// while PaperSage moves LaTeX compilation into browser workers.
+	LatexCLSIEnabled        bool   `env:"LATEX_CLSI_ENABLED" envDefault:"false"`
 	LatexCLSIBaseURL        string `env:"LATEX_CLSI_BASE_URL" envDefault:"http://localhost:3013"`
 	LatexCLSITimeoutSeconds int    `env:"LATEX_CLSI_TIMEOUT_SECONDS" envDefault:"120"`
+	// LatexResourceProfile identifies one immutable, catalog-backed TeX Live tree.
+	LatexResourceProfile string `env:"LATEX_RESOURCE_PROFILE" envDefault:"tl2026-swift-ef78b612-r80534-v7"`
+	// LatexResourceRepository is the HTTPS TeX Live tlnet repository used for on-demand package archives.
+	LatexResourceRepository string `env:"LATEX_RESOURCE_REPOSITORY" envDefault:"https://mirror.ctan.org/systems/texlive/tlnet"`
 
 	MaxConcurrentCompiles int `env:"MAX_CONCURRENT_COMPILES" envDefault:"3"`
 	LatexCompileTimeout   int `env:"LATEX_COMPILE_TIMEOUT" envDefault:"120"`

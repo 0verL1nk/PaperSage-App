@@ -1,0 +1,182 @@
+{
+  "schemaVersion": 2,
+  "buildId": "12e79a7600096581b67a249501ba0687417e5e3f01250a2d96d9bbd17dad1020",
+  "texliveYear": "2026",
+  "family": "xetex",
+  "sourceRevision": "7f074299d01a2f8b2c0107c8ff27d12adcda6b06",
+  "texliveSourceCommit": "fb6158926661cb7a7246b3a94a0cb170a9624d5a",
+  "mirror": {
+    "revision": "2026-ba38749b8714505a",
+    "provenanceSha256": "7c5ef0a46b6a52cd8aa4e4ad2256eb58d6bb2062c45dfa43e48def1dfa9faf00",
+    "url": "https://texlive.corca.ai/snapshots/2026-ba38749b8714505a/2026/"
+  },
+  "toolchain": {
+    "emscriptenVersion": "3.1.46",
+    "emscriptenCommit": "19607820c447a13fd8d0b7680c56148427d6e1b8",
+    "dockerImage": "emscripten/emsdk:3.1.46@sha256:2491bc4bf6caf8c41993660822341bc72759cb577363dfe0781f0a2d05f7d357"
+  },
+  "files": [
+    {
+      "name": "wasmtex-dvipdfm.js",
+      "bytes": 86724,
+      "sha256": "5ef4528725ab2475a9a00d4eabe7b216d5637e2620bcaae494b91503056c5312"
+    },
+    {
+      "name": "wasmtex-dvipdfm.wasm",
+      "bytes": 834985,
+      "sha256": "d43b768b3900afe001d901313eb12c2ac0db7addbe8297a2108c35f26dcf2fea"
+    },
+    {
+      "name": "wasmtex-dvipdfm.worker.js",
+      "bytes": 20023,
+      "sha256": "035da82f748a8dc86ce216c47de41e8521412806a27dbf7fb214f5d09b313e7a"
+    },
+    {
+      "name": "wasmtex-xetex-resolver-evidence.js",
+      "bytes": 589,
+      "sha256": "f42ab09591de3108ac07635f060cc1fca27571f62a852edf5e6307515b83b728"
+    },
+    {
+      "name": "wasmtex-xetex.fmt.gz",
+      "bytes": 3920543,
+      "sha256": "0b2bb28f6de7793488fdc11cfc1f6ff42c631d93486530f879036ec4b5307513"
+    },
+    {
+      "name": "wasmtex-xetex.js",
+      "bytes": 108974,
+      "sha256": "87a1a4a6dc407fcaddf1f51f7772265bc152967ce3a5eb775adf328f827e4063"
+    },
+    {
+      "name": "wasmtex-xetex.wasm",
+      "bytes": 3495192,
+      "sha256": "631979a8147cd63d2926a53268ae5ffd9ccd3ad1fd3551a6898e332b115122c5"
+    },
+    {
+      "name": "wasmtex-xetex.worker.js",
+      "bytes": 18855,
+      "sha256": "16594f9f31723ee2b3a6b592a695f5effdc51475df9e6fb503b539051ef77acc"
+    }
+  ],
+  "generationReceipts": {
+    "engine": {
+      "schemaVersion": 1,
+      "buildId": "e39656022f14b7d050fcf9a5d417833c59df8e94c894c53798db925f222d4860",
+      "texliveYear": "2026",
+      "family": "xetex",
+      "sourceRevision": "7f074299d01a2f8b2c0107c8ff27d12adcda6b06",
+      "texliveSourceCommit": "fb6158926661cb7a7246b3a94a0cb170a9624d5a",
+      "mirror": {
+        "revision": "2026-ba38749b8714505a",
+        "provenanceSha256": "7c5ef0a46b6a52cd8aa4e4ad2256eb58d6bb2062c45dfa43e48def1dfa9faf00",
+        "url": "https://texlive.corca.ai/snapshots/2026-ba38749b8714505a/2026/"
+      },
+      "toolchain": {
+        "emscriptenVersion": "3.1.46",
+        "emscriptenCommit": "19607820c447a13fd8d0b7680c56148427d6e1b8",
+        "dockerImage": "emscripten/emsdk:3.1.46@sha256:2491bc4bf6caf8c41993660822341bc72759cb577363dfe0781f0a2d05f7d357"
+      },
+      "files": [
+        {
+          "name": "wasmtex-dvipdfm.js",
+          "bytes": 86724,
+          "sha256": "5ef4528725ab2475a9a00d4eabe7b216d5637e2620bcaae494b91503056c5312"
+        },
+        {
+          "name": "wasmtex-dvipdfm.wasm",
+          "bytes": 834985,
+          "sha256": "d43b768b3900afe001d901313eb12c2ac0db7addbe8297a2108c35f26dcf2fea"
+        },
+        {
+          "name": "wasmtex-dvipdfm.worker.js",
+          "bytes": 20023,
+          "sha256": "035da82f748a8dc86ce216c47de41e8521412806a27dbf7fb214f5d09b313e7a"
+        },
+        {
+          "name": "wasmtex-xetex-resolver-evidence.js",
+          "bytes": 589,
+          "sha256": "f42ab09591de3108ac07635f060cc1fca27571f62a852edf5e6307515b83b728"
+        },
+        {
+          "name": "wasmtex-xetex.fmt.gz",
+          "bytes": 3922683,
+          "sha256": "1567f550afca8ec257a6a36c1d1f34db046b9db3d6bf713c9f6602b25f1f42ba"
+        },
+        {
+          "name": "wasmtex-xetex.js",
+          "bytes": 108974,
+          "sha256": "87a1a4a6dc407fcaddf1f51f7772265bc152967ce3a5eb775adf328f827e4063"
+        },
+        {
+          "name": "wasmtex-xetex.wasm",
+          "bytes": 3495192,
+          "sha256": "631979a8147cd63d2926a53268ae5ffd9ccd3ad1fd3551a6898e332b115122c5"
+        },
+        {
+          "name": "wasmtex-xetex.worker.js",
+          "bytes": 18855,
+          "sha256": "16594f9f31723ee2b3a6b592a695f5effdc51475df9e6fb503b539051ef77acc"
+        }
+      ]
+    },
+    "formats": {
+      "schemaVersion": 1,
+      "buildId": "d67c49ffed42c6c4db4bef3e7c31426cf9f77b37bc0287f484abc3af3a545c67",
+      "texliveYear": "2026",
+      "family": "xetex",
+      "sourceRevision": "0dddc924cc6e69bd2a4b4630e02efe414f84515e",
+      "texliveSourceCommit": "fb6158926661cb7a7246b3a94a0cb170a9624d5a",
+      "mirror": {
+        "revision": "2026-ba38749b8714505a",
+        "provenanceSha256": "7c5ef0a46b6a52cd8aa4e4ad2256eb58d6bb2062c45dfa43e48def1dfa9faf00",
+        "url": "https://texlive.corca.ai/snapshots/2026-ba38749b8714505a/2026/"
+      },
+      "toolchain": {
+        "emscriptenVersion": "3.1.46",
+        "emscriptenCommit": "19607820c447a13fd8d0b7680c56148427d6e1b8",
+        "dockerImage": "emscripten/emsdk:3.1.46@sha256:2491bc4bf6caf8c41993660822341bc72759cb577363dfe0781f0a2d05f7d357"
+      },
+      "files": [
+        {
+          "name": "wasmtex-dvipdfm.js",
+          "bytes": 86724,
+          "sha256": "d781e79dfc02d40b9a2ce11cfa8178a1376623cafe74c48751f1ab331ced1d65"
+        },
+        {
+          "name": "wasmtex-dvipdfm.wasm",
+          "bytes": 832374,
+          "sha256": "72fce45bf59aa214328a63593647477b5646ae0ff39d18f74dcd8e93dcb959f0"
+        },
+        {
+          "name": "wasmtex-dvipdfm.worker.js",
+          "bytes": 14758,
+          "sha256": "f2e0d9eb3b273cfcbba78e5b0d4ae6768509c818499818229497a01121548548"
+        },
+        {
+          "name": "wasmtex-xetex-resolver-evidence.js",
+          "bytes": 589,
+          "sha256": "f42ab09591de3108ac07635f060cc1fca27571f62a852edf5e6307515b83b728"
+        },
+        {
+          "name": "wasmtex-xetex.fmt.gz",
+          "bytes": 3920543,
+          "sha256": "0b2bb28f6de7793488fdc11cfc1f6ff42c631d93486530f879036ec4b5307513"
+        },
+        {
+          "name": "wasmtex-xetex.js",
+          "bytes": 106975,
+          "sha256": "08abd09c617762cb4eb37922899cda818cf7a93d53801e53d28782070125a913"
+        },
+        {
+          "name": "wasmtex-xetex.wasm",
+          "bytes": 3494333,
+          "sha256": "b59c0de517a1215e3c3e4ddce30a3aa8714b20544916bc947f5ee08df3b3e620"
+        },
+        {
+          "name": "wasmtex-xetex.worker.js",
+          "bytes": 15040,
+          "sha256": "5880ff256b3a05dee9f298e026dd6f94bd9db7ae55573ccede844b33c7aba530"
+        }
+      ]
+    }
+  }
+}

@@ -55,10 +55,9 @@ func TestProposalApplyReject(t *testing.T) {
 	_, err = files.CreateFile(context.Background(), pid.UUID, "main.tex", "ABC DEF", uid.UUID)
 	require.NoError(t, err)
 
-	latexSvc, _ := latex.NewService(nil, cfg)
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
-	svc := agent.NewService(db, stg, files, latex.NewQueue(db, nil, latexSvc, cfg), cfg, rgStore)
+	svc := agent.NewService(db, stg, files, cfg, rgStore)
 
 	api := httpapi.New(nil)
 	agent.Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), svc)
@@ -143,12 +142,10 @@ func TestProjectToolsHasNoWriteTool(t *testing.T) {
 			_ = s.Close()
 		}
 	})
-	cfg := &config.Settings{}
-	latexSvc, _ := latex.NewService(nil, cfg)
 	uid, pid := store.MustNewUUID(), store.MustNewUUID()
 
 	tools, err := agent.ProjectTools(db, testutil.NewMemStorage(),
-		latex.NewQueue(db, nil, latexSvc, cfg), pid, uid, store.MustNewUUID())
+		pid, uid, store.MustNewUUID())
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(tools))

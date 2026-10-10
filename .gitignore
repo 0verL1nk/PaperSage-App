@@ -218,3 +218,9 @@ server/.env
 docs/proposal/.build-preview/
 .neon
 .env.local
+/frontend/wasm/eps-converter/target/
+/frontend/.vercel/
+/server/.vercel/
+/frontend/test-results/
+/server/test-results/
+/test-results/

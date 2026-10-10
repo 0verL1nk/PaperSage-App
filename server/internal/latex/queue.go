@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sort"
@@ -62,6 +63,83 @@ func (q *Queue) Submit(ctx context.Context, projectID, userID uuid.UUID, rootFil
 	return &job, nil
 }
 
+// CreateBrowserJob creates a persisted job without scheduling the CLSI queue.
+// The browser owns compilation and submits one terminal result afterward.
+func (q *Queue) CreateBrowserJob(ctx context.Context, projectID, userID uuid.UUID, rootFile, compiler string) (*store.CompileJob, error) {
+	job := store.CompileJob{
+		ProjectID: store.UUID{UUID: projectID},
+		UserID:    store.UUID{UUID: userID},
+		Status:    string(store.JobRunning),
+		RootFile:  rootFile,
+		Compiler:  compiler,
+	}
+	if err := q.DB.WithContext(ctx).Create(&job).Error; err != nil {
+		return nil, err
+	}
+	return &job, nil
+}
+
+// CompleteBrowserJob records a browser-produced artifact after its object has
+// been stored. Repeating the same completion for a successful job is safe.
+func (q *Queue) CompleteBrowserJob(ctx context.Context, jobID, projectID, userID uuid.UUID, buildID, logs string) error {
+	result := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("id = ? AND project_id = ? AND user_id = ? AND status = ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}, string(store.JobRunning)).
+		Updates(map[string]any{
+			"status": string(store.JobSuccess), "build_id": buildID,
+			"error": nil, "logs": logs,
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 1 {
+		return nil
+	}
+	var job store.CompileJob
+	if err := q.DB.WithContext(ctx).
+		Where("id = ? AND project_id = ? AND user_id = ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}).
+		First(&job).Error; err != nil {
+		return err
+	}
+	if job.Status == string(store.JobSuccess) && job.BuildID != nil && *job.BuildID == buildID {
+		return nil
+	}
+	return fmt.Errorf("compile job is no longer running")
+}
+
+// FailBrowserJob stores full browser diagnostics and makes a failed browser
+// compilation visible in existing history/status APIs.
+func (q *Queue) FailBrowserJob(ctx context.Context, jobID, projectID, userID uuid.UUID, message, logs string) error {
+	if len(message) > maxLogSize {
+		message = message[:maxLogSize]
+	}
+	if len(logs) > maxBrowserLogBytes {
+		logs = logs[:maxBrowserLogBytes]
+	}
+	result := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("id = ? AND project_id = ? AND user_id = ? AND status = ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}, string(store.JobRunning)).
+		Updates(map[string]any{"status": string(store.JobFailed), "error": message, "logs": logs})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 1 {
+		return nil
+	}
+	var job store.CompileJob
+	if err := q.DB.WithContext(ctx).
+		Where("id = ? AND project_id = ? AND user_id = ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}).
+		First(&job).Error; err != nil {
+		return err
+	}
+	if job.Status == string(store.JobFailed) && job.Error != nil && *job.Error == message {
+		return nil
+	}
+	return fmt.Errorf("compile job is no longer running")
+}
+
 func (q *Queue) schedule(jobID uuid.UUID) {
 	q.wg.Add(1)
 	go func() {
@@ -99,8 +177,12 @@ func (q *Queue) Execute(jobID uuid.UUID) {
 	if job.Status != string(store.JobPending) {
 		return
 	}
-	_ = q.DB.WithContext(ctx).Model(&store.CompileJob{}).Where("id = ?", job.ID).
-		Update("status", string(store.JobRunning)).Error
+	started := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("id = ? AND status = ?", job.ID, string(store.JobPending)).
+		Update("status", string(store.JobRunning))
+	if started.Error != nil || started.RowsAffected != 1 {
+		return
+	}
 	job.Status = string(store.JobRunning)
 
 	q.runCompile(ctx, &job)
@@ -110,7 +192,8 @@ func (q *Queue) runCompile(ctx context.Context, job *store.CompileJob) {
 	projectIDStr := hexNoDash(job.ProjectID.UUID)
 
 	defer func() {
-		_ = q.DB.WithContext(context.Background()).Model(&store.CompileJob{}).Where("id = ?", job.ID).
+		_ = q.DB.WithContext(context.Background()).Model(&store.CompileJob{}).
+			Where("id = ? AND status = ?", job.ID, string(store.JobRunning)).
 			Updates(map[string]any{
 				"status": job.Status, "build_id": job.BuildID, "error": job.Error,
 				"logs": job.Logs, "sync_state": job.SyncState,
@@ -268,26 +351,47 @@ func (q *Queue) GetStatus(ctx context.Context, jobID, userID uuid.UUID) *store.C
 }
 
 // Cancel 取消任务（终态直接返回；活跃任务取消上下文）。
-func (q *Queue) Cancel(ctx context.Context, jobID, userID uuid.UUID) *store.CompileJob {
+func (q *Queue) Cancel(ctx context.Context, jobID, userID uuid.UUID) (*store.CompileJob, error) {
 	var job store.CompileJob
 	err := q.DB.WithContext(ctx).
 		Where("id = ? AND user_id = ?", store.UUID{UUID: jobID}, store.UUID{UUID: userID}).
 		First(&job).Error
 	if err != nil {
-		return nil
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
 	}
 	if jobStatus(job.Status).IsTerminal() {
-		return &job
+		return &job, nil
 	}
+	result := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("id = ? AND user_id = ? AND status IN ?", store.UUID{UUID: jobID}, store.UUID{UUID: userID},
+			[]string{string(store.JobPending), string(store.JobRunning)}).
+		Update("status", string(store.JobCancelled))
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected == 0 {
+		var current store.CompileJob
+		if err := q.DB.WithContext(ctx).
+			Where("id = ? AND user_id = ?", store.UUID{UUID: jobID}, store.UUID{UUID: userID}).
+			First(&current).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return &current, nil
+	}
+	job.Status = string(store.JobCancelled)
 	q.mu.Lock()
-	if cancel, ok := q.cancel[jobID]; ok {
+	cancel := q.cancel[jobID]
+	q.mu.Unlock()
+	if cancel != nil {
 		cancel()
 	}
-	q.mu.Unlock()
-	_ = q.DB.WithContext(ctx).Model(&store.CompileJob{}).Where("id = ?", job.ID).
-		Update("status", string(store.JobCancelled)).Error
-	job.Status = string(store.JobCancelled)
-	return &job
+	return &job, nil
 }
 
 // GetHistory 按创建时间倒序取最近 N 条 + 总数。

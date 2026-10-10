@@ -1,18 +1,23 @@
 package latex_test
 
 import (
+	"bytes"
+	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/datatypes"
@@ -24,13 +29,196 @@ import (
 
 // fakeCLSI 脚本化 CLSI：按序返回 compile 结果并记录请求。
 type fakeCLSI struct {
-	mu       sync.Mutex
-	compiles []map[string]any // 收到的 compile 请求体
-	script   []string         // 每次 compile 的 status（"success"/"failure"/"conflict"/"hang"）
-	buildN   int
-	logBody  string
-	pdf      []byte
-	calls    map[string]int
+	mu          sync.Mutex
+	compiles    []map[string]any // 收到的 compile 请求体
+	script      []string         // 每次 compile 的 status（"success"/"failure"/"conflict"/"hang"）
+	buildN      int
+	logBody     string
+	pdf         []byte
+	calls       map[string]int
+	hangStarted chan struct{}
+	hangRelease chan struct{}
+}
+
+func TestBrowserCompileResultIsPersistedAndIdempotent(t *testing.T) {
+	ts := testutil.New(t)
+	body, err := json.Marshal(map[string]any{"name": "浏览器编译项目"})
+	require.NoError(t, err)
+	resp := ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var envelope map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	projectID := envelope["data"].(map[string]any)["id"].(string)
+	base := "/api/v1/projects/" + projectID + "/latex/compile"
+
+	requestBody, err := json.Marshal(map[string]string{"root_file": "main.tex", "compiler": "xelatex"})
+	require.NoError(t, err)
+	resp = ts.Do(t, http.MethodPost, base+"/browser", requestBody)
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	job := envelope["data"].(map[string]any)
+	jobID := job["job_id"].(string)
+	assert.Equal(t, string(store.JobRunning), job["status"])
+
+	pdf := minimalValidPDF()
+	postResult := func() *http.Response {
+		var body bytes.Buffer
+		writer := multipart.NewWriter(&body)
+		require.NoError(t, writer.WriteField("logs", "XeTeX browser compile log"))
+		header := make(textproto.MIMEHeader)
+		header.Set("Content-Disposition", `form-data; name="pdf"; filename="output.pdf"`)
+		header.Set("Content-Type", "application/pdf")
+		file, createErr := writer.CreatePart(header)
+		require.NoError(t, createErr)
+		_, writeErr := file.Write(pdf)
+		require.NoError(t, writeErr)
+		require.NoError(t, writer.Close())
+		req, requestErr := http.NewRequest(http.MethodPost, ts.URL+base+"/"+jobID+"/browser-result", &body)
+		require.NoError(t, requestErr)
+		req.Header.Set("Authorization", "Bearer "+ts.Token)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		resp, doErr := http.DefaultClient.Do(req)
+		require.NoError(t, doErr)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		return resp
+	}
+	resp = postResult()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	firstBuildID := envelope["data"].(map[string]any)["build_id"].(string)
+	assert.Equal(t, string(store.JobSuccess), envelope["data"].(map[string]any)["status"])
+
+	// A retried upload with identical bytes must keep the same published PDF.
+	resp = postResult()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	assert.Equal(t, firstBuildID, envelope["data"].(map[string]any)["build_id"])
+	stored, err := ts.CompileQueue.Files.Storage.Get(t.Context(), "projects/"+strings.ReplaceAll(projectID, "-", "")+"/latex/builds/"+firstBuildID+"/output.pdf")
+	require.NoError(t, err)
+	assert.Equal(t, pdf, stored)
+
+	status := ts.CompileQueue.GetStatus(t.Context(), mustUUID(t, jobID), ts.UID)
+	require.NotNil(t, status)
+	assert.Equal(t, string(store.JobSuccess), status.Status)
+	assert.Equal(t, firstBuildID, *status.BuildID)
+}
+
+func TestBrowserCompileResultRejectsMalformedPDF(t *testing.T) {
+	ts := testutil.New(t)
+	body, err := json.Marshal(map[string]any{"name": "坏 PDF 上传项目"})
+	require.NoError(t, err)
+	resp := ts.Do(t, http.MethodPost, "/api/v1/projects/", body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	var envelope map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	projectID := envelope["data"].(map[string]any)["id"].(string)
+	base := "/api/v1/projects/" + projectID + "/latex/compile"
+
+	resp = ts.Do(t, http.MethodPost, base+"/browser", []byte(`{"root_file":"main.tex","compiler":"xelatex"}`))
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
+	jobID := envelope["data"].(map[string]any)["job_id"].(string)
+
+	// A header and EOF marker alone do not make a structurally valid PDF.
+	fakePDF := []byte("%PDF-1.7\nthis is not a PDF object table\n%%EOF\n")
+	var multipartBody bytes.Buffer
+	writer := multipart.NewWriter(&multipartBody)
+	part, err := writer.CreateFormFile("pdf", "output.pdf")
+	require.NoError(t, err)
+	_, err = part.Write(fakePDF)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	req, err := http.NewRequest(http.MethodPost, ts.URL+base+"/"+jobID+"/browser-result", &multipartBody)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+ts.Token)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	resp, err = http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+
+	status := ts.CompileQueue.GetStatus(t.Context(), mustUUID(t, jobID), ts.UID)
+	require.NotNil(t, status)
+	assert.Equal(t, string(store.JobRunning), status.Status)
+	assert.Nil(t, status.BuildID)
+}
+
+func TestBrowserCompileCancelAndCompletionRacePreservesWinningTerminalState(t *testing.T) {
+	ts := testutil.New(t)
+	project := store.Project{Name: "编译取消竞态", OwnerID: ts.UserID()}
+	require.NoError(t, ts.DB.Create(&project).Error)
+
+	for index := 0; index < 32; index++ {
+		job, err := ts.CompileQueue.CreateBrowserJob(t.Context(), project.ID.UUID, ts.UID, "main.tex", "xelatex")
+		require.NoError(t, err)
+		buildID := fmt.Sprintf("browser-race-build-%d", index)
+		start := make(chan struct{})
+		cancelDone := make(chan *store.CompileJob, 1)
+		cancelErr := make(chan error, 1)
+		completeErr := make(chan error, 1)
+		go func() {
+			<-start
+			cancelled, err := ts.CompileQueue.Cancel(t.Context(), job.ID.UUID, ts.UID)
+			cancelDone <- cancelled
+			cancelErr <- err
+		}()
+		go func() {
+			<-start
+			completeErr <- ts.CompileQueue.CompleteBrowserJob(t.Context(), job.ID.UUID, project.ID.UUID, ts.UID, buildID, "")
+		}()
+		close(start)
+
+		cancelled := <-cancelDone
+		require.NoError(t, <-cancelErr)
+		completionError := <-completeErr
+		status := ts.CompileQueue.GetStatus(t.Context(), job.ID.UUID, ts.UID)
+		require.NotNil(t, status)
+		switch status.Status {
+		case string(store.JobSuccess):
+			require.NoError(t, completionError)
+			require.NotNil(t, status.BuildID)
+			require.Equal(t, buildID, *status.BuildID)
+			require.NotNil(t, cancelled)
+			require.Equal(t, string(store.JobSuccess), cancelled.Status)
+		case string(store.JobCancelled):
+			require.Error(t, completionError)
+			require.Nil(t, status.BuildID)
+			require.NotNil(t, cancelled)
+			require.Equal(t, string(store.JobCancelled), cancelled.Status)
+		default:
+			t.Fatalf("race ended in nonterminal status %q", status.Status)
+		}
+	}
+}
+
+func minimalValidPDF() []byte {
+	var pdf bytes.Buffer
+	pdf.WriteString("%PDF-1.4\n")
+	offsets := make([]int, 5)
+	objects := []string{
+		"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n",
+		"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n",
+		"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 72 72] /Resources << >> /Contents 4 0 R >>\nendobj\n",
+		"4 0 obj\n<< /Length 0 >>\nstream\n\nendstream\nendobj\n",
+	}
+	for i, object := range objects {
+		offsets[i+1] = pdf.Len()
+		pdf.WriteString(object)
+	}
+	xrefOffset := pdf.Len()
+	pdf.WriteString("xref\n0 5\n0000000000 65535 f \n")
+	for i := 1; i < len(offsets); i++ {
+		_, _ = fmt.Fprintf(&pdf, "%010d 00000 n \n", offsets[i])
+	}
+	_, _ = fmt.Fprintf(&pdf, "trailer\n<< /Size 5 /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n", xrefOffset)
+	return pdf.Bytes()
+}
+
+func mustUUID(t *testing.T, value string) uuid.UUID {
+	t.Helper()
+	id, err := uuid.Parse(value)
+	require.NoError(t, err)
+	return id
 }
 
 func newFake(script ...string) *fakeCLSI {
@@ -53,7 +241,12 @@ func (f *fakeCLSI) handler() http.Handler {
 				status = f.script[idx]
 			}
 			if status == "hang" {
-				time.Sleep(3 * time.Second)
+				if f.hangStarted != nil && f.hangRelease != nil {
+					close(f.hangStarted)
+					<-f.hangRelease
+				} else {
+					time.Sleep(3 * time.Second)
+				}
 			}
 			f.buildN++
 			buildID := fmt.Sprintf("b%d", f.buildN)
@@ -95,8 +288,8 @@ func compileBody(t *testing.T, i int, f *fakeCLSI) map[string]any {
 	return f.compiles[i]
 }
 
-// 契约：POST /compile → 202 {job_id, status}；CLSI 收到 rootResourcePath=main.tex、
-// 模板内容、compiler=pdflatex、syncType=full；任务终态 success + build_id。
+// Queue's retained CLSI worker can still be exercised directly for regression coverage;
+// the public POST /compile route is separately verified as disabled.
 func TestCompileSuccessFlow(t *testing.T) {
 	f := newFake("success")
 	clsi := httptest.NewServer(f.handler())
@@ -112,20 +305,9 @@ func TestCompileSuccessFlow(t *testing.T) {
 	pid := m["data"].(map[string]any)["id"].(string)
 	base := "/api/v1/projects/" + pid + "/latex"
 
-	// 非法编译器 → 400
-	bad, _ := json.Marshal(map[string]any{"compiler": "tectonic"})
-	resp = ts.Do(t, http.MethodPost, base+"/compile", bad)
-	assert.Equal(t, 400, resp.StatusCode)
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
-	assert.Contains(t, m["info"], "Invalid compiler")
-
-	// 提交 → 202
-	req, _ := json.Marshal(map[string]any{"compiler": "pdflatex"})
-	resp = ts.Do(t, http.MethodPost, base+"/compile", req)
-	require.Equal(t, 202, resp.StatusCode, "Python status_code=202")
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
-	jobID := m["data"].(map[string]any)["job_id"].(string)
-	assert.Equal(t, "pending", m["data"].(map[string]any)["status"])
+	job, err := ts.CompileQueue.Submit(context.Background(), uuid.MustParse(pid), ts.UserID().UUID, "main.tex", "pdflatex")
+	require.NoError(t, err)
+	jobID := job.ID.String()
 
 	// 轮询至 success
 	var status string
@@ -177,12 +359,11 @@ func TestCompileFailureEnrichesErrorFromLog(t *testing.T) {
 	base := "/api/v1/projects/" + p.ID.String() + "/latex"
 	seedOneTex(t, ts, base)
 
-	req, _ := json.Marshal(map[string]any{})
-	resp := ts.Do(t, http.MethodPost, base+"/compile", req)
-	require.Equal(t, 202, resp.StatusCode)
+	job, err := ts.CompileQueue.Submit(context.Background(), p.ID.UUID, ts.UserID().UUID, "main.tex", "pdflatex")
+	require.NoError(t, err)
+	jobID := job.ID.String()
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
-	jobID := m["data"].(map[string]any)["job_id"].(string)
+	var resp *http.Response
 
 	for i := 0; i < 50; i++ {
 		resp = ts.Do(t, http.MethodGet, base+"/compile/"+jobID+"/status", nil)
@@ -212,11 +393,11 @@ func TestCompileConflictRetriesFull(t *testing.T) {
 	base := "/api/v1/projects/" + p.ID.String() + "/latex"
 	seedOneTex(t, ts, base)
 
-	resp := ts.Do(t, http.MethodPost, base+"/compile", []byte(`{}`))
-	require.Equal(t, 202, resp.StatusCode)
+	job, err := ts.CompileQueue.Submit(context.Background(), p.ID.UUID, ts.UserID().UUID, "main.tex", "pdflatex")
+	require.NoError(t, err)
+	jobID := job.ID.String()
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
-	jobID := m["data"].(map[string]any)["job_id"].(string)
+	var resp *http.Response
 
 	for i := 0; i < 50; i++ {
 		resp = ts.Do(t, http.MethodGet, base+"/compile/"+jobID+"/status", nil)
@@ -307,9 +488,15 @@ func TestProxyEndpoints(t *testing.T) {
 	require.NoError(t, ts.DB.Create(&p).Error)
 	base := "/api/v1/projects/" + p.ID.String() + "/latex"
 
-	resp := ts.Do(t, http.MethodGet, base+"/wordcount?file=main.tex", nil)
-	require.Equal(t, 200, resp.StatusCode)
+	// Legacy submission is a deliberate migration error and must not enqueue CLSI.
+	resp := ts.Do(t, http.MethodPost, base+"/compile", []byte(`{"root_file":"main.tex","compiler":"pdflatex"}`))
+	require.Equal(t, http.StatusGone, resp.StatusCode)
 	var m map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+	assert.Contains(t, m["info"], "browser engine")
+
+	resp = ts.Do(t, http.MethodGet, base+"/wordcount?file=main.tex", nil)
+	require.Equal(t, 200, resp.StatusCode)
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
 	assert.Equal(t, map[string]any{"words": float64(42)}, m["data"].(map[string]any)["texcount"])
 
@@ -443,21 +630,31 @@ func TestBuildResourcesContract(t *testing.T) {
 	assert.Nil(t, rs[1].URL)
 }
 
-// 取消挂起任务（CLSI hang → cancel → cancelled）
-func TestCancelPendingJob(t *testing.T) {
+// 取消正在运行的任务（CLSI hang → cancel → cancelled）
+func TestCancelRunningJob(t *testing.T) {
 	f := newFake("hang")
+	f.hangStarted = make(chan struct{})
+	f.hangRelease = make(chan struct{})
 	clsi := httptest.NewServer(f.handler())
 	defer clsi.Close()
+	defer close(f.hangRelease)
 	ts := testutil.NewWithClsi(t, clsi.URL)
 	p := store.Project{Name: "取消项目", OwnerID: ts.UserID()}
 	require.NoError(t, ts.DB.Create(&p).Error)
 	base := "/api/v1/projects/" + p.ID.String() + "/latex"
+	seedOneTex(t, ts, base)
 
-	resp := ts.Do(t, http.MethodPost, base+"/compile", []byte(`{}`))
-	require.Equal(t, 202, resp.StatusCode)
+	job, err := ts.CompileQueue.Submit(context.Background(), p.ID.UUID, ts.UserID().UUID, "main.tex", "pdflatex")
+	require.NoError(t, err)
+	jobID := job.ID.String()
+	select {
+	case <-f.hangStarted:
+	case <-time.After(5 * time.Second):
+		status := ts.CompileQueue.GetStatus(context.Background(), job.ID.UUID, ts.UserID().UUID)
+		t.Fatalf("CLSI compile did not start before cancellation: status=%+v calls=%d error=%v", status, f.compileCount(), status.Error)
+	}
 	var m map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
-	jobID := m["data"].(map[string]any)["job_id"].(string)
+	var resp *http.Response
 
 	resp = ts.Do(t, http.MethodDelete, base+"/compile?job_id="+jobID, nil)
 	require.Equal(t, 200, resp.StatusCode)

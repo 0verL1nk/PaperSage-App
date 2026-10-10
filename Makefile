@@ -59,7 +59,9 @@ help:
 
 # ─── Graceful dev lifecycle ───
 
-# Start all services (backend, frontend, CLSI) with PID tracking and health checks
+# Start the active browser-compile development stack (backend + frontend).
+# CLSI startup is intentionally disabled during the browser compiler migration;
+# the explicit clsi-dev/install-clsi targets remain available for reactivation.
 dev:
 	@$(PROC) start
 
@@ -113,8 +115,8 @@ log-clsi:
 
 # ─── Install ───
 
-install: install-frontend install-clsi
-	@echo "$(GREEN)All dependencies installed$(NC)"
+install: install-frontend
+	@echo "$(GREEN)Active PaperSage dependencies installed (CLSI is parked)$(NC)"
 
 install-frontend:
 	@echo "$(YELLOW)Installing frontend dependencies...$(NC)"
@@ -148,7 +150,7 @@ test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
 	cd frontend && pnpm test
 
-# ─── CLSI ───
+# ─── CLSI (temporarily parked; explicit targets retained for future reuse) ───
 
 install-clsi:
 	@echo "$(YELLOW)Installing CLSI host-mode prerequisites...$(NC)"
@@ -181,14 +183,16 @@ docker-build:
 	fi
 	@echo "$(GREEN)Building Docker images...$(NC)"
 	docker build -t $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG) -f server/Dockerfile .
-	docker build -t $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG) latex_render/
+	# CLSI image build is parked with the service; retain this command for reactivation:
+	# docker build -t $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG) latex_render/
 	@echo "$(GREEN)All images built:$(NC)"
 	@docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep papersage
 
 docker-push: docker-build
 	@echo "$(GREEN)Pushing images to Docker Hub...$(NC)"
 	docker push $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG)
-	docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
+	# CLSI image push is parked with the service; retain this command for reactivation:
+	# docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
 	@echo "$(GREEN)All images pushed to $(DOCKERHUB_USER)$(NC)"
 
 # ── Go server（单二进制：前端 embed）─────────────────────────

@@ -3,15 +3,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import {
-  Search, Play, Download, Sparkles, Loader2,
+  Search, Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus,
-  HardDrive,
+  HardDrive, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import Editor, { useMonaco } from '@monaco-editor/react'
 import { Document, Page, pdfjs } from 'react-pdf'
+import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import * as Resizable from 'react-resizable-panels'
 import { registerLatexLsp } from '@/lib/monaco-latex-lsp'
 import { useTheme } from '@/app/theme-context'
@@ -21,19 +23,26 @@ import {
   useLatexFiles, useLatexFileContent, useSaveLatexFile,
   useCreateLatexFile, useDeleteLatexFile,
   useDeleteLatexFolder, useRenameLatexFile, useRenameLatexFolder,
-  useMoveLatexFile, useLatexCompile, useLatexOutputPdf,
+  useMoveLatexFile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
 import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
 import { useAutoSave } from '@/hooks/use-auto-save'
-import type { PdfRangeSource, CompileJobStatus, LatexFileItem } from '@/services/latex-api'
+import type { PdfRangeSource, CompileJobStatus, CompileJobListItem, LatexFileItem } from '@/services/latex-api'
+import { cancelCompile, getCompileHistory } from '@/services/latex-api'
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
 import { AiPanel } from './ai-panel'
 import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
+import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
+import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
+import { createBrowserCompileJob, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult } from '@/services/latex-api'
 
-function toPdfFile(source: PdfRangeSource) {
+function toPdfFile(source: PdfRangeSource | { data: Uint8Array }) {
   return source as Parameters<typeof Document>[0]['file']
 }
 import { WritingFileTree, type FileTreeHandle } from './writing-file-tree'
@@ -53,9 +62,9 @@ const ZOOM_WHEEL_FACTOR_UP = 1.08
 const ZOOM_WHEEL_FACTOR_DOWN = 0.92
 
 const COMPILER_OPTIONS = [
-  { value: 'pdflatex', label: 'pdfLaTeX' },
-  { value: 'xelatex', label: 'XeLaTeX' },
-  { value: 'lualatex', label: 'LuaLaTeX' },
+  { value: 'pdflatex', label: 'pdfLaTeX', supported: true },
+  { value: 'xelatex', label: 'XeLaTeX', supported: true },
+  { value: 'lualatex', label: 'LuaLaTeX', supported: false },
 ] as const
 
 const XELATEX_PACKAGES = ['ctex', 'fontspec', 'xeCJK', 'polyglossia']
@@ -94,6 +103,22 @@ function isPdfFile(path: string): boolean {
   return path.toLowerCase().endsWith('.pdf')
 }
 
+function waitForAbortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) return Promise.reject(new DOMException('编译已取消', 'AbortError'))
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = () => signal.removeEventListener('abort', onAbort)
+    const onAbort = () => {
+      cleanup()
+      reject(new DOMException('编译已取消', 'AbortError'))
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+    operation.then(
+      (value) => { cleanup(); resolve(value) },
+      (error: unknown) => { cleanup(); reject(error) },
+    )
+  })
+}
+
 type SidebarTab = 'files' | 'ai'
 
 // --- Main Component ---
@@ -126,6 +151,17 @@ export function WritingPage() {
   const [renderScale, setRenderScale] = useState(0.9)
   const [isMobile, setIsMobile] = useState(false)
   const [editorContent, setEditorContent] = useState('')
+  const [isLatexSetupOpen, setIsLatexSetupOpen] = useState(false)
+  const [isBrowserCompiling, setIsBrowserCompiling] = useState(false)
+  const [isPublishingBrowserResult, setIsPublishingBrowserResult] = useState(false)
+  const [isRetryingBrowserUpload, setIsRetryingBrowserUpload] = useState(false)
+  const [pendingBrowserResult, setPendingBrowserResult] = useState<{ jobId: string; pdf: Uint8Array; logs: string } | null>(null)
+  const [browserProgressMessage, setBrowserProgressMessage] = useState<string | null>(null)
+  const [browserThirdPartyLicense, setBrowserThirdPartyLicense] = useState<NonNullable<Extract<BrowserLatexProgress, { stage: 'convert' }>['license']> | null>(null)
+  const [browserResources, setBrowserResources] = useState<Record<string, BrowserLatexResourceEvent>>({})
+  const browserCompileAbortRef = useRef<AbortController | null>(null)
+  const browserCompileJobRef = useRef<string | null>(null)
+  const handleCompileRef = useRef<((rootFile?: string) => Promise<void>) | null>(null)
 
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
@@ -160,32 +196,31 @@ export function WritingPage() {
   const renameMutation = useRenameLatexFile(projectId)
   const renameFolderMutation = useRenameLatexFolder(projectId)
   const moveMutation = useMoveLatexFile(projectId)
-  const compileMutation = useLatexCompile()
   const outputPdfMutation = useLatexOutputPdf()
 
   // Async compile state
   const [compileJobId, setCompileJobId] = useState<string | null>(null)
   const compileStatus = useCompileStatusPolling(projectId, compileJobId)
 
-  // 编译联动：助手调用 compile_project 后把 job id 交接过来，由这里启动轮询刷新预览。
-  // 没有这一步，助手触发的编译结果只能靠用户手动再点一次编译才看得到。
-  const pendingCompileJobId = useChatStore((s) => s.pendingCompileJobId)
-  const consumeCompileJobId = useChatStore((s) => s.consumeCompileJobId)
-  useEffect(() => {
-    if (!pendingCompileJobId) return
-    const id = consumeCompileJobId()
-    if (id) setCompileJobId(id)
-  }, [pendingCompileJobId, consumeCompileJobId])
+  // Agent compile requests are handed to the browser compiler below.
+  const pendingBrowserCompileRequest = useChatStore((s) => s.pendingBrowserCompileRequest)
+  const consumeBrowserCompileRequest = useChatStore((s) => s.consumeBrowserCompileRequest)
 
   // Derived state
-  const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | null>(null)
+  const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | { data: Uint8Array } | null>(null)
   const [pdfBuildId, setPdfBuildId] = useState<string | null>(null)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
+  const [isCompileHistoryOpen, setIsCompileHistoryOpen] = useState(false)
+  const [isCompileHistoryLoading, setIsCompileHistoryLoading] = useState(false)
+  const [compileHistory, setCompileHistory] = useState<CompileJobListItem[]>([])
+  const [compileHistoryError, setCompileHistoryError] = useState<string | null>(null)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string | null>(null)
   const [showFullLogs, setShowFullLogs] = useState(false)
 
-  const isCompiling = compileMutation.isPending
+  const isCompiling = isBrowserCompiling
+    || isPublishingBrowserResult
+    || isRetryingBrowserUpload
     || (compileJobId !== null && compileStatus.data !== undefined && !isTerminalStatus(compileStatus.data.status))
 
   // React to terminal compile status — using ref to avoid setState-in-effect lint
@@ -332,26 +367,191 @@ export function WritingPage() {
     }
   }, [pdfBuildId, isDownloadingPdf, projectId])
 
-  const handleCompile = async () => {
+  const handleCompile = async (requestedRootFile?: string) => {
+    if (pendingBrowserResult) {
+      if (requestedRootFile) {
+        toast.error('先处理上一次 PDF 的上传，再启动新的编译')
+        return
+      }
+      await handleRetryBrowserUpload()
+      return
+    }
+    if (browserCompileAbortRef.current) return
+    const controller = new AbortController()
+    browserCompileAbortRef.current = controller
     setShowFullLogs(false)
+    setCompileError(null)
+    setCompileLogs(null)
+    setBrowserProgressMessage('正在保存并读取项目文件')
+    setBrowserThirdPartyLicense(null)
+    setBrowserResources({})
+    setIsBrowserCompiling(true)
+    let browserJobId: string | null = null
+    let compiledArtifact: { jobId: string; pdf: Uint8Array; logs: string } | null = null
     try {
-      // Auto-save current file before compiling
-      await autoSave.saveNow()
+      await waitForAbortable(autoSave.saveNow(), controller.signal)
+      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
 
-      const rootFile = files.find((f) => f.file_path === 'main.tex')?.file_path
+      const rootFile = requestedRootFile
+        || files.find((f) => f.file_path === 'main.tex')?.file_path
         || activeFilePath
         || files[0]?.file_path
 
       if (!rootFile) return
 
-      // Submit async compile job — backend loads files from storage
-      const result = await compileMutation.mutateAsync({
-        projectId, files: [], rootFile, compiler,
+      const textExtensions = new Set(['tex', 'bib', 'cls', 'sty', 'bst', 'def', 'ist', 'txt', 'md', 'lof', 'lot', 'toc', 'cfg', 'fd'])
+      const projectFiles = await waitForAbortable(Promise.all(files.map(async (file) => {
+        const extension = file.file_path.split('.').pop()?.toLowerCase() ?? ''
+        if (file.content_type.startsWith('text/') || textExtensions.has(extension)) {
+          const content = file.file_path === activeFilePath && isEditable
+            ? editorContent
+            : (await fetchLatexFileContent(projectId, file.file_path, { skipGlobalLoading: true })).content
+          return { path: file.file_path, content }
+        }
+        return { path: file.file_path, content: await fetchLatexFileBytes(projectId, file.file_path) }
+      })), controller.signal)
+      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
+
+      const browserJobRequest = createBrowserCompileJob(projectId, rootFile, compiler)
+      let job
+      try {
+        job = await waitForAbortable(browserJobRequest, controller.signal)
+      } catch (error) {
+        if (controller.signal.aborted) {
+          void browserJobRequest
+            .then((createdJob) => cancelCompile(projectId, createdJob.job_id))
+            .catch((cancelError: unknown) => {
+              toast.error('浏览器编译已停止，但服务端任务取消失败', {
+                description: cancelError instanceof Error ? cancelError.message : String(cancelError),
+              })
+            })
+        }
+        throw error
+      }
+      browserJobId = job.job_id
+      browserCompileJobRef.current = job.job_id
+      setCompileJobId(job.job_id)
+
+      const result = await compileLatexInBrowser(projectFiles, rootFile, compiler, {
+        signal: controller.signal,
+        onProgress: (progress: BrowserLatexProgress) => {
+          setBrowserProgressMessage(progress.message)
+          if (progress.stage === 'convert' && progress.license) setBrowserThirdPartyLicense(progress.license)
+          if (progress.stage === 'resource') {
+            setBrowserResources((previous) => ({
+              ...previous,
+              [`${progress.resource.kind}:${progress.resource.name}`]: progress.resource,
+            }))
+          }
+        },
       })
-      setCompileJobId(result.job_id)
+
+      setPdfFileSource({ data: result.pdf })
+      setCompileLogs(result.log)
+      setBrowserProgressMessage('PDF 已生成，正在上传到对象存储并保存编译记录')
+      compiledArtifact = { jobId: job.job_id, pdf: result.pdf, logs: result.log }
+      setPendingBrowserResult(compiledArtifact)
+      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
+      setIsPublishingBrowserResult(true)
+      await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
+      setPendingBrowserResult(null)
+      setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
     } catch (err) {
-      setCompileError(err instanceof Error ? err.message : '编译失败')
+      const message = err instanceof Error ? err.message : '浏览器编译失败'
+      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+        setCompileError(null)
+        setCompileLogs(null)
+        setBrowserProgressMessage('编译已取消')
+      } else {
+        setCompileError(compiledArtifact
+          ? `PDF 已在浏览器生成，但上传或保存编译记录失败：${message}`
+          : message)
+        setCompileLogs(compiledArtifact?.logs ?? message)
+      }
+      if (browserJobId && !compiledArtifact && !controller.signal.aborted && !(err instanceof DOMException && err.name === 'AbortError')) {
+        try {
+          await reportBrowserCompileFailure(projectId, browserJobId, message, message)
+        } catch (reportError) {
+          setCompileError(`${message}\n\n保存失败记录时也发生错误：${reportError instanceof Error ? reportError.message : String(reportError)}`)
+        }
+      } else {
+        setCompileJobId(null)
+      }
+    } finally {
+      browserCompileAbortRef.current = null
+      browserCompileJobRef.current = null
+      setIsPublishingBrowserResult(false)
+      setIsBrowserCompiling(false)
     }
+  }
+
+  handleCompileRef.current = handleCompile
+
+  useEffect(() => {
+    if (!pendingBrowserCompileRequest) return
+    const request = consumeBrowserCompileRequest()
+    if (request) void handleCompileRef.current?.(request.rootFile)
+  }, [pendingBrowserCompileRequest, consumeBrowserCompileRequest])
+
+  const handleRetryBrowserUpload = async () => {
+    const pending = pendingBrowserResult
+    if (!pending || isRetryingBrowserUpload) return
+    setIsRetryingBrowserUpload(true)
+    setCompileError(null)
+    setBrowserProgressMessage('正在重试上传已生成的 PDF')
+    try {
+      await uploadBrowserCompileResult(projectId, pending.jobId, pending.pdf, pending.logs)
+      setPendingBrowserResult(null)
+      setCompileJobId(pending.jobId)
+      setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
+    } catch (error) {
+      setCompileError(`PDF 已生成，但上传仍未成功；可以重试上传，无需重新编译：${error instanceof Error ? error.message : String(error)}`)
+      setCompileLogs(pending.logs)
+    } finally {
+      setIsRetryingBrowserUpload(false)
+    }
+  }
+
+  const handleCancelBrowserCompile = async () => {
+    const controller = browserCompileAbortRef.current
+    if (!controller || isPublishingBrowserResult) return
+    controller.abort()
+    setBrowserProgressMessage('正在停止浏览器引擎并取消编译任务')
+    const jobId = browserCompileJobRef.current
+    if (jobId) {
+      try {
+        await cancelCompile(projectId, jobId)
+      } catch (error) {
+        setCompileError(`本地编译已停止，但未能同步取消服务端任务：${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+
+  const loadCompileHistory = async () => {
+    setIsCompileHistoryLoading(true)
+    setCompileHistoryError(null)
+    try {
+      const result = await getCompileHistory(projectId)
+      setCompileHistory(result.items)
+    } catch (error) {
+      setCompileHistoryError(error instanceof Error ? error.message : '编译历史加载失败')
+    } finally {
+      setIsCompileHistoryLoading(false)
+    }
+  }
+
+  const handleSelectCompileHistory = (item: CompileJobListItem) => {
+    if (item.status !== 'success' || !item.build_id) return
+    setCompileError(null)
+    setCompileLogs(null)
+    setPdfBuildId(item.build_id)
+    outputPdfMutation.mutate(
+      { projectId, buildId: item.build_id },
+      {
+        onSuccess: (source) => setPdfFileSource(source),
+        onError: (error) => setCompileError(`无法载入此编译历史的 PDF：${error.message}`),
+      },
+    )
   }
 
   const handleTreeCreateFile = async (path: string, content?: string): Promise<LatexFileItem> => {
@@ -460,6 +660,10 @@ export function WritingPage() {
   }
 
   const compilerLabel = COMPILER_OPTIONS.find((c) => c.value === compiler)?.label ?? compiler
+  const compilerSupported = compiler === 'pdflatex' || compiler === 'xelatex'
+  const resourceList = Object.values(browserResources)
+  const loadedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' || resource.state === 'cacheWarning').length
+  const cachedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' && resource.cached).length
 
   return (
     <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
@@ -546,18 +750,61 @@ export function WritingPage() {
                   </div>
                 </div>
                 <div className="flex items-center gap-1">
-                  <span className="text-[10px] font-mono text-muted-foreground mr-1">{compilerLabel}</span>
+                  <Select value={compiler} onValueChange={setCompiler}>
+                    <SelectTrigger
+                      aria-label="选择 LaTeX 编译器"
+                      className="h-7 w-[112px] border-transparent bg-transparent px-2 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 focus-visible:border-ring"
+                    >
+                      <SelectValue>{compilerLabel}</SelectValue>
+                    </SelectTrigger>
+                    <SelectContent align="end">
+                      {COMPILER_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value} disabled={!option.supported}>
+                          <span className="flex items-center gap-2">
+                            {option.label}
+                            {!option.supported && <span className="text-xs text-muted-foreground">暂不可用</span>}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <Button
                     variant="ghost"
                     size="icon-xs"
+                    aria-label="初始化浏览器 LaTeX 环境"
+                    title="初始化浏览器 LaTeX 环境"
+                    className="rounded-md text-muted-foreground hover:text-foreground"
+                    onClick={() => setIsLatexSetupOpen(true)}
+                  >
+                    <HardDrive size={14} />
+                  </Button>
+                  <Button
+                    variant="default"
+                    size="sm"
                     data-testid="compile-button"
                     aria-label={isCompiling ? '编译中' : '编译'}
-                    className="rounded-md text-green-600 hover:text-green-700 hover:bg-green-50 transition-all active:scale-90"
-                    onClick={handleCompile}
-                    disabled={isCompiling}
+                    title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
+                    className="h-7 gap-1.5 px-2.5 text-xs"
+                    onClick={() => void handleCompile()}
+                    disabled={isCompiling || !compilerSupported}
                   >
-                    {isCompiling ? <Loader2 size={14} className="animate-spin" /> : <Play size={14} className="fill-current" />}
+                    {isCompiling ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className="fill-current" />}
+                    <span>{isCompiling ? '编译中' : '编译'}</span>
                   </Button>
+                  {isBrowserCompiling && !isPublishingBrowserResult && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      data-testid="cancel-browser-compile"
+                      aria-label="取消浏览器编译"
+                      title="停止浏览器引擎并取消编译任务"
+                      className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
+                      onClick={handleCancelBrowserCompile}
+                    >
+                      <Square size={12} className="fill-current" />
+                      <span>取消</span>
+                    </Button>
+                  )}
                 </div>
               </div>
               <div className="flex-1 relative overflow-hidden">
@@ -586,13 +833,68 @@ export function WritingPage() {
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
                 <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Preview</span>
                 <div className="flex items-center gap-1">
+                  <DropdownMenu
+                    open={isCompileHistoryOpen}
+                    onOpenChange={(open) => {
+                      setIsCompileHistoryOpen(open)
+                      if (open) void loadCompileHistory()
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" aria-label="编译历史" title="编译历史">
+                        <History size={14} />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-80 max-h-96">
+                      <DropdownMenuLabel className="flex items-center justify-between">
+                        <span>编译历史</span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-xs"
+                          aria-label="刷新编译历史"
+                          onClick={(event) => {
+                            event.preventDefault()
+                            event.stopPropagation()
+                            void loadCompileHistory()
+                          }}
+                        >
+                          <RefreshCw size={12} className={isCompileHistoryLoading ? 'animate-spin' : ''} />
+                        </Button>
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      {isCompileHistoryLoading ? (
+                        <DropdownMenuItem disabled>正在加载编译历史…</DropdownMenuItem>
+                      ) : compileHistoryError ? (
+                        <DropdownMenuItem disabled className="whitespace-normal text-destructive">加载失败：{compileHistoryError}</DropdownMenuItem>
+                      ) : compileHistory.length === 0 ? (
+                        <DropdownMenuItem disabled>暂无编译记录</DropdownMenuItem>
+                      ) : compileHistory.map((item) => (
+                        <DropdownMenuItem
+                          key={item.job_id}
+                          disabled={item.status !== 'success' || !item.build_id}
+                          onSelect={() => handleSelectCompileHistory(item)}
+                          className="flex-col items-start gap-0.5 py-2"
+                        >
+                          <span className="flex w-full items-center justify-between gap-3">
+                            <span className="truncate font-medium">{item.root_file} · {item.compiler}</span>
+                            <span className={item.status === 'success' ? 'shrink-0 text-emerald-600' : 'shrink-0 text-muted-foreground'}>
+                              {item.status === 'success' ? '成功' : item.status === 'running' || item.status === 'pending' ? '进行中' : item.status === 'cancelled' ? '已取消' : '失败'}
+                            </span>
+                          </span>
+                          <span className="text-[10px] text-muted-foreground">{new Date(item.created_at).toLocaleString()}</span>
+                          {item.error && <span className="line-clamp-2 whitespace-normal text-[10px] text-destructive">{item.error}</span>}
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
                   <span className="text-[10px] font-bold text-muted-foreground w-10 text-center">{Math.round(displayScale * 100)}%</span>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
                   <div className="w-px h-3 bg-border mx-1" />
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
                   {pdfBuildId && (
-                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
+                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" aria-label="下载 PDF" title="下载 PDF" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
                       {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     </Button>
                   )}
@@ -600,7 +902,70 @@ export function WritingPage() {
               </div>
 
               <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
-                {compileError ? (
+                {!compilerSupported && !compileError && (
+                  <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                    <div>
+                      <p className="font-medium">此项目指定了 LuaLaTeX</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">浏览器当前支持 pdfLaTeX 与 XeLaTeX。可在工具栏切换编译器；若模板依赖 LuaLaTeX，请保留当前设置并使用兼容的编译环境。</p>
+                    </div>
+                  </div>
+                )}
+                {isCompiling && browserProgressMessage && (
+                  <div role="status" aria-live="polite" className="sticky top-0 z-10 mx-auto mb-5 max-w-2xl rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Loader2 size={15} className="shrink-0 animate-spin text-primary" />
+                      <span>{browserProgressMessage}</span>
+                    </div>
+                    {browserThirdPartyLicense && (
+                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
+                        <span>{browserThirdPartyLicense.name} · {browserThirdPartyLicense.spdx}</span>
+                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.licenseUrl} target="_blank" rel="noreferrer">
+                          引擎许可证 <ExternalLink size={11} />
+                        </a>
+                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.sourceUrl} target="_blank" rel="noreferrer">
+                          上游源码 <ExternalLink size={11} />
+                        </a>
+                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.thirdPartyNoticesUrl} target="_blank" rel="noreferrer">
+                          第三方许可 <ExternalLink size={11} />
+                        </a>
+                      </div>
+                    )}
+                    {resourceList.length > 0 && (
+                      <div className="mt-2 text-xs text-muted-foreground">
+                        已加载 {loadedResourceCount} 项宏包/字体资源，其中 {cachedResourceCount} 项来自浏览器缓存。
+                        <div className="mt-1 max-h-24 overflow-y-auto font-mono">
+                          {resourceList.slice(-8).map((resource) => (
+                            <div key={`${resource.kind}:${resource.name}`} className="break-words">
+                              <div>{resource.state === 'loading' ? '加载中' : resource.state === 'loaded' ? (resource.cacheSource === 'browser' ? '本机缓存' : resource.cacheSource === 'shared' ? '共享缓存' : '已下载') : resource.state === 'missing' ? '缺失' : resource.state === 'cacheWarning' ? '缓存未保存' : `失败${resource.status ? `（HTTP ${resource.status}）` : ''}`} · {resource.name}</div>
+                              {resource.error && (resource.state === 'missing' || resource.state === 'failed' || resource.state === 'cacheWarning' || resource.state === 'loading') && (
+                                <pre className="mt-1 whitespace-pre-wrap font-mono text-[10px] text-destructive/80 select-text">{resource.error}</pre>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+                {compileError && pendingBrowserResult && (
+                  <div role="alert" className="sticky top-0 z-10 mx-auto mb-5 max-w-2xl rounded-lg border border-destructive/20 bg-background/95 p-3 shadow-sm backdrop-blur">
+                    <p className="text-sm font-medium text-destructive">PDF 已生成并可在下方预览，但尚未保存到云端。</p>
+                    <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{compileError}</pre>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="retry-browser-upload"
+                      className="mt-3 h-8 gap-2"
+                      onClick={handleRetryBrowserUpload}
+                      disabled={isRetryingBrowserUpload}
+                    >
+                      {isRetryingBrowserUpload && <Loader2 size={13} className="animate-spin" />}
+                      {isRetryingBrowserUpload ? '正在重试上传' : '重试上传 PDF'}
+                    </Button>
+                  </div>
+                )}
+                {compileError && !pendingBrowserResult ? (
                   <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6 select-text">
                     <div className="flex items-center justify-between mb-3 text-destructive">
                       <div className="flex items-center gap-2">
@@ -620,6 +985,17 @@ export function WritingPage() {
                       </button>
                     </div>
                     <pre className="text-[11px] text-destructive/80 whitespace-pre-wrap font-mono leading-relaxed">{compileError}</pre>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      data-testid="retry-browser-compile"
+                      className="mt-3 h-8 gap-2"
+                      onClick={() => void handleCompile()}
+                      disabled={isCompiling}
+                    >
+                      {isCompiling && <Loader2 size={13} className="animate-spin" />}
+                      {isCompiling ? '正在重试编译' : '重试编译'}
+                    </Button>
                     {compileLogs && (
                       <div className="mt-3">
                         <button
@@ -640,6 +1016,7 @@ export function WritingPage() {
                   <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
                     <Document
                       file={pdfFileSource ? toPdfFile(pdfFileSource) : null}
+                      options={pdfDocumentOptions}
                       onLoadSuccess={({ numPages }) => setNumPages(numPages)}
                       loading={<LoadingSpinner text="Rendering..." />}
                       className="flex flex-col gap-6"
@@ -659,6 +1036,7 @@ export function WritingPage() {
           </Resizable.Panel>
         </Resizable.Group>
       </div>
+      <LatexEnvironmentSetup open={isLatexSetupOpen} onOpenChange={setIsLatexSetupOpen} disabled={isCompiling} />
       <DeleteConfirmDialog />
     </div>
   )

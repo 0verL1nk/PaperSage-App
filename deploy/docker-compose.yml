@@ -23,8 +23,10 @@ services:
     environment:
       - DATABASE_URL=postgres://papersage:${DB_PASSWORD:-papersage}@db:5432/papersage
       - REDIS_URL=redis://redis:6379/0
-      - LATEX_CLSI_BASE_URL=http://clsi:3013
-      - LATEX_CLSI_ENABLED=true
+      # CLSI configuration is parked during the browser compiler migration.
+      # Restore these values together with the clsi service below to reactivate it.
+      # - LATEX_CLSI_BASE_URL=http://clsi:3013
+      # - LATEX_CLSI_ENABLED=true
     depends_on:
       db:
         condition: service_healthy
@@ -42,28 +44,28 @@ services:
     networks:
       - backend-net
 
-  # ── CLSI (Overleaf LaTeX compilation) ────────────────────
-  clsi:
-    build:
-      context: ../latex_render
-      dockerfile: Dockerfile
-    ports:
-      - "${CLSI_PORT:-3013}:3013"
-    volumes:
-      - clsi-compiles:/tmp/clsi/compiles
-      - clsi-output:/tmp/clsi/output
-      - clsi-cache:/tmp/clsi/cache
-    deploy:
-      resources:
-        limits:
-          cpus: "2.0"
-          memory: 2G
-        reservations:
-          memory: 512M
-    logging: *default-logging
-    restart: unless-stopped
-    networks:
-      - backend-net
+  # ── CLSI (temporarily parked; retained for possible reactivation) ──
+  # clsi:
+  #   build:
+  #     context: ../latex_render
+  #     dockerfile: Dockerfile
+  #   ports:
+  #     - "${CLSI_PORT:-3013}:3013"
+  #   volumes:
+  #     - clsi-compiles:/tmp/clsi/compiles
+  #     - clsi-output:/tmp/clsi/output
+  #     - clsi-cache:/tmp/clsi/cache
+  #   deploy:
+  #     resources:
+  #       limits:
+  #         cpus: "2.0"
+  #         memory: 2G
+  #       reservations:
+  #         memory: 512M
+  #   logging: *default-logging
+  #   restart: unless-stopped
+  #   networks:
+  #     - backend-net
 
   # ── PostgreSQL ───────────────────────────────────────────
   db:
@@ -116,9 +118,10 @@ services:
 volumes:
   pgdata:
   redisdata:
-  clsi-compiles:
-  clsi-output:
-  clsi-cache:
+  # CLSI volumes are parked with the service block above.
+  # clsi-compiles:
+  # clsi-output:
+  # clsi-cache:
 
 networks:
   backend-net:

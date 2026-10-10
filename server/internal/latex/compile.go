@@ -1,10 +1,16 @@
 package latex
 
 import (
+	"archive/zip"
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -12,7 +18,15 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
+
+const maxBrowserPDFBytes = 100 * 1024 * 1024
+const maxBrowserLogBytes = 2 * 1024 * 1024
+
+func browserArtifactKey(projectID, buildID string) string {
+	return "projects/" + projectID + "/latex/builds/" + buildID + "/output.pdf"
+}
 
 // 契约来源：backend/api/routes/latex.py + schemas/{latex,compile_job}.py
 
@@ -46,8 +60,21 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		return pid, hexNoDash(pid), true
 	}
 
-	// POST /compile → 202 {job_id, status}
+	// POST /compile remains as a clear migration error for older clients. New
+	// compilation jobs must be created by the browser endpoint below; this route
+	// must never enqueue work on the legacy CLSI queue.
 	g.POST("/compile", func(c *gin.Context) {
+		_, _, ok := verify(c)
+		if !ok {
+			return
+		}
+		httpapi.WriteError(c.Writer, &httpapi.APIError{
+			Code: http.StatusGone, Info: "Server-side LaTeX compilation is disabled. Start compilation from the project editor to use the browser engine.",
+		})
+	})
+
+	// Browser compilation persists a job without enqueueing the legacy CLSI queue.
+	g.POST("/compile/browser", func(c *gin.Context) {
 		pid, _, ok := verify(c)
 		if !ok {
 			return
@@ -60,18 +87,19 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 			return
 		}
+		if req.RootFile == "" {
+			req.RootFile = "main.tex"
+		}
 		if req.Compiler == "" {
 			req.Compiler = "pdflatex"
 		}
-		if !ValidCompilers[req.Compiler] {
-			httpapi.WriteError(c.Writer, &httpapi.APIError{
-				Code: 400, Info: "Invalid compiler. Must be one of: lualatex, pdflatex, xelatex",
-			})
+		if req.Compiler != "pdflatex" && req.Compiler != "xelatex" {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Browser compilation supports only pdflatex and xelatex"})
 			return
 		}
-		job, err := queue.Submit(c.Request.Context(), pid, auth.CurrentUser(c).ID.UUID, req.RootFile, req.Compiler)
+		job, err := queue.CreateBrowserJob(c.Request.Context(), pid, auth.CurrentUser(c).ID.UUID, req.RootFile, req.Compiler)
 		if err != nil {
-			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+			writeErr(c, err)
 			return
 		}
 		_ = httpapi.WriteEnvelope(c.Writer, http.StatusAccepted, httpapi.Success(gin.H{
@@ -79,9 +107,111 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		}, ""))
 	})
 
+	// POST /compile/:job_id/browser-result → upload PDF to S3/R2 and finish once.
+	g.POST("/compile/:job_id/browser-result", func(c *gin.Context) {
+		pid, projectID, ok := verify(c)
+		if !ok {
+			return
+		}
+		jobID, err := uuid.Parse(c.Param("job_id"))
+		if err != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		job := queue.GetStatus(c.Request.Context(), jobID, auth.CurrentUser(c).ID.UUID)
+		if job == nil || job.ProjectID.UUID != pid {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Compile job not found"})
+			return
+		}
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBrowserPDFBytes+maxBrowserLogBytes+1024*1024)
+		if err := c.Request.ParseMultipartForm(16 * 1024 * 1024); err != nil {
+			if c.Request.MultipartForm != nil {
+				_ = c.Request.MultipartForm.RemoveAll()
+			}
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Browser result upload is invalid or too large"})
+			return
+		}
+		defer func() { _ = c.Request.MultipartForm.RemoveAll() }()
+		pdfFile, _, err := c.Request.FormFile("pdf")
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Browser result is missing its PDF"})
+			return
+		}
+		defer func() { _ = pdfFile.Close() }()
+		pdf, err := io.ReadAll(io.LimitReader(pdfFile, maxBrowserPDFBytes+1))
+		if err != nil || !isStructurallyValidBrowserPDF(pdf) {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Browser result must be a valid PDF under 100 MiB"})
+			return
+		}
+		logs := c.Request.FormValue("logs")
+		if len(logs) > maxBrowserLogBytes {
+			logs = logs[:maxBrowserLogBytes]
+		}
+		sum := sha256.Sum256(pdf)
+		buildID := "browser-" + strings.ReplaceAll(jobID.String(), "-", "") + "-" + hex.EncodeToString(sum[:16])
+		objectKey := browserArtifactKey(projectID, buildID)
+		if err := queue.Files.Storage.Put(c.Request.Context(), objectKey, pdf); err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 503, Info: "Unable to save the browser PDF to object storage; retry the upload"})
+			return
+		}
+		if err := queue.CompleteBrowserJob(c.Request.Context(), jobID, pid, auth.CurrentUser(c).ID.UUID, buildID, logs); err != nil {
+			// A lost database response can happen after the status update committed.
+			// Re-read before cleanup so a retry cannot delete the PDF of a successful job.
+			latest := queue.GetStatus(c.Request.Context(), jobID, auth.CurrentUser(c).ID.UUID)
+			if latest != nil && latest.ProjectID.UUID == pid && latest.Status == string(store.JobSuccess) && latest.BuildID != nil && *latest.BuildID == buildID {
+				_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
+					"job_id": jobID, "status": string(store.JobSuccess), "build_id": buildID,
+				}, ""))
+				return
+			}
+			if latest != nil && latest.Status != string(store.JobRunning) {
+				_ = queue.Files.Storage.Delete(c.Request.Context(), objectKey)
+				httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Compile job is already complete or cancelled"})
+				return
+			}
+			// The job is still running, or status could not be read. Keep the
+			// deterministic object key so an upload retry is safe after an
+			// ambiguous database result.
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 503, Info: "PDF was uploaded but compile status could not be confirmed; retry the same result"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
+			"job_id": jobID, "status": string(store.JobSuccess), "build_id": buildID,
+		}, ""))
+	})
+
+	// POST /compile/:job_id/browser-failure → retain complete browser diagnostics.
+	g.POST("/compile/:job_id/browser-failure", func(c *gin.Context) {
+		pid, _, ok := verify(c)
+		if !ok {
+			return
+		}
+		jobID, err := uuid.Parse(c.Param("job_id"))
+		if err != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		var req struct {
+			Error string `json:"error"`
+			Logs  string `json:"logs"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		if req.Error == "" {
+			req.Error = "Browser LaTeX compilation failed"
+		}
+		if err := queue.FailBrowserJob(c.Request.Context(), jobID, pid, auth.CurrentUser(c).ID.UUID, req.Error, req.Logs); err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Compile job is already complete or cancelled"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"job_id": jobID, "status": string(store.JobFailed)}, ""))
+	})
+
 	// DELETE /compile?job_id= → 取消指定任务；否则停止项目编译
 	g.DELETE("/compile", func(c *gin.Context) {
-		_, pidStr, ok := verify(c)
+		pid, pidStr, ok := verify(c)
 		if !ok {
 			return
 		}
@@ -91,12 +221,24 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 				httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 				return
 			}
-			job := queue.Cancel(c.Request.Context(), jobID, auth.CurrentUser(c).ID.UUID)
-			if job == nil {
+			userID := auth.CurrentUser(c).ID.UUID
+			job := queue.GetStatus(c.Request.Context(), jobID, userID)
+			if job == nil || job.ProjectID.UUID != pid {
 				httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Compile job not found"})
 				return
 			}
-			_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"cancelled": true, "job_id": jid}, ""))
+			job, err = queue.Cancel(c.Request.Context(), jobID, userID)
+			if err != nil {
+				httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Unable to cancel compile job"})
+				return
+			}
+			if job == nil || job.ProjectID.UUID != pid {
+				httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Compile job not found"})
+				return
+			}
+			_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{
+				"cancelled": job.Status == string(store.JobCancelled), "status": job.Status, "job_id": jid,
+			}, ""))
 			return
 		}
 		_ = svc.Client.StopCompile(c.Request.Context(), pidStr)
@@ -230,6 +372,33 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		if !ok {
 			return
 		}
+		buildID := c.Param("build_id")
+		if strings.HasPrefix(buildID, "browser-") {
+			pdf, err := queue.Files.Storage.Get(c.Request.Context(), browserArtifactKey(pidStr, buildID))
+			if err != nil {
+				writeErr(c, &ServiceError{Code: 404, Msg: "Browser compile artifact not found"})
+				return
+			}
+			var body bytes.Buffer
+			zw := zip.NewWriter(&body)
+			file, err := zw.Create("output.pdf")
+			if err == nil {
+				_, err = file.Write(pdf)
+			}
+			if err == nil {
+				err = zw.Close()
+			} else {
+				_ = zw.Close()
+			}
+			if err != nil {
+				writeErr(c, err)
+				return
+			}
+			c.Header("Content-Type", "application/zip")
+			c.Status(http.StatusOK)
+			_, _ = c.Writer.Write(body.Bytes())
+			return
+		}
 		code, body, err := svc.Client.GetOutputZip(c.Request.Context(), pidStr, c.Param("build_id"))
 		if err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 502, Info: fmt.Sprintf("无法获取编译输出: %v", err)})
@@ -246,7 +415,14 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		if !ok {
 			return
 		}
-		pdf, err := svc.GetOutputPDF(c.Request.Context(), pidStr, c.Param("build_id"))
+		buildID := c.Param("build_id")
+		var pdf []byte
+		var err error
+		if strings.HasPrefix(buildID, "browser-") {
+			pdf, err = queue.Files.Storage.Get(c.Request.Context(), browserArtifactKey(pidStr, buildID))
+		} else {
+			pdf, err = svc.GetOutputPDF(c.Request.Context(), pidStr, buildID)
+		}
 		if err != nil {
 			writeErr(c, err)
 			return

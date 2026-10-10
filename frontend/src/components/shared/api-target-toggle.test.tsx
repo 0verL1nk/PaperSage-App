@@ -47,4 +47,32 @@ describe('ApiTargetToggle', () => {
 
     expect(reload).not.toHaveBeenCalled()
   })
+
+  it('可以配置 Vercel Preview 后端并切换到该地址', async () => {
+    const user = userEvent.setup()
+    render(<ApiTargetToggle />)
+
+    await user.click(screen.getByRole('button', { name: /切换后端/ }))
+    await user.click(await screen.findByRole('menuitem', { name: /配置自定义地址/ }))
+    await user.type(screen.getByLabelText('API 地址'), 'https://preview-api.example.test')
+    await user.click(screen.getByRole('button', { name: '连接' }))
+
+    expect(localStorage.getItem('papersage_custom_api_base_url')).toBe('https://preview-api.example.test')
+    expect(localStorage.getItem(KEY)).toBe('custom')
+    expect(reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('自定义地址无效时显示错误且不会切换', async () => {
+    const user = userEvent.setup()
+    render(<ApiTargetToggle />)
+
+    await user.click(screen.getByRole('button', { name: /切换后端/ }))
+    await user.click(await screen.findByRole('menuitem', { name: /配置自定义地址/ }))
+    await user.type(screen.getByLabelText('API 地址'), 'localhost:5478')
+    await user.click(screen.getByRole('button', { name: '连接' }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/完整地址/)
+    expect(localStorage.getItem(KEY)).toBeNull()
+    expect(reload).not.toHaveBeenCalled()
+  })
 })

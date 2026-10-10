@@ -1,0 +1,62 @@
+{
+  "hyphen-base": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "latexconfig": {
+    "license": "Public domain (per-file notices)",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "texlive-scripts": {
+    "license": "Mixed file-level terms, including GPL-2 and public domain",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "texlive.infra": {
+    "license": "Public domain (per-file notices)",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "ttfutils": {
+    "license": "The LaTeX Project Public License 1.3c",
+    "source": "https://packages.fedoraproject.org/pkgs/texlive-extension/texlive-ttfutils/"
+  },
+  "xetexconfig": {
+    "license": "Public domain (per-file notices)",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "garuda-c90": {
+    "license": "GNU GPL version 2",
+    "source": "https://ctan.org/pkg/cjk?lang=en"
+  },
+  "norasi-c90": {
+    "license": "GNU GPL version 2",
+    "source": "https://ctan.org/pkg/cjk?lang=en"
+  },
+  "hyphen-czech": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-english": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-french": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-german": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-norwegian": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-portuguese": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-swedish": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  }
+}

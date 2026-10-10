@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "engineVersion": "papersage-swiftlatex-2026-10-2",
+  "resourceCatalog": {
+    "profileId": "tl2026-swift-ef78b612-r80534-v7",
+    "texLiveYear": 2026,
+    "texLiveRevision": "r80534",
+    "texLiveSourceCommit": "ef78b612ce99951b9f133e389d2ea84f80d7f2cc",
+    "localCatalogSha256": "9bdc2adfbc11a74cc0a8b70651da2d5074e3ac41e33f927893d3176f194c635e",
+    "catalogObjectCount": 22601,
+    "catalogLookupCount": 196668,
+    "licensePolicy": "Each package archive and extracted file is checksum-verified. Entries without license provenance are excluded."
+  },
+  "formatPolicy": {
+    "generation": "in-browser-on-first-use",
+    "storage": "IndexedDB",
+    "integrity": "SHA-256",
+    "cacheKeyIncludesEngineVersion": true
+  },
+  "executionLimits": {
+    "swiftLatexWasmMaximumMemoryBytes": 2147483648,
+    "compileCommandTimeoutMs": 600000,
+    "maximumTexPasses": 5,
+    "maximumAuxiliaryFiles": 1024,
+    "maximumAuxiliaryBytes": 33554432
+  },
+  "sources": {
+    "swiftlatex": {
+      "repository": "https://github.com/0verL1nk/papersage-swiftlatex",
+      "sourceRevision": "4f6851dbc016a924659394f334d49dd89735b238",
+      "texLiveSourceCommit": "ef78b612ce99951b9f133e389d2ea84f80d7f2cc",
+      "emscriptenVersion": "3.1.64",
+      "license": "AGPL-3.0",
+      "buildReceipt": "/latex-engines/swiftlatex-build-receipt.json",
+      "buildReceiptSha256": "74eb5c6c2e5a51ff0db98e8e7798e5e85aed4aee3bc87c748bbd33172b2536fb"
+    },
+    "dvipdfmx": {
+      "buildReceipt": "/latex-engines/wasmtex-dvipdfmx-2026/BUILD-RECEIPT.xetex.json",
+      "license": "GPL-2.0-or-later",
+      "buildReceiptSha256": "d2644daca43982800aba179c8fdcb172ca5cd06fd7b9c593d6e477084f587ded"
+    },
+    "bibtex": {
+      "buildReceipt": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/BUILD-RECEIPT.bibtex.json",
+      "license": "LGPL-2.1-or-later",
+      "buildReceiptSha256": "54739a9b63c6471c150a015bad1551bb517f4d25f8b2346af3f21d8468b81978"
+    }
+  },
+  "resources": [
+    {
+      "id": "papersage-swift-worker",
+      "name": "SwiftLaTeX 资源适配器",
+      "url": "/latex-engines/papersage-swift-worker.js?v=a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
+      "version": "papersage-swiftlatex-2026-10-10-2",
+      "size": 21989,
+      "sha256": "a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
+      "license": "AGPL-3.0",
+      "notice": "/latex-engines/LICENSE"
+    },
+    {
+      "id": "swiftlatex-pdftex-js",
+      "name": "pdfTeX runtime",
+      "url": "/latex-engines/swiftlatexpdftex.js?v=81a2809fbf3bf08ecba62116b691540784719a37806823797f67f7544a1172d3",
+      "version": "papersage-swiftlatex-2026-10-10-2",
+      "size": 78210,
+      "sha256": "81a2809fbf3bf08ecba62116b691540784719a37806823797f67f7544a1172d3",
+      "license": "AGPL-3.0",
+      "notice": "/latex-engines/LICENSE"
+    },
+    {
+      "id": "swiftlatex-pdftex-wasm",
+      "name": "pdfTeX WebAssembly",
+      "url": "/latex-engines/swiftlatexpdftex.wasm?v=da024397ba4216088f146a53a1efaa530b3bbc23c2490e7a60f540beda518129",
+      "version": "papersage-swiftlatex-2026-10-10-2",
+      "size": 1796927,
+      "sha256": "da024397ba4216088f146a53a1efaa530b3bbc23c2490e7a60f540beda518129",
+      "license": "AGPL-3.0",
+      "notice": "/latex-engines/LICENSE"
+    },
+    {
+      "id": "swiftlatex-xetex-js",
+      "name": "XeTeX runtime",
+      "url": "/latex-engines/swiftlatexxetex.js?v=58464629cc774fbe3e7d3cde1df3aca17f16c415ba8b1298cdfc06e7a0c44e50",
+      "version": "papersage-swiftlatex-2026-10-10-2",
+      "size": 77311,
+      "sha256": "58464629cc774fbe3e7d3cde1df3aca17f16c415ba8b1298cdfc06e7a0c44e50",
+      "license": "AGPL-3.0",
+      "notice": "/latex-engines/LICENSE"
+    },
+    {
+      "id": "swiftlatex-xetex-wasm",
+      "name": "XeTeX WebAssembly",
+      "url": "/latex-engines/swiftlatexxetex.wasm?v=fe4e0cea4bfde521ae35ef335d9233c09b8ab26a5676725705a78f46674aa0cd",
+      "version": "papersage-swiftlatex-2026-10-10-2",
+      "size": 3073788,
+      "sha256": "fe4e0cea4bfde521ae35ef335d9233c09b8ab26a5676725705a78f46674aa0cd",
+      "license": "AGPL-3.0",
+      "notice": "/latex-engines/LICENSE"
+    },
+    {
+      "id": "texlive2026-dvipdfmx-worker",
+      "name": "TeX Live 2026 Dvipdfmx worker",
+      "url": "/latex-engines/wasmtex-dvipdfmx-2026/wasmtex-dvipdfm.worker.js?v=5110f9f3e8917072be1281ea44b94fd4966ad1e816b081646015bfc2420a0606",
+      "version": "wasmtex-engine-2026-9147f5703951082b-papersage-1",
+      "size": 16929,
+      "sha256": "5110f9f3e8917072be1281ea44b94fd4966ad1e816b081646015bfc2420a0606",
+      "license": "GPL-2.0-or-later",
+      "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "id": "texlive2026-dvipdfmx-js",
+      "name": "TeX Live 2026 Dvipdfmx runtime",
+      "url": "/latex-engines/wasmtex-dvipdfmx-2026/wasmtex-dvipdfm.js?v=ceaa8cb87b39cd0ed92adea9e2468250f0c40b4a31006565dae3c604737f9cd7",
+      "version": "wasmtex-engine-2026-9147f5703951082b-papersage-1",
+      "size": 86730,
+      "sha256": "ceaa8cb87b39cd0ed92adea9e2468250f0c40b4a31006565dae3c604737f9cd7",
+      "license": "GPL-2.0-or-later",
+      "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "id": "texlive2026-dvipdfmx-wasm",
+      "name": "TeX Live 2026 Dvipdfmx WebAssembly",
+      "url": "/latex-engines/wasmtex-dvipdfmx-2026/wasmtex-dvipdfm.wasm?v=d43b768b3900afe001d901313eb12c2ac0db7addbe8297a2108c35f26dcf2fea",
+      "version": "wasmtex-engine-2026-9147f5703951082b",
+      "size": 834985,
+      "sha256": "d43b768b3900afe001d901313eb12c2ac0db7addbe8297a2108c35f26dcf2fea",
+      "license": "GPL-2.0-or-later",
+      "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "id": "texlive2026-dvipdfmx-evidence",
+      "name": "Dvipdfmx 资源校验模块",
+      "url": "/latex-engines/wasmtex-dvipdfmx-2026/wasmtex-xetex-resolver-evidence.js?v=8808915d5b171257e161673a489c75850ae15bad523ea374120f7d42deb86dea",
+      "version": "wasmtex-engine-2026-9147f5703951082b-papersage-1",
+      "size": 604,
+      "sha256": "8808915d5b171257e161673a489c75850ae15bad523ea374120f7d42deb86dea",
+      "license": "GPL-2.0-or-later",
+      "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "id": "wasmtex-bibtex-entry",
+      "name": "BibTeX 资源适配器",
+      "url": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/papersage-bibtex-worker.js?v=679fdfc5a16690c9ae5152a546e3502285b30d83b47e2236560c2c2de825d4f1",
+      "version": "wasmtex-bibtex-2026-9147f5703951082b",
+      "size": 246,
+      "sha256": "679fdfc5a16690c9ae5152a546e3502285b30d83b47e2236560c2c2de825d4f1",
+      "license": "LGPL-2.1-or-later",
+      "notice": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/NOTICE.md"
+    },
+    {
+      "id": "wasmtex-bibtex-worker",
+      "name": "BibTeX worker",
+      "url": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/wasmtex-bibtex.worker.js?v=faa856e34c03a920767f906791ea71654bbb52b54c24116c31a08faaa45ee9ba",
+      "version": "wasmtex-bibtex-2026-9147f5703951082b",
+      "size": 7291,
+      "sha256": "faa856e34c03a920767f906791ea71654bbb52b54c24116c31a08faaa45ee9ba",
+      "license": "LGPL-2.1-or-later",
+      "notice": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/NOTICE.md"
+    },
+    {
+      "id": "wasmtex-bibtex-js",
+      "name": "BibTeX runtime",
+      "url": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/wasmtex-bibtex.js?v=e31642665e1a45722b901c402a515fc01280cfabc57c710044d6e02e32fa3381",
+      "version": "wasmtex-bibtex-2026-9147f5703951082b",
+      "size": 77808,
+      "sha256": "e31642665e1a45722b901c402a515fc01280cfabc57c710044d6e02e32fa3381",
+      "license": "LGPL-2.1-or-later",
+      "notice": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/NOTICE.md"
+    },
+    {
+      "id": "wasmtex-bibtex-wasm",
+      "name": "BibTeX WebAssembly",
+      "url": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/wasmtex-bibtex.wasm?v=7ee47f5959d9f2a0d4cbde264be97472b6c1b7a1da2ca58b67baea759b03c3d6",
+      "version": "wasmtex-bibtex-2026-9147f5703951082b",
+      "size": 205813,
+      "sha256": "7ee47f5959d9f2a0d4cbde264be97472b6c1b7a1da2ca58b67baea759b03c3d6",
+      "license": "LGPL-2.1-or-later",
+      "notice": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/NOTICE.md"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "pdflatex",
+      "name": "pdfLaTeX",
+      "description": "适合常见英文论文模板",
+      "resourceIds": [
+        "papersage-swift-worker",
+        "swiftlatex-pdftex-js",
+        "swiftlatex-pdftex-wasm",
+        "wasmtex-bibtex-entry",
+        "wasmtex-bibtex-worker",
+        "wasmtex-bibtex-js",
+        "wasmtex-bibtex-wasm"
+      ]
+    },
+    {
+      "id": "xelatex",
+      "name": "XeLaTeX",
+      "description": "支持 Unicode、中文和 OpenType 字体",
+      "resourceIds": [
+        "papersage-swift-worker",
+        "swiftlatex-xetex-js",
+        "swiftlatex-xetex-wasm",
+        "texlive2026-dvipdfmx-worker",
+        "texlive2026-dvipdfmx-js",
+        "texlive2026-dvipdfmx-wasm",
+        "texlive2026-dvipdfmx-evidence",
+        "wasmtex-bibtex-entry",
+        "wasmtex-bibtex-worker",
+        "wasmtex-bibtex-js",
+        "wasmtex-bibtex-wasm"
+      ]
+    }
+  ]
+}

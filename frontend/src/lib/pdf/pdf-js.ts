@@ -10,6 +10,13 @@ export const PDFJS = pdfjs
 
 export const imageResourcesPath = '/images/pdfjs-dist/'
 
+/** CJK CID fonts need PDF.js's Adobe character maps to extract and render text. */
+export const pdfDocumentOptions = {
+  cMapUrl: '/pdfjs/cmaps/',
+  cMapPacked: true,
+  standardFontDataUrl: '/pdfjs/standard_fonts/',
+} as const
+
 export const loadPdfDocumentFromUrl = (
   url: string,
   options: Record<string, unknown> = {},
