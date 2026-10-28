@@ -34,6 +34,8 @@ import (
 type App struct {
 	API *httpapi.API // 挂载完毕的 gin 引擎（含全部域路由）
 	DB  *gorm.DB
+	// Close drains AI work; the process closes DB only after HTTP and AI return.
+	Close func(context.Context) error
 }
 
 // Build 按依赖序装配整个应用。
@@ -115,7 +117,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 
-	return &App{API: engine, DB: db}, nil
+	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
 }
 
 // defaultMailer 启动时的邮件 Provider（EMAIL_PROVIDER=resend/smtp/noop）。

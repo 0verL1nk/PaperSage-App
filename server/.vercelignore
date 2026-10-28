@@ -10,5 +10,3 @@ __pycache__
 *.db
 *.db-*
 cover.out
-web/assets/*
-!web/assets/.keep

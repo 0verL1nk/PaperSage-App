@@ -44,6 +44,12 @@ type Service struct {
 	// cancels 登记进行中 Run 的取消函数（POST /runs/:id/cancel）。
 	cancelMu sync.Mutex
 	cancels  map[store.UUID]context.CancelFunc
+	closing  bool
+	runs     sync.WaitGroup
+	drained  chan struct{}
+	closeErr error
+	runCtx   context.Context
+	stopRuns context.CancelCauseFunc
 	// files 复用 latex 域的文件服务（路径校验 + 存储 + 缓存），应用建议时用。
 	// 必须复用同一个实例：FilesService 带自己的 LRU 内容缓存，各建一份会让
 	// 同一 S3 key 出现两份缓存、读出陈旧内容。
@@ -52,15 +58,22 @@ type Service struct {
 
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
 	cfg *config.Settings, rg *rag.Store) *Service {
+	runCtx, stopRuns := context.WithCancelCause(context.Background())
 	return &Service{
 		DB: db, Storage: stg, Cfg: cfg, RAG: rg, files: files,
 		hub: newRunHub(), cancels: map[store.UUID]context.CancelFunc{},
+		runCtx: runCtx, stopRuns: stopRuns,
 	}
 }
 
 // chat POST /projects/:id/agent/chat {conversation_id?, content} → SSE
 func (s *Service) chat(c *gin.Context) {
-	ctx := c.Request.Context()
+	ctx, release, accepted := s.acceptRun(c.Request.Context())
+	if !accepted {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
+	defer release()
 	uid := auth.CurrentUser(c).ID
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
@@ -108,6 +121,14 @@ func (s *Service) chat(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
+	rc := runContext{RunID: run.ID, ConversationID: conv.ID,
+		ProjectID: store.UUID{UUID: pid}, UserID: uid, Content: req.Content}
+	started := false
+	defer func() {
+		if !started {
+			s.finishUnstartedRun(rc)
+		}
+	}()
 	// 用户消息先落库（文本作为第一个 part）
 	if _, err := s.createUserMessage(ctx, s.DB, conv.ID, turn.ID, req.Content); err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
@@ -117,13 +138,11 @@ func (s *Service) chat(c *gin.Context) {
 
 	// 执行与订阅分离：Run 在独立 goroutine 中跑，HTTP 连接只订阅事件。
 	// 客户端断开后 Run 仍会跑完（参考架构 §3.2 模式 B）。
-	s.StartRun(runContext{
-		RunID:          run.ID,
-		ConversationID: conv.ID,
-		ProjectID:      store.UUID{UUID: pid},
-		UserID:         uid,
-		Content:        req.Content,
-	})
+	started = true
+	if err := s.StartRun(rc); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
 
 	sw, ok := newStreamWriter(c)
 	if !ok {

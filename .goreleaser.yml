@@ -1,12 +1,7 @@
-# goreleaser — 单二进制交付：tag (v*) 触发，跨平台二进制 + checksums + GitHub Release
-# 前端产物需在构建前嵌入 server/web/assets（构建时由前端 job 完成）。
+# API-only binaries; frontend delivery is independent on Vercel.
 version: 2
 
 project_name: papersage
-
-before:
-  hooks:
-    - go mod tidy
 
 builds:
   - id: papersage
@@ -14,18 +9,30 @@ builds:
     dir: server
     binary: papersage
     env: [CGO_ENABLED=0]
-    # web/assets 由 release.yml 前置步骤填充（go:embed）
+    flags: [-trimpath]
     goos: [linux, windows, darwin]
     goarch: [amd64, arm64]
     ignore:
-      # windows/arm64 暂无真实需求，减产物
       - goos: windows
         goarch: arm64
     ldflags:
-      - -s -w -X main.version={{.Version}} -X main.commit={{.Commit}} -X main.date={{.Date}}
+      - -s -w -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Version={{.Version}} -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Commit={{.Commit}} -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Date={{.Date}}
+  - id: migrate
+    main: ./cmd/migrate
+    dir: server
+    binary: migrate
+    env: [CGO_ENABLED=0]
+    flags: [-trimpath]
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ignore:
+      - goos: windows
+        goarch: arm64
+    ldflags: [-s -w]
 
 archives:
   - id: binaries
+    ids: [papersage, migrate]
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
@@ -33,7 +40,6 @@ archives:
       - goos: windows
         formats: [zip]
     files:
-      # 无额外文件：单二进制自包含（前端已 embed）
       - none*
 
 checksum:

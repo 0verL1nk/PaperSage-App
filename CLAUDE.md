@@ -4,13 +4,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**PaperSage** - Full-stack academic paper management app with LaTeX editing and compilation. React 19 + TypeScript frontend, Go (gin + GORM) backend shipped as a **single binary with the embedded frontend**, vendor Overleaf CLSI for LaTeX rendering.
+**PaperSage** - Full-stack academic paper management app with LaTeX editing and compilation. React 19 + TypeScript frontend on Vercel, API-only Go (gin + GORM) backend shipped as a standalone binary. Browser WASM compilation is the default; the vendored Overleaf CLSI remains an optional external compiler.
 
 ## CI Status
 
 | Workflow | Status |
 |---|---|
-| Server CI (gofmt + vet + golangci-lint + tidy 漂移 + go test -race -shuffle, coverage >=80% + govulncheck) | ![Server CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/server-ci.yml/badge.svg) |
+| Server CI (gofmt + vet + golangci-lint + tidy 漂移 + go test -race -shuffle, coverage >=48% baseline + govulncheck) | ![Server CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/server-ci.yml/badge.svg) |
 | Frontend CI (typecheck + lint + vitest + dependency review) | ![Frontend CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/frontend.yml/badge.svg) |
 | E2E (Playwright) | ![E2E](https://github.com/0verL1nk/GraduateProject/actions/workflows/e2e.yml/badge.svg) |
 | Docker Build & Push (SBOM + provenance) | ![Docker](https://github.com/0verL1nk/GraduateProject/actions/workflows/docker.yml/badge.svg) |
@@ -69,7 +69,7 @@ server/
 ├── internal/
 │   ├── bootstrap/     # 装配：Build() 完成 域服务→路由→DAO 全局注入（cmd 薄壳化）
 │   ├── config/        # env 配置（变量名与旧 Python 版 1:1）
-│   ├── httpapi/       # gin 装配、{code,data,info} 信封、错误映射、CORS、SPA 静态服务
+│   ├── httpapi/       # gin 装配、{code,data,info} 信封、错误映射、CORS、版本与健康检查
 │   ├── auth/          # JWT 双 token + bcrypt + AuthRequired 中间件
 │   ├── projects/      # 项目/分组/回收站域
 │   ├── documents/     # 文档上传/文件夹域（camelCase DTO）
@@ -81,9 +81,8 @@ server/
 │   ├── dto/           # JSONTime（Python isoformat 字节级兼容）
 │   └── testutil/      # 跨域契约测试装配
 ├── migrations/        # golang-migrate SQL（embed）
-├── web/               # 前端构建产物（go:embed，构建时填充）
 ├── scripts/           # parity_check.py（双跑对比，迁移期工具）
-└── Dockerfile         # 三阶段 → distroless 单镜像
+└── Dockerfile         # 可选 API-only distroless 镜像；小服务器直接运行二进制
 ```
 
 **Key patterns:**
@@ -101,9 +100,9 @@ server/
 - JWE 加密双 token（A256KW+A256GCM，载荷不明文）；refresh 注册表落库持久化，真轮换（旧 token 用后即废）且重启不丢登录态
 - API envelope: `{code, data, info}`；路由级 404/405 是裸 `{"detail": ...}`（对齐 FastAPI 实测行为）
 - Form-based auth；双重口令哈希：前端 SHA-256 → 后端 bcrypt（存量用户可直接登录）
-- 测试覆盖率门槛 ≥80%（server-ci 强制）
-- 单二进制交付：`make build-server`；SPA fallback / assets immutable 缓存
-- 迁移：golang-migrate + Alembic 交接（存量 PG 库启动时自动接管，schema 不变）
+- 测试覆盖率回归门槛 ≥48%（server-ci 强制）；80% 是逐步提升的目标
+- API-only 交付：`make build-server` 不构建或嵌入前端，未知非 API 路径也返回 JSON 404
+- 迁移使用 `cmd/migrate` 独立执行；正式服务配置 `RUN_DB_MIGRATIONS=false`，不在请求启动路径改 schema
 - **Agent 运行时（模式 B）**：一次提交 = Turn + Run；`POST /agent/conversations/:id/runs` 建 Run 并**立刻返回**，执行在独立 goroutine 里跑（`internal/agent/runexec.go`），客户端断开也照常跑完；`GET /agent/runs/:id/events` 订阅事件
 - **会话要先显式建**：`POST /projects/:id/agent/conversations`。Run 路径要求会话已存在，面板在**第一条消息**时先建会话再发 Run——没有这个入口，新项目的第一句话会静默丢失
 - **事件真相在 `agent_events`**（Run 内单调 sequence），进程内 hub 只做唤醒——多实例/重启不丢事件
@@ -161,7 +160,7 @@ pnpm test:e2e           # Playwright (requires backend + MinIO)
 
 ```bash
 cd server
-go test ./internal/... ./web/...   # 单元测试（含覆盖率）
+go test ./internal/...   # 单元测试（含覆盖率）
 go test -tags=integration ./internal/store/ -run TestMigrateUp  # PG 迁移集成（需 TEST_PG_DSN）
 
 # Code quality
@@ -180,7 +179,7 @@ make check-backend      # gofmt + go vet + 编译检查
 make check-frontend     # typecheck + lint
 make test-backend       # go test（后端）
 make test-frontend      # vitest（前端）
-make build-server       # 单二进制（前端 embed）
+make build-server       # API-only 二进制（不构建或打包前端）
 make seed               # 种子数据（e2e/dev，幂等）
 make parity             # 双跑对比（迁移期验收工具）
 ```

@@ -54,20 +54,39 @@ func Run() error {
 		errCh <- srv.ListenAndServe()
 	}()
 
+	var serveErr error
 	select {
 	case err := <-errCh:
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("serve: %w", err)
+			serveErr = fmt.Errorf("serve: %w", err)
 		}
-		return nil
 	case <-ctx.Done():
-		logger.Info("shutting down")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := srv.Shutdown(shutdownCtx); err != nil {
-			return fmt.Errorf("shutdown: %w", err)
-		}
-		logger.Info("server stopped")
-		return nil
 	}
+	logger.Info("shutting down")
+	// Operational drain budget; AI final persistence has a separate 5s window.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	err = shutdown(shutdownCtx, srv, app)
+	logger.Info("server stopped")
+	return errors.Join(serveErr, err)
+}
+
+func shutdown(ctx context.Context, srv *http.Server, app *bootstrap.App) error {
+	httpDone := make(chan error, 1)
+	go func() {
+		err := srv.Shutdown(ctx)
+		if err != nil {
+			err = errors.Join(err, srv.Close()) // release subscriptions after the drain deadline
+		}
+		httpDone <- err
+	}()
+	// Close seals Run admission synchronously while HTTP stops accepting connections.
+	agentErr := app.Close(ctx)
+	httpErr := <-httpDone
+	// Neither subscriptions nor terminal writes may touch a closed DB.
+	db, dbErr := app.DB.DB()
+	if dbErr == nil {
+		dbErr = db.Close()
+	}
+	return errors.Join(agentErr, httpErr, dbErr)
 }

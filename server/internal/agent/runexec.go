@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,8 @@ import (
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
 	"github.com/cloudwego/eino/schema"
+	"gorm.io/datatypes"
+	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -146,24 +150,110 @@ type runContext struct {
 	Content        string
 }
 
-// StartRun 在独立 goroutine 中执行 Run。立刻返回，执行进度经 agent_events 暴露。
-// 同时登记取消函数，供 POST /runs/:id/cancel 使用。
-func (s *Service) StartRun(rc runContext) {
-	ctx, cancel := context.WithTimeout(context.Background(), runTimeout)
+// runFinalizeTimeout is shutdown's persistence budget, not a model/iteration limit.
+const runFinalizeTimeout = 5 * time.Second
+
+var errServiceClosing = errors.New("agent service is shutting down")
+
+// acceptRun counts creation requests as well as executions: Close must not race
+// a handler that has persisted a running row but has not called StartRun yet.
+func (s *Service) acceptRun(requestCtx context.Context) (context.Context, func(), bool) {
 	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	if s.closing {
+		return nil, nil, false
+	}
+	s.runs.Add(1)
+	ctx, cancel := context.WithCancel(requestCtx)
+	stop := context.AfterFunc(s.runCtx, cancel)
+	return ctx, func() { stop(); cancel(); s.runs.Done() }, true
+}
+
+// Close rejects new work and drains this instance's Runs. On ctx expiry it
+// cancels them, then waits for bounded detached terminal writes before returning.
+// The DB must remain open until Close returns. Concurrent/repeated calls are safe.
+func (s *Service) Close(ctx context.Context) error {
+	s.cancelMu.Lock()
+	if !s.closing {
+		s.closing = true
+		s.drained = make(chan struct{})
+		go func() {
+			s.runs.Wait() // no Add can pass the admission lock after closing is set
+			close(s.drained)
+		}()
+	}
+	done := s.drained
+	s.cancelMu.Unlock()
+
+	var cause error
+	select {
+	case <-done:
+	case <-ctx.Done():
+		cause = ctx.Err()
+		s.stopRuns(errServiceClosing)
+		<-done
+	}
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	return errors.Join(cause, s.closeErr)
+}
+
+func (s *Service) recordCloseError(runID store.UUID, err error) {
+	if err == nil {
+		return
+	}
+	slog.Error("agent: persist terminal state", "run_id", runID, "err", err)
+	s.cancelMu.Lock()
+	defer s.cancelMu.Unlock()
+	if s.closeErr == nil {
+		s.closeErr = err
+	}
+}
+
+// finishUnstartedRun covers failure between committing the Run and launching it.
+func (s *Service) finishUnstartedRun(rc runContext) {
+	status, reason := RunFailed, "Run creation interrupted"
+	if s.runCtx.Err() != nil {
+		status, reason = RunCancelled, errServiceClosing.Error()
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), runFinalizeTimeout)
+	defer cancel()
+	s.recordCloseError(rc.RunID, s.finalizeRun(ctx, rc, "", nil, status, reason))
+}
+
+// StartRun executes independently of the client connection. Creation handlers
+// hold an admission lease until this function has either started or finalized it.
+func (s *Service) StartRun(rc runContext) error {
+	s.cancelMu.Lock()
+	if s.closing {
+		s.cancelMu.Unlock()
+		ctx, cancel := context.WithTimeout(context.Background(), runFinalizeTimeout)
+		defer cancel()
+		err := s.finalizeRun(ctx, rc, "", nil, RunCancelled, errServiceClosing.Error())
+		s.recordCloseError(rc.RunID, err)
+		return errors.Join(errServiceClosing, err)
+	}
+	if _, exists := s.cancels[rc.RunID]; exists {
+		s.cancelMu.Unlock()
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(s.runCtx, runTimeout)
 	s.cancels[rc.RunID] = cancel
+	s.runs.Add(1)
 	s.cancelMu.Unlock()
 
 	go func() {
+		defer s.runs.Done()
 		defer func() {
 			s.cancelMu.Lock()
 			delete(s.cancels, rc.RunID)
 			s.cancelMu.Unlock()
 			cancel()
-			s.hub.publish(rc.RunID) // 终态也要唤醒订阅端，否则它会等到轮询才收尾
+			s.hub.publish(rc.RunID)
 		}()
 		s.ExecuteRun(ctx, rc)
 	}()
+	return nil
 }
 
 // CancelRun 取消一个进行中的 Run；返回它此前是否在运行。
@@ -184,6 +274,8 @@ func (s *Service) CancelRun(runID store.UUID) bool {
 // 与旧的「在 handler 里同步跑」相比，这里刻意不碰 http.ResponseWriter：
 // Run 的生死与连接无关（参考架构 §3.2 模式 B）。
 func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	defer s.hub.publish(rc.RunID)
 
 	textID := "text_" + rc.RunID.String()
@@ -194,16 +286,19 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	}
 	var toolEvents []toolEvt
 	toolNames := map[string]string{}
-
-	fail := func(msg string) {
-		_ = s.appendEvent(ctx, rc.ConversationID, rc.RunID, evtRunError, map[string]string{"message": msg})
-		if _, err := s.persistAssistant(ctx, rc, final.String(), toolEvents, RunFailed); err != nil {
-			s.finishRun(ctx, rc.RunID, RunFailed, nil, "persist assistant message failed")
+	childRunsByAgent := map[string]store.UUID{}
+	status, failure := RunFailed, ""
+	defer func() {
+		cause := context.Cause(ctx)
+		cancel() // stop producer/tools before committing terminal state
+		if cause != nil {
+			status, failure = RunCancelled, cause.Error()
 		}
-		_ = s.finishRunTx(ctx, rc, RunFailed)
-		_ = s.appendEvent(ctx, rc.ConversationID, rc.RunID, evtRunFinished,
-			map[string]string{"status": RunFailed})
-	}
+		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runFinalizeTimeout)
+		defer cancel()
+		s.recordCloseError(rc.RunID, s.finalizeRun(finishCtx, rc, final.String(), toolEvents, status, failure))
+	}()
+	fail := func(msg string) { failure = msg }
 
 	resolved, err := ResolveModelWithEnv(ctx, s.DB, rc.UserID, s.Cfg)
 	if err != nil {
@@ -276,7 +371,6 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	// 子 Run：开 EmitInternalEvents 后事件自带 AgentName，框架已经告诉我们事件来自
 	// 哪个 agent——因此不必解析 task 工具参数去猜目标子 agent（那是重复造轮子）。
 	// 首次见到某个子 agent 就为它开一个子 Run；主 Run 结束时统一收敛。
-	childRunsByAgent := map[string]store.UUID{}
 	syncSubAgent := func(agentName string) store.UUID {
 		if agentName == "" || agentName == mainAgentName {
 			return store.UUID{}
@@ -295,31 +389,6 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		})
 		return child.ID
 	}
-	// closeChildren 收敛所有子 Run 并广播终态。必须在主 Run 写 run.finished **之前**
-	// 调用：run.finished 是订阅端的收流信号，之后追加的事件不会再送达订阅者，
-	// 子任务的「已完成」就会永远看不到。
-	// 子 Run 的实际结局随主 Run：失败/取消时不谎报 completed。
-	closed := false
-	closeChildren := func(final string) {
-		if closed {
-			return // 幂等：正常路径收过之后，兜底的 defer 不应再改写终态或重复广播
-		}
-		closed = true
-		bg := context.Background()
-		now := time.Now().UTC()
-		for name, id := range childRunsByAgent {
-			_ = s.DB.WithContext(bg).Model(&store.AgentRun{}).Where("id = ?", id).
-				Updates(map[string]any{"status": final, "completed_at": now}).Error
-			_ = s.appendEvent(bg, rc.ConversationID, rc.RunID, evtActivity, map[string]any{
-				"runId": id.String(), "title": name,
-				"status": final, "parentRunId": rc.RunID.String(),
-			})
-		}
-		s.hub.publish(rc.RunID) // 唤醒订阅端把这几条推出去
-	}
-	// 兜底：任何提前 return 的路径（构建失败、模型错误、取消）也要收掉子 Run。
-	// 正常路径已先调用过，闭包内幂等，不会覆盖终态。
-	defer closeChildren(RunFailed)
 	toolCallRows := map[string]store.UUID{} // toolCallId → agent_tool_calls.id
 	toolArgs := map[string]string{}         // toolCallId → 原始 args（关联建议时需要）
 	toolSeq := 0
@@ -403,29 +472,24 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		}
 	}
 
-	iter := runner.Run(ctx, history)
+	events := readRunEvents(ctx, runner.Run(ctx, history))
 	for {
-		// 取消：终止后续步骤，但不回滚已经生效的写入
-		//（「断流不等于成功，取消也不等于已撤销」）。终态写入用独立 ctx，
-		// 因为此时 ctx 已被取消。
+		var item runEvent
+		var ok bool
 		select {
 		case <-ctx.Done():
-			bg := context.Background()
-			_ = s.finishRunTx(bg, rc, RunCancelled)
-			_ = s.appendEvent(bg, rc.ConversationID, rc.RunID, evtRunFinished,
-				map[string]string{"status": RunCancelled})
 			return
-		default:
+		case item, ok = <-events:
 		}
-
-		ev, ok := iter.Next()
+		if ctx.Err() != nil {
+			return
+		}
 		if !ok {
 			break
 		}
-		// 事件来自哪个 agent 由框架给出（EmitInternalEvents）：子 agent 的事件写进它
-		// 自己的子 Run，且**不计入主回答**——否则子 agent 会成为用户眼里的第二个发言者。
-		targetRun := rc.RunID
-		silent := false
+		ev := item.event
+		// 框架标识事件来源；子 agent 的内容只留在子 Run，不混入主回答。
+		targetRun, silent := rc.RunID, false
 		if ev.AgentName != "" && ev.AgentName != mainAgentName {
 			silent = true
 			if id := syncSubAgent(ev.AgentName); id != (store.UUID{}) {
@@ -436,44 +500,98 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			fail(friendlyErr(ev.Err))
 			return
 		}
-		if ev.Output == nil || ev.Output.MessageOutput == nil {
-			continue
-		}
-		mo := ev.Output.MessageOutput
-		if mo.IsStreaming && mo.MessageStream != nil {
-			for {
-				chunk, rerr := mo.MessageStream.Recv()
-				if rerr != nil || chunk == nil {
-					break
-				}
-				emitCalls(chunk.ToolCalls, targetRun, silent)
-				if chunk.Content == "" {
-					continue
-				}
+		if item.chunk != nil {
+			chunk := item.chunk
+			emitCalls(chunk.ToolCalls, targetRun, silent)
+			if chunk.Content != "" {
 				if silent {
 					record(targetRun, evtTextDelta, map[string]string{"id": textID, "delta": chunk.Content})
-					continue
+				} else {
+					final.WriteString(chunk.Content)
+					emit(targetRun, evtTextDelta, map[string]string{"id": textID, "delta": chunk.Content})
 				}
-				final.WriteString(chunk.Content)
-				emit(targetRun, evtTextDelta, map[string]string{"id": textID, "delta": chunk.Content})
 			}
-		} else {
-			handleMsg(mo.Message, targetRun, silent)
+		} else if ev.Output != nil && ev.Output.MessageOutput != nil {
+			handleMsg(ev.Output.MessageOutput.Message, targetRun, silent)
 		}
 	}
-
 	if final.Len() == 0 && len(toolEvents) == 0 {
 		fail("模型未返回内容，请重试")
 		return
 	}
-	if _, err := s.persistAssistant(ctx, rc, final.String(), toolEvents, RunCompleted); err != nil {
-		s.finishRun(ctx, rc.RunID, RunFailed, nil, "persist assistant message failed")
-	} else {
-		_ = s.finishRunTx(ctx, rc, RunCompleted)
-	}
-	// 先收子 Run，再发主 Run 的终态（顺序见 closeChildren 的注释）
-	closeChildren(RunCompleted)
-	emit(rc.RunID, evtRunFinished, map[string]string{"status": RunCompleted})
+	status = RunCompleted
+}
+
+// One reader owns Next/Recv/Close. The executor can finalize on cancellation
+// even when a provider is still unwinding a blocked read; this reader never writes DB.
+type runEvent struct {
+	event *adk.AgentEvent
+	chunk *schema.Message
+}
+
+func readRunEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent]) <-chan runEvent {
+	out := make(chan runEvent)
+	go func() {
+		defer close(out)
+		send := func(item runEvent) bool {
+			select {
+			case <-ctx.Done():
+				return false
+			case out <- item:
+				return true
+			}
+		}
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			ev, ok := iter.Next()
+			if !ok {
+				return
+			}
+			if ev == nil {
+				continue
+			}
+			var stream *schema.StreamReader[*schema.Message]
+			if ev.Output != nil && ev.Output.MessageOutput != nil && ev.Output.MessageOutput.IsStreaming {
+				stream = ev.Output.MessageOutput.MessageStream
+			}
+			if stream == nil {
+				if !send(runEvent{event: ev}) {
+					return
+				}
+				continue
+			}
+			ok = func() bool {
+				defer stream.Close()
+				if !send(runEvent{event: ev}) {
+					return false
+				}
+				for {
+					if ctx.Err() != nil {
+						return false
+					}
+					chunk, err := stream.Recv()
+					if errors.Is(err, io.EOF) {
+						return true
+					}
+					if err != nil {
+						failed := *ev
+						failed.Err = err
+						send(runEvent{event: &failed})
+						return false
+					}
+					if chunk != nil && !send(runEvent{event: ev, chunk: chunk}) {
+						return false
+					}
+				}
+			}()
+			if !ok {
+				return
+			}
+		}
+	}()
+	return out
 }
 
 // persistAssistant 落库助手终答（文本 + 工具活动 part）并推进会话更新时间。
@@ -482,16 +600,84 @@ func (s *Service) persistAssistant(ctx context.Context, rc runContext, content s
 	if err != nil {
 		return nil, err
 	}
-	_ = s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
-		Where("id = ?", rc.ConversationID).Update("updated_at", time.Now().UTC()).Error
+	if status != RunCompleted {
+		if err := s.DB.WithContext(ctx).Model(msg).Update("status", status).Error; err != nil {
+			return nil, err
+		}
+	}
+	if err := s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
+		Where("id = ?", rc.ConversationID).Update("updated_at", time.Now().UTC()).Error; err != nil {
+		return nil, err
+	}
 	return msg, nil
 }
 
-// finishRunTx 收敛 Run 终态（占用 endTime 与 output 由调用方另行设置）。
-func (s *Service) finishRunTx(ctx context.Context, rc runContext, status string) error {
-	return s.DB.WithContext(ctx).Model(&store.AgentRun{}).
-		Where("id = ?", rc.RunID).
-		Updates(map[string]any{"status": status, "completed_at": time.Now().UTC()}).Error
+// finalizeRun commits parent/children, partial answer, and the final event together.
+// Claiming only running rows prevents a late path from overwriting a terminal Run
+// or emitting another completion; activities precede the stream-ending event.
+func (s *Service) finalizeRun(ctx context.Context, rc runContext, content string, tools any, status, failure string) error {
+	var messageErr error
+	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		result := tx.Model(&store.AgentRun{}).Where("id = ? AND status = ?", rc.RunID, RunRunning).
+			Updates(map[string]any{"status": status, "completed_at": time.Now().UTC()})
+		if result.Error != nil || result.RowsAffected == 0 {
+			return result.Error
+		}
+		var msg *store.AgentMessage
+		// Isolate message persistence so a failed answer cannot strand its Run.
+		messageErr = tx.Transaction(func(msgTx *gorm.DB) error {
+			var err error
+			msg, err = (&Service{DB: msgTx}).persistAssistant(ctx, rc, content, tools, status)
+			return err
+		})
+		updates := map[string]any{}
+		if messageErr != nil {
+			if status == RunCompleted {
+				status = RunFailed
+			}
+			failure = "persist assistant message failed"
+			updates["status"] = status
+		} else {
+			updates["output_message_id"] = msg.ID
+		}
+		if failure != "" {
+			updates["error_json"] = datatypes.JSON(mustJSON(map[string]string{"message": failure}))
+		}
+		if err := tx.Model(&store.AgentRun{}).Where("id = ?", rc.RunID).Updates(updates).Error; err != nil {
+			return err
+		}
+		var children []store.AgentRun
+		if err := tx.Where("parent_run_id = ?", rc.RunID).Find(&children).Error; err != nil {
+			return err
+		}
+		runIDs := []store.UUID{rc.RunID}
+		for _, child := range children {
+			id := child.ID
+			runIDs = append(runIDs, id)
+			if err := tx.Model(&store.AgentRun{}).Where("id = ? AND status = ?", id, RunRunning).
+				Updates(map[string]any{"status": status, "completed_at": time.Now().UTC()}).Error; err != nil {
+				return err
+			}
+			if err := s.appendEventTx(ctx, tx, rc.ConversationID, rc.RunID, evtActivity, map[string]any{
+				"runId": id.String(), "title": child.AgentKey, "status": status, "parentRunId": rc.RunID.String(),
+			}); err != nil {
+				return err
+			}
+		}
+		// Approval is user-owned after delivery; only unfinished execution is failed.
+		if err := tx.Model(&store.AgentToolCall{}).Where("run_id IN ? AND state = ?", runIDs, ToolExecuting).
+			Updates(map[string]any{"state": ToolFailed, "completed_at": time.Now().UTC()}).Error; err != nil {
+			return err
+		}
+		if failure != "" && status == RunFailed {
+			if err := s.appendEventTx(ctx, tx, rc.ConversationID, rc.RunID, evtRunError, map[string]string{"message": failure}); err != nil {
+				return err
+			}
+		}
+		return s.appendEventTx(ctx, tx, rc.ConversationID, rc.RunID, evtRunFinished, map[string]string{"status": status})
+	})
+	s.hub.publish(rc.RunID)
+	return errors.Join(err, messageErr)
 }
 
 // ── 订阅 ────────────────────────────────────────────────────────────

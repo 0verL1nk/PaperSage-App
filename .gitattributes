@@ -7,3 +7,7 @@
 frontend/public/latex-engines/swiftlatexpdftex.js text eol=lf
 frontend/public/latex-engines/swiftlatexxetex.js text eol=lf
 frontend/public/latex-engines/swiftlatex-build-receipt.json text eol=lf
+
+# go mod tidy -diff compares dependency metadata byte-for-byte.
+server/go.mod text eol=lf
+server/go.sum text eol=lf

@@ -30,7 +30,7 @@ test('account import preview and confirmation remain usable from phone to deskto
   await page.goto('/app/projects')
   const dialog = page.getByRole('dialog')
   await expect(dialog).toBeVisible()
-  await expect(page.getByText('researcher', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('researcher', { exact: true })).toBeVisible()
 
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height })

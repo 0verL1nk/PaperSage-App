@@ -1,0 +1,1 @@
+papersage-deploy ALL=(root) NOPASSWD: NOSETENV: /usr/local/sbin/papersage-release
