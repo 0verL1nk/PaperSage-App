@@ -1,10 +1,27 @@
 /// <reference types="vitest/config" />
+import { execFileSync } from 'node:child_process'
 import { fileURLToPath, URL } from 'node:url'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, loadEnv } from 'vite'
+import { resolveBuildVersion } from './src/lib/build-version'
 
-export default defineConfig({
+const rootDir = fileURLToPath(new URL('.', import.meta.url))
+
+function getGitValue(args: string[]) {
+  try {
+    const value = execFileSync('git', args, {
+      cwd: rootDir,
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
+    return value || undefined
+  } catch {
+    return undefined
+  }
+}
+
+const config = defineConfig({
   plugins: [
     react(),
     tailwindcss(),
@@ -12,6 +29,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
+        target: 'http://localhost:5478',
+        changeOrigin: true,
+      },
+      '/health': {
         target: 'http://localhost:5478',
         changeOrigin: true,
       },
@@ -79,4 +100,24 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+})
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, rootDir, 'VITE_')
+  const gitCommit = getGitValue(['rev-parse', '--verify', 'HEAD'])
+  const commit = env.VITE_GIT_COMMIT?.trim() || process.env.VERCEL_GIT_COMMIT_SHA?.trim() || gitCommit?.slice(0, 12)
+  const version = resolveBuildVersion({
+    explicit: env.VITE_APP_VERSION,
+    tags: gitCommit ? getGitValue(['tag', '--points-at', 'HEAD']) : undefined,
+    commit,
+    gitAvailable: Boolean(gitCommit),
+  })
+  return {
+    ...config,
+    define: {
+      __APP_VERSION__: JSON.stringify(version),
+      __GIT_COMMIT__: JSON.stringify(commit || 'unknown'),
+      __BUILD_DATE__: JSON.stringify(env.VITE_BUILD_DATE?.trim() || new Date().toISOString()),
+    },
+  }
 })

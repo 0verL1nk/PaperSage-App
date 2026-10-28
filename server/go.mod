@@ -1,6 +1,6 @@
 module github.com/0verL1nk/GraduateProject/server
 
-go 1.26.9
+go 1.27.3
 
 require (
 	github.com/DATA-DOG/go-sqlmock v1.5.2

@@ -1,7 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render as rtlRender, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactElement } from 'react'
 import userEvent from '@testing-library/user-event'
 
+import { apiClient } from '@/services/client'
 import { useSettingsStore } from '@/store/settings-store'
 import type { AllSettings } from '@/services/settings-api'
 
@@ -17,6 +20,10 @@ vi.mock('@/store/settings-store', async () => {
 })
 
 import { SettingsPage } from './SettingsPage'
+
+function render(ui: ReactElement) {
+  return rtlRender(<QueryClientProvider client={new QueryClient()}>{ui}</QueryClientProvider>)
+}
 
 const fixtureSettings: AllSettings = {
   ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
@@ -51,6 +58,17 @@ function installMockStore(overrides: Partial<ReturnType<typeof useSettingsStore.
 describe('SettingsPage', () => {
   beforeEach(() => {
     vi.mocked(useSettingsStore).mockReset()
+    vi.spyOn(apiClient, 'get').mockRejectedValue(new Error('offline'))
+  })
+
+  it('keeps settings interactive when backend version is unavailable', async () => {
+    const patchCategory = vi.fn().mockResolvedValue(undefined)
+    installMockStore({ settings: fixtureSettings, patchCategory })
+    render(<SettingsPage />)
+
+    expect(await screen.findByText('后端版本暂不可用')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('checkbox', { name: '默认收起侧边栏' }))
+    expect(patchCategory).toHaveBeenCalledWith('ui', { sidebar_collapsed: true })
   })
 
   it('renders the three tab triggers', () => {

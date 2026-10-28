@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { streamRun } from '@/services/agent-api'
+import * as env from '@/lib/env'
 
 /** 用给定分片构造一个 SSE 响应体。 */
 function sseResponse(chunks: string[]): Response {
@@ -10,7 +11,7 @@ function sseResponse(chunks: string[]): Response {
       controller.close()
     },
   })
-  return new Response(stream, { status: 200 })
+  return new Response(stream, { status: 200, headers: { 'Content-Type': 'text/event-stream' } })
 }
 
 function collect(chunks: string[]) {
@@ -23,10 +24,27 @@ function collect(chunks: string[]) {
 }
 
 afterEach(() => {
+  vi.restoreAllMocks()
   vi.unstubAllGlobals()
 })
 
 describe('streamRun（UI Message Stream 解析）', () => {
+  it.each(['https://api.paper.overlink.top/', 'http://localhost:5478', ''])('事件流跟随当前后端地址 %s', async (baseUrl) => {
+    vi.spyOn(env, 'getOptionalApiBaseUrl').mockReturnValue(baseUrl)
+    await collect(['data: [DONE]\n\n'])
+    expect(fetch).toHaveBeenCalledWith(
+      `${baseUrl.replace(/\/$/, '')}/api/v1/agent/runs/run-1/events`,
+      expect.objectContaining({ headers: expect.objectContaining({ Accept: 'text/event-stream' }) }),
+    )
+  })
+
+  it('前端 SPA 回退的 200 HTML 不得被当作成功的空回复', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<!doctype html><html></html>', {
+      status: 200,
+      headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    })))
+    await expect(streamRun('run-1', { onEvent: () => {} })).rejects.toThrow('事件流')
+  })
   it('解析 data: 行并跳过终止标记 [DONE]', async () => {
     const events = await collect([
       'data: {"type":"start","messageId":"m1"}\n\n',

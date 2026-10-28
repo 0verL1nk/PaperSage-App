@@ -20,7 +20,12 @@ import (
 // 参考架构模式 B：先建 Run 再订阅事件。Run 立刻返回、独立于连接执行，
 // 因此客户端可以在响应到达前就断开，也可以稍后另开连接订阅。
 func (s *Service) createRunHandler(c *gin.Context) {
-	ctx := c.Request.Context()
+	ctx, release, accepted := s.acceptRun(c.Request.Context())
+	if !accepted {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
+	defer release()
 	uid := auth.CurrentUser(c).ID
 	cidU, err := parseUUIDParam(c.Param("conversation_id"))
 	if err != nil {
@@ -102,6 +107,14 @@ func (s *Service) createRunHandler(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
+	rc := runContext{RunID: run.ID, ConversationID: cid,
+		ProjectID: conv.ProjectID, UserID: uid, Content: req.Content}
+	started := false
+	defer func() {
+		if !started {
+			s.finishUnstartedRun(rc)
+		}
+	}()
 
 	// 回填 Turn 的指针并推进会话版本（同一事务，避免半步状态）
 	newVersion := conv.Version + 1
@@ -119,10 +132,11 @@ func (s *Service) createRunHandler(c *gin.Context) {
 	}
 	_ = s.appendEvent(ctx, cid, run.ID, evtRunStarted, nil)
 
-	s.StartRun(runContext{
-		RunID: run.ID, ConversationID: cid,
-		ProjectID: conv.ProjectID, UserID: uid, Content: req.Content,
-	})
+	started = true // StartRun owns terminal persistence even when shutdown rejects it.
+	if err := s.StartRun(rc); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
 
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
 		"turnId":        turn.ID.String(),
@@ -187,7 +201,12 @@ func (s *Service) cancelRun(c *gin.Context) {
 // retryRun POST /agent/runs/:run_id/retry
 // 复用同一个 Turn 新建一个 Run（重试不新增用户消息）。
 func (s *Service) retryRun(c *gin.Context) {
-	ctx := c.Request.Context()
+	ctx, release, accepted := s.acceptRun(c.Request.Context())
+	if !accepted {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
+	defer release()
 	uid := auth.CurrentUser(c).ID
 	rid, err := parseUUIDParam(c.Param("run_id"))
 	if err != nil {
@@ -237,10 +256,13 @@ func (s *Service) retryRun(c *gin.Context) {
 		return
 	}
 	_ = s.appendEvent(ctx, old.ConversationID, run.ID, evtRunStarted, nil)
-	s.StartRun(runContext{
+	if err := s.StartRun(runContext{
 		RunID: run.ID, ConversationID: old.ConversationID,
 		ProjectID: projID, UserID: uid, Content: content,
-	})
+	}); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+		return
+	}
 
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
 		"runId":     run.ID.String(),

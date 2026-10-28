@@ -36,7 +36,7 @@ help:
 	@echo "  make log-clsi      - Tail CLSI logs"
 	@echo ""
 	@echo "$(GREEN)Single binary:$(NC)"
-	@echo "  make build-server  - Build one binary with embedded frontend"
+	@echo "  make build-server  - Build the standalone Go API binary"
 	@echo "  make seed          - Seed e2e/dev database (deterministic data)"
 	@echo ""
 	@echo "$(GREEN)Quality:$(NC)"
@@ -130,7 +130,7 @@ check: check-backend check-frontend
 check-backend:
 	@echo "$(YELLOW)Running backend checks...$(NC)"
 	cd server && gofmt -l . && go vet ./...
-	cd server && go test ./internal/... ./web/... -run xxx_noop
+	cd server && go test ./internal/... -run xxx_noop
 
 check-frontend:
 	@echo "$(YELLOW)Running frontend checks...$(NC)"
@@ -144,7 +144,7 @@ test: test-backend test-frontend
 
 test-backend:
 	@echo "$(YELLOW)Running backend tests...$(NC)"
-	cd server && go test ./internal/... ./web/...
+	cd server && go test ./internal/...
 
 test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
@@ -195,12 +195,9 @@ docker-push: docker-build
 	# docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
 	@echo "$(GREEN)All images pushed to $(DOCKERHUB_USER)$(NC)"
 
-# ── Go server（单二进制：前端 embed）─────────────────────────
+# ── Go server ─────────────────────────────────────────────────
 
-build-server: ## 构建单二进制（前端产物嵌入）
-	cd frontend && pnpm build
-	rm -rf server/web/assets && mkdir -p server/web/assets
-	cp -r frontend/dist/* server/web/assets/
+build-server: ## 构建独立 API 二进制
 	cd server && CGO_ENABLED=0 go build -o bin/ ./cmd/papersage
 
 generate-dao: ## GORM 代码生成：schema/tables/*.sql 建库 → 类型安全 DAO（需 SCHEMA_DSN）

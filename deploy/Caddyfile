@@ -1,0 +1,5 @@
+api.paper.overlink.top {
+	reverse_proxy 127.0.0.1:5478 {
+		flush_interval -1
+	}
+}

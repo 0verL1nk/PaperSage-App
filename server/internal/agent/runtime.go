@@ -88,43 +88,40 @@ func (s *Service) createRun(ctx context.Context, convID, turnID store.UUID, agen
 	return &run, nil
 }
 
-// finishRun 收敛 Run 终态并记录用量与耗时。
-func (s *Service) finishRun(ctx context.Context, runID store.UUID, status string, outputMsgID *store.UUID, errMsg string) {
-	now := time.Now().UTC()
-	updates := map[string]any{"status": status, "completed_at": now}
-	if outputMsgID != nil {
-		updates["output_message_id"] = *outputMsgID
-	}
-	if errMsg != "" {
-		if b, e := json.Marshal(map[string]string{"message": errMsg}); e == nil {
-			updates["error_json"] = datatypes.JSON(b)
-		}
-	}
-	_ = s.DB.WithContext(ctx).Model(&store.AgentRun{}).Where("id = ?", runID).Updates(updates).Error
-}
-
 // appendEvent 追加一条执行事实记录，sequence 在 Run 内单调递增。
 // sequence 留在服务端（对外用 AI SDK 协议），使将来可平滑切到增量补拉。
 func (s *Service) appendEvent(ctx context.Context, convID, runID store.UUID, eventType string, payload any) error {
+	return s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return s.appendEventTx(ctx, tx, convID, runID, eventType, payload)
+	})
+}
+
+// appendEventTx requires a transaction. Updating first locks this Run across
+// SQLite/PG/MySQL; the sequence and event either commit together or both roll back.
+func (s *Service) appendEventTx(ctx context.Context, tx *gorm.DB, convID, runID store.UUID, eventType string, payload any) error {
+	tx = tx.WithContext(ctx)
+	result := tx.Model(&store.AgentRun{}).Where("id = ?", runID).
+		Update("last_sequence", gorm.Expr("last_sequence + ?", 1))
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return gorm.ErrRecordNotFound
+	}
 	var run store.AgentRun
-	if err := s.DB.WithContext(ctx).Select("last_sequence").Where("id = ?", runID).First(&run).Error; err != nil {
+	if err := tx.Select("last_sequence").Where("id = ?", runID).First(&run).Error; err != nil {
 		return err
 	}
-	seq := run.LastSequence + 1
 	ev := store.AgentEvent{
 		ID: store.MustNewUUID(), ConversationID: convID, RunID: runID,
-		Sequence: seq, EventType: eventType,
+		Sequence: run.LastSequence, EventType: eventType,
 	}
 	if payload != nil {
 		if b, err := json.Marshal(payload); err == nil {
 			ev.PayloadJSON = b
 		}
 	}
-	if err := s.DB.WithContext(ctx).Create(&ev).Error; err != nil {
-		return err
-	}
-	return s.DB.WithContext(ctx).Model(&store.AgentRun{}).
-		Where("id = ?", runID).Update("last_sequence", seq).Error
+	return tx.Create(&ev).Error
 }
 
 // ── 消息与 Part ─────────────────────────────────────────────────────

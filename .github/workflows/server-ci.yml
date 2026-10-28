@@ -1,15 +1,22 @@
 name: Server CI
 
 on:
+  workflow_call:
   push:
     branches: [main]
     paths:
       - "server/**"
       - ".github/workflows/server-ci.yml"
+      - ".github/workflows/release.yml"
+      - ".goreleaser.yml"
+      - "deploy/**"
   pull_request:
     paths:
       - "server/**"
       - ".github/workflows/server-ci.yml"
+      - ".github/workflows/release.yml"
+      - ".goreleaser.yml"
+      - "deploy/**"
   workflow_dispatch:
 
 # PR 上新推送取消旧跑（省额度）；同分支串行
@@ -21,6 +28,17 @@ permissions:
   contents: read
 
 jobs:
+  deployment:
+    name: Deployment contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate release helper
+        run: |
+          python3 -m py_compile deploy/papersage-release.py
+          python3 -m unittest discover -s deploy -p 'test_*.py' -v
+
   quality:
     name: gofmt + tidy + vet + lint
     runs-on: ubuntu-latest
@@ -53,6 +71,7 @@ jobs:
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
         with:
+          version: v2.15.0
           working-directory: server
 
 
@@ -125,13 +144,13 @@ jobs:
           cache: true
           cache-dependency-path: server/go.sum
       - name: go test -race -shuffle
-        run: go test ./internal/... ./web/... -race -shuffle=on -count=1
+        run: go test ./internal/... -race -shuffle=on -count=1
       # Linux 覆盖率回归门槛：保持当前 48% 基线不下降；80% 是长期目标，
       # 等新增领域测试覆盖后逐步抬高，避免未覆盖的历史包阻塞所有 CI。
       - name: coverage gate (≥ 48%)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go test ./internal/... ./web/... -coverprofile=cover.out -covermode=atomic -count=1 > /dev/null
+          go test ./internal/... -coverprofile=cover.out -covermode=atomic -count=1 > /dev/null
           total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "total coverage: ${total}%"
           awk -v c="$total" 'BEGIN { exit c < 48 ? 1 : 0 }'

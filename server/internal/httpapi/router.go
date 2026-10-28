@@ -5,10 +5,13 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"strings"
 
 	cors "github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+
+	"github.com/0verL1nk/GraduateProject/server/internal/buildinfo"
 )
 
 // APIVersion is the API prefix mounted under /api/v1 (matches FastAPI app).
@@ -18,18 +21,14 @@ const APIVersion = "/api/v1"
 // 领域路由在后续任务组通过 api.Group(APIVersion) 挂载。
 type API struct {
 	*gin.Engine
-	// spaFallback 由 mountSPA 注册；未挂载（纯 API/测试）时 NoRoute 走 404 信封
-	spaFallback gin.HandlerFunc
 }
 
-// New builds the API engine（静态服务用编译进来的前端产物）。
+// New builds the API engine.
 func New(logger *slog.Logger) *API {
-	api := newEngine(logger)
-	api.mountSPA(defaultDist())
-	return api
+	return newEngine(logger)
 }
 
-// newEngine 组装中间件/错误处理/health（不含静态服务）。
+// newEngine 组装中间件/错误处理/health。
 func newEngine(logger *slog.Logger) *API {
 	if logger == nil {
 		logger = slog.Default()
@@ -75,10 +74,6 @@ func newEngine(logger *slog.Logger) *API {
 			c.Abort()
 			return
 		}
-		if api.spaFallback != nil {
-			api.spaFallback(c)
-			return
-		}
 		c.Header("Cache-Control", "no-store")
 		writeDetail(c, http.StatusNotFound, "Not Found")
 	})
@@ -104,9 +99,18 @@ func writeDetail(c *gin.Context, status int, msg string) {
 
 func healthHandler(c *gin.Context) {
 	body, err := json.Marshal(struct {
-		Status  string `json:"status"`
-		Version string `json:"version"`
-	}{Status: "healthy", Version: "0.1.0"})
+		Status    string `json:"status"`
+		Version   string `json:"version"`
+		Commit    string `json:"commit"`
+		BuildTime string `json:"buildTime"`
+		GoVersion string `json:"goVersion"`
+	}{
+		Status:    "healthy",
+		Version:   buildinfo.Version,
+		Commit:    buildinfo.Commit,
+		BuildTime: buildinfo.Date,
+		GoVersion: runtime.Version(),
+	})
 	if err != nil {
 		_ = WriteEnvelope(c.Writer, http.StatusInternalServerError, Failure(http.StatusInternalServerError, "Internal server error"))
 		return

@@ -1,6 +1,7 @@
 import { getJson, postJson, deleteFetch, type ApiRequestConfig } from './client'
 import { getAccessToken, useSessionStore } from '@/store'
 import { AGENT } from './api-routes'
+import { getOptionalApiBaseUrl } from '@/lib/env'
 import { GuestCapabilityError } from './guest-local-workspace'
 
 function requireSignedInForAI() {
@@ -148,7 +149,8 @@ export async function streamRun(
   },
 ): Promise<void> {
   requireSignedInForAI()
-  const res = await fetch(AGENT.runEvents(runId, opts.afterSeq), {
+  const baseUrl = getOptionalApiBaseUrl().replace(/\/$/, '')
+  const res = await fetch(`${baseUrl}${AGENT.runEvents(runId, opts.afterSeq)}`, {
     headers: {
       Accept: 'text/event-stream',
       Authorization: `Bearer ${getAccessToken() ?? ''}`,
@@ -157,6 +159,9 @@ export async function streamRun(
   })
   if (!res.ok || !res.body) {
     throw new Error(`run stream failed: ${res.status}`)
+  }
+  if (res.headers.get('Content-Type')?.split(';')[0].trim() !== 'text/event-stream') {
+    throw new Error('AI 接口未返回事件流，请检查后端环境配置')
   }
   const reader = res.body.getReader()
   const decoder = new TextDecoder()

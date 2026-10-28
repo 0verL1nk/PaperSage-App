@@ -1,5 +1,4 @@
-// Command papersage serves the PaperSage API and, when frontend assets are
-// embedded, the SPA from a single binary.
+// Command papersage serves the PaperSage API from the standalone server binary.
 package main
 
 import (

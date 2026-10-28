@@ -1,5 +1,4 @@
-// Command server is the standard Go Framework Preset entrypoint used by
-// Vercel. Keep process setup shared with cmd/papersage.
+// Command server serves the PaperSage API through Vercel's Go Framework Preset.
 package main
 
 import (

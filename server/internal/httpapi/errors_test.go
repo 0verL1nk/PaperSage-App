@@ -14,8 +14,7 @@ import (
 
 // 契约来源：backend/app/exceptions.py — 错误响应逐字段复刻
 func newTestAPI() *API {
-	// nil dist：单测不挂 SPA（避免依赖构建产物），NoRoute 保持 404
-	api := NewWithAssets(testLogger(), nil)
+	api := New(testLogger())
 	probe := api.Group("/probe")
 	probe.GET("/notfound", func(c *gin.Context) {
 		WriteError(c.Writer, NotFound("Project"))

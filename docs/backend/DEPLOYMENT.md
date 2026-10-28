@@ -1,577 +1,120 @@
 # 后端部署配置
 
-## 1. Docker 配置
+## 交付边界
 
-### 1.1 Dockerfile
+前端独立部署在 Vercel；Go 只交付 API，不构建、复制或 embed `frontend/dist`，未知前端路径返回 JSON 404。小服务器运行一个 Go 进程及 HTTPS 反代；数据库和对象存储继续使用云端服务。
 
-```dockerfile
-# 构建阶段
-FROM python:3.12-slim as builder
+正式发布采用版本化二进制 + systemd，不在服务器安装 Go、Node、Docker、本地数据库、Redis 或 TeX Live。浏览器编译沿用前端 WASM；外置 CLSI 不属于本机的默认部署。
 
-WORKDIR /app
+## 构建与版本
 
-# 安装 uv (快速包管理)
-RUN pip install uv
-
-# 复制依赖文件
-COPY pyproject.toml ./
-
-# 安装依赖 (优化层缓存)
-RUN uv pip install --system --no-cache --frozen-file-deps
-
-# 运行阶段
-FROM python:3.12-slim
-
-WORKDIR /app
-
-# 创建非 root 用户
-RUN useradd --create-home --shell /bin/bash appuser
-
-# 复制依赖
-COPY --from=builder /usr/local/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
-
-# 复制应用代码
-COPY . .
-
-# 设置权限
-RUN chown -R appuser:appuser /app
-
-# 切换到非 root 用户
-USER appuser
-
-# 暴露端口
-EXPOSE 8000
-
-# 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
-
-# 启动命令
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-### 1.2 .dockerignore
-
-```gitignore
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-*.so
-*.egg
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-.coverage
-htmlcov/
-.env
-.venv/
-venv/
-.git/
-.gitignore
-*.md
-docs/
-```
-
----
-
-## 2. Docker Compose (本地开发)
-
-### 2.1 docker-compose.yml
-
-```yaml
-version: '3.9'
-
-services:
-  # PostgreSQL 数据库
-  postgres:
-    image: postgres:16-alpine
-    container_name: papersage-postgres
-    environment:
-      POSTGRES_USER: papersage
-      POSTGRES_PASSWORD: papersage_dev_password
-      POSTGRES_DB: papersage
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U papersage"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # Redis 缓存
-  redis:
-    image: redis:7-alpine
-    container_name: papersage-redis
-    command: redis-server --requirepass papersage_dev_password
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-  # 后端 API
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: papersage-backend
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://papersage:papersage_dev_password@postgres:5432/papersage
-      - REDIS_URL=redis://:papersage_dev_password@redis:6379/0
-      - SECRET_KEY=dev-secret-key-change-in-production
-      - DEBUG=true
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./app:/app/app:ro
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-
-volumes:
-  postgres_data:
-  redis_data:
-```
-
-### 2.2 启动命令
+- Go 版本以 `server/go.mod` 为准，CI 使用 `actions/setup-go` 读取该文件。
+- `make build-server` 仅构建 API；前端由 Vercel 单独构建。
+- `.goreleaser.yml` 构建 `papersage` 与一次性迁移命令 `migrate`，归档和 `checksums.txt` 发布到 GitHub Release。
+- 正式版本来自 `vMAJOR.MINOR.PATCH` 标签；标签指向的提交必须已在 `main` 中。不要重打已发布标签或覆盖同版本产物。
+- `internal/buildinfo` 的 version、commit、build time 通过链接参数注入；`/health` 同时返回实际 Go 工具链版本。开发构建明确显示 dev，不伪造正式版本。
 
 ```bash
-# 启动所有服务
-docker-compose up -d
-
-# 查看日志
-docker-compose logs -f backend
-
-# 停止所有服务
-docker-compose down
-
-# 重新构建
-docker-compose up -d --build
+make build-server
 ```
 
----
+## CI/CD
 
-## 3. 生产环境部署
+`.github/workflows/release.yml` 的标签发布顺序：
 
-### 3.1 生产 docker-compose.yml
+1. 检查版本格式与主线提交归属。
+2. 复用 Server CI、Frontend CI、E2E；任何门禁失败都不发布。
+3. 用固定版本 GoReleaser 构建 API/migrate 及校验和，不进行前端打包。
+4. 将同一次运行的 Linux amd64 产物交给生产部署 job，先验证 checksum。
+5. 通过专用受限 SSH 用户上传并调用服务器上的 root-owned 发布命令。
+6. 核验 `/health` 的 version 和完整 commit，不只检查 HTTP 200。
 
-```yaml
-version: '3.9'
+Server CI 当前覆盖率回归门槛为48%，80%是逐步提升目标；发布不得降低门槛或跳过失败检查。正式发布串行执行，普通分支与 PR 不访问生产部署凭据。
 
-services:
-  nginx:
-    image: nginx:alpine
-    container_name: papersage-nginx
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./ssl:/etc/nginx/ssl:ro
-    depends_on:
-      - backend
-    restart: unless-stopped
+GitHub Environment `production-server` 所需配置：
 
-  backend:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        - BUILD_MODE=production
-    container_name: papersage-backend
-    environment:
-      - DATABASE_URL=${DATABASE_URL}
-      - REDIS_URL=${REDIS_URL}
-      - SECRET_KEY=${SECRET_KEY}
-      - DEBUG=false
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
+| 类型 | 名称 | 用途 |
+|---|---|---|
+| Secret | `SERVER_SSH_KEY` | 本项目专用部署私钥，不使用个人 root 私钥 |
+| Secret | `SERVER_KNOWN_HOSTS` | 经人工核对的 SSH 主机公钥，不在部署时无条件信任扫描结果 |
+| Variable | `SERVER_HOST` | 服务器地址 |
+| Variable | `SERVER_USER` | 受限用户 `papersage-deploy`，不使用 root |
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: papersage-postgres
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          cpus: '1'
-          memory: 1G
+数据库、R2、邮件和模型运行凭据只保存在服务器，不作为发布 job 的环境输入。SSH 私钥只写入临时 runner 文件，步骤结束即删除。
 
-  redis:
-    image: redis:7-alpine
-    container_name: papersage-redis
-    command: redis-server --requirepass ${REDIS_PASSWORD} --maxmemory 512mb --maxmemory-policy allkeys-lru
-    volumes:
-      - redis_data:/data
-    restart: unless-stopped
+## 服务器布局与权限
 
-volumes:
-  postgres_data:
-  redis_data:
-```
+| 路径 | 用途与权限 |
+|---|---|
+| `/opt/papersage/releases/vX.Y.Z/` | root-owned 不可变版本目录，包含 API、migrate 与 manifest |
+| `/opt/papersage/current` | root-owned 当前版本符号链接 |
+| `/usr/local/sbin/papersage-release` | 从 `deploy/papersage-release.py` 安装的受限 root 发布命令 |
+| `/var/lib/papersage-deploy/uploads/` | 仅部署用户可写的归档上传目录 |
+| `/etc/papersage/papersage.env` | root-only 运行配置，由 systemd 读取并传给进程 |
+| `/var/lib/papersage/` | 应用用户 `papersage` 的可写工作目录 |
 
-### 3.2 Nginx 配置
+参考模板：`deploy/papersage.service`、`deploy/papersage-deploy.sudoers`、`deploy/Caddyfile`。首次安装必须检查实际主机、现有服务和发行版软件包事务；不要覆盖其他应用的配置、已有 SSH 公钥或运行凭据。
 
-```nginx
-events {
-    worker_connections 1024;
-}
+日常部署用户只能上传归档并通过 sudo 调用经审查的发布命令，不授予任意 shell、systemctl 或环境变量注入权限。应用以非 root 账号运行。
 
-http {
-    upstream backend {
-        server backend:8000;
-    }
+## 运行配置
 
-    # HTTP -> HTTPS 重定向
-    server {
-        listen 80;
-        server_name api.example.com;
-        return 301 https://$server_name$request_uri;
-    }
+从当前生产环境安全迁移配置，不直接复制可能过期的 worktree `.env`。至少确认主库连接、直接迁移连接、认证签名密钥、R2、邮件和模型设置；迁移时保持认证密钥一致，避免使现有登录态及数据失效。不要将值打印到日志或提交到仓库。
 
-    # HTTPS
-    server {
-        listen 443 ssl http2;
-        server_name api.example.com;
-
-        ssl_certificate /etc/nginx/ssl/server.crt;
-        ssl_certificate_key /etc/nginx/ssl/server.key;
-        ssl_protocols TLSv1.2 TLSv1.3;
-
-        location / {
-            proxy_pass http://backend;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-            proxy_set_header X-Forwarded-Proto $scheme;
-        }
-
-        location /docs {
-            proxy_pass http://backend;
-            proxy_set_header Host $host;
-        }
-
-        location /health {
-            proxy_pass http://backend;
-            proxy_set_header Host $host;
-        }
-    }
-}
-```
-
----
-
-## 4. GitHub Actions CI/CD
-
-### 4.1 CI 工作流
-
-```yaml
-# .github/workflows/ci.yml
-name: CI
-
-on:
-  push:
-    branches: [main, develop]
-  pull_request:
-    branches: [main]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: test
-          POSTGRES_PASSWORD: test
-          POSTGRES_DB: test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Install uv
-        run: pip install uv
-
-      - name: Install dependencies
-        run: uv pip install --system -e ".[dev]"
-
-      - name: Run linter
-        run: ruff check .
-
-      - name: Type check
-        run: mypy app/
-
-      - name: Run tests
-        env:
-          DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
-          REDIS_URL: redis://localhost:6379/0
-          SECRET_KEY: test-secret-key
-        run: pytest -v
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage.xml
-```
-
-### 4.2 CD 工作流 (部署到服务器)
-
-```yaml
-# .github/workflows/deploy.yml
-name: Deploy
-
-on:
-  push:
-    branches: [main]
-  workflow_dispatch:
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/papersage-backend:latest
-
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SSH_KEY }}
-          script: |
-            cd /opt/papersage
-            docker-compose pull
-            docker-compose up -d
-            docker system prune -f
-```
-
----
-
-## 5. 环境变量配置
-
-### 5.1 生产环境 .env
-
-```bash
-# 必需
-SECRET_KEY=<生成 32+ 字符随机字符串>
-DATABASE_URL=postgresql+asyncpg://user:password@host:5432/db
-REDIS_URL=redis://:password@host:6379/0
-
-# 可选
+```dotenv
+HOST=127.0.0.1
+PORT=5478
 DEBUG=false
-ACCESS_TOKEN_EXPIRE_MINUTES=30
-REFRESH_TOKEN_EXPIRE_DAYS=7
-ALLOWED_HOSTS=api.example.com
+RUN_DB_MIGRATIONS=false
+LATEX_CLSI_ENABLED=false
+DATA_DIR=/var/lib/papersage
 ```
 
-### 5.2 生成密钥
+保留 `DB_MAX_OPEN_CONNS`、`DB_MAX_IDLE_CONNS` 等已有连接池配置，基于数据库与内存实测调整，不按请求创建连接池。不要为了预热而持续查询云数据库，造成不必要的运行费用。
+
+`DATABASE_MIGRATION_URL` 可使用直接数据库连接，`DATABASE_URL` 可使用池化连接。发布命令通过独立受限进程运行 `migrate`；服务启动不执行迁移。版本发布前必须审查待执行 DDL，破坏性变更应先备份并单独确认。
+
+## HTTPS、SSE 与首次切换
+
+`deploy/Caddyfile` 为 `api.paper.overlink.top` 提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。
+
+首次切换顺序：
+
+1. 完成 API-only 构建、服务配置、数据库/R2连通与本机回环健康验证。
+2. 验证新二进制的版本、提交和取消/失败语义。
+3. 确认安全组允许必要的80/443端口，再将 API 域名指向新服务器并验证证书。
+4. 从 Vercel 页面验证真实登录、配置读取、SSE和 local/online 环境选择。
+
+域名和证书切换不是每次 CD 的一部分。配置未确认、DNS未切换或浏览器验收未完成时，不得宣称生产迁移成功。真实对话测试只使用获授权账号，不把模拟流当成真实模型结果。
+
+## 激活与回滚
+
+发布 helper 只接受稳定版标签、完整 commit 和 SHA-256；对上传归档做私有快照与 checksum 验证，拒绝路径穿越、符号/硬链接及多余文件。相同版本只有 commit 与 checksum 完全一致时才能重试，不覆盖已安装的二进制。
+
+激活时先停止接收新运行并排空在途任务，执行新版本迁移，然后原子切换当前版本并启动探活。新版本启动/健康校验失败时恢复之前的程序和链接；首次发布没有旧版本时明确失败并保持停止。
+
+在 GitHub Actions 的 Release 工作流选择手动运行，填写已安装的 `rollback_version` 可回滚。回滚只切换已存在的程序版本，**不执行数据库 down 迁移**。只有已确认与当前 schema 兼容的旧版本才能回退。
+
+小服务器不运行双实例蓝绿部署，发布会有短维护窗口。正常关机等待本实例 AI 运行完成；超出排空预算时取消并落明确终态。进程强杀/崩溃不等于具备自动断点续跑能力。
+
+## 验证与性能基线
+
+发布脚本在隔离临时目录运行回归测试，覆盖无效参数、坏 checksum、危险归档、健康失败恢复、首次失败、同版本重试与回滚不迁移。
 
 ```bash
-# 生成随机密钥
-python -c "from secrets import token_hex; print(token_hex(32))"
+python -m unittest discover -s deploy -p 'test_*.py' -v
 ```
 
----
-
-## 6. 健康检查
-
-### 6.1 健康检查端点
-
-```python
-# app/main.py
-from fastapi import APIRouter
-
-router = APIRouter()
-
-@router.get("/health")
-async def health_check():
-    return {
-        "status": "healthy",
-        "version": "1.0.0"
-    }
-
-@router.get("/health/ready")
-async def readiness_check():
-    # 检查数据库
-    try:
-        await db.execute("SELECT 1")
-    except Exception as e:
-        return {"status": "not_ready", "database": "down"}
-
-    # 检查 Redis
-    try:
-        await redis.ping()
-    except Exception:
-        return {"status": "not_ready", "redis": "down"}
-
-    return {"status": "ready"}
-```
-
----
-
-## 7. 部署检查清单
-
-### 部署前
-
-- [ ] 所有测试通过
-- [ ] 代码已 Code Review
-- [ ] 敏感配置已设置环境变量
-- [ ] SSL 证书已配置
-
-### 部署后
-
-- [ ] 服务启动成功
-- [ ] 健康检查通过
-- [ ] API 文档可访问 (`/docs`)
-- [ ] 登录功能正常
-- [ ] 日志正常输出
-
-### 监控
-
-- [ ] 错误率正常
-- [ ] 响应时间正常
-- [ ] 资源使用正常
-
----
-
-## 8. LaTeX 编译服务 (CLSI)
-
-PaperSage 集成了 Overleaf CLSI (Common LaTeX Service Interface) 作为 LaTeX 编译后端。该服务以 vendor 形式存放在 `latex_vender/` 目录。
-
-### 8.1 本地宿主机模式 (开发)
-
-本地开发使用宿主机模式，不启用沙箱编译。CLSI 直接在开发者机器上运行 Node.js 进程和 TeX 引擎。
-
-**前提条件：**
-- Node.js >= 20
-- TeX Live (pdflatex, xelatex, lualatex)
-- latexmk, biber, qpdf, inkscape
-
-**快速开始：**
 ```bash
-# 安装全部依赖（包括 CLSI 前提）
-make install
-
-# 或单独安装 CLSI 依赖
-make install-clsi
-
-# 验证环境
-make check-clsi
-
-# 启动 CLSI 服务（默认 0.0.0.0:3013）
-make clsi-dev
+go -C server test ./internal/... -count=1
 ```
 
-**目录结构：**
-```
-.clsi/              # 运行时目录（git 已忽略）
-├── compiles/       # 编译工作区
-├── output/         # 编译输出
-├── cache/          # 缓存
-├── uploads/        # 上传文件
-└── texmf-var/      # TeX 变量
-```
+2026-10-28 从部署服务器对主目录当前配置进行只读测量（不含真实业务负载）：
 
-### 8.2 生产独立部署模式
+| 测量 | 样本与结果 |
+|---|---|
+| 主库池化连接 `SELECT 1` | 20次串行，P50 55.1ms、P95 57.9ms，最大109.9ms |
+| 主库首次连接+查询 | 1.03s；新连接3次中位数0.82s |
+| 向量库 | TCP可达，但数据库认证失败，SQLSTATE 28P01；未取得SQL时延 |
 
-生产环境建议将 CLSI 作为独立服务部署，PaperSage 后端通过 HTTP API 调用。
-
-**配置：**
-```env
-LATEX_CLSI_ENABLED=true
-LATEX_CLSI_BASE_URL=http://clsi-service:3013
-LATEX_CLSI_TIMEOUT_SECONDS=120
-```
-
-**架构区别：**
-
-| 特性 | 本地宿主机模式 | 生产独立部署 |
-|------|--------------|-------------|
-| 运行方式 | 直接在宿主机运行 Node.js | 独立容器/进程 |
-| 沙箱 | 关闭 (`SANDBOXED_COMPILES=false`) | 建议开启 |
-| 文件系统 | 直接访问本地目录 | 通过 API 传输 |
-| 端口 | localhost:3013 | 内部网络 |
-| 隔离性 | 无（开发用途） | 完全隔离 |
-
-### 8.3 环境变量
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `LATEX_CLSI_ENABLED` | `false` | 是否启用 CLSI 集成 |
-| `LATEX_CLSI_BASE_URL` | `http://localhost:3013` | CLSI 服务地址 |
-| `LATEX_CLSI_TIMEOUT_SECONDS` | `120` | 编译请求超时 |
-
-### 8.4 Overleaf 依赖边界
-
-第一阶段保留以下 Overleaf 依赖：
-
-**核心服务（vendor 内）：**
-- `services/clsi` — LaTeX 编译服务主体
-- `libraries/logger` — 日志库
-- `libraries/metrics` — 指标收集
-- `libraries/settings` — 配置管理
-- `libraries/o-error` — 错误处理
-- `libraries/fetch-utils` — HTTP 工具
-- `libraries/promise-utils` — Promise 工具
-- `libraries/stream-utils` — 流处理工具
-
-**编译工具链依赖：**
-- `latexmk` — LaTeX 编译编排
-- `pdflatex`, `xelatex`, `lualatex` — TeX 引擎
-- `biber` — 参考文献处理
-- `qpdf` — PDF 处理
-- `inkscape` — SVG 转换（可选）
-
-**预期替换路径：** 第二阶段将评估是否用自研轻量编译服务替换 CLSI，以减少 Overleaf 依赖体积。
+这些数据仅是网络/连接基线，不是接口P95、模型首字或并发性能结论。上线前还需记录空闲与单对话的进程RSS、CPU、首字延迟、事件写入次数及业务接口P50/P95。若向量库仍认证失败，应显式记录RAG未验收，而不是静默降级后称其正常。

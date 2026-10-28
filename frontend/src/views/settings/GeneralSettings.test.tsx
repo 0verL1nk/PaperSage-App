@@ -111,6 +111,9 @@ vi.mock('@/components/ui/checkbox', () => ({
     </button>
   ),
 }))
+vi.mock('./VersionInfo', () => ({
+  VersionInfo: () => null,
+}))
 
 import { GeneralSettings } from './GeneralSettings'
 
