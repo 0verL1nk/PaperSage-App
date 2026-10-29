@@ -48,7 +48,7 @@ type AgentRun struct {
 	TurnID          *UUID          `gorm:"column:turn_id;index"`
 	ParentRunID     *UUID          `gorm:"column:parent_run_id;index"`
 	AgentKey        string         `gorm:"column:agent_key;size:64;not null"`
-	Status          string         `gorm:"column:status;size:20;not null"`
+	Status          string         `gorm:"column:status;size:20;not null;index:ix_runs_lease_expiry,priority:1"`
 	OutputMessageID *UUID          `gorm:"column:output_message_id"`
 	ModelProvider   string         `gorm:"column:model_provider;size:64;not null"`
 	ModelName       string         `gorm:"column:model_name;size:128;not null"`
@@ -61,8 +61,12 @@ type AgentRun struct {
 	ErrorJSON       datatypes.JSON `gorm:"column:error_json"`
 	StartedAt       *time.Time     `gorm:"column:started_at;index:ix_runs_conversation_started,priority:2"`
 	CompletedAt     *time.Time     `gorm:"column:completed_at"`
-	CreatedAt       time.Time      `gorm:"column:created_at;autoCreateTime"`
-	UpdatedAt       time.Time      `gorm:"column:updated_at;autoUpdateTime"`
+	// 兼容已部署的 0020 列；执行生命周期仍由现有模式 B 管理。
+	ExecutionLeaseToken *string    `gorm:"column:execution_lease_token;size:64" json:"-"`
+	ExecutionLeaseUntil *time.Time `gorm:"column:execution_lease_until;index:ix_runs_lease_expiry,priority:2" json:"-"`
+	CancelRequestedAt   *time.Time `gorm:"column:cancel_requested_at" json:"-"`
+	CreatedAt           time.Time  `gorm:"column:created_at;autoCreateTime"`
+	UpdatedAt           time.Time  `gorm:"column:updated_at;autoUpdateTime"`
 }
 
 func (AgentRun) TableName() string { return "agent_runs" }

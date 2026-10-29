@@ -36,7 +36,7 @@ func pgSchemaDSN(dsn, schema string) string {
 	return dsn + separator + "search_path=" + schema
 }
 
-// 全新库：MigrateUp 应建出全部 8 张表（真实校验 baseline SQL 语法）
+// 全新库：MigrateUp 应建出全部业务表（真实校验 PostgreSQL 方言 SQL 语法）
 func TestMigrateUpFreshDatabase(t *testing.T) {
 	dsn := pgDSN(t)
 	db, err := sql.Open("pgx/v5", dsn)
@@ -54,15 +54,19 @@ func TestMigrateUpFreshDatabase(t *testing.T) {
 	schemaDSN := pgSchemaDSN(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 
-	// 期望值跟随嵌入迁移数自动演进：每张表数 = 基线 8 + 基线后新增表
-	//（0002 refresh_tokens +1、0012 rag_index_generations +1、0013 agent 运行时 +9、0014 writing state +1、0015 import receipts +1；0016 仅加字段）。
-	// 从迁移 FS 数版本数太绕，直接数业务表。
+	// 0019 与 0021 各新增一张表；0020 只增加运行元数据列。
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 27, count, "业务表总数（两方言一致；新增迁移时同步更新）")
+	assert.Equal(t, 29, count, "业务表总数（两方言一致；新增迁移时同步更新）")
 
-	// 幂等：再跑一次不报错（ErrNoChange 路径）
+	var version int64
+	var dirty bool
+	require.NoError(t, db.QueryRow(fmt.Sprintf("SELECT version, dirty FROM %s.schema_migrations", schema)).Scan(&version, &dirty))
+	assert.Equal(t, int64(21), version)
+	assert.False(t, dirty)
+
+	// 已在部署版本上的重复发布不能重放 DDL。
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 }
 
