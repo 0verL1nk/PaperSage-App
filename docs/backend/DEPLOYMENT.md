@@ -74,6 +74,8 @@ DATA_DIR=/var/lib/papersage
 
 `DATABASE_MIGRATION_URL` 可使用直接数据库连接，`DATABASE_URL` 可使用池化连接。发布命令通过独立受限进程运行 `migrate`；服务启动不执行迁移。版本发布前必须审查待执行 DDL，破坏性变更应先备份并单独确认。
 
+发布前应只读检查 `schema_migrations.version/dirty`，确认当前版本对应的原始迁移已被发布包收录。若数据库领先于主线，先核对实际列、索引和约束并恢复遗漏的迁移历史；不要通过 `force`、重写版本号或执行 down 来掩盖差异。迁移 0019–0021 的恢复仅对齐既有 schema，不启用历史分支的执行租约、项目清理或对象清理业务。
+
 ## HTTPS、SSE 与首次切换
 
 `deploy/Caddyfile` 为 `api.paper.overlink.top` 提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。

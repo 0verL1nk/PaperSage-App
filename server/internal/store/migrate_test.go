@@ -3,7 +3,52 @@ package store
 import (
 	"strings"
 	"testing"
+
+	"github.com/golang-migrate/migrate/v4"
+	"github.com/golang-migrate/migrate/v4/database/stub"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/stretchr/testify/require"
+
+	"github.com/0verL1nk/GraduateProject/server/migrations"
 )
+
+func TestMigrationsRecognizeDeployedSchema(t *testing.T) {
+	for _, dialect := range []string{"postgres", "mysql"} {
+		t.Run(dialect, func(t *testing.T) {
+			for _, version := range []int{18, 21} {
+				name := "upgrade_from_18"
+				if version == 21 {
+					name = "already_at_21"
+				}
+				t.Run(name, func(t *testing.T) {
+					migrationFS, directory, err := migrations.FSFor(dialect)
+					require.NoError(t, err)
+					source, err := iofs.New(migrationFS, directory)
+					require.NoError(t, err)
+					database := &stub.Stub{CurrentVersion: version}
+					runner, err := migrate.NewWithInstance("iofs", source, "stub", database)
+					require.NoError(t, err)
+					t.Cleanup(func() {
+						sourceErr, databaseErr := runner.Close()
+						require.NoError(t, sourceErr)
+						require.NoError(t, databaseErr)
+					})
+
+					err = runner.Up()
+					if version == 21 {
+						require.ErrorIs(t, err, migrate.ErrNoChange)
+						require.Empty(t, database.MigrationSequence, "an already deployed schema must not replay DDL")
+					} else {
+						require.NoError(t, err)
+						require.Len(t, database.MigrationSequence, 3, "restore every migration between schema 18 and 21")
+					}
+					require.Equal(t, 21, database.CurrentVersion)
+					require.False(t, database.IsDirty)
+				})
+			}
+		})
+	}
+}
 
 func TestToDriverDSNAddsTiDBIsolationOverrideOnlyForTiDB(t *testing.T) {
 	tidb := toDriverDSN("tidb://root@localhost:4000/papersage")

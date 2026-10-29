@@ -44,14 +44,19 @@ func TestMySQLMigrateUpFreshDatabase(t *testing.T) {
 	schemaDSN := rebindMySQLDatabase(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN), "MySQL 方言迁移应全部执行成功")
 
-	// 数业务表（0012 后 16 张 + 0013 agent 运行时 9 张 + 0014 writing state 1 张 +
-	// 0015 import receipts 1 张 = 27；0016 仅增加字段，不增加表；不含 schema_migrations）
+	// 0019 与 0021 各新增一张表；0020 只增加运行元数据列。
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 27, count, "两方言业务表数量必须一致")
+	assert.Equal(t, 29, count, "两方言业务表数量必须一致")
 
-	// 幂等
+	var version int64
+	var dirty bool
+	require.NoError(t, db.QueryRow(fmt.Sprintf("SELECT version, dirty FROM %s.schema_migrations", schema)).Scan(&version, &dirty))
+	assert.Equal(t, int64(21), version)
+	assert.False(t, dirty)
+
+	// 已在部署版本上的重复发布不能重放 DDL。
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 }
 
