@@ -10,11 +10,8 @@ builds:
     binary: papersage
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    goos: [linux, windows, darwin]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
+    goos: [linux]
+    goarch: [amd64]
     ldflags:
       - -s -w -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Version={{.Version}} -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Commit={{.Commit}} -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Date={{.Date}}
   - id: migrate
@@ -23,11 +20,8 @@ builds:
     binary: migrate
     env: [CGO_ENABLED=0]
     flags: [-trimpath]
-    goos: [linux, windows, darwin]
-    goarch: [amd64, arm64]
-    ignore:
-      - goos: windows
-        goarch: arm64
+    goos: [linux]
+    goarch: [amd64]
     ldflags: [-s -w]
 
 archives:
@@ -36,9 +30,6 @@ archives:
     formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    format_overrides:
-      - goos: windows
-        formats: [zip]
     files:
       - none*
 
