@@ -5,7 +5,7 @@ import { useSaveWritingState, useWritingState } from '@/services/writing-state-a
 import {
   Search, Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
-  Check, Copy, Cloud, CloudUpload, FolderPlus,
+  Check, Copy, Cloud, CloudUpload, FolderPlus, AlertTriangle,
   HardDrive, ExternalLink,
 } from 'lucide-react'
 import { toast } from 'sonner'
@@ -213,9 +213,11 @@ export function WritingPage() {
   const [isCompileHistoryOpen, setIsCompileHistoryOpen] = useState(false)
   const [isCompileHistoryLoading, setIsCompileHistoryLoading] = useState(false)
   const [compileHistory, setCompileHistory] = useState<CompileJobListItem[]>([])
+  const [compileHistoryTotal, setCompileHistoryTotal] = useState(0)
   const [compileHistoryError, setCompileHistoryError] = useState<string | null>(null)
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string | null>(null)
+  const [compileWarning, setCompileWarning] = useState<string | null>(null)
   const [showFullLogs, setShowFullLogs] = useState(false)
 
   const isCompiling = isBrowserCompiling
@@ -382,6 +384,7 @@ export function WritingPage() {
     setShowFullLogs(false)
     setCompileError(null)
     setCompileLogs(null)
+    setCompileWarning(null)
     setBrowserProgressMessage('正在保存并读取项目文件')
     setBrowserThirdPartyLicense(null)
     setBrowserResources({})
@@ -448,6 +451,9 @@ export function WritingPage() {
 
       setPdfFileSource({ data: result.pdf })
       setCompileLogs(result.log)
+      setCompileWarning(result.log.includes('did not stabilize')
+        ? '编译已达到既有多遍上限，参考文献或交叉引用可能尚未稳定；请检查 PDF 中的引用编号。'
+        : null)
       setBrowserProgressMessage('PDF 已生成，正在上传到对象存储并保存编译记录')
       compiledArtifact = { jobId: job.job_id, pdf: result.pdf, logs: result.log }
       setPendingBrowserResult(compiledArtifact)
@@ -527,12 +533,13 @@ export function WritingPage() {
     }
   }
 
-  const loadCompileHistory = async () => {
+  const loadCompileHistory = async (limit?: number) => {
     setIsCompileHistoryLoading(true)
     setCompileHistoryError(null)
     try {
-      const result = await getCompileHistory(projectId)
+      const result = await getCompileHistory(projectId, limit)
       setCompileHistory(result.items)
+      setCompileHistoryTotal(result.total)
     } catch (error) {
       setCompileHistoryError(error instanceof Error ? error.message : '编译历史加载失败')
     } finally {
@@ -886,6 +893,11 @@ export function WritingPage() {
                           {item.error && <span className="line-clamp-2 whitespace-normal text-[10px] text-destructive">{item.error}</span>}
                         </DropdownMenuItem>
                       ))}
+                      {compileHistoryTotal > compileHistory.length && (
+                        <DropdownMenuItem onSelect={(event) => { event.preventDefault(); void loadCompileHistory(compileHistory.length + 20) }}>
+                          加载更多（共 {compileHistoryTotal} 条）
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
@@ -902,6 +914,12 @@ export function WritingPage() {
               </div>
 
               <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+                {compileWarning && (
+                  <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
+                    <p className="text-xs text-muted-foreground">{compileWarning}</p>
+                  </div>
+                )}
                 {!compilerSupported && !compileError && (
                   <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
                     <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />

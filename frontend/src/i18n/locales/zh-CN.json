@@ -41,6 +41,7 @@
   },
   "settings": {
     "pageTitle": "设置",
+    "saveFailed": "设置保存失败，请重试。",
     "tabGeneral": "常规",
     "tabEditor": "编辑器",
     "tabAgent": "AI 助手",
@@ -67,6 +68,9 @@
   },
   "agent": {
     "providers": "模型服务商",
+    "savingSettings": "正在保存设置，模型选择将用于下一次对话。",
+    "savingModelSettings": "正在保存模型设置，保存后用于下一次对话。",
+    "modelSaveFailed": "模型选择保存失败，已恢复原选择，请重试。",
     "addProvider": "添加服务商",
     "noProviders": "尚未配置服务商。点击 + 添加一个。",
     "defaultModel": "默认模型",

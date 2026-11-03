@@ -1,0 +1,125 @@
+{
+  "schema_version": 1,
+  "corpus": [
+    "blueprint",
+    "conditions_a",
+    "conditions_b",
+    "draft",
+    "rules",
+    "sparse"
+  ],
+  "top_k": 5,
+  "conditions": {
+    "bm25": "same frozen corpus and top_k; implementation/version pending",
+    "vector": "same frozen corpus and top_k; authorized embedding/model pending",
+    "fusion": "same frozen corpus and top_k; fusion settings pending",
+    "degraded": "report separately; never mix with normal condition"
+  },
+  "queries": [
+    {
+      "id": "RET-01",
+      "query": "白天人工核销有什么限制？",
+      "has_basis": true,
+      "relevant": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-TAIL"
+        }
+      ],
+      "expected": "return locatable relevant material",
+      "denominator": "supported_hit_at_5"
+    },
+    {
+      "id": "RET-02",
+      "query": "夜间自动核销能否证明提醒有效？",
+      "has_basis": true,
+      "relevant": [
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-TAIL"
+        }
+      ],
+      "expected": "return locatable relevant material",
+      "denominator": "supported_hit_at_5"
+    },
+    {
+      "id": "RET-03",
+      "query": "预约取消与实际离座是否相同？",
+      "has_basis": true,
+      "relevant": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-TAIL"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ],
+      "expected": "return locatable relevant material",
+      "denominator": "supported_hit_at_5"
+    },
+    {
+      "id": "RET-04",
+      "query": "草稿遗漏了哪些方法信息？",
+      "has_basis": true,
+      "relevant": [
+        {
+          "material": "draft",
+          "anchor": "D-METHOD"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ],
+      "expected": "return locatable relevant material",
+      "denominator": "supported_hit_at_5"
+    },
+    {
+      "id": "RET-05",
+      "query": "示例规范对未经确认改稿有何要求？",
+      "has_basis": true,
+      "relevant": [
+        {
+          "material": "rules",
+          "anchor": "R-TAIL"
+        }
+      ],
+      "expected": "return locatable relevant material",
+      "denominator": "supported_hit_at_5"
+    },
+    {
+      "id": "RET-06",
+      "query": "研究实际样本量和统计显著性是多少？",
+      "has_basis": false,
+      "relevant": [],
+      "expected": "state no supported answer; do not fabricate",
+      "denominator": "unsupported_behavior"
+    },
+    {
+      "id": "RET-07",
+      "query": "这所真实学校规定引用格式是什么？",
+      "has_basis": false,
+      "relevant": [],
+      "expected": "state no supported answer; do not fabricate",
+      "denominator": "unsupported_behavior"
+    },
+    {
+      "id": "RET-08",
+      "query": "实验结果证明提醒提高多少周转率？",
+      "has_basis": false,
+      "relevant": [],
+      "expected": "state no supported answer; do not fabricate",
+      "denominator": "unsupported_behavior"
+    }
+  ]
+}

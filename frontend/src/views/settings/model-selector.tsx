@@ -32,10 +32,11 @@ export interface ModelSelection {
 interface ModelSelectorProps {
   variant?: 'full' | 'compact'
   value: ModelSelection
+  disabled?: boolean
   onChange: (selection: ModelSelection) => void
 }
 
-export function ModelSelector({ variant = 'full', value, onChange }: ModelSelectorProps) {
+export function ModelSelector({ variant = 'full', value, onChange, disabled = false }: ModelSelectorProps) {
   const { t } = useTranslation()
   const { settings, fetchSettings } = useSettingsStore()
   const providers = settings?.agent.providers ?? []
@@ -55,10 +56,10 @@ export function ModelSelector({ variant = 'full', value, onChange }: ModelSelect
   }
 
   if (variant === 'compact') {
-    return <CompactSelector providers={providers} value={value} onChange={onChange} t={t} />
+    return <CompactSelector providers={providers} value={value} onChange={onChange} t={t} disabled={disabled} />
   }
 
-  return <FullSelector providers={providers} value={value} onChange={onChange} t={t} />
+  return <FullSelector providers={providers} value={value} onChange={onChange} t={t} disabled={disabled} />
 }
 
 type ProviderItem = {
@@ -72,19 +73,22 @@ function FullSelector({
   value,
   onChange,
   t,
+  disabled,
 }: {
   providers: ProviderItem[]
   value: ModelSelection
   onChange: (s: ModelSelection) => void
   t: (key: string) => string
+  disabled: boolean
 }) {
-  const selectValue = `${value.providerId}::${value.model}`
+  const selectValue = JSON.stringify([value.providerId, value.model])
 
   return (
     <Select
+      disabled={disabled}
       value={selectValue}
       onValueChange={(v) => {
-        const [providerId, model] = v.split('::')
+        const [providerId, model] = JSON.parse(v) as [string, string]
         onChange({ providerId, model })
       }}
     >
@@ -96,7 +100,7 @@ function FullSelector({
           <SelectGroup key={p.id}>
             <SelectLabel>{p.name}</SelectLabel>
             {p.models.map((m) => (
-              <SelectItem key={`${p.id}::${m}`} value={`${p.id}::${m}`}>
+              <SelectItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
                 {m}
               </SelectItem>
             ))}
@@ -112,11 +116,13 @@ function CompactSelector({
   value,
   onChange,
   t,
+  disabled,
 }: {
   providers: ProviderItem[]
   value: ModelSelection
   onChange: (s: ModelSelection) => void
   t: (key: string) => string
+  disabled: boolean
 }) {
   const activeProvider = providers.find((p) => p.id === value.providerId)
   const label = activeProvider
@@ -126,16 +132,16 @@ function CompactSelector({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
+        <Button disabled={disabled} variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
           {label}
           <ChevronsUpDown className="size-3" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
         <DropdownMenuRadioGroup
-          value={`${value.providerId}::${value.model}`}
+          value={JSON.stringify([value.providerId, value.model])}
           onValueChange={(v) => {
-            const [providerId, model] = v.split('::')
+            const [providerId, model] = JSON.parse(v) as [string, string]
             onChange({ providerId, model })
           }}
         >
@@ -147,7 +153,7 @@ function CompactSelector({
                 <DropdownMenuItem disabled>{t('modelSelector.none')}</DropdownMenuItem>
               )}
               {p.models.map((m) => (
-                <DropdownMenuRadioItem key={`${p.id}::${m}`} value={`${p.id}::${m}`}>
+                <DropdownMenuRadioItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
                   {m}
                 </DropdownMenuRadioItem>
               ))}

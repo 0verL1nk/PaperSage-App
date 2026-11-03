@@ -58,7 +58,7 @@ func (s *Store) ListWiki(ctx context.Context, projectID store.UUID) ([]WikiPage,
 	var pages []WikiPage
 	err := s.DB.WithContext(ctx).
 		Where("project_id = ?", projectID).
-		Order("updated_at DESC").Limit(100).Find(&pages).Error
+		Order("updated_at DESC").Find(&pages).Error
 	return pages, err
 }
 

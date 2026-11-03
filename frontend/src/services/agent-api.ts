@@ -166,26 +166,37 @@ export async function streamRun(
   const reader = res.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
-  for (;;) {
-    const { done, value } = await reader.read()
-    if (done) break
-    buffer += decoder.decode(value, { stream: true })
-    // 事件以空行分隔；只处理完整的事件块，半个 JSON 留在 buffer 里等下一片。
-    let idx: number
-    while ((idx = buffer.indexOf('\n\n')) >= 0) {
-      const chunk = buffer.slice(0, idx)
-      buffer = buffer.slice(idx + 2)
-      for (const line of chunk.split('\n')) {
-        if (!line.startsWith('data: ')) continue
-        const payload = line.slice(6)
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      // 完整的 SSE 事件块才交给消费者，支持跨网络分片的 LF / CRLF。
+      let separator: RegExpExecArray | null
+      while ((separator = /\r?\n\r?\n/.exec(buffer))) {
+        const chunk = buffer.slice(0, separator.index)
+        buffer = buffer.slice(separator.index + separator[0].length)
+        const data = chunk.split(/\r?\n/)
+          .filter((line) => line === 'data' || line.startsWith('data:'))
+          .map((line) => line === 'data' ? '' : line.slice(5).replace(/^ /, ''))
+        if (!data.length) continue
+        const payload = data.join('\n')
         if (payload === '[DONE]') return
+        let event: RunStreamEvent
         try {
-          opts.onEvent(JSON.parse(payload) as RunStreamEvent)
+          event = JSON.parse(payload) as RunStreamEvent
         } catch {
-          // 单个 part 解析失败不该中断整条流
+          throw new Error('AI 事件流格式错误，回答可能未完成；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送')
         }
+        opts.onEvent(event)
+        if (event.type === 'finish' || event.type === 'abort') return
       }
     }
+    throw new Error('AI 连接中断，回答尚未接收完整；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送')
+  } finally {
+    // 只关闭本次订阅，不调用后台 Run 的取消接口。
+    void reader.cancel().catch(() => {})
+    reader.releaseLock()
   }
 }
 

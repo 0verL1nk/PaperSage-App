@@ -32,6 +32,8 @@ export interface ChatMessage {
 export interface ChatState {
   conversationId: string | null
   conversationVersion: number
+  /** false：刚打开已有会话，尚未拿到服务端版本；此时不能把 0 当作并发版本发送。 */
+  versionKnown: boolean
   messages: ChatMessage[]
   activeRunId: string | null
   streaming: boolean
@@ -44,6 +46,7 @@ export interface ChatState {
 export const emptyChatState: ChatState = {
   conversationId: null,
   conversationVersion: 0,
+  versionKnown: false,
   messages: [],
   activeRunId: null,
   streaming: false,
@@ -218,6 +221,9 @@ type ChatStore = ChatState & {
   reset: () => void
 }
 
+// 同步防重：双击/回车连发在第一个 await 之前就占位，避免创建两个付费 Run。
+let sendInFlight = false
+
 export const useChatStore = create<ChatStore>((set, get) => ({
   ...emptyChatState,
 
@@ -228,29 +234,52 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   },
 
   send: async (projectId, content) => {
-    // 先本地回显用户消息，避免等待网络
-    set((s) => ({
-      ...s,
-      error: null,
-      messages: [...s.messages, { id: `user-${Date.now()}`, role: 'user', status: 'completed', parts: [{ id: 'text', type: 'text', text: content, status: 'completed' }] }],
-    }))
-    // 新项目还没有会话：第一条消息先建会话。Run 路径要求会话已存在，
-    // 不建的话这一句会**静默消失**（输入被清空、什么也没发生）。
-    let conversationId = get().conversationId
-    if (!conversationId) {
-      const conv = await api.createConversation(projectId, content)
-      set({ conversationId: conv.id, conversationVersion: conv.version })
-      conversationId = conv.id
+    if (sendInFlight) return
+    sendInFlight = true
+    try {
+      // 先本地回显用户消息，避免等待网络
+      set((s) => ({
+        ...s,
+        error: null,
+        messages: [...s.messages, { id: `user-${Date.now()}`, role: 'user', status: 'completed', parts: [{ id: 'text', type: 'text', text: content, status: 'completed' }] }],
+      }))
+      // 新项目还没有会话：第一条消息先建会话。Run 路径要求会话已存在，
+      // 不建的话这一句会**静默消失**（输入被清空、什么也没发生）。
+      let conversationId = get().conversationId
+      if (!conversationId) {
+        const conv = await api.createConversation(projectId, content)
+        set({ conversationId: conv.id, conversationVersion: conv.version, versionKnown: true })
+        conversationId = conv.id
+      }
+      const handle = await api.createRun(conversationId, {
+        content,
+        clientRequestId: crypto.randomUUID(),
+        expectedThreadVersion: get().versionKnown ? get().conversationVersion : undefined,
+      })
+      set({ activeRunId: handle.runId, conversationVersion: handle.threadVersion, versionKnown: true, streaming: true })
+      try {
+        await api.streamRun(handle.runId, {
+          // 切换会话/新 Run 后，旧连接的事件不得写入当前状态。
+          onEvent: (ev) => set((s) => s.activeRunId === handle.runId ? reduceChatEvent(s, ev) : s),
+        })
+        set((s) => s.activeRunId === handle.runId ? { streaming: false, activeRunId: null } : {})
+      } catch (cause) {
+        const detail = cause instanceof Error ? cause.message : '连接异常'
+        const message = detail.includes('会话列表')
+          ? detail
+          : `AI 连接中断，回答可能未完成（${detail}）；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送`
+        set((s) => {
+          if (s.activeRunId !== handle.runId) return {}
+          const messages = s.messages.map((m, i) => i === s.messages.length - 1 && m.role === 'assistant'
+            ? { ...m, runId: handle.runId }
+            : m)
+          return { messages, streaming: false, activeRunId: null, error: s.error ? `${s.error}；${message}` : message }
+        })
+        throw new Error(message)
+      }
+    } finally {
+      sendInFlight = false
     }
-    const handle = await api.createRun(conversationId, {
-      content,
-      clientRequestId: crypto.randomUUID(),
-      expectedThreadVersion: get().conversationVersion,
-    })
-    set({ activeRunId: handle.runId, conversationVersion: handle.threadVersion })
-    await api.streamRun(handle.runId, {
-      onEvent: (ev) => set((s) => reduceChatEvent(s, ev)),
-    })
   },
 
   cancel: async () => {

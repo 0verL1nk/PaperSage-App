@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/datatypes"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
@@ -242,6 +244,128 @@ func lifecycleAPI(t *testing.T, modelURL string) (*agent.Service, *gorm.DB, stri
 	return svc, db, "/api/v1/agent/conversations/" + cid.String() + "/runs", do
 }
 
+func TestCreateRunIdempotentReplayAndConflict(t *testing.T) {
+	var modelCalls atomic.Int32
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		modelCalls.Add(1)
+		http.Error(w, "scripted failure", http.StatusBadRequest)
+	}))
+	defer fake.Close()
+	svc, db, path, do := lifecycleAPI(t, fake.URL)
+	first := do(http.MethodPost, path, `{"content":"question","clientRequestId":"same","expectedThreadVersion":0}`)
+	id := createdRunID(t, first)
+	assertRunTerminal(t, db, id, agent.RunFailed)
+	assert.EqualValues(t, 1, modelCalls.Load())
+	// The committed request is replayable even after its expected version and model settings change.
+	svc.Cfg.AgentAPIKey = ""
+	replay := do(http.MethodPost, path, `{"content":"question","clientRequestId":"same","expectedThreadVersion":0}`)
+	assert.Equal(t, id, createdRunID(t, replay))
+	changed := do(http.MethodPost, path, `{"content":"different","clientRequestId":"same","expectedThreadVersion":0}`)
+	assert.Equal(t, http.StatusConflict, changed.Code, changed.Body.String())
+	var turns, runs, messages int64
+	require.NoError(t, db.Model(&store.AgentTurn{}).Count(&turns).Error)
+	require.NoError(t, db.Model(&store.AgentRun{}).Count(&runs).Error)
+	require.NoError(t, db.Model(&store.AgentMessage{}).Where("role = ?", "user").Count(&messages).Error)
+	assert.EqualValues(t, 1, turns)
+	assert.EqualValues(t, 1, runs)
+	assert.EqualValues(t, 1, messages)
+	var started int64
+	require.NoError(t, db.Model(&store.AgentEvent{}).Where("run_id = ? AND event_type = ?", id, "run.started").Count(&started).Error)
+	assert.EqualValues(t, 1, started)
+	assert.EqualValues(t, 1, modelCalls.Load(), "replaying a completed Run must not execute the model again")
+}
+
+func TestCreateRunRollsBackAllRowsWhenInsertFails(t *testing.T) {
+	for _, table := range []string{"agent_turns", "agent_messages", "agent_message_parts", "agent_runs", "agent_events"} {
+		t.Run(table, func(t *testing.T) {
+			_, db, path, do := lifecycleAPI(t, "http://127.0.0.1:1")
+			require.NoError(t, db.Callback().Create().Before("gorm:create").Register("test:fail-insert", func(tx *gorm.DB) {
+				if tx.Statement.Table == table {
+					_ = tx.AddError(assert.AnError)
+				}
+			}))
+			rec := do(http.MethodPost, path, `{"content":"question","clientRequestId":"fail","expectedThreadVersion":0}`)
+			assert.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+			var turns, runs, messages, parts, events int64
+			require.NoError(t, db.Model(&store.AgentTurn{}).Count(&turns).Error)
+			require.NoError(t, db.Model(&store.AgentRun{}).Count(&runs).Error)
+			require.NoError(t, db.Model(&store.AgentMessage{}).Count(&messages).Error)
+			require.NoError(t, db.Model(&store.AgentMessagePart{}).Count(&parts).Error)
+			require.NoError(t, db.Model(&store.AgentEvent{}).Count(&events).Error)
+			var conv store.AgentConversation
+			require.NoError(t, db.First(&conv).Error)
+			assert.Zero(t, turns)
+			assert.Zero(t, runs)
+			assert.Zero(t, messages)
+			assert.Zero(t, parts)
+			assert.Zero(t, events)
+			assert.Zero(t, conv.Version)
+		})
+	}
+}
+
+func TestConcurrentCreateRunRequests(t *testing.T) {
+	for _, sameKey := range []bool{true, false} {
+		t.Run(map[bool]string{true: "same key", false: "different keys"}[sameKey], func(t *testing.T) {
+			fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.Error(w, "scripted failure", http.StatusBadRequest)
+			}))
+			defer fake.Close()
+			_, db, path, do := lifecycleAPI(t, fake.URL)
+			bodies := []string{
+				`{"content":"question","clientRequestId":"key-1","expectedThreadVersion":0}`,
+				`{"content":"question","clientRequestId":"key-1","expectedThreadVersion":0}`,
+			}
+			if !sameKey {
+				bodies[1] = `{"content":"question","clientRequestId":"key-2","expectedThreadVersion":0}`
+			}
+			start := make(chan struct{})
+			results := make([]*httptest.ResponseRecorder, 2)
+			var wg sync.WaitGroup
+			for i := range results {
+				wg.Add(1)
+				go func(i int) { defer wg.Done(); <-start; results[i] = do(http.MethodPost, path, bodies[i]) }(i)
+			}
+			close(start)
+			wg.Wait()
+			if sameKey {
+				assert.Equal(t, createdRunID(t, results[0]), createdRunID(t, results[1]))
+			} else {
+				statuses := []int{results[0].Code, results[1].Code}
+				assert.ElementsMatch(t, []int{http.StatusOK, http.StatusConflict}, statuses)
+			}
+			var turns, runs, messages int64
+			require.NoError(t, db.Model(&store.AgentTurn{}).Count(&turns).Error)
+			require.NoError(t, db.Model(&store.AgentRun{}).Count(&runs).Error)
+			require.NoError(t, db.Model(&store.AgentMessage{}).Where("role = ?", "user").Count(&messages).Error)
+			assert.EqualValues(t, 1, turns)
+			assert.EqualValues(t, 1, runs)
+			assert.EqualValues(t, 1, messages)
+		})
+	}
+}
+
+func TestLegacyChatReusesCommittedRun(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "scripted failure", http.StatusBadRequest)
+	}))
+	defer fake.Close()
+	_, db, path, do := lifecycleAPI(t, fake.URL)
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"question","clientRequestId":"same"}`))
+	var conv store.AgentConversation
+	require.NoError(t, db.First(&conv).Error)
+	legacyPath := "/api/v1/projects/" + conv.ProjectID.String() + "/agent/chat"
+	body := `{"conversation_id":"` + conv.ID.String() + `","content":"question","clientRequestId":"same"}`
+	rec := do(http.MethodPost, legacyPath, body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.Contains(t, rec.Body.String(), id.String())
+	changed := `{"conversation_id":"` + conv.ID.String() + `","content":"different","clientRequestId":"same"}`
+	assert.Equal(t, http.StatusConflict, do(http.MethodPost, legacyPath, changed).Code)
+	var runs int64
+	require.NoError(t, db.Model(&store.AgentRun{}).Count(&runs).Error)
+	assert.EqualValues(t, 1, runs)
+}
+
 func createdRunID(t *testing.T, rec *httptest.ResponseRecorder) store.UUID {
 	t.Helper()
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -341,6 +465,70 @@ func TestChildRunClosesBeforeParentOnCancelAndError(t *testing.T) {
 	}
 }
 
+func TestRunExecutesModelCapturedAtCreation(t *testing.T) {
+	requests := make(chan map[string]any, 1)
+	authHeader := make(chan string, 1)
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		requests <- body
+		authHeader <- r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = io.WriteString(w, "data: {\"id\":\"c1\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+	}))
+	t.Cleanup(fake.Close)
+	_, db, path, do := lifecycleAPI(t, fake.URL)
+	var conv store.AgentConversation
+	require.NoError(t, db.First(&conv).Error)
+	settings := func(model string) []byte {
+		b, err := json.Marshal(map[string]any{"active_provider_id": "p", "providers": []any{map[string]any{
+			"id": "p", "base_url": fake.URL, "api_key": "fake-snapshot-key", "models": []string{"A", "B"}, "active_model": model,
+		}}})
+		require.NoError(t, err)
+		return b
+	}
+	require.NoError(t, db.Create(&store.UserSettings{UserID: conv.UserID, Category: "agent", Settings: datatypes.JSON(settings("A"))}).Error)
+	changed := settings("B")
+	require.NoError(t, db.Callback().Create().After("gorm:create").Before("gorm:commit_or_rollback_transaction").Register("test:change-model", func(tx *gorm.DB) {
+		if tx.Statement.Table == "agent_runs" {
+			if e := tx.Session(&gorm.Session{NewDB: true}).Exec("UPDATE user_settings SET settings = ? WHERE user_id = ? AND category = ?", string(changed), conv.UserID, "agent").Error; e != nil {
+				_ = tx.AddError(e)
+			}
+		}
+	}))
+	defer func() { require.NoError(t, db.Callback().Create().Remove("test:change-model")) }()
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"hello"}`))
+	var request map[string]any
+	select {
+	case request = <-requests:
+	case <-time.After(3 * time.Second):
+		t.Fatal("fake model was not called")
+	}
+	assert.Equal(t, "A", request["model"])
+	assert.Equal(t, "Bearer fake-snapshot-key", <-authHeader)
+	assertRunTerminal(t, db, id, agent.RunCompleted)
+	var run store.AgentRun
+	require.NoError(t, db.First(&run, "id = ?", id).Error)
+	assert.Equal(t, "A", run.ModelName)
+	raw, err := json.Marshal(run)
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "fake-snapshot-key")
+	var events []store.AgentEvent
+	require.NoError(t, db.Where("run_id = ?", id).Find(&events).Error)
+	for _, event := range events {
+		assert.NotContains(t, string(event.PayloadJSON), "fake-snapshot-key")
+	}
+}
+
+func TestRunSettingsDatabaseFailureIsNotReportedAsMissingModel(t *testing.T) {
+	_, db, path, do := lifecycleAPI(t, "http://unused.invalid")
+	require.NoError(t, db.Migrator().DropTable(&store.UserSettings{}))
+	rec := do(http.MethodPost, path, `{"content":"hello"}`)
+	require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "尚未配置")
+	assert.NotContains(t, rec.Body.String(), "user_settings")
+}
+
 func TestCloseDuringRunCreationDoesNotLeaveRunningRow(t *testing.T) {
 	svc, db, path, do := lifecycleAPI(t, "http://unused.invalid")
 	entered := make(chan struct{})
@@ -364,8 +552,14 @@ func TestCloseDuringRunCreationDoesNotLeaveRunningRow(t *testing.T) {
 	<-response
 	var runs []store.AgentRun
 	require.NoError(t, db.Find(&runs).Error)
-	require.Len(t, runs, 1)
-	assertRunTerminal(t, db, runs[0].ID, agent.RunCancelled)
+	assert.Empty(t, runs, "shutdown before commit rolls back the whole submission")
+	var turns, messages, events int64
+	require.NoError(t, db.Model(&store.AgentTurn{}).Count(&turns).Error)
+	require.NoError(t, db.Model(&store.AgentMessage{}).Count(&messages).Error)
+	require.NoError(t, db.Model(&store.AgentEvent{}).Count(&events).Error)
+	assert.Zero(t, turns)
+	assert.Zero(t, messages)
+	assert.Zero(t, events)
 }
 
 func TestServiceCloseCancelsAndRejectsRuns(t *testing.T) {

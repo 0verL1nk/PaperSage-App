@@ -17,7 +17,7 @@
 ## 发现的迁移阻断项
 
 1. `server/migrations/postgres/0009_embedding_binary.up.sql` 使用 PostgreSQL `bytea` 保存二进制嵌入；不与 RAG 库的 pgvector schema 复用。
-2. 不要把业务主库和当前 RAG PostgreSQL 指向同一个 database。业务迁移的 `rag_chunks.embedding` 是二进制 `bytea`；独立 RAG 的 `cmd/neoninit` 则创建 pgvector 表，并且该初始化命令包含 `DROP TABLE IF EXISTS rag_chunks`。复用会产生表结构冲突，运行初始化命令还可能删掉已有 RAG 数据。
+2. 不要把业务主库和当前 RAG PostgreSQL 指向同一个 database。业务迁移的 `rag_chunks.embedding` 是二进制 `bytea`，独立 RAG 则使用 pgvector，复用会产生表结构冲突。历史版本的 `cmd/neoninit` 包含 `DROP TABLE IF EXISTS rag_chunks`，可能删掉已有数据；当前工作树已移除该语句，但尚未在真实 PG 验证或发布，切勿据此运行历史版本。
 3. SQL 迁移原先随应用启动执行。现在可用 `RUN_DB_MIGRATIONS=false` 关闭请求实例上的迁移，并通过 `DATABASE_MIGRATION_URL` 指定直连地址、单独运行 `go run ./cmd/migrate`；应用运行时仍使用 Neon pooled URL。
 4. 不导入 TiDB 历史数据；新业务库从空 schema 初始化，旧账号、项目和文档元数据不保留。
 

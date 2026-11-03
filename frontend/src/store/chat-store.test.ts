@@ -177,6 +177,52 @@ describe('send 动作', () => {
     vi.mocked(api.streamRun).mockResolvedValue(undefined)
   }
 
+  it('真实 SSE 中途断流保留部分回答，解除 streaming 并提示恢复而不重跑', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old' })
+    vi.mocked(api.createRun).mockClear()
+    vi.mocked(api.cancelRun).mockClear()
+    stubRun(1)
+    const realApi = await vi.importActual<typeof import('@/services/agent-api')>('@/services/agent-api')
+    vi.mocked(api.streamRun).mockImplementation(realApi.streamRun)
+    const bytes = new TextEncoder().encode(
+      'data: {"type":"start","messageId":"m1"}\n\n' +
+      'data: {"type":"text-delta","id":"t1","delta":"部分回答"}\n\n' +
+      'data: {"type":"text-delta","delta":"截断',
+    )
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new ReadableStream({
+      start(controller) { controller.enqueue(bytes); controller.close() },
+    }), { headers: { 'Content-Type': 'text/event-stream' } })))
+    try {
+      await expect(useChatStore.getState().send('p1', '问题')).rejects.toThrow(/中断|未完成/)
+      const state = useChatStore.getState()
+      expect(textOf(state)).toBe('部分回答')
+      expect(state.messages.at(-1)?.status).not.toBe('completed')
+      expect(state.streaming).toBe(false)
+      expect(state.error).toMatch(/中断|未完成/)
+      expect(state.error).toMatch(/会话/)
+      expect(api.createRun).toHaveBeenCalledTimes(1)
+      expect(api.cancelRun).not.toHaveBeenCalled()
+      expect(fetch).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+
+  it('读取连接失败也保留已到达的内容并提示后台可能仍在运行', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old' })
+    stubRun(1)
+    vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
+      onEvent({ type: 'start', messageId: 'm1' })
+      onEvent({ type: 'text-delta', id: 't1', delta: '部分内容' })
+      throw new TypeError('network error')
+    })
+    await expect(useChatStore.getState().send('p1', '问题')).rejects.toThrow(/后台可能仍在运行/)
+    expect(textOf(useChatStore.getState())).toBe('部分内容')
+    expect(useChatStore.getState().streaming).toBe(false)
+    expect(useChatStore.getState().messages.at(-1)?.runId).toBe('r1')
+    expect(useChatStore.getState().error).toMatch(/会话列表/)
+  })
+
   it('还没有会话时先建会话再发 Run——否则第一条消息会静默消失', async () => {
     useChatStore.setState({ ...emptyChatState })
     vi.mocked(api.createConversation).mockResolvedValue({ id: 'c-new', title: '你好', version: 0 })
@@ -190,7 +236,7 @@ describe('send 动作', () => {
   })
 
   it('已有会话时沿用会话，不重复建', async () => {
-    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 3 })
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 3, versionKnown: true })
     vi.mocked(api.createConversation).mockClear()
     stubRun(4)
 
@@ -199,5 +245,51 @@ describe('send 动作', () => {
     expect(api.createConversation).not.toHaveBeenCalled()
     // 乐观锁带上当前版本，服务端据此判断是否有人并发提交
     expect(api.createRun).toHaveBeenCalledWith('c-old', expect.objectContaining({ expectedThreadVersion: 3 }))
+  })
+
+  it('重新打开已有会话后不把未知版本当成 0 发送', async () => {
+    vi.mocked(api.listMessages).mockResolvedValue([])
+    await useChatStore.getState().open('c-old')
+    stubRun(1)
+
+    await useChatStore.getState().send('p1', '继续')
+
+    expect(api.createRun).toHaveBeenCalledWith('c-old', expect.objectContaining({ expectedThreadVersion: undefined }))
+  })
+
+  it('快速重复发送只创建一个 Run', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    vi.mocked(api.createRun).mockClear()
+    stubRun(2)
+
+    await Promise.all([
+      useChatStore.getState().send('p1', '同一条消息'),
+      useChatStore.getState().send('p1', '同一条消息'),
+    ])
+
+    expect(api.createRun).toHaveBeenCalledTimes(1)
+  })
+
+  it('切换会话后旧流事件不再污染新会话', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    vi.mocked(api.listMessages).mockResolvedValue([])
+    stubRun(2)
+    let release!: () => void
+    let started!: () => void
+    const startedPromise = new Promise<void>((resolve) => { started = resolve })
+    vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
+      onEvent({ type: 'start', messageId: 'm-old' })
+      started()
+      await new Promise<void>((resolve) => { release = resolve })
+      onEvent({ type: 'text-delta', delta: '旧会话内容' })
+    })
+
+    const sending = useChatStore.getState().send('p1', '问题')
+    await startedPromise
+    await useChatStore.getState().open('c-other')
+    release()
+    await sending
+
+    expect(useChatStore.getState().messages).toEqual([])
   })
 })

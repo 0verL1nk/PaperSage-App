@@ -62,7 +62,7 @@ func (s *Service) listConversations(c *gin.Context) {
 		Model(&store.AgentConversation{}).
 		Select("id", "title").
 		Where("project_id = ? AND user_id = ?", pid, uid).
-		Order("updated_at DESC").Limit(50).Find(&convs).Error; err != nil {
+		Order("updated_at DESC").Find(&convs).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
@@ -134,22 +134,16 @@ func (s *Service) listMessages(c *gin.Context) {
 	cid := store.UUID{UUID: cidU}
 	// 归属校验：会话属于当前用户且未被软删（走 Model 才会带上软删过滤）
 	var n int64
-	_ = s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
-		Where("id = ? AND user_id = ?", cid, uid).Count(&n).Error
+	if err := s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
+		Where("id = ? AND user_id = ?", cid, uid).Count(&n).Error; err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
 	if n == 0 {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
 		return
 	}
-	var msgs []store.AgentMessage
-	// 走 Model 而非 Table：后者没有挂模型，软删过滤不会生效。
-	if err := s.DB.WithContext(ctx).
-		Model(&store.AgentMessage{}).
-		Where("conversation_id = ?", cid).
-		Order("created_at ASC").Limit(200).Find(&msgs).Error; err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-	out, err := s.messagesWithParts(ctx, msgs)
+	out, err := s.messagesWithParts(ctx, cid)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
@@ -180,26 +174,14 @@ type msgDTO struct {
 }
 
 // messagesWithParts 读回消息及其 parts（按 ordinal 排序）。
-func (s *Service) messagesWithParts(ctx context.Context, msgs []store.AgentMessage) ([]msgDTO, error) {
-	out := make([]msgDTO, 0, len(msgs))
-	if len(msgs) == 0 {
-		return out, nil
-	}
-	ids := make([]store.UUID, 0, len(msgs))
-	for _, m := range msgs {
-		ids = append(ids, m.ID)
-	}
-	var parts []store.AgentMessagePart
-	if err := s.DB.WithContext(ctx).
-		Where("message_id IN ?", ids).
-		Order("ordinal ASC").Find(&parts).Error; err != nil {
+func (s *Service) messagesWithParts(ctx context.Context, convID store.UUID) ([]msgDTO, error) {
+	msgs, err := s.readHistory(ctx, convID)
+	if err != nil {
 		return nil, err
 	}
-	byMsg := map[store.UUID][]store.AgentMessagePart{}
-	for _, p := range parts {
-		byMsg[p.MessageID] = append(byMsg[p.MessageID], p)
-	}
-	for _, m := range msgs {
+	out := make([]msgDTO, 0, len(msgs))
+	for _, item := range msgs {
+		m := item.message
 		d := msgDTO{
 			ID: m.ID.String(), Role: m.Role, Status: m.Status,
 			CreatedAt: dto.JSONTime{Time: m.CreatedAt}, Parts: []partDTO{},
@@ -208,7 +190,7 @@ func (s *Service) messagesWithParts(ctx context.Context, msgs []store.AgentMessa
 			rid := m.RunID.String()
 			d.RunID = &rid
 		}
-		for _, p := range byMsg[m.ID] {
+		for _, p := range item.parts {
 			pd := partDTO{
 				ID: p.ID.String(), Ordinal: p.Ordinal, Type: p.Type, Status: p.Status,
 				Text: p.TextContent, CreatedAt: dto.JSONTime{Time: p.CreatedAt},

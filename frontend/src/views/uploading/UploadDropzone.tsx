@@ -9,7 +9,8 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useDropzone } from 'react-dropzone'
+import { useDropzone, type FileRejection } from 'react-dropzone'
+import { toast } from 'sonner'
 import { Upload, Loader2, Check, X, AlertTriangle, RotateCw, Plus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -83,7 +84,17 @@ export function UploadDropzone({ projectId, folderId, onClose }: UploadDropzoneP
   )
 
   const onDrop = useCallback(
-    (acceptedFiles: File[]) => {
+    (acceptedFiles: File[], fileRejections: FileRejection[]) => {
+      if (fileRejections.length > 0) {
+        toast.error(`${fileRejections.length} 个文件未添加`, {
+          description: fileRejections.map(({ file, errors }) => {
+            const reason = errors[0]?.code === 'file-too-large' ? '文件过大'
+              : errors[0]?.code === 'file-invalid-type' ? '不支持的文件类型'
+                : errors[0]?.message ?? '无法添加'
+            return `${file.name}：${reason}`
+          }).join('；'),
+        })
+      }
       const batch = acceptedFiles.map((file) => ({ id: ++idRef.current, file, status: 'uploading' as const }))
       setItems((prev) => [...prev, ...batch])
       void (async () => {

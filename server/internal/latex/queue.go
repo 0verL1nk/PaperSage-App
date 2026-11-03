@@ -200,7 +200,15 @@ func (q *Queue) runCompile(ctx context.Context, job *store.CompileJob) {
 			}).Error
 	}()
 
-	files := q.loadProjectFiles(context.Background(), job.ProjectID.UUID)
+	files, err := q.loadProjectFiles(context.Background(), job.ProjectID.UUID)
+	if err != nil {
+		job.Status = string(store.JobFailed)
+		e := "读取项目文件失败：" + err.Error()
+		job.Error = &e
+		slog.Error("load project files for compile", "job", job.ID.UUID, "error", err)
+		q.cleanupClsi(projectIDStr)
+		return
+	}
 
 	syncType, syncStateVal, currentHashes := ComputeSyncParams(files, job.SyncState, q.Cfg.CompileIncrementalSyncEnabled)
 	filesToSend := files
@@ -257,8 +265,11 @@ func (q *Queue) markStatus(jobID uuid.UUID, status string, errPtr *string) {
 }
 
 // loadProjectFiles 文本并行载入 + 二进制预签名 URL。
-func (q *Queue) loadProjectFiles(ctx context.Context, projectID uuid.UUID) []ProjectFile {
-	pairs := q.Files.LoadTextContents(ctx, projectID, q.Cfg.S3ParallelFetchConcurrency)
+func (q *Queue) loadProjectFiles(ctx context.Context, projectID uuid.UUID) ([]ProjectFile, error) {
+	pairs, err := q.Files.LoadTextContents(ctx, projectID, q.Cfg.S3ParallelFetchConcurrency)
+	if err != nil {
+		return nil, err
+	}
 	files := make([]ProjectFile, 0, len(pairs))
 	for _, p := range pairs {
 		c := p[1]
@@ -268,11 +279,11 @@ func (q *Queue) loadProjectFiles(ctx context.Context, projectID uuid.UUID) []Pro
 	for _, bk := range q.Files.GetBinaryFileKeys(ctx, projectID) {
 		url, err := q.Files.Storage.PresignGet(ctx, bk[1], ttl)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("presign %s: %w", bk[0], err)
 		}
 		files = append(files, ProjectFile{Path: bk[0], URL: strPtr(url), IsBinary: true})
 	}
-	return files
+	return files, nil
 }
 
 func (q *Queue) cleanupClsi(projectIDStr string) {
@@ -394,14 +405,17 @@ func (q *Queue) Cancel(ctx context.Context, jobID, userID uuid.UUID) (*store.Com
 	return &job, nil
 }
 
-// GetHistory 按创建时间倒序取最近 N 条 + 总数。
-func (q *Queue) GetHistory(ctx context.Context, projectID, userID uuid.UUID) ([]store.CompileJob, int64) {
+// GetHistory 按创建时间倒序取最近 limit 条 + 总数；limit<=0 使用配置默认值。
+func (q *Queue) GetHistory(ctx context.Context, projectID, userID uuid.UUID, limit int) ([]store.CompileJob, int64) {
+	if limit <= 0 {
+		limit = q.Cfg.CompileHistoryLimit
+	}
 	base := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
 		Where("project_id = ? AND user_id = ?", store.UUID{UUID: projectID}, store.UUID{UUID: userID})
 	var total int64
 	_ = base.Count(&total).Error
 	var items []store.CompileJob
-	_ = base.Order("created_at DESC").Limit(q.Cfg.CompileHistoryLimit).Find(&items).Error
+	_ = base.Order("created_at DESC").Limit(limit).Find(&items).Error
 	return items, total
 }
 

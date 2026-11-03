@@ -31,7 +31,7 @@ export function PreparePage() {
   const { projectId = '' } = useParams({ strict: false })
   const isGuest = useSessionStore((session) => session.isGuest)
   const { data: state, isLoading, error } = useWritingState(projectId)
-  const { data: documents = [] } = useDocuments(projectId, null)
+  const { data: documents = [] } = useDocuments(projectId, null, true)
   const save = useSaveWritingState(projectId).mutate
   const phaseSyncProject = useRef('')
 

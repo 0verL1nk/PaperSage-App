@@ -129,6 +129,14 @@ export async function mockWritingPageAPIs(page: Page) {
     })
   })
 
+  await page.route(`**/api/v1/projects/${TEST_PROJECT_ID}/agent/conversations`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [], info: '' }),
+    })
+  })
+
   await page.route(API_LATEX_FILES, async (route) => {
     await route.fulfill({
       status: 200,

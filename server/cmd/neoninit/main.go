@@ -24,9 +24,18 @@ func main() {
 	if err := db.Ping(); err != nil {
 		fatal("ping: %v", err)
 	}
+	if err := initSchema(func(s string) error {
+		_, err := db.Exec(s)
+		return err
+	}); err != nil {
+		fatal("%v", err)
+	}
+	fmt.Println("neoninit: OK (vector 扩展 + rag_chunks + HNSW)")
+}
+
+func initSchema(exec func(string) error) error {
 	stmts := []string{
 		`CREATE EXTENSION IF NOT EXISTS vector`,
-		`DROP TABLE IF EXISTS rag_chunks`,
 		`CREATE TABLE IF NOT EXISTS rag_chunks (
 			id          varchar(80) PRIMARY KEY,
 			project_id  varchar(32) NOT NULL,
@@ -39,17 +48,18 @@ func main() {
 			generation  bigint NOT NULL DEFAULT 1,
 			created_at  timestamptz NOT NULL DEFAULT now()
 		)`,
+		`SELECT id, project_id, source_type, source_id, source_name, chunk_idx, content, embedding, generation FROM rag_chunks WHERE false`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_project ON rag_chunks (project_id)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_source ON rag_chunks (source_type, source_id)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_generation ON rag_chunks (project_id, generation)`,
 		`CREATE INDEX IF NOT EXISTS ix_rag_embedding_hnsw ON rag_chunks USING hnsw (embedding vector_cosine_ops)`,
 	}
 	for _, s := range stmts {
-		if _, err := db.Exec(s); err != nil {
-			fatal("exec: %v\nSQL: %.80s", err, s)
+		if err := exec(s); err != nil {
+			return fmt.Errorf("exec: %w\nSQL: %.80s", err, s)
 		}
 	}
-	fmt.Println("neoninit: OK (vector 扩展 + rag_chunks + HNSW)")
+	return nil
 }
 
 func fatal(f string, a ...any) {

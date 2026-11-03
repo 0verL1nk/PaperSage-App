@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/caarlos0/env/v11"
@@ -55,19 +56,21 @@ type Settings struct {
 
 	CompileIncrementalSyncEnabled bool `env:"COMPILE_INCREMENTAL_SYNC_ENABLED" envDefault:"true"`
 
-	AppURL          string `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
-	NeonDatabaseURL string `env:"NEON_DATABASE_URL"`
-	AgentAPIKey     string `env:"AGENT_API_KEY"`
-	AgentBaseURL    string `env:"AGENT_BASE_URL"`
-	AgentModel      string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
-	DataDir         string `env:"DATA_DIR" envDefault:"./data"`
-	EmbedAPIKey     string `env:"EMBED_API_KEY"`
-	EmbedBaseURL    string `env:"EMBED_BASE_URL"`
-	EmbedModel      string `env:"EMBED_MODEL" envDefault:"BAAI/bge-m3"`
-	SuperuserEmails string `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
-	EmailProvider   string `env:"EMAIL_PROVIDER" envDefault:"resend"`
-	FromEmail       string `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`
-	FromName        string `env:"FROM_NAME" envDefault:"PaperSage"`
+	AppURL                      string `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
+	NeonDatabaseURL             string `env:"NEON_DATABASE_URL"`
+	AgentAPIKey                 string `env:"AGENT_API_KEY"`
+	AgentBaseURL                string `env:"AGENT_BASE_URL"`
+	AgentModel                  string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
+	AgentDocumentReadLimitBytes int    `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
+	AgentMaxIterations          int    `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
+	DataDir                     string `env:"DATA_DIR" envDefault:"./data"`
+	EmbedAPIKey                 string `env:"EMBED_API_KEY"`
+	EmbedBaseURL                string `env:"EMBED_BASE_URL"`
+	EmbedModel                  string `env:"EMBED_MODEL" envDefault:"BAAI/bge-m3"`
+	SuperuserEmails             string `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
+	EmailProvider               string `env:"EMAIL_PROVIDER" envDefault:"resend"`
+	FromEmail                   string `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`
+	FromName                    string `env:"FROM_NAME" envDefault:"PaperSage"`
 
 	ResendAPIKey string `env:"RESEND_API_KEY"`
 	ResendDomain string `env:"RESEND_DOMAIN"`
@@ -88,6 +91,12 @@ func Load() (*Settings, error) {
 	s, err := env.ParseAs[Settings]()
 	if err != nil {
 		return nil, err
+	}
+	if s.AgentDocumentReadLimitBytes < 0 {
+		return nil, fmt.Errorf("AGENT_DOCUMENT_READ_LIMIT_BYTES must be non-negative")
+	}
+	if s.AgentMaxIterations <= 0 {
+		return nil, fmt.Errorf("AGENT_MAX_ITERATIONS must be positive: Eino treats non-positive values as its built-in default")
 	}
 	// Python's parse_allowed_hosts strips whitespace and drops empty items.
 	s.AllowedHosts = normalizeHosts(s.AllowedHosts)

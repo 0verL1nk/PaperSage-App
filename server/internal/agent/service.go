@@ -2,10 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -66,6 +68,14 @@ func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
 	}
 }
 
+func writeModelResolutionError(c *gin.Context, err error) {
+	if errors.Is(err, ErrNoModel) || errors.Is(err, ErrInvalidModel) {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusBadRequest, Info: "尚未配置 AI 模型或选择无效：请检查设置中的服务商和模型"})
+		return
+	}
+	httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusInternalServerError, Info: "读取 AI 模型设置失败，请稍后重试"})
+}
+
 // chat POST /projects/:id/agent/chat {conversation_id?, content} → SSE
 func (s *Service) chat(c *gin.Context) {
 	ctx, release, accepted := s.acceptRun(c.Request.Context())
@@ -84,24 +94,13 @@ func (s *Service) chat(c *gin.Context) {
 		ConversationID string `json:"conversation_id"`
 		Content        string `json:"content"`
 		// ClientRequestID 幂等键：双击发送/网络重试不产生第二个 Turn。
-		ClientRequestID string `json:"clientRequestId"`
+		ClientRequestID       string `json:"clientRequestId"`
+		ExpectedThreadVersion *int64 `json:"expectedThreadVersion"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" {
+	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || len([]rune(req.ClientRequestID)) > 64 {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-
-	// 模型解析（user settings → env）
-	resolved, err := ResolveModelWithEnv(ctx, s.DB, uid, s.Cfg)
-	if err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{
-			Code: http.StatusBadRequest,
-			Info: "尚未配置 AI 模型：请在设置 → AI 助手中添加 Provider，或由管理员配置服务端默认模型",
-		})
-		return
-	}
-	// 模型实例由执行器按 Run 构建（无全局态）；这里只做「是否已配置」的同步校验，
-	// 使未配置模型能在创建 Run 的请求上直接 400，而不是等到流里才报错。
 
 	// 会话（新建或续接，校验归属）
 	conv, err := s.ensureConversation(ctx, store.UUID{UUID: pid}, uid, req.ConversationID, req.Content)
@@ -109,39 +108,18 @@ func (s *Service) chat(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
 		return
 	}
-	// Turn 幂等 + Run（独立于 HTTP 连接存在）
-	turn, err := s.ensureTurn(ctx, conv.ID, req.ClientRequestID)
+	result, err := s.createRootRun(ctx, *conv, uid, req.ClientRequestID, req.Content, req.ExpectedThreadVersion)
 	if err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		s.writeRootRunError(c, conv.ID, uid, err)
 		return
 	}
-	run, err := s.createRun(ctx, conv.ID, turn.ID, AgentKeyMain,
-		resolved.Source, resolved.Model, systemPromptVersion)
-	if err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-	rc := runContext{RunID: run.ID, ConversationID: conv.ID,
-		ProjectID: store.UUID{UUID: pid}, UserID: uid, Content: req.Content}
-	started := false
-	defer func() {
-		if !started {
-			s.finishUnstartedRun(rc)
+	if result.created {
+		rc := runContext{RunID: result.run.ID, ConversationID: conv.ID,
+			ProjectID: store.UUID{UUID: pid}, UserID: uid, Content: req.Content, Model: result.model, finalizeDeadline: result.finalizeDeadline}
+		if err := s.StartRun(rc); err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
+			return
 		}
-	}()
-	// 用户消息先落库（文本作为第一个 part）
-	if _, err := s.createUserMessage(ctx, s.DB, conv.ID, turn.ID, req.Content); err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
-		return
-	}
-	_ = s.appendEvent(ctx, conv.ID, run.ID, "run.started", nil)
-
-	// 执行与订阅分离：Run 在独立 goroutine 中跑，HTTP 连接只订阅事件。
-	// 客户端断开后 Run 仍会跑完（参考架构 §3.2 模式 B）。
-	started = true
-	if err := s.StartRun(rc); err != nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
-		return
 	}
 
 	sw, ok := newStreamWriter(c)
@@ -149,7 +127,7 @@ func (s *Service) chat(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "streaming unsupported"})
 		return
 	}
-	_ = s.streamRun(ctx, sw, run.ID, conv.ID, 0)
+	_ = s.streamRun(ctx, sw, result.run.ID, conv.ID, 0)
 }
 
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
@@ -180,62 +158,84 @@ func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, i
 	return &conv, nil
 }
 
+type historyMessage struct {
+	message store.AgentMessage
+	parts   []store.AgentMessagePart
+}
+
+type historyRow struct {
+	store.AgentMessage `gorm:"embedded"`
+	PartPresent        *store.UUID            `gorm:"column:part_present"`
+	Part               store.AgentMessagePart `gorm:"embedded;embeddedPrefix:part_"`
+}
+
+func (s *Service) readHistory(ctx context.Context, convID store.UUID) ([]historyMessage, error) {
+	var rows []historyRow
+	// One statement keeps message metadata and parts from the same database snapshot.
+	if err := s.DB.WithContext(ctx).Model(&store.AgentMessage{}).
+		Select(`agent_messages.*, agent_message_parts.id AS part_present,
+			agent_message_parts.id AS part_id, agent_message_parts.message_id AS part_message_id,
+			agent_message_parts.ordinal AS part_ordinal, agent_message_parts.type AS part_type,
+			agent_message_parts.status AS part_status, agent_message_parts.text_content AS part_text_content,
+			agent_message_parts.content_json AS part_content_json, agent_message_parts.created_at AS part_created_at,
+			agent_message_parts.completed_at AS part_completed_at`).
+		Joins("LEFT JOIN agent_message_parts ON agent_message_parts.message_id = agent_messages.id").
+		Where("agent_messages.conversation_id = ? AND agent_messages.deleted_at IS NULL", convID).
+		Order("agent_messages.created_at ASC, agent_messages.id ASC, agent_message_parts.ordinal ASC").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make([]historyMessage, 0)
+	for _, row := range rows {
+		if len(out) == 0 || out[len(out)-1].message.ID != row.ID {
+			out = append(out, historyMessage{message: row.AgentMessage})
+		}
+		if row.PartPresent != nil {
+			last := &out[len(out)-1]
+			last.parts = append(last.parts, row.Part)
+		}
+	}
+	return out, nil
+}
+
 func (s *Service) loadHistory(ctx context.Context, convID UUID0) ([]*schema.Message, error) {
-	var msgs []store.AgentMessage
-	// 不按条数截断：定长上限会让超过该长度的会话**静默丢掉最近的消息**
-	//（本轮刚写入的用户提问也可能取不到），而且会把一次问答从中间劈开。
-	// 上下文长度应由 token 预算约束，不是这里的条数魔法数字。
-	if err := s.DB.WithContext(ctx).
-		Where("conversation_id = ?", convID).
-		Order("created_at ASC").Find(&msgs).Error; err != nil {
+	msgs, err := s.readHistory(ctx, convID)
+	if err != nil {
 		return nil, err
 	}
 	out := []*schema.Message{{
 		Role:    schema.System,
 		Content: systemPrompt,
 	}}
-	if len(msgs) == 0 {
-		return out, nil
-	}
-	// 内容在 parts 里：取每条消息的 text part 按 ordinal 拼接。
-	ids := make([]store.UUID, 0, len(msgs))
-	for _, m := range msgs {
-		ids = append(ids, m.ID)
-	}
-	var parts []store.AgentMessagePart
-	if err := s.DB.WithContext(ctx).
-		Where("message_id IN ? AND type = ?", ids, PartText).
-		Order("ordinal ASC").Find(&parts).Error; err != nil {
-		return nil, err
-	}
-	byMsg := map[store.UUID]string{}
-	for _, p := range parts {
-		if p.TextContent != nil {
-			byMsg[p.MessageID] += *p.TextContent
-		}
-	}
 	for _, m := range msgs {
 		role := schema.User
-		if m.Role == "assistant" {
+		if m.message.Role == "assistant" {
 			role = schema.Assistant
 		}
-		out = append(out, &schema.Message{Role: role, Content: byMsg[m.ID]})
+		var content strings.Builder
+		for _, p := range m.parts {
+			if p.Type == PartText && p.TextContent != nil {
+				content.WriteString(*p.TextContent)
+			}
+		}
+		out = append(out, &schema.Message{Role: role, Content: content.String()})
 	}
 	return out, nil
 }
 
 func friendlyErr(err error) string {
 	msg := err.Error()
+	if errors.Is(err, adk.ErrExceedMaxIterations) {
+		return "本次执行达到迭代上限；可发送“继续”让助手接着处理未完成的部分。"
+	}
 	if strings.Contains(msg, "401") || strings.Contains(msg, "Unauthorized") {
 		return "模型 API Key 无效或已过期"
 	}
 	if strings.Contains(msg, "429") {
 		return "模型调用达到限额，请稍后重试"
 	}
-	if len(msg) > 200 {
-		msg = msg[:200]
-	}
-	return "模型调用失败：" + msg
+	// Provider error bodies may contain credentials; do not persist them.
+	return "模型调用失败，请检查模型配置或稍后重试"
 }
 
 type UUID0 = store.UUID

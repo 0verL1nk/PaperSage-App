@@ -41,13 +41,14 @@ import (
 // TestServer 一套装配好的 API + 预置用户。
 type TestServer struct {
 	*httptest.Server
-	mailer         *swappableSender
-	Engine         *gin.Engine // 调试路由表用
-	CompileQueue   *latex.Queue
-	ProjectService *projects.Service
-	DB             *gorm.DB
-	Token          string // 预置用户的 access token
-	UID            uuid.UUID
+	mailer          *swappableSender
+	Engine          *gin.Engine // 调试路由表用
+	CompileQueue    *latex.Queue
+	ProjectService  *projects.Service
+	DocumentService *documents.Service
+	DB              *gorm.DB
+	Token           string // 预置用户的 access token
+	UID             uuid.UUID
 }
 
 // swappableSender 运行时可替换的邮件替身。
@@ -122,6 +123,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	projSvc := projects.NewService(db, latex.CreateTemplate(latexFiles)) // 项目创建 → main.tex 模板
 	ts.ProjectService = projSvc
 	docSvc := documents.NewService(db, mem)
+	ts.DocumentService = docSvc
 	setSvc := settings.NewService(db)
 
 	api := httpapi.New(nil)

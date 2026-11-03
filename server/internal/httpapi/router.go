@@ -2,8 +2,8 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"runtime"
 	"strings"
@@ -97,27 +97,32 @@ func writeDetail(c *gin.Context, status int, msg string) {
 	_, _ = c.Writer.Write([]byte(`{"detail":"` + msg + `"}`))
 }
 
+type healthResponse struct {
+	Status    string `json:"status"`
+	Version   string `json:"version,omitempty"`
+	Commit    string `json:"commit,omitempty"`
+	BuildTime string `json:"buildTime,omitempty"`
+	GoVersion string `json:"goVersion,omitempty"`
+}
+
 func healthHandler(c *gin.Context) {
-	body, err := json.Marshal(struct {
-		Status    string `json:"status"`
-		Version   string `json:"version"`
-		Commit    string `json:"commit"`
-		BuildTime string `json:"buildTime"`
-		GoVersion string `json:"goVersion"`
-	}{
-		Status:    "healthy",
-		Version:   buildinfo.Version,
-		Commit:    buildinfo.Commit,
-		BuildTime: buildinfo.Date,
-		GoVersion: runtime.Version(),
-	})
-	if err != nil {
-		_ = WriteEnvelope(c.Writer, http.StatusInternalServerError, Failure(http.StatusInternalServerError, "Internal server error"))
-		return
+	resp := healthResponse{Status: "healthy"}
+	// 构建元数据只给本机直连的发布校验；经 Caddy 暴露到公网时不返回。
+	if !isProxiedRequest(c) {
+		resp.Version = buildinfo.Version
+		resp.Commit = buildinfo.Commit
+		resp.BuildTime = buildinfo.Date
+		resp.GoVersion = runtime.Version()
 	}
-	c.Header("Content-Type", "application/json")
-	c.Status(http.StatusOK)
-	_, _ = c.Writer.Write(body)
+	c.JSON(http.StatusOK, resp)
+}
+
+func isProxiedRequest(c *gin.Context) bool {
+	if c.GetHeader("X-Forwarded-For") != "" || c.GetHeader("X-Real-IP") != "" || c.GetHeader("CF-Connecting-IP") != "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(c.Request.RemoteAddr)
+	return err != nil || (host != "127.0.0.1" && host != "::1")
 }
 
 // recoverMiddleware 把 handler panic 转成与 Python generic_exception_handler

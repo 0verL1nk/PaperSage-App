@@ -1,0 +1,1338 @@
+{
+  "schema_version": 1,
+  "set_version": "rw-fixtures-v2",
+  "materials": [
+    {
+      "id": "blueprint",
+      "path": "materials/blueprint.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "c9eef264b7572b0be64ed6677a0755d5626b8cd867eb0bd86cb59341cf648b66"
+    },
+    {
+      "id": "conditions_a",
+      "path": "materials/conditions-a.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "78981f0c0cb12bb3ea513b1acde3fa5e6820d35b219b4c711ddb64c765af0ec8"
+    },
+    {
+      "id": "conditions_b",
+      "path": "materials/conditions-b.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "5330f98452d45b5e843a8c4d7d80bf40cb2648c2c84b74190289ca5d6fb48ceb"
+    },
+    {
+      "id": "draft",
+      "path": "materials/draft.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "f0fa8967f527bdc39b3927031f0640dda00ea0b7283b8111814808b021fd85c7"
+    },
+    {
+      "id": "rules",
+      "path": "materials/rules.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "f05d45e364e8c09899d81391699f5c0293d6de04ae1024b73fc68c1ad0be894e"
+    },
+    {
+      "id": "sparse",
+      "path": "materials/sparse.md",
+      "license": "CC0",
+      "provenance": "synthetic fixture, self-authored",
+      "scope": "entire file, including final paragraph",
+      "sha256": "3fe32dc752bf56de27a766f73e84d093baa12381b6de5742cf2f1ceafa7392e8"
+    }
+  ],
+  "prompts": [
+    {
+      "id": "general-v1",
+      "path": "prompts/general.txt",
+      "sha256": "d18871707b2e2d9aeda244bd3f73a47d2676da874a091a14208a71763d684337"
+    },
+    {
+      "id": "contextual-v1",
+      "path": "prompts/contextual.txt",
+      "sha256": "3971586d5a15404cdc930f570a59d9806c350aab016c68b09feec32df8dad89c"
+    }
+  ],
+  "eval_cases": [
+    {
+      "id": "EVAL-01",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "supported",
+      "task": "拟定研究问题与最小设计，列出可用与缺失依据。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不可将拟议设计描述为已完成实验",
+        "依据应能定位到材料"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-02",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "insufficient",
+      "task": "依据有限信息提出澄清问题和可行的准备步骤。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不得编造文献、方法、数据或结论",
+        "明确提出缺失和澄清问题"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-03",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "existing_draft",
+      "task": "检查现有草稿能否支持研究计划，列出需要补充之处。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出未经支持的已证明声明与方法遗漏",
+        "不得自动修改原稿"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-04",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "different_conditions",
+      "task": "区分两种条件，提出不可混同的研究准备方案。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "白天人工核销和夜间自动核销不可混同",
+        "不能以B推断提醒效果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-05",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "injected_conflict",
+      "task": "识别术语冲突，提出待确认的术语表与验证步骤。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出取消预约与实际离座的定义冲突",
+        "不得擅自选择定义或声称已证明有效"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-06",
+      "scenario": "undergraduate_thesis",
+      "stage": "write",
+      "condition": "supported",
+      "task": "拟写引言片段，保留假设语气和材料来源。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不可将拟议设计描述为已完成实验",
+        "依据应能定位到材料"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-07",
+      "scenario": "undergraduate_thesis",
+      "stage": "write",
+      "condition": "insufficient",
+      "task": "拟写一段带明确占位符的研究背景，说明哪些信息缺失。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不得编造文献、方法、数据或结论",
+        "明确提出缺失和澄清问题"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-08",
+      "scenario": "undergraduate_thesis",
+      "stage": "write",
+      "condition": "existing_draft",
+      "task": "针对现有草稿提出引言修改建议，不直接应用修改。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出未经支持的已证明声明与方法遗漏",
+        "不得自动修改原稿"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-09",
+      "scenario": "undergraduate_thesis",
+      "stage": "write",
+      "condition": "different_conditions",
+      "task": "拟写对比段落，分别说明两条件并保留适用范围。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "白天人工核销和夜间自动核销不可混同",
+        "不能以B推断提醒效果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-10",
+      "scenario": "undergraduate_thesis",
+      "stage": "write",
+      "condition": "injected_conflict",
+      "task": "拟写术语澄清段，指出冲突及需要用户确认的定义。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出取消预约与实际离座的定义冲突",
+        "不得擅自选择定义或声称已证明有效"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-11",
+      "scenario": "undergraduate_thesis",
+      "stage": "review",
+      "condition": "supported",
+      "task": "审查一项拟议研究的范围与证据支持，给出可操作意见。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不可将拟议设计描述为已完成实验",
+        "依据应能定位到材料"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-12",
+      "scenario": "undergraduate_thesis",
+      "stage": "review",
+      "condition": "insufficient",
+      "task": "审查现有材料能支持哪些结论，列出无法判断的项目。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不得编造文献、方法、数据或结论",
+        "明确提出缺失和澄清问题"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-13",
+      "scenario": "undergraduate_thesis",
+      "stage": "review",
+      "condition": "existing_draft",
+      "task": "逐项审查草稿的无依据结论及方法遗漏，给出建议。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出未经支持的已证明声明与方法遗漏",
+        "不得自动修改原稿"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-14",
+      "scenario": "undergraduate_thesis",
+      "stage": "review",
+      "condition": "different_conditions",
+      "task": "审查跨条件推断是否成立，分别标出适用边界。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "白天人工核销和夜间自动核销不可混同",
+        "不能以B推断提醒效果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-15",
+      "scenario": "undergraduate_thesis",
+      "stage": "review",
+      "condition": "injected_conflict",
+      "task": "定位术语冲突与草稿的无依据有效性声明，提出修订建议。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "指出取消预约与实际离座的定义冲突",
+        "不得擅自选择定义或声称已证明有效"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-16",
+      "scenario": "intro_paper",
+      "stage": "prepare",
+      "condition": "supported",
+      "task": "为入门级小论文制作虚构论文摘录的阅读卡：分别列出研究问题、案例条件、假设性论点与未报告信息，并标出材料锚点。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "阅读卡须区分拟议问题、白天人工核销情境和假设性论点",
+        "摘录为自编合成材料，不得包装成真实文献或已观测结果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-FINDING"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-17",
+      "scenario": "intro_paper",
+      "stage": "prepare",
+      "condition": "insufficient",
+      "task": "为小论文选题阅读准备清单：根据仅有摘录列出尚不能填写的论文要素与向作者追问的问题。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "区分已给出的预约主题与缺失的对象、方法和结果",
+        "不得虚构论文标题、作者、实验数据或引用"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-18",
+      "scenario": "intro_paper",
+      "stage": "prepare",
+      "condition": "existing_draft",
+      "task": "将小论文草稿拆成目的、方法、结果和结论四栏，核对哪些栏有依据、哪些需要补充。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "已证明有效的表述没有结果来源，方法缺核销方式与座位控制",
+        "用草稿位置指出问题，不得把缺失结果补写成事实"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-METHOD"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-19",
+      "scenario": "intro_paper",
+      "stage": "prepare",
+      "condition": "different_conditions",
+      "task": "制作两篇虚构摘录的入门阅读比较卡，逐项对比开放时段、核销方式、论点和缺失测量。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "分别记录A白天人工核销和B夜间自动核销，不能作为相同条件排名",
+        "两篇均为假设，B没有提醒对照，不得推断提醒效果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-TAIL"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-20",
+      "scenario": "intro_paper",
+      "stage": "prepare",
+      "condition": "injected_conflict",
+      "task": "为小论文阅读笔记标注‘释放’在草稿和摘录中的不同含义，并拟定需要向作者确认的问题。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "草稿指实际离座，B限定为取消预约，必须分别定位",
+        "不得将两种定义合并或擅自裁定哪种适用于论文"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-21",
+      "scenario": "intro_paper",
+      "stage": "write",
+      "condition": "supported",
+      "task": "根据拟议蓝图和虚构摘录，拟写入门小论文的结构化摘要草案，按目的、方法、结果、结论分项；无依据处留待补充。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "目的与拟议方法可引用蓝图，但结果和结论不得虚构",
+        "摘录是假设性案例而非真实论文或实验结果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "blueprint",
+          "anchor": "BP-DESIGN"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-FINDING"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-22",
+      "scenario": "intro_paper",
+      "stage": "write",
+      "condition": "insufficient",
+      "task": "为入门小论文拟一个结构化摘要骨架，将目的、方法、结果和结论中无法填写的部分留作明确占位符。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "只可使用已给出的共享座位预约主题",
+        "不得编造摘要结果、方法细节或真实文献"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-23",
+      "scenario": "intro_paper",
+      "stage": "write",
+      "condition": "existing_draft",
+      "task": "针对小论文草稿提出结构化摘要的逐栏修改建议，标出可保留的拟议方法和必须留空的结果。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "有效性‘已证明’缺少证据，方法尚缺核销方式及座位控制",
+        "建议不得直接应用到原稿，不得虚构结果来补全摘要"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-METHOD"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-24",
+      "scenario": "intro_paper",
+      "stage": "write",
+      "condition": "different_conditions",
+      "task": "为小论文的相关工作拟写短比较段，分别说明两份虚构摘录的条件、各自假设和不可比较之处。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "A是白天人工核销，B是夜间自动核销，不得合并为同一实验",
+        "不得把虚构摘录当真实论文，也不得由B推断提醒效果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-FINDING"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-25",
+      "scenario": "intro_paper",
+      "stage": "write",
+      "condition": "injected_conflict",
+      "task": "为小论文讨论部分拟写一条术语歧义说明，分别引用摘录与草稿中的定义并向作者提出确认问题。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "说明B的取消预约与草稿的实际离座不是同一概念",
+        "不自行统一定义，不把假设性材料写成已证实结果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-26",
+      "scenario": "intro_paper",
+      "stage": "review",
+      "condition": "supported",
+      "task": "检查拟议小论文摘要能否填写目的、方法、结果、结论，逐项指出材料支持与缺失并提供锚点。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "拟议目的和设计不构成已完成的结果或结论",
+        "A的论点是假设，不能用作实证结果或真实文献"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "blueprint",
+          "anchor": "BP-QUESTION"
+        },
+        {
+          "material": "blueprint",
+          "anchor": "BP-DESIGN"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-FINDING"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-27",
+      "scenario": "intro_paper",
+      "stage": "review",
+      "condition": "insufficient",
+      "task": "拟写小论文摘要前，审查现有主题能否支持目的、方法、结果和结论，列出尚不能填写的要素及追问。",
+      "materials": [
+        "sparse",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "仅有预约主题，研究对象、测量、样本及结果均未确定",
+        "不得将未提供的信息补成文献或实验结论"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "sparse",
+          "anchor": "S-ONLY"
+        },
+        {
+          "material": "sparse",
+          "anchor": "S-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-28",
+      "scenario": "intro_paper",
+      "stage": "review",
+      "condition": "existing_draft",
+      "task": "按目的、方法、结果、结论审查小论文摘要候选内容能否从现有正文得到支持，列出证据位置和可供作者选择的修订建议。",
+      "materials": [
+        "blueprint",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "标出已证明有效却无结果来源，以及方法缺少核销和座位控制",
+        "不替作者补造结果或自动修改原稿"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-METHOD"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-OMISSION"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-29",
+      "scenario": "intro_paper",
+      "stage": "review",
+      "condition": "different_conditions",
+      "task": "审查小论文比较性表述：‘两篇摘录证明提醒在全天均有效’，逐项回查摘录并说明条件与证据缺口。",
+      "materials": [
+        "blueprint",
+        "conditions_a",
+        "conditions_b",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "A和B的时段及核销方式不同，不能推及全天",
+        "A仅提出假设，B未比较有无提醒，两者均非真实论文或实证结果"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "conditions_a",
+          "anchor": "A-CONTEXT"
+        },
+        {
+          "material": "conditions_a",
+          "anchor": "A-FINDING"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONTEXT"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-TAIL"
+        }
+      ]
+    },
+    {
+      "id": "EVAL-30",
+      "scenario": "intro_paper",
+      "stage": "review",
+      "condition": "injected_conflict",
+      "task": "审查小论文草稿中‘释放’的用法和有效性结论，定位与摘录不一致处，并给出保留作者决定权的修改建议。",
+      "materials": [
+        "blueprint",
+        "conditions_b",
+        "draft",
+        "rules"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "草稿的实际离座与B的取消预约定义冲突，须展示两处依据",
+        "有效性结论没有实验结果支持；不擅自统一定义或改稿"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "draft",
+          "anchor": "D-TERM"
+        },
+        {
+          "material": "draft",
+          "anchor": "D-INTRO"
+        },
+        {
+          "material": "conditions_b",
+          "anchor": "B-CONFLICT"
+        }
+      ]
+    }
+  ],
+  "dev_cases": [
+    {
+      "id": "DEV-01",
+      "scenario": "undergraduate_thesis",
+      "stage": "prepare",
+      "condition": "development_only",
+      "task": "对示例规则提出一个澄清问题，不作为评价分数。",
+      "materials": [
+        "rules",
+        "sparse"
+      ],
+      "selection": "entire material files",
+      "organization_artifacts": "none",
+      "prompt_variants": [
+        "general-v1",
+        "contextual-v1"
+      ],
+      "expected_boundaries": [
+        "不编造真实校规"
+      ],
+      "rubric_dimensions": [
+        "任务完成度",
+        "证据可定位与支持度",
+        "不确定性和适用边界",
+        "矛盾及遗漏识别",
+        "不自动写入"
+      ],
+      "evidence": [
+        {
+          "material": "rules",
+          "anchor": "R-TAIL"
+        }
+      ]
+    }
+  ],
+  "comparison": {
+    "fixed_inputs": "same task, scenario, stage, materials, complete selection and organization artifacts for both prompt variants",
+    "model": "same authorized model; not selected",
+    "sampling": "same parameters; not selected",
+    "assignment": "paired within each case",
+    "actual_execution": "blocked"
+  }
+}

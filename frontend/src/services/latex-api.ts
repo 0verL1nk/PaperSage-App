@@ -221,9 +221,10 @@ export function cancelCompile(projectId: string, jobId: string) {
   return deleteFetch(`${LATEX.compile(projectId)}?job_id=${jobId}`)
 }
 
-export function getCompileHistory(projectId: string) {
+export function getCompileHistory(projectId: string, limit?: number) {
   requireCloudLatex()
-  return getJson<CompileJobHistoryResponse>(LATEX.compileHistory(projectId))
+  const url = LATEX.compileHistory(projectId)
+  return getJson<CompileJobHistoryResponse>(limit ? `${url}?limit=${limit}` : url)
 }
 
 export function getOutputZip(projectId: string, buildId: string) {

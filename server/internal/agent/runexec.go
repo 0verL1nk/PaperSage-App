@@ -143,11 +143,13 @@ func (h *runHub) publish(runID store.UUID) {
 // runContext 执行一个 Run 所需的一切，由调用方在创建 Run 时解析好，
 // 使执行不依赖 HTTP 请求上下文（客户端断开后 Run 照常跑完）。
 type runContext struct {
-	RunID          store.UUID
-	ConversationID store.UUID
-	ProjectID      store.UUID
-	UserID         store.UUID
-	Content        string
+	RunID            store.UUID
+	ConversationID   store.UUID
+	ProjectID        store.UUID
+	UserID           store.UUID
+	Content          string
+	Model            *ResolvedModel
+	finalizeDeadline time.Time
 }
 
 // runFinalizeTimeout is shutdown's persistence budget, not a model/iteration limit.
@@ -210,24 +212,19 @@ func (s *Service) recordCloseError(runID store.UUID, err error) {
 	}
 }
 
-// finishUnstartedRun covers failure between committing the Run and launching it.
-func (s *Service) finishUnstartedRun(rc runContext) {
-	status, reason := RunFailed, "Run creation interrupted"
-	if s.runCtx.Err() != nil {
-		status, reason = RunCancelled, errServiceClosing.Error()
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), runFinalizeTimeout)
-	defer cancel()
-	s.recordCloseError(rc.RunID, s.finalizeRun(ctx, rc, "", nil, status, reason))
-}
-
 // StartRun executes independently of the client connection. Creation handlers
 // hold an admission lease until this function has either started or finalized it.
 func (s *Service) StartRun(rc runContext) error {
 	s.cancelMu.Lock()
 	if s.closing {
 		s.cancelMu.Unlock()
-		ctx, cancel := context.WithTimeout(context.Background(), runFinalizeTimeout)
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if rc.finalizeDeadline.IsZero() {
+			ctx, cancel = context.WithTimeout(context.Background(), runFinalizeTimeout)
+		} else {
+			ctx, cancel = context.WithDeadline(context.Background(), rc.finalizeDeadline)
+		}
 		defer cancel()
 		err := s.finalizeRun(ctx, rc, "", nil, RunCancelled, errServiceClosing.Error())
 		s.recordCloseError(rc.RunID, err)
@@ -300,12 +297,11 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	}()
 	fail := func(msg string) { failure = msg }
 
-	resolved, err := ResolveModelWithEnv(ctx, s.DB, rc.UserID, s.Cfg)
-	if err != nil {
-		fail("尚未配置 AI 模型")
+	if rc.Model == nil {
+		fail("模型配置不可用")
 		return
 	}
-	chatModel, err := NewChatModel(ctx, resolved)
+	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String())
 	if err != nil {
 		fail("模型初始化失败")
 		return
@@ -316,7 +312,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("读取历史失败")
 		return
 	}
-	tools, err := ProjectTools(s.DB, s.Storage, rc.ProjectID, rc.UserID, rc.RunID)
+	tools, err := ProjectTools(s.DB, s.Storage, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
 	if err != nil {
 		fail("构建工具失败")
 		return
@@ -347,8 +343,8 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			EmitInternalEvents: true,
 			ToolsNodeConfig:    compose.ToolsNodeConfig{Tools: tools},
 		},
-		// 不设 MaxIteration：用 DeepAgent 自己的默认行为，不凭空定一个轮数上限。
-		// 真要限流应由运维配置（模型侧 token/超时预算）决定，不是这里的魔法数字。
+		// Eino 不接受 0 表示无限：这里显式传入运维配置值，达到上限时向用户明确报错。
+		MaxIteration: s.Cfg.AgentMaxIterations,
 		// 通用子 agent 会继承全部工具且职责不明，与「领域受限」的取向不符，不予启用
 		WithoutGeneralSubAgent: true,
 	})

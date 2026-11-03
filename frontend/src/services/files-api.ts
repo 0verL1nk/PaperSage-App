@@ -26,11 +26,11 @@ function mapDocKeys(raw: Record<string, unknown>): ProjectDocument {
   }
 }
 
-export function useDocuments(projectId: string, folderId: string | null) {
+export function useDocuments(projectId: string, folderId: string | null, allFolders = false) {
   return useQuery({
-    queryKey: ['documents', projectId, folderId],
+    queryKey: ['documents', projectId, folderId, allFolders],
     queryFn: async () => {
-      if (useSessionStore.getState().isGuest) return listGuestDocuments(projectId, folderId)
+      if (useSessionStore.getState().isGuest) return listGuestDocuments(projectId, allFolders ? undefined : folderId)
       const url = folderId
         ? DOCUMENTS.listByFolder(folderId)
         : DOCUMENTS.listByProject(projectId)

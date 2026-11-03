@@ -1,0 +1,203 @@
+{
+  "version": 1,
+  "title": "Content Versioning and Evidence — Proposed Logical ER",
+  "type": "engineering-diagram",
+  "source": "generated",
+  "profile": "engineering-review",
+  "theme": "academic",
+  "layout": "horizontal",
+  "counts": {
+    "nodes": 12,
+    "edges": 16,
+    "modules": 0
+  },
+  "nodes": [
+    {
+      "id": "projects",
+      "label": "projects\nPK id",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "project_sources",
+      "label": "project_sources\nPK id\nFK project_id\ncurrent_head: CAS aggregate pointer",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "source_versions",
+      "label": "source_versions\nPK id; FK source_id\nrevision; object_key; sha256\nUNIQUE(source_id, revision)",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "source_extractions",
+      "label": "source_extractions\nPK id; FK source_version_id\nextractor_version; status\nUNIQUE(source_version_id, extractor_version)",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "source_segments",
+      "label": "source_segments\nPK id; FK extraction_id\nordinal; locator\nUNIQUE(extraction_id, ordinal)",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "documents",
+      "label": "documents\nPK id\nsource_id NULL → project_sources\nlegacy rows not backfilled",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "latex_files",
+      "label": "latex_files\nPK id\nsource_id NULL → project_sources\nlegacy rows not backfilled",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "rag_index_generations",
+      "label": "rag_index_generations\nPK id; FK project_id\nstatus; config\nmanifest binds source revisions",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "rag_chunks",
+      "label": "rag_chunks\nPK id; FK generation_id\nFK source_version_id; extraction_id\nUNIQUE key includes generation_id",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "agent_evidence",
+      "label": "agent_evidence\nPK id; run_id / seq fields (Run omitted)\nFK source_version_id / extraction_id\nlocator; legacy rows unverified",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "agent_change_proposals",
+      "label": "agent_change_proposals\nPK id; FK base_source_version_id\nstatus; evidence dependencies",
+      "type": "service",
+      "size": "xl"
+    },
+    {
+      "id": "legend_note",
+      "label": "PROPOSED LOGICAL ER; validate constraints before migration.\nPK/FK = primary/foreign key; solid = FK; dashed = nullable/semantic.\nEdges show cardinality; manuscript revisions reuse source_versions.",
+      "type": "document",
+      "size": "xl"
+    }
+  ],
+  "edges": [
+    {
+      "id": "edge-1",
+      "from": "projects",
+      "to": "project_sources",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-2",
+      "from": "project_sources",
+      "to": "source_versions",
+      "type": "primary",
+      "label": "1 : 0..N revisions"
+    },
+    {
+      "id": "edge-3",
+      "from": "source_versions",
+      "to": "source_extractions",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-4",
+      "from": "source_extractions",
+      "to": "source_segments",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-5",
+      "from": "project_sources",
+      "to": "documents",
+      "type": "optional",
+      "label": "source 0..N : document 0..1; nullable FK"
+    },
+    {
+      "id": "edge-6",
+      "from": "project_sources",
+      "to": "latex_files",
+      "type": "optional",
+      "label": "source 0..N : latex_file 0..1; nullable FK"
+    },
+    {
+      "id": "edge-7",
+      "from": "projects",
+      "to": "rag_index_generations",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-8",
+      "from": "rag_index_generations",
+      "to": "source_versions",
+      "type": "optional",
+      "label": "N:M manifest (revision identity)"
+    },
+    {
+      "id": "edge-9",
+      "from": "rag_index_generations",
+      "to": "rag_chunks",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-10",
+      "from": "source_versions",
+      "to": "rag_chunks",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-11",
+      "from": "source_extractions",
+      "to": "rag_chunks",
+      "type": "primary",
+      "label": "1 : 0..N"
+    },
+    {
+      "id": "edge-12",
+      "from": "source_versions",
+      "to": "agent_evidence",
+      "type": "primary",
+      "label": "1 : 0..N evidence"
+    },
+    {
+      "id": "edge-13",
+      "from": "source_extractions",
+      "to": "agent_evidence",
+      "type": "primary",
+      "label": "1 : 0..N; locator"
+    },
+    {
+      "id": "edge-14",
+      "from": "project_sources",
+      "to": "source_versions",
+      "type": "optional",
+      "label": "CAS current-head selection; logical pointer only, no circular FK assumed"
+    },
+    {
+      "id": "edge-15",
+      "from": "source_versions",
+      "to": "agent_change_proposals",
+      "type": "primary",
+      "label": "base manuscript revision 1 : 0..N proposals"
+    },
+    {
+      "id": "edge-16",
+      "from": "agent_evidence",
+      "to": "agent_change_proposals",
+      "type": "optional",
+      "label": "N:M evidence dependencies"
+    }
+  ],
+  "modules": []
+}

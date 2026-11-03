@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { toast } from 'sonner'
 import { useSettingsStore } from '@/store/settings-store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
@@ -8,7 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
-import type { ProviderConfig, ProviderType } from '@/services/settings-api'
+import type { ProviderConfig, ProviderType, ModelSelectionPatch } from '@/services/settings-api'
 import { ModelSelector } from './model-selector'
 
 const TEMPERATURE_OPTIONS = [
@@ -30,16 +31,36 @@ const TEMP_ID = '__new__'
 
 export function AgentSettings() {
   const { t } = useTranslation()
-  const { settings, patchCategory } = useSettingsStore()
+  const { settings, patchCategory, error, fetchSettings } = useSettingsStore()
   const agent = settings?.agent
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<ProviderConfig | null>(null)
+  const [pendingSaves, setPendingSaves] = useState(0)
+  const saving = pendingSaves > 0
 
-  if (!agent) return null
+  async function save(partial: Parameters<typeof patchCategory>[1] | ModelSelectionPatch) {
+    setPendingSaves((count) => count + 1)
+    try {
+      await patchCategory('agent', partial)
+      return true
+    } catch (error) {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) toast.error(t('settings.saveFailed'))
+      return false
+    } finally {
+      setPendingSaves((count) => count - 1)
+    }
+  }
+
+  if (!agent) return error ? (
+    <div className="space-y-2">
+      <p role="alert" className="text-sm text-destructive">设置加载失败，请重试。</p>
+      <Button size="sm" onClick={() => void fetchSettings().catch(() => {})}>重试</Button>
+    </div>
+  ) : null
   const a = agent
 
   function handleChange(key: string, value: unknown) {
-    patchCategory('agent', { [key]: value }).catch(() => {})
+    void save({ [key]: value })
   }
 
   function handleAddProvider() {
@@ -61,10 +82,10 @@ export function AgentSettings() {
     const newActiveId = a.active_provider_id === id
       ? (updated[0]?.id ?? '')
       : a.active_provider_id
-    patchCategory('agent', { providers: updated, active_provider_id: newActiveId }).catch(() => {})
+    void save({ providers: updated, active_provider_id: newActiveId })
   }
 
-  function handleSaveEdit(flushedDraft?: ProviderConfig) {
+  async function handleSaveEdit(flushedDraft?: ProviderConfig) {
     const source = flushedDraft ?? editDraft
     if (!source) return
     const toSave = source.id === TEMP_ID ? { ...source, id: '' } : source
@@ -73,9 +94,10 @@ export function AgentSettings() {
       ? a.providers.map((p) => (p.id === source.id ? toSave : p))
       : [...a.providers, toSave]
     const newActiveId = a.active_provider_id || ''
-    patchCategory('agent', { providers: updated, active_provider_id: newActiveId }).catch(() => {})
-    setEditingId(null)
-    setEditDraft(null)
+    if (await save({ providers: updated, active_provider_id: newActiveId })) {
+      setEditingId(null)
+      setEditDraft(null)
+    }
   }
 
   function handleCancelEdit() {
@@ -83,10 +105,13 @@ export function AgentSettings() {
     setEditDraft(null)
   }
 
-  const activeProvider = a.providers.find((p) => p.id === a.active_provider_id)
+  const activeProvider = a.active_provider_id
+    ? a.providers.find((p) => p.id === a.active_provider_id)
+    : a.providers.find((p) => p.api_key?.trim() && p.base_url?.trim() && p.models.length > 0)
 
   return (
     <div className="space-y-4">
+      {saving && <p className="text-sm text-muted-foreground">{t('agent.savingSettings')}</p>}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle className="text-base">{t('agent.providers')}</CardTitle>
@@ -141,17 +166,12 @@ export function AgentSettings() {
         <CardContent>
           <ModelSelector
             value={{
-              providerId: a.active_provider_id,
-              model: activeProvider?.active_model ?? '',
+              providerId: activeProvider?.id ?? a.active_provider_id,
+              model: activeProvider?.active_model === undefined ? activeProvider?.models.at(-1) ?? '' : activeProvider.active_model || '',
             }}
+            disabled={saving}
             onChange={({ providerId, model }) => {
-              const updated = a.providers.map((p) =>
-                p.id === providerId ? { ...p, active_model: model } : p,
-              )
-              patchCategory('agent', {
-                active_provider_id: providerId,
-                providers: updated,
-              }).catch(() => {})
+              void save({ model_selection: { provider_id: providerId, model } })
             }}
           />
         </CardContent>

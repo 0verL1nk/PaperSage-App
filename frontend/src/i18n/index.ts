@@ -22,6 +22,10 @@ export function initialLang(): AppLanguage {
   return normalizeLang(localStorage.getItem(LANG_STORAGE_KEY)) ?? 'zh-CN'
 }
 
+i18n.on('languageChanged', (language) => {
+  document.documentElement.lang = language
+})
+
 void i18n.use(initReactI18next).init({
   resources: {
     'zh-CN': { translation: zhCN },

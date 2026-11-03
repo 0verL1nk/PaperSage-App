@@ -181,7 +181,7 @@ func (s *Service) listProposals(c *gin.Context) {
 		q = q.Where("status = ?", st)
 	}
 	var rows []store.AgentChangeProposal
-	if err := q.Order("created_at DESC").Limit(200).Find(&rows).Error; err != nil {
+	if err := q.Order("created_at DESC").Find(&rows).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}

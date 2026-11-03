@@ -385,32 +385,81 @@ func decodeResourcePackageIndex(document resourceCatalogDocument) (map[string][]
 	if err != nil {
 		return nil, nil, fmt.Errorf("open LaTeX resource package index: %w", err)
 	}
-	data, err := io.ReadAll(io.LimitReader(reader, maxResourcePackageIndex+1))
-	closeErr := reader.Close()
-	if err != nil || len(data) == 0 || len(data) > maxResourcePackageIndex {
-		return nil, nil, fmt.Errorf("LaTeX resource package index size is invalid")
+	defer func() { _ = reader.Close() }()
+	limited := &io.LimitedReader{R: reader, N: maxResourcePackageIndex + 1}
+	decoder := json.NewDecoder(limited)
+	decodeError := func(err error) error {
+		if limited.N <= 0 {
+			return fmt.Errorf("LaTeX resource package index size is invalid")
+		}
+		return fmt.Errorf("decode LaTeX resource package index: %w", err)
 	}
-	if closeErr != nil {
-		return nil, nil, fmt.Errorf("close compressed LaTeX resource package index: %w", closeErr)
+	index := make(map[string][]resourceCatalogProvenance)
+	first, err := decoder.Token()
+	if err != nil {
+		return nil, nil, decodeError(err)
 	}
-	var compact map[string][]resourcePackageIndexRecord
-	if err := json.Unmarshal(data, &compact); err != nil {
-		return nil, nil, fmt.Errorf("decode LaTeX resource package index: %w", err)
+	if first != nil && first != json.Delim('{') {
+		return nil, nil, fmt.Errorf("decode LaTeX resource package index: expected an object")
 	}
-	index := make(map[string][]resourceCatalogProvenance, len(compact))
+	if first != nil {
+		for decoder.More() {
+			token, err := decoder.Token()
+			if err != nil {
+				return nil, nil, decodeError(err)
+			}
+			name, ok := token.(string)
+			if !ok {
+				return nil, nil, fmt.Errorf("decode LaTeX resource package index: expected a filename")
+			}
+			var records []resourcePackageIndexRecord
+			if err := decoder.Decode(&records); err != nil {
+				return nil, nil, decodeError(err)
+			}
+			values := make([]resourceCatalogProvenance, len(records))
+			for i, record := range records {
+				values[i] = resourceCatalogProvenance(record)
+			}
+			index[name] = values
+		}
+		if _, err := decoder.Token(); err != nil {
+			return nil, nil, decodeError(err)
+		}
+	}
+	// Consume all trailing whitespace to check the size, gzip trailer and EOF.
+	trailing := io.MultiReader(decoder.Buffered(), limited)
+	var buffer [32 * 1024]byte
+	for {
+		n, readErr := trailing.Read(buffer[:])
+		if limited.N <= 0 {
+			return nil, nil, fmt.Errorf("LaTeX resource package index size is invalid")
+		}
+		for _, ch := range buffer[:n] {
+			if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n' {
+				return nil, nil, fmt.Errorf("decode LaTeX resource package index: unexpected trailing data")
+			}
+		}
+		if readErr == io.EOF {
+			break
+		}
+		if readErr != nil {
+			return nil, nil, fmt.Errorf("read compressed LaTeX resource package index: %w", readErr)
+		}
+	}
+	if err := reader.Close(); err != nil {
+		return nil, nil, fmt.Errorf("close compressed LaTeX resource package index: %w", err)
+	}
 	packageMaps := make(map[string][]resourceCatalogProvenance)
 	seenMaps := make(map[string]struct{})
 	count := 0
-	for name, records := range compact {
+	for name, records := range index {
 		if name == "" || len(name) > 255 || strings.ContainsAny(name, `/\\`) || len(records) == 0 {
 			return nil, nil, fmt.Errorf("LaTeX resource package index contains an invalid filename")
 		}
-		for _, record := range records {
-			if !validCatalogSourcePath(record.SourcePath) || !validResourcePackage(record.Package) || record.PackageRevision == "" || record.ContainerSize <= 0 || record.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(record.ContainerSHA512) || strings.TrimSpace(record.License) == "" || !strings.HasPrefix(record.LicenseSource, "https://") {
+		for _, provenance := range records {
+			if !validCatalogSourcePath(provenance.SourcePath) || !validResourcePackage(provenance.Package) || provenance.PackageRevision == "" || provenance.ContainerSize <= 0 || provenance.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(provenance.ContainerSHA512) || strings.TrimSpace(provenance.License) == "" || !strings.HasPrefix(provenance.LicenseSource, "https://") {
 				return nil, nil, fmt.Errorf("LaTeX resource package index contains invalid provenance for %q", name)
 			}
-			provenance := resourceCatalogProvenance(record)
-			index[name] = append(index[name], provenance)
 			if strings.EqualFold(path.Ext(provenance.SourcePath), ".map") {
 				mapKey := provenance.Package + "\x00" + provenance.SourcePath
 				if _, exists := seenMaps[mapKey]; !exists {
@@ -423,6 +472,9 @@ func decodeResourcePackageIndex(document resourceCatalogDocument) (map[string][]
 	}
 	if document.PackageIndexEntries != count {
 		return nil, nil, fmt.Errorf("LaTeX resource package index entry count does not match its contents")
+	}
+	for _, maps := range packageMaps {
+		sort.Slice(maps, func(i, j int) bool { return maps[i].SourcePath < maps[j].SourcePath })
 	}
 	return index, packageMaps, nil
 }
@@ -780,7 +832,6 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 	var merged bytes.Buffer
 	for _, packageName := range packages {
 		mapFiles := catalog.packageMaps[packageName]
-		sort.Slice(mapFiles, func(i, j int) bool { return mapFiles[i].SourcePath < mapFiles[j].SourcePath })
 		for _, provenance := range mapFiles {
 			content, fetchErr := s.archives.packageFile(c.Request.Context(), s.repository, provenance)
 			if fetchErr != nil {
