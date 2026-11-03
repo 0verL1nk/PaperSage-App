@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	lru "github.com/hashicorp/golang-lru/v2"
@@ -134,21 +135,16 @@ func (s *Service) enrichErrorFromLog(ctx context.Context, projectID, buildID str
 	if err != nil || code != 200 {
 		return
 	}
-	raw := string(body)
-	if len(raw) > maxLogSize {
-		raw = raw[:maxLogSize]
-	}
-	result.Logs = &raw
-
+	full := string(body)
 	var summary string
-	if lines := latexErrorRe.FindAllString(raw, -1); len(lines) > 0 {
+	if lines := latexErrorRe.FindAllString(full, -1); len(lines) > 0 {
 		if len(lines) > maxErrorSummaryLines {
 			lines = lines[:maxErrorSummaryLines]
 		}
 		summary = strings.Join(lines, "\n")
-	} else if strings.Contains(strings.ToLower(raw), "fatal error") {
+	} else if strings.Contains(strings.ToLower(full), "fatal error") {
 		var fatal []string
-		for _, line := range strings.Split(raw, "\n") {
+		for _, line := range strings.Split(full, "\n") {
 			if strings.Contains(strings.ToLower(line), "fatal error") {
 				fatal = append(fatal, line)
 			}
@@ -159,7 +155,7 @@ func (s *Service) enrichErrorFromLog(ctx context.Context, projectID, buildID str
 		}
 	} else {
 		var tail []string
-		for _, line := range strings.Split(raw, "\n") {
+		for _, line := range strings.Split(full, "\n") {
 			if strings.TrimSpace(line) != "" {
 				tail = append(tail, line)
 			}
@@ -169,6 +165,17 @@ func (s *Service) enrichErrorFromLog(ctx context.Context, projectID, buildID str
 		}
 		summary = strings.Join(tail, "\n")
 	}
+
+	// 先基于完整日志提取错误，再截断存储的日志；末尾错误不会被截掉。
+	raw := full
+	if len(raw) > maxLogSize {
+		cut := maxLogSize
+		for cut > 0 && !utf8.RuneStart(raw[cut]) {
+			cut--
+		}
+		raw = raw[:cut] + "\n…（日志已截断，错误摘要基于完整日志提取）"
+	}
+	result.Logs = &raw
 	if summary == "" && result.Error != nil {
 		summary = *result.Error
 	}

@@ -1,6 +1,9 @@
 package rag
 
-import "strings"
+import (
+	"strings"
+	"unicode/utf8"
+)
 
 // tokenize：检索分词。英文按词、中文按 bigram（简易但有效的
 // CJK 混合分词，BM25 与 HashEmbedder 共用，保证两路一致性）。
@@ -50,7 +53,7 @@ func toLower(r rune) rune {
 	return r
 }
 
-// Chunk：递归分块——段落优先聚合，目标 ~target 字符、overlap 滑窗。
+// Chunk：段落优先聚合，目标 ~target 字节；目前不做跨块 overlap。
 // 中文论文友好：按空行分段，段内超长再按句号切。
 type Chunk struct {
 	ID      string
@@ -126,6 +129,12 @@ func splitLongParagraph(p string, target int) []string {
 		cut := findSentenceBreak(p[:target])
 		if cut < target/2 {
 			cut = target
+		}
+		for cut > 0 && !utf8.RuneStart(p[cut]) {
+			cut--
+		}
+		if cut == 0 {
+			_, cut = utf8.DecodeRuneInString(p)
 		}
 		out = append(out, strings.TrimSpace(p[:cut]))
 		p = p[cut:]

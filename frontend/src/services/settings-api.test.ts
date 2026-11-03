@@ -41,11 +41,23 @@ describe('settings api', () => {
   })
 
   describe('updateCategory', () => {
+    it('sends the atomic model selection without provider details', async () => {
+      vi.mocked(requestApi).mockResolvedValue({ category: 'agent', settings: {} })
+      await updateCategory('agent', { model_selection: { provider_id: 'p', model: 'B' } })
+      expect(requestApi).toHaveBeenCalledWith({
+        method: 'patch',
+        skipGlobalLoading: true,
+        url: SETTINGS.category('agent'),
+        data: { settings: { model_selection: { provider_id: 'p', model: 'B' } } },
+      })
+    })
+
     it('calls PATCH on the category route with wrapped settings', async () => {
       vi.mocked(requestApi).mockResolvedValue({ category: 'ui', settings: { theme: 'dark' } })
       await updateCategory('ui', { theme: 'dark' })
       expect(requestApi).toHaveBeenCalledWith({
         method: 'patch',
+        skipGlobalLoading: true,
         url: SETTINGS.category('ui'),
         data: { settings: { theme: 'dark' } },
       })

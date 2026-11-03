@@ -9,6 +9,18 @@ export type ReviewCheck = {
   detail: string
 }
 
+function stripComments(source: string): string {
+  return source.split('\n').map((line) => {
+    for (let i = 0; i < line.length; i++) {
+      if (line[i] !== '%') continue
+      let backslashes = 0
+      for (let j = i - 1; j >= 0 && line[j] === '\\'; j--) backslashes++
+      if (backslashes % 2 === 0) return line.slice(0, i)
+    }
+    return line
+  }).join('\n')
+}
+
 export function evaluateReviewChecks(files: LatexFileItem[], mainContent: string | undefined): ReviewCheck[] {
   const mainFile = files.find((file) => file.file_path === 'main.tex')
   const checks: ReviewCheck[] = [
@@ -20,10 +32,11 @@ export function evaluateReviewChecks(files: LatexFileItem[], mainContent: string
     },
   ]
   if (!mainFile || mainContent === undefined) return checks
+  const content = stripComments(mainContent)
 
-  const hasClass = /\\documentclass(?:\[[^\]]*\])?\s*\{[^}]+\}/.test(mainContent)
-  const hasBegin = /\\begin\s*\{document\}/.test(mainContent)
-  const hasEnd = /\\end\s*\{document\}/.test(mainContent)
+  const hasClass = /\\documentclass(?:\[[^\]]*\])?\s*\{[^}]+\}/.test(content)
+  const hasBegin = /\\begin\s*\{document\}/.test(content)
+  const hasEnd = /\\end\s*\{document\}/.test(content)
   checks.push({
     id: 'document-structure',
     title: 'LaTeX 文档结构',
@@ -41,16 +54,16 @@ export function evaluateReviewChecks(files: LatexFileItem[], mainContent: string
     detail: placeholders.length ? `仍有默认内容：${placeholders.join('、')}。` : '没有发现默认模板中的标题、作者或正文提示。',
   })
 
-  const citations = [...mainContent.matchAll(/\\(?:cite|parencite|textcite|autocite)(?:\[[^\]]*\]){0,2}\s*\{([^}]+)\}/g)]
+  const citations = [...content.matchAll(/\\(?:cite|parencite|textcite|autocite)(?:\[[^\]]*\]){0,2}\s*\{([^}]+)\}/g)]
   const bibFiles = new Set(files.filter((file) => file.file_path.toLowerCase().endsWith('.bib')).map((file) => file.file_path.replace(/\\/g, '/').toLowerCase()))
-  const resourceNames = [...mainContent.matchAll(/\\(?:bibliography|addbibresource)\s*\{([^}]+)\}/g)]
+  const resourceNames = [...content.matchAll(/\\(?:bibliography|addbibresource)\s*\{([^}]+)\}/g)]
     .flatMap((match) => match[1].split(',').map((resource) => resource.trim().replace(/\\/g, '/').toLowerCase()))
     .filter(Boolean)
   const missingBibFiles = resourceNames.filter((resource) => {
     const path = resource.endsWith('.bib') ? resource : `${resource}.bib`
     return !bibFiles.has(path)
   })
-  const hasBibliography = resourceNames.length > 0 || /\\begin\s*\{thebibliography\}/.test(mainContent)
+  const hasBibliography = resourceNames.length > 0 || /\\begin\s*\{thebibliography\}/.test(content)
   const referenceConfigured = hasBibliography || bibFiles.size > 0
   checks.push({
     id: 'references',
@@ -64,7 +77,7 @@ export function evaluateReviewChecks(files: LatexFileItem[], mainContent: string
   })
 
   const texFiles = new Set(files.filter((file) => file.file_path.toLowerCase().endsWith('.tex')).map((file) => file.file_path.replace(/\\/g, '/')))
-  const missingInputs = [...mainContent.matchAll(/\\(?:input|include)\s*\{([^}]+)\}/g)]
+  const missingInputs = [...content.matchAll(/\\(?:input|include)\s*\{([^}]+)\}/g)]
     .map((match) => match[1].replace(/\\/g, '/').replace(/\.tex$/i, ''))
     .filter((input) => !texFiles.has(input.endsWith('.tex') ? input : `${input}.tex`))
   checks.push({

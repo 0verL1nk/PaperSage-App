@@ -59,3 +59,109 @@ func TestRRFRankArithmeticMatchesSpec(t *testing.T) {
 	assert.Greater(t, score(2)+score(2), score(1), "两路共同命中应胜过单路第 1 名")
 	assert.NotEqual(t, score(0), score(1), "名次必须从 1 开始，不是 0 基")
 }
+
+// fixedQueryEmbedder makes the vector order independent of tokenization.
+type fixedQueryEmbedder struct{}
+
+func (fixedQueryEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
+	out := make([][]float32, len(texts))
+	for i := range out {
+		out[i] = []float32{1, 0}
+	}
+	return out, nil
+}
+
+func (fixedQueryEmbedder) Describe() (string, int) { return "fixed", 2 }
+
+func TestSearchRRFIndependentRanks(t *testing.T) {
+	s := newTestStore(t)
+	s.Embed = fixedQueryEmbedder{}
+	ctx := context.Background()
+	pid := store.MustNewUUID()
+	rows := []IndexedChunk{
+		{ID: "vector-only", Content: "unrelated", Embedding: EncodeVec([]float32{1, 0})},
+		{ID: "both", Content: "quokka quokka extra", Embedding: EncodeVec([]float32{4, 3})},
+		{ID: "vector-third", Content: "unrelated", Embedding: EncodeVec([]float32{3, 4})},
+		{ID: "bm-first", Content: "quokka quokka quokka"},
+		{ID: "bm-third", Content: "quokka filler filler filler"},
+	}
+	for i := range rows {
+		rows[i].ProjectID = pid
+		rows[i].SourceID = store.MustNewUUID()
+		rows[i].Generation = 1
+	}
+	require.NoError(t, s.DB.Create(&rows).Error)
+
+	vec, err := s.vectorSearch(ctx, pid, []float32{1, 0}, 5, 1)
+	require.NoError(t, err)
+	require.Len(t, vec, 3)
+	assert.Equal(t, []string{"vector-only", "both", "vector-third"}, []string{vec[0].id, vec[1].id, vec[2].id})
+	bm, err := s.bm25For(ctx, pid, 1)
+	require.NoError(t, err)
+	require.Equal(t, []string{"bm-first", "both", "bm-third"}, bm25Search(bm, "quokka", 5))
+
+	hits, err := s.Search(ctx, pid, "quokka", 5)
+	require.NoError(t, err)
+	require.Len(t, hits, 5)
+	got := make(map[string]float64, len(hits))
+	for _, hit := range hits {
+		got[hit.ChunkID] = hit.Score
+	}
+	for id, want := range map[string]float64{
+		"vector-only":  1.0 / 61,
+		"both":         1.0/62 + 1.0/62,
+		"vector-third": 1.0 / 63,
+		"bm-first":     1.0 / 61,
+		"bm-third":     1.0 / 63,
+	} {
+		assert.InDelta(t, want, got[id], 1e-12, "%s", id)
+	}
+}
+
+func TestSearchRRFTieBreakByChunkID(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		rows []IndexedChunk
+	}{
+		{"vector scores", []IndexedChunk{
+			{ID: "z", Content: "unrelated", Embedding: EncodeVec([]float32{1, 0})},
+			{ID: "a", Content: "unrelated", Embedding: EncodeVec([]float32{1, 0})},
+		}},
+		{"BM25 scores", []IndexedChunk{
+			{ID: "z", Content: "quokka"},
+			{ID: "a", Content: "quokka"},
+		}},
+		{"fused scores", []IndexedChunk{
+			{ID: "z", Content: "quokka quokka", Embedding: EncodeVec([]float32{4, 3})},
+			{ID: "a", Content: "quokka filler", Embedding: EncodeVec([]float32{1, 0})},
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newTestStore(t)
+			s.Embed = fixedQueryEmbedder{}
+			pid := store.MustNewUUID()
+			for i := range tc.rows {
+				tc.rows[i].ProjectID = pid
+				tc.rows[i].SourceID = store.MustNewUUID()
+				tc.rows[i].Generation = 1
+			}
+			require.NoError(t, s.DB.Create(&tc.rows).Error)
+			for i := 0; i < 20; i++ {
+				hits, err := s.Search(context.Background(), pid, "quokka", 2)
+				require.NoError(t, err)
+				require.Len(t, hits, 2)
+				assert.Equal(t, []string{"a", "z"}, []string{hits[0].ChunkID, hits[1].ChunkID})
+				if tc.name == "fused scores" {
+					assert.InDelta(t, 1.0/61+1.0/62, hits[0].Score, 1e-12)
+					assert.InDelta(t, hits[0].Score, hits[1].Score, 1e-12)
+				}
+			}
+			if tc.name != "fused scores" {
+				hits, err := s.Search(context.Background(), pid, "quokka", 1)
+				require.NoError(t, err)
+				require.Len(t, hits, 1)
+				assert.Equal(t, "a", hits[0].ChunkID)
+			}
+		})
+	}
+}

@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Checkbox } from '@/components/ui/checkbox'
+import { toast } from 'sonner'
 
 export function EditorSettings() {
   const { t } = useTranslation()
@@ -13,7 +14,9 @@ export function EditorSettings() {
   if (!editor) return null
 
   function handleChange(key: string, value: unknown) {
-    patchCategory('editor', { [key]: value }).catch(() => {})
+    patchCategory('editor', { [key]: value }).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) toast.error(t('settings.saveFailed'))
+    })
   }
 
   return (

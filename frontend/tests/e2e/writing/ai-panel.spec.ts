@@ -149,7 +149,7 @@ test.describe('AI 助手面板', () => {
     await page.goto('/')
     await seedAuthTokens(page)
     await mockWritingPageAPIs(page)
-    await mockAgentApis(page, { withProvider: false })
+    await mockAgentApis(page, { withProvider: false, emptyConversations: true })
 
     await page.goto(WRITING_URL)
     await page.getByTestId('writing-tab-ai').click()

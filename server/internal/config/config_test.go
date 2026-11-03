@@ -23,6 +23,8 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 30, s.AccessTokenExpireMinutes)
 	assert.Equal(t, 7, s.RefreshTokenExpireDays)
 	assert.False(t, s.Debug)
+	assert.Equal(t, 0, s.AgentDocumentReadLimitBytes)
+	assert.Equal(t, 20, s.AgentMaxIterations)
 	assert.Equal(t, []string{"localhost", "127.0.0.1"}, s.AllowedHosts)
 	assert.Equal(t, "0.0.0.0", s.Host)
 	assert.Equal(t, 5478, s.Port)
@@ -58,6 +60,20 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "", s.SMTPUser)
 	assert.Equal(t, "", s.SMTPPassword)
 	assert.True(t, s.SMTPTLS)
+}
+
+func TestLoadDocumentReadLimit(t *testing.T) {
+	t.Setenv("AGENT_DOCUMENT_READ_LIMIT_BYTES", "8192")
+	s, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, 8192, s.AgentDocumentReadLimitBytes)
+	t.Setenv("AGENT_DOCUMENT_READ_LIMIT_BYTES", "0")
+	s, err = Load()
+	require.NoError(t, err)
+	assert.Zero(t, s.AgentDocumentReadLimitBytes)
+	t.Setenv("AGENT_DOCUMENT_READ_LIMIT_BYTES", "-1")
+	_, err = Load()
+	require.ErrorContains(t, err, "AGENT_DOCUMENT_READ_LIMIT_BYTES")
 }
 
 func TestLoadOverrides(t *testing.T) {
@@ -138,4 +154,10 @@ func TestMigrationDSN(t *testing.T) {
 	s, err := Load()
 	require.NoError(t, err)
 	assert.Equal(t, "postgres://u:p@direct:5432/db", s.MigrationDSN())
+}
+
+func TestAgentMaxIterationsMustBePositive(t *testing.T) {
+	t.Setenv("AGENT_MAX_ITERATIONS", "0")
+	_, err := Load()
+	require.Error(t, err)
 }

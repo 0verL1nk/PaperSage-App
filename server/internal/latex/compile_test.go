@@ -381,6 +381,36 @@ func TestCompileFailureEnrichesErrorFromLog(t *testing.T) {
 	assert.Contains(t, d["logs"], "pdfTeX")
 }
 
+// 错误出现在长日志末尾时，仍从完整日志提取，而不是只看截断前缀。
+func TestCompileFailureFindsErrorBeyondStoredLogPrefix(t *testing.T) {
+	f := newFake("failure")
+	f.logBody = strings.Repeat("padding line\n", 1000) + "! Undefined control sequence at the end\n"
+	clsi := httptest.NewServer(f.handler())
+	defer clsi.Close()
+	ts := testutil.NewWithClsi(t, clsi.URL)
+
+	p := store.Project{Name: "长日志项目", OwnerID: ts.UserID()}
+	require.NoError(t, ts.DB.Create(&p).Error)
+	base := "/api/v1/projects/" + p.ID.String() + "/latex"
+	seedOneTex(t, ts, base)
+
+	job, err := ts.CompileQueue.Submit(context.Background(), p.ID.UUID, ts.UserID().UUID, "main.tex", "pdflatex")
+	require.NoError(t, err)
+	jobID := job.ID.String()
+	var m map[string]any
+	for i := 0; i < 50; i++ {
+		resp := ts.Do(t, http.MethodGet, base+"/compile/"+jobID+"/status", nil)
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+		if m["data"].(map[string]any)["status"] == "failed" {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	d := m["data"].(map[string]any)
+	assert.Contains(t, d["error"], "Undefined control sequence at the end")
+	assert.Contains(t, d["logs"], "日志已截断")
+}
+
 // conflict → 自动重试 full（第二次带全量文件）
 func TestCompileConflictRetriesFull(t *testing.T) {
 	f := newFake("conflict", "success")

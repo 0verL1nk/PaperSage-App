@@ -145,7 +145,7 @@ func TestProjectToolsHasNoWriteTool(t *testing.T) {
 	uid, pid := store.MustNewUUID(), store.MustNewUUID()
 
 	tools, err := agent.ProjectTools(db, testutil.NewMemStorage(),
-		pid, uid, store.MustNewUUID())
+		pid, uid, store.MustNewUUID(), 0)
 	require.NoError(t, err)
 
 	names := make([]string, 0, len(tools))

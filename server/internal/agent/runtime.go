@@ -37,43 +37,164 @@ const AgentKeyMain = "main"
 
 // ── Turn / Run ──────────────────────────────────────────────────────
 
-// ensureTurn 按 clientRequestId 幂等创建 Turn：重复提交（双击、网络重试）
-// 返回既有 Turn，不产生第二次模型调用。clientRequestID 为空时每次都新建。
-func (s *Service) ensureTurn(ctx context.Context, convID store.UUID, clientRequestID string) (*store.AgentTurn, error) {
-	if clientRequestID != "" {
-		var t store.AgentTurn
-		err := s.DB.WithContext(ctx).
-			Where("conversation_id = ? AND client_request_id = ?", convID, clientRequestID).
-			First(&t).Error
-		if err == nil {
-			return &t, nil
-		}
-		if !errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, err
-		}
+var (
+	errThreadConflict  = errors.New("conversation version conflict")
+	errRequestConflict = errors.New("client request id already used with different content")
+	errIncompleteTurn  = errors.New("existing turn has no complete root run")
+	errCommitUnknown   = errors.New("run submission commit outcome is unknown")
+)
+
+type rootRunResult struct {
+	turn             store.AgentTurn
+	run              store.AgentRun
+	version          int64
+	model            *ResolvedModel
+	created          bool
+	finalizeDeadline time.Time
+}
+
+// replayRootRun only returns fully committed turns. Legacy incomplete turns are
+// not repaired here: starting another Run could repeat already-paid work.
+func (s *Service) replayRootRun(ctx context.Context, convID, userID store.UUID, key, content string) (*rootRunResult, error) {
+	return s.lookupRootRun(ctx, convID, userID, key, content, nil)
+}
+
+// lookupRootRun can identify this transaction's Turn even if no idempotency key was supplied.
+func (s *Service) lookupRootRun(ctx context.Context, convID, userID store.UUID, key, content string, turnID *store.UUID) (*rootRunResult, error) {
+	if key == "" && turnID == nil {
+		return nil, gorm.ErrRecordNotFound
 	}
-	t := store.AgentTurn{ID: store.MustNewUUID(), ConversationID: convID}
-	if clientRequestID != "" {
-		t.ClientRequestID = &clientRequestID
+	var conv store.AgentConversation
+	if err := s.DB.WithContext(ctx).Where("id = ? AND user_id = ?", convID, userID).First(&conv).Error; err != nil {
+		return nil, err
 	}
-	if err := s.DB.WithContext(ctx).Create(&t).Error; err != nil {
-		// 并发下另一请求已建好：读回即可
-		if clientRequestID != "" {
-			var again store.AgentTurn
-			if e := s.DB.WithContext(ctx).
-				Where("conversation_id = ? AND client_request_id = ?", convID, clientRequestID).
-				First(&again).Error; e == nil {
-				return &again, nil
-			}
+	var turn store.AgentTurn
+	query := s.DB.WithContext(ctx).Where("conversation_id = ?", convID)
+	if key != "" {
+		query = query.Where("client_request_id = ?", key)
+	}
+	if turnID != nil {
+		query = query.Where("id = ?", *turnID)
+	}
+	if err := query.First(&turn).Error; err != nil {
+		return nil, err
+	}
+	if turn.UserMessageID == nil || turn.RootRunID == nil {
+		return nil, errIncompleteTurn
+	}
+	var msg store.AgentMessage
+	if err := s.DB.WithContext(ctx).Where("id = ? AND conversation_id = ? AND turn_id = ? AND role = ?", *turn.UserMessageID, convID, turn.ID, "user").First(&msg).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errIncompleteTurn
 		}
 		return nil, err
 	}
-	return &t, nil
+	var part store.AgentMessagePart
+	if err := s.DB.WithContext(ctx).Where("message_id = ? AND ordinal = ? AND type = ?", msg.ID, 0, PartText).First(&part).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errIncompleteTurn
+		}
+		return nil, err
+	}
+	if part.TextContent == nil || *part.TextContent != content {
+		return nil, errRequestConflict
+	}
+	var run store.AgentRun
+	if err := s.DB.WithContext(ctx).Where("id = ? AND conversation_id = ? AND turn_id = ?", *turn.RootRunID, convID, turn.ID).First(&run).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errIncompleteTurn
+		}
+		return nil, err
+	}
+	return &rootRunResult{turn: turn, run: run, version: conv.Version}, nil
+}
+
+// createRootRun commits all durable submission records before starting any work.
+func (s *Service) createRootRun(ctx context.Context, conv store.AgentConversation, userID store.UUID, key, content string, expected *int64) (*rootRunResult, error) {
+	if existing, err := s.replayRootRun(ctx, conv.ID, userID, key, content); !errors.Is(err, gorm.ErrRecordNotFound) {
+		return existing, err
+	}
+	resolved, err := ResolveModelWithEnv(ctx, s.DB, userID, s.Cfg)
+	if err != nil {
+		// A concurrent request may have committed while model settings were read.
+		if existing, replayErr := s.replayRootRun(ctx, conv.ID, userID, key, content); !errors.Is(replayErr, gorm.ErrRecordNotFound) {
+			return existing, replayErr
+		}
+		return nil, err
+	}
+	result := &rootRunResult{model: resolved, created: true}
+	bodyComplete := false
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		query := tx.Model(&store.AgentConversation{}).Where("id = ? AND user_id = ?", conv.ID, userID)
+		if expected != nil {
+			query = query.Where("version = ?", *expected)
+		}
+		updated := query.Update("version", gorm.Expr("version + ?", 1))
+		if updated.Error != nil {
+			return updated.Error
+		}
+		if updated.RowsAffected != 1 {
+			return errThreadConflict
+		}
+		var current store.AgentConversation
+		if err := tx.Select("version").Where("id = ?", conv.ID).First(&current).Error; err != nil {
+			return err
+		}
+		result.version = current.Version
+		result.turn = store.AgentTurn{ID: store.MustNewUUID(), ConversationID: conv.ID}
+		if key != "" {
+			result.turn.ClientRequestID = &key
+		}
+		if err := tx.Create(&result.turn).Error; err != nil {
+			return err
+		}
+		msg, err := s.createUserMessage(ctx, tx, conv.ID, result.turn.ID, content)
+		if err != nil {
+			return err
+		}
+		run, err := s.createRun(ctx, tx, conv.ID, result.turn.ID, AgentKeyMain, resolved.Source, resolved.Model, systemPromptVersion)
+		if err != nil {
+			return err
+		}
+		result.run = *run
+		result.turn.UserMessageID, result.turn.RootRunID = &msg.ID, &run.ID
+		if err := tx.Model(&store.AgentTurn{}).Where("id = ?", result.turn.ID).Updates(map[string]any{"user_message_id": msg.ID, "root_run_id": run.ID}).Error; err != nil {
+			return err
+		}
+		if err := s.appendEventTx(ctx, tx, conv.ID, run.ID, evtRunStarted, nil); err != nil {
+			return err
+		}
+		bodyComplete = true
+		return nil
+	})
+	if err != nil {
+		// An admitted handler keeps the DB open through shutdown. Share this
+		// detached budget with terminal persistence if shutdown has started.
+		checkCtx, cancel := context.WithTimeout(context.Background(), runFinalizeTimeout)
+		defer cancel()
+		if bodyComplete {
+			// Only the request that generated both IDs owns the right to start it.
+			existing, checkErr := s.lookupRootRun(checkCtx, conv.ID, userID, key, content, &result.turn.ID)
+			if checkErr == nil && existing.run.ID == result.run.ID {
+				result.version = existing.version
+				result.finalizeDeadline, _ = checkCtx.Deadline()
+				return result, nil
+			}
+			return nil, errCommitUnknown
+		}
+		// A same-key winner may have committed before this transaction lost CAS
+		// or the unique constraint. Never read through the failed transaction.
+		if existing, replayErr := s.replayRootRun(checkCtx, conv.ID, userID, key, content); !errors.Is(replayErr, gorm.ErrRecordNotFound) {
+			return existing, replayErr
+		}
+		return nil, err
+	}
+	return result, nil
 }
 
 // createRun 建一个 Run 并快照模型与提示版本。
 // Run 独立于 HTTP 连接存在：可查询、可取消、可恢复。
-func (s *Service) createRun(ctx context.Context, convID, turnID store.UUID, agentKey, provider, model, promptVersion string) (*store.AgentRun, error) {
+func (s *Service) createRun(ctx context.Context, tx *gorm.DB, convID, turnID store.UUID, agentKey, provider, model, promptVersion string) (*store.AgentRun, error) {
 	now := time.Now().UTC()
 	run := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: convID,
@@ -82,7 +203,7 @@ func (s *Service) createRun(ctx context.Context, convID, turnID store.UUID, agen
 		StartedAt: &now,
 	}
 	run.TurnID = &turnID
-	if err := s.DB.WithContext(ctx).Create(&run).Error; err != nil {
+	if err := tx.WithContext(ctx).Create(&run).Error; err != nil {
 		return nil, err
 	}
 	return &run, nil

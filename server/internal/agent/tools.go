@@ -13,9 +13,9 @@ import (
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/compose"
+	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/extract"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -25,7 +25,7 @@ import (
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
 func ProjectTools(db *gorm.DB, stg storage.Storage,
-	projectID, ownerID, runID store.UUID) ([]tool.BaseTool, error) {
+	projectID, ownerID, runID store.UUID, documentReadLimitBytes int) ([]tool.BaseTool, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -48,8 +48,8 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 			}
 			var docs []store.Document
 			if err := db.WithContext(ctx).
-				Where("project_id = ?", projectID).
-				Order("created_at DESC").Limit(100).Find(&docs).Error; err != nil {
+				Where("project_id = ? AND status = ?", projectID, "uploaded").
+				Order("created_at DESC").Find(&docs).Error; err != nil {
 				return "", err
 			}
 			var b strings.Builder
@@ -59,7 +59,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 				if d.Remark != nil {
 					remark = *d.Remark
 				}
-				fmt.Fprintf(&b, "- %s (%s, %d bytes) %s\n", d.Name, d.Type, d.Size, remark)
+				fmt.Fprintf(&b, "- %s (document_id: %s, %s, %d bytes) %s\n", d.Name, d.ID.String(), d.Type, d.Size, remark)
 			}
 			return b.String(), nil
 		})
@@ -67,26 +67,51 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 		return nil, err
 	}
 
+	documentReader := documentTextReader{maxSegmentBytes: documentReadLimitBytes}
 	readDocument, err := utils.InferTool(
 		"read_document",
-		"读取一篇参考文献的正文文本（支持 PDF/DOCX/TXT 全量抽取）。",
-		func(ctx context.Context, in struct {
-			Name string `json:"name" jsonschema:"description=文献文件名"`
-		}) (string, error) {
+		"读取已入库参考文献的正文信息或指定范围（PDF/DOCX/TXT）。同名文件使用list_documents提供的document_id；省略max_bytes只返回总字节数和摘要；续读传next_offset和expected_digest，不要声称未读取部分已被核查。",
+		func(ctx context.Context, in documentReadInput) (*documentReadResult, error) {
 			if err := verify(ctx); err != nil {
-				return "", err
+				return nil, err
 			}
-			var doc store.Document
-			if err := db.WithContext(ctx).
-				Where("project_id = ? AND name = ?", projectID, in.Name).
-				First(&doc).Error; err != nil {
-				return "", fmt.Errorf("document %q not found", in.Name)
+			query := db.WithContext(ctx).Where("project_id = ? AND status = ?", projectID, "uploaded")
+			if in.DocumentID != "" {
+				id, err := uuid.Parse(in.DocumentID)
+				if err != nil {
+					return nil, fmt.Errorf("invalid document_id")
+				}
+				query = query.Where("id = ?", store.UUID{UUID: id})
+			} else if in.Name != "" {
+				query = query.Where("name = ?", in.Name)
+			} else {
+				return nil, fmt.Errorf("document_id or name is required")
 			}
-			content, err := stg.Get(ctx, doc.S3Key)
+			var docs []store.Document
+			if err := query.Limit(2).Find(&docs).Error; err != nil {
+				return nil, err
+			}
+			if len(docs) == 0 {
+				return nil, fmt.Errorf("document not found")
+			}
+			if len(docs) > 1 {
+				return nil, fmt.Errorf("multiple documents have this name; use document_id from list_documents")
+			}
+			doc := docs[0]
+			result, err := documentReader.read(ctx, stg, doc, in)
 			if err != nil {
-				return "", err
+				return nil, err
 			}
-			return extract.Text(ctx, content, doc.Name, doc.Type, 48*1024)
+			if err := verify(ctx); err != nil {
+				return nil, err
+			}
+			var current store.Document
+			if err := db.WithContext(ctx).
+				Where("id = ? AND project_id = ? AND status = ?", doc.ID, projectID, "uploaded").
+				First(&current).Error; err != nil || current.S3Key != doc.S3Key || !current.UpdatedAt.Equal(doc.UpdatedAt) {
+				return nil, fmt.Errorf("document changed or is no longer available; read again")
+			}
+			return result, nil
 		})
 	if err != nil {
 		return nil, err
@@ -311,7 +336,7 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 
 	ragSearch, err := utils.InferTool(
 		"rag_search",
-		"混合检索（向量+关键词）项目资料库与 wiki。返回最相关的内容块及出处。可用不同措辞多次调用以扩展召回。",
+		ragSearchMode(ragStore.Embed)+"项目资料库与 wiki。返回最相关的内容块及出处。可用不同措辞多次调用以扩展召回。",
 		func(ctx context.Context, in struct {
 			Query string `json:"query" jsonschema:"description=检索词（可中英混合）"`
 			K     int    `json:"k,omitempty" jsonschema:"description=返回条数，默认 5"`
@@ -397,7 +422,7 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 	// 因此这里就叫 search_references
 	subAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "search_references",
-		Description: "深度检索项目资料库（文献+wiki）：多轮混合检索并综合出带出处的调研结论。任何涉及文献内容/相关工作的调研问题都应调用。",
+		Description: ragSearchMode(ragStore.Embed) + "：深度检索项目资料库（文献+wiki），多轮检索并综合出带出处的调研结论。任何涉及文献内容/相关工作的调研问题都应调用。",
 		Instruction: strings.Join([]string{
 			"你是文献检索专家。任务：针对给定的研究问题，在项目资料库中检索并综合出带出处的答案。",
 			"流程：",
@@ -458,4 +483,12 @@ func findLatex(ctx context.Context, db *gorm.DB, stg storage.Storage,
 		return nil, "", err
 	}
 	return &f, string(content), nil
+}
+
+// ragSearchMode 如实描述当前检索能力：未配置嵌入模型时只有词袋降级，不是语义检索。
+func ragSearchMode(embed rag.Embedder) string {
+	if model, _ := embed.Describe(); model == "hash" {
+		return "词袋降级检索（未配置嵌入模型，不具语义理解）"
+	}
+	return "混合检索（向量+关键词）"
 }

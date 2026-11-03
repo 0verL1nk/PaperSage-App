@@ -1,38 +1,31 @@
 import { useTranslation } from 'react-i18next'
 import { useSettingsStore } from '@/store/settings-store'
-import { useTheme, type Theme } from '@/app/theme-context'
-import { LANG_STORAGE_KEY } from '@/i18n'
+import type { Theme } from '@/app/theme-context'
+import { toast } from 'sonner'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
-import { VersionInfo } from './VersionInfo'
 
 export function GeneralSettings() {
   const { settings, patchCategory } = useSettingsStore()
-  const { setTheme } = useTheme()
-  const { t, i18n } = useTranslation()
+  const { t } = useTranslation()
   const ui = settings?.ui
 
   if (!ui) return null
 
-  // 后端 ui.category 是跨设备权威值：加载后同步到本地（若本地从未
-  // 设置过；本地已有值时以本地为准，避免登录瞬间跳变）
-  // （初值应用已由 ThemeProvider/i18n 的 localStorage 路径完成）
+  function handleChange(key: string, value: unknown) {
+    patchCategory('ui', { [key]: value }).catch((error: unknown) => {
+      if (!(error instanceof DOMException && error.name === 'AbortError')) toast.error(t('settings.saveFailed'))
+    })
+  }
 
   function handleThemeChange(value: Theme) {
-    setTheme(value)                       // 即时生效 + localStorage
-    patchCategory('ui', { theme: value }).catch(() => {})   // 后端持久化
+    handleChange('theme', value)
   }
 
   function handleLanguageChange(value: string) {
-    localStorage.setItem(LANG_STORAGE_KEY, value)
-    void i18n.changeLanguage(value)       // 即时生效
-    patchCategory('ui', { language: value }).catch(() => {})
-  }
-
-  function handleChange(key: string, value: unknown) {
-    patchCategory('ui', { [key]: value }).catch(() => {})
+    handleChange('language', value)
   }
 
   return (
@@ -92,8 +85,6 @@ export function GeneralSettings() {
           </div>
         </CardContent>
       </Card>
-
-      <VersionInfo />
     </div>
   )
 }

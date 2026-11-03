@@ -170,7 +170,8 @@ func (s *FilesService) CreateFileBinary(ctx context.Context, projectID uuid.UUID
 
 	sum := md5.Sum(content)
 	hash := hex.EncodeToString(sum[:])
-	s3Key := storage.BuildKey(projectID.String(), validated)
+	// 每次创建独立对象键：路径键在重命名后会被新建同路径文件复用并覆盖原对象。
+	s3Key := "latex-file-objects/" + projectID.String() + "/" + uuid.NewString()
 	if err := s.Storage.Put(ctx, s3Key, content); err != nil {
 		return nil, err
 	}
@@ -414,7 +415,8 @@ func (s *FilesService) DeleteFolder(ctx context.Context, projectID uuid.UUID, fo
 }
 
 // LoadTextContents 载入全部文本文件（并行 + LRU；编译用）。
-func (s *FilesService) LoadTextContents(ctx context.Context, projectID uuid.UUID, concurrency int) [][2]string {
+// 任一文件读取失败即返回错误：不完整输入不能当作成功编译。
+func (s *FilesService) LoadTextContents(ctx context.Context, projectID uuid.UUID, concurrency int) ([][2]string, error) {
 	var files []store.LatexFile
 	_ = s.DB.WithContext(ctx).Where("project_id = ?", store.UUID{UUID: projectID}).Find(&files).Error
 	text := make([]store.LatexFile, 0, len(files))
@@ -443,14 +445,15 @@ func (s *FilesService) GetBinaryFileKeys(ctx context.Context, projectID uuid.UUI
 	return out
 }
 
-func (s *FilesService) parallelLoad(ctx context.Context, files []store.LatexFile, concurrency int) [][2]string {
+func (s *FilesService) parallelLoad(ctx context.Context, files []store.LatexFile, concurrency int) ([][2]string, error) {
 	if concurrency <= 0 {
 		concurrency = 8
 	}
 	var (
-		mu    sync.Mutex
-		pairs [][2]string
-		wg    sync.WaitGroup
+		mu       sync.Mutex
+		pairs    [][2]string
+		firstErr error
+		wg       sync.WaitGroup
 	)
 	sem := make(chan struct{}, concurrency)
 	for i := range files {
@@ -470,7 +473,12 @@ func (s *FilesService) parallelLoad(ctx context.Context, files []store.LatexFile
 			defer func() { <-sem }()
 			content, err := s.Storage.Get(ctx, key)
 			if err != nil {
-				slog.Warn("failed to load latex file", "path", f.FilePath, "key", key, "error", err)
+				slog.Error("failed to load latex file", "path", f.FilePath, "key", key, "error", err)
+				mu.Lock()
+				if firstErr == nil {
+					firstErr = fmt.Errorf("load %s: %w", f.FilePath, err)
+				}
+				mu.Unlock()
 				return
 			}
 			decoded := string(content)
@@ -481,8 +489,11 @@ func (s *FilesService) parallelLoad(ctx context.Context, files []store.LatexFile
 		}()
 	}
 	wg.Wait()
+	if firstErr != nil {
+		return nil, firstErr
+	}
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i][0] < pairs[j][0] })
-	return pairs
+	return pairs, nil
 }
 
 // ── 响应 DTO ──

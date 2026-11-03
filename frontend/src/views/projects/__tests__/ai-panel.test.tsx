@@ -1,22 +1,39 @@
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import * as agentApi from '@/services/agent-api'
+import { useSessionStore } from '@/store/session-store'
+import type { AllSettings } from '@/services/settings-api'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AiPanel } from '@/views/projects/ai-panel'
 import { useSettingsStore } from '@/store/settings-store'
 import { useChatStore } from '@/store/chat-store'
 import { emptyChatState } from '@/store/chat-store'
 
-const query = vi.hoisted(() => ({ evidenceData: [] as Array<Record<string, string>>, evidenceLoading: false, evidenceError: false, refetch: vi.fn() }))
+const query = vi.hoisted(() => ({ real: false, evidenceData: [] as Array<Record<string, string>>, evidenceLoading: false, evidenceError: false, refetch: vi.fn() }))
 
 vi.mock('@tanstack/react-router', () => ({ useNavigate: () => vi.fn() }))
-vi.mock('@tanstack/react-query', () => ({
-  useQuery: (options: { queryKey: unknown[] }) => options.queryKey[0] === 'agent-run-evidence'
-    ? { data: query.evidenceData, isLoading: query.evidenceLoading, isError: query.evidenceError, refetch: query.refetch }
-    : { data: [], refetch: vi.fn() },
-  useQueryClient: () => ({ invalidateQueries: vi.fn() }),
-}))
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQuery: (options: Parameters<typeof actual.useQuery>[0]) => query.real
+      ? actual.useQuery(options)
+      : options.queryKey[0] === 'agent-run-evidence'
+        ? { data: query.evidenceData, isLoading: query.evidenceLoading, isError: query.evidenceError, refetch: query.refetch }
+        : { data: [], refetch: vi.fn() },
+    useQueryClient: () => query.real ? actual.useQueryClient() : { invalidateQueries: vi.fn() },
+  }
+})
+
+const originalFetchSettings = useSettingsStore.getState().fetchSettings
+const originalSend = useChatStore.getState().send
 
 beforeEach(() => {
-  useChatStore.setState({ ...emptyChatState })
+  vi.restoreAllMocks()
+  query.real = false
+  useSessionStore.setState({ isGuest: false })
+  useSettingsStore.setState({ fetchSettings: originalFetchSettings, error: null })
+  useChatStore.setState({ ...emptyChatState, send: originalSend })
   query.evidenceData = []
   query.evidenceLoading = false
   query.evidenceError = false
@@ -25,7 +42,79 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
 
+const noProviderSettings: AllSettings = {
+  ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
+  editor: { font_size: 14, tab_size: 2, auto_save: true, auto_save_interval: 30, word_wrap: true },
+  agent: { providers: [], active_provider_id: '', temperature: 0.7, writing_style: 'academic', memory_enabled: true },
+}
+
+function renderWithRealQuery() {
+  query.real = true
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(<QueryClientProvider client={client}><AiPanel projectId="p1" mode="preparation" /></QueryClientProvider>)
+}
+
 describe('AiPanel', () => {
+  it('reads and switches history without a model provider', async () => {
+    useSettingsStore.setState({ settings: structuredClone(noProviderSettings), error: null })
+    const list = vi.spyOn(agentApi, 'listConversations').mockResolvedValue([{ id: 'c1', title: 'First history' }, { id: 'c2', title: 'Second history' }])
+    vi.spyOn(agentApi, 'listMessages').mockImplementation(async (id) => [{ id, role: 'user', status: 'completed', createdAt: '2025-01-01T00:00:00Z', parts: [{ id: 'p', ordinal: 0, type: 'text', status: 'completed', createdAt: '2025-01-01T00:00:00Z', text: `History ${id}` }] }])
+    const send = vi.spyOn(useChatStore.getState(), 'send')
+    renderWithRealQuery()
+    expect(await screen.findByText('History c1')).toBeInTheDocument()
+    expect(list).toHaveBeenCalledWith('p1')
+    expect(screen.getByText('尚未配置 AI 模型')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '去设置' })).toBeInTheDocument()
+    const input = screen.getByPlaceholderText('说说你的研究兴趣、初步想法或遇到的困难…')
+    expect(input).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.pointerDown(screen.getByRole('button', { name: /First history/ }), { button: 0, ctrlKey: false })
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Second history' }))
+    expect(await screen.findByText('History c2')).toBeInTheDocument()
+  })
+
+  it('keeps the setup prompt when there is no provider or history', async () => {
+    useSettingsStore.setState({ settings: structuredClone(noProviderSettings), error: null })
+    const list = vi.spyOn(agentApi, 'listConversations').mockResolvedValue([])
+    renderWithRealQuery()
+    await waitFor(() => expect(list).toHaveBeenCalledWith('p1'))
+    expect(await screen.findByText('尚未配置 AI 模型')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '去设置' })).toBeInTheDocument()
+  })
+
+  it('shows a retry when the history list fails instead of claiming it is empty', async () => {
+    useSettingsStore.setState({ settings: structuredClone(noProviderSettings), error: null })
+    const list = vi.spyOn(agentApi, 'listConversations').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([])
+    renderWithRealQuery()
+    expect(await screen.findByText('会话加载失败，请重试。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试会话' }))
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('尚未配置 AI 模型')).toBeInTheDocument()
+  })
+
+  it('shows history even if settings failed to load', async () => {
+    const fetchSettings = vi.fn().mockRejectedValue(new Error('offline'))
+    useSettingsStore.setState({ settings: null, error: 'offline', fetchSettings })
+    vi.spyOn(agentApi, 'listConversations').mockResolvedValue([{ id: 'c1', title: 'History' }])
+    vi.spyOn(agentApi, 'listMessages').mockResolvedValue([{ id: 'm1', role: 'user', status: 'completed', createdAt: '2025-01-01T00:00:00Z', parts: [{ id: 'p', ordinal: 0, type: 'text', status: 'completed', createdAt: '2025-01-01T00:00:00Z', text: 'Saved message' }] }])
+    renderWithRealQuery()
+    expect(await screen.findByText('Saved message')).toBeInTheDocument()
+    expect(screen.getByText('设置加载失败，请重试。')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试设置' })).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('说说你的研究兴趣、初步想法或遇到的困难…')).toBeDisabled()
+  })
+
+  it('does not request account history in guest mode', async () => {
+    useSessionStore.setState({ isGuest: true })
+    useSettingsStore.setState({ settings: structuredClone(noProviderSettings), error: null })
+    const list = vi.spyOn(agentApi, 'listConversations')
+    renderWithRealQuery()
+    await act(async () => { await Promise.resolve() })
+    expect(list).not.toHaveBeenCalled()
+    expect(screen.getByText('登录后可使用 AI 助手')).toBeInTheDocument()
+  })
+
   it('settings 未加载时面板自己发起加载（否则永远停在「尚未配置」）', () => {
     // 回归：面板曾依赖 ModelSelector 去加载 settings，而 ModelSelector 只在
     // hasProvider 为真时渲染 → 没设置就永远不加载，用户永远看到「尚未配置」。

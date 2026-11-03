@@ -12,7 +12,7 @@
 - `make build-server` 仅构建 API；前端由 Vercel 单独构建。
 - `.goreleaser.yml` 构建 `papersage` 与一次性迁移命令 `migrate`，归档和 `checksums.txt` 发布到 GitHub Release。
 - 正式版本来自 `vMAJOR.MINOR.PATCH` 标签；标签指向的提交必须已在 `main` 中。不要重打已发布标签或覆盖同版本产物。
-- `internal/buildinfo` 的 version、commit、build time 通过链接参数注入；`/health` 同时返回实际 Go 工具链版本。开发构建明确显示 dev，不伪造正式版本。
+- `internal/buildinfo` 的 version、commit、build time 通过链接参数注入。公网 `/health` 只返回 `{"status":"healthy"}`；version/commit/buildTime/goVersion 仅在本机直连（不经过 Caddy）时返回，供发布脚本校验，避免公网指纹信息泄露。
 
 ```bash
 make build-server
@@ -27,7 +27,7 @@ make build-server
 3. 用固定版本 GoReleaser 构建 API/migrate 及校验和，不进行前端打包。
 4. 将同一次运行的 Linux amd64 产物交给生产部署 job，先验证 checksum。
 5. 通过专用受限 SSH 用户上传并调用服务器上的 root-owned 发布命令。
-6. 核验 `/health` 的 version 和完整 commit，不只检查 HTTP 200。
+6. 在本机直连的 `/health` 上核验 version 和完整 commit（公网代理请求只返回健康状态），不只检查 HTTP 200。
 
 Server CI 当前覆盖率回归门槛为48%，80%是逐步提升目标；发布不得降低门槛或跳过失败检查。正式发布串行执行，普通分支与 PR 不访问生产部署凭据。
 
@@ -71,6 +71,9 @@ DATA_DIR=/var/lib/papersage
 ```
 
 保留 `DB_MAX_OPEN_CONNS`、`DB_MAX_IDLE_CONNS` 等已有连接池配置，基于数据库与内存实测调整，不按请求创建连接池。不要为了预热而持续查询云数据库，造成不必要的运行费用。
+
+`AGENT_DOCUMENT_READ_LIMIT_BYTES` 默认为 0，不限制单次文献分段大小；部署者可明确设置正数字节数作为可选单次预算。超过预算会明确报错，可使用较小分段续读，不截断或限制完整文档的总长度。未指定 `max_bytes` 或其值为 0 时仍只返回读取信息，不自动向模型发送全文。
+`AGENT_MAX_ITERATIONS` 默认为 20，是 Eino DeepAgent 的显式迭代上限（框架不接受 0 表示无限）；达到上限时界面会提示可发送“继续”接着处理，部署者可按模型成本调整。
 
 `DATABASE_MIGRATION_URL` 可使用直接数据库连接，`DATABASE_URL` 可使用池化连接。发布命令通过独立受限进程运行 `migrate`；服务启动不执行迁移。版本发布前必须审查待执行 DDL，破坏性变更应先备份并单独确认。
 

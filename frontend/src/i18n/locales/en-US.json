@@ -41,6 +41,7 @@
   },
   "settings": {
     "pageTitle": "Settings",
+    "saveFailed": "Failed to save settings. Please try again.",
     "tabGeneral": "General",
     "tabEditor": "Editor",
     "tabAgent": "AI Assistant",
@@ -67,6 +68,9 @@
   },
   "agent": {
     "providers": "Model providers",
+    "savingSettings": "Saving settings. Model changes apply to the next conversation.",
+    "savingModelSettings": "Saving model settings. Changes apply to the next conversation.",
+    "modelSaveFailed": "Failed to save the model selection. The previous selection has been restored. Please try again.",
     "addProvider": "Add provider",
     "noProviders": "No providers configured. Click + to add one.",
     "defaultModel": "Default model",

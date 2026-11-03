@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/textproto"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
 )
@@ -123,4 +125,21 @@ func TestPreviewNotFound(t *testing.T) {
 	assert.Equal(t, 422, resp.StatusCode)
 	resp = ts.Do(t, http.MethodPut, "/api/v1/documents/00000000-0000-0000-0000-000000000000/remark", []byte(`bad`))
 	assert.Equal(t, 422, resp.StatusCode)
+}
+
+func TestDirectUploadTriggersIndexHook(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	called := make(chan struct{}, 1)
+	ts.DocumentService.Indexer = &documents.DocIndexer{IndexDocument: func(store.UUID, store.UUID, string, string, string) {
+		called <- struct{}{}
+	}}
+
+	resp := uploadPart(t, ts, map[string]string{"projectId": p.ID.String()}, "paper.txt", "text/plain", []byte("hello"))
+	require.Equal(t, 200, resp.StatusCode)
+	select {
+	case <-called:
+	case <-time.After(2 * time.Second):
+		t.Fatal("direct upload did not trigger the RAG index hook")
+	}
 }

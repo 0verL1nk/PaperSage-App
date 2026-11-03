@@ -29,6 +29,20 @@ describe('evaluateReviewChecks', () => {
     expect(checks.find((check) => check.id === 'included-files')?.status).toBe('pass')
   })
 
+  it('ignores commented-out commands but keeps escaped percent lines', () => {
+    const commented = evaluateReviewChecks([file('main.tex')], String.raw`% \documentclass{article}
+% \begin{document}
+% \end{document}
+文字`)
+    expect(commented.find((check) => check.id === 'document-structure')?.status).toBe('action')
+
+    const escaped = evaluateReviewChecks([file('main.tex')], String.raw`\documentclass{article}
+\begin{document}
+50\% \cite{smith2025}
+\end{document}`)
+    expect(escaped.find((check) => check.id === 'references')?.status).toBe('warning')
+  })
+
   it('flags a declared bibliography file that is absent from the project', () => {
     const checks = evaluateReviewChecks([file('main.tex')], String.raw`\documentclass{article}
 \begin{document}

@@ -54,16 +54,16 @@ func TestMigrateUpFreshDatabase(t *testing.T) {
 	schemaDSN := pgSchemaDSN(dsn, schema)
 	require.NoError(t, MigrateUp(context.Background(), schemaDSN))
 
-	// 0019 与 0021 各新增一张表；0020 只增加运行元数据列。
+	// 真相源中的每张表都必须由嵌入迁移建出。
 	var count int
 	require.NoError(t, db.QueryRow(
 		fmt.Sprintf("SELECT count(*) FROM information_schema.tables WHERE table_schema = '%s' AND table_name != 'schema_migrations'", schema)).Scan(&count))
-	assert.Equal(t, 29, count, "业务表总数（两方言一致；新增迁移时同步更新）")
+	assert.Equal(t, schemaTruthTableCount(t), count, "业务表总数必须与SQL真相源一致")
 
 	var version int64
 	var dirty bool
 	require.NoError(t, db.QueryRow(fmt.Sprintf("SELECT version, dirty FROM %s.schema_migrations", schema)).Scan(&version, &dirty))
-	assert.Equal(t, int64(21), version)
+	assert.Equal(t, int64(latestMigrationVersion(t, "postgres")), version)
 	assert.False(t, dirty)
 
 	// 已在部署版本上的重复发布不能重放 DDL。
@@ -104,11 +104,5 @@ func TestMigrateUpAlembicHandover(t *testing.T) {
 	var version int64
 	require.NoError(t, db.QueryRow(fmt.Sprintf(
 		"SELECT version FROM %s.schema_migrations", schema)).Scan(&version))
-	// 交接 stamp 在 baseline(1)，随后 Up 补齐基线后迁移 → 版本 = 最新
-	//（0002 后为 2；写死会随迁移演进腐化，此处锚定「>baseline 且 ≤ 最新」）
-	var maxVersion int64
-	require.NoError(t, db.QueryRow(fmt.Sprintf(
-		"SELECT max(version) FROM %s.schema_migrations", schema)).Scan(&maxVersion))
-	assert.Equal(t, maxVersion, version, "交接后应推进到最新版本（stamp baseline + 补齐后续迁移）")
-	assert.Greater(t, version, int64(1), "0002 之后版本应 > baseline")
+	assert.Equal(t, int64(latestMigrationVersion(t, "postgres")), version, "交接后应补齐到嵌入迁移的最新版本")
 }

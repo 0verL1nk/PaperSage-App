@@ -27,14 +27,16 @@ type Store struct {
 	Pg         *PgStore // Neon(pgvector) 后端；配置了 NEON_DATABASE_URL 时启用
 	vectorInDB bool     // TiDB：VECTOR 列库端检索；普通 MySQL 使用二进制向量 + 内存检索
 
-	mu   sync.RWMutex
-	vec  map[string]*vecIndex
-	bm25 map[string]*bm25Index
+	mu      sync.RWMutex
+	vec     map[string]*vecIndex
+	bm25    map[string]*bm25Index
+	version map[string]uint64 // invalidation epochs prevent stale in-flight loads from repopulating caches
 }
 
 // vecIndex 项目级向量索引（内存）。
 type vecIndex struct {
-	entries []vecEntry
+	generation int64
+	entries    []vecEntry
 }
 
 type vecEntry struct {
@@ -61,7 +63,7 @@ func NewStore(db *gorm.DB, emb Embedder, _ string) (*Store, error) {
 	}
 	return &Store{
 		DB: db, Embed: emb, vectorInDB: inDB,
-		vec: map[string]*vecIndex{}, bm25: map[string]*bm25Index{},
+		vec: map[string]*vecIndex{}, bm25: map[string]*bm25Index{}, version: map[string]uint64{},
 	}, nil
 }
 
@@ -96,24 +98,28 @@ type IndexedChunk struct {
 func (IndexedChunk) TableName() string { return "rag_chunks" }
 
 // IndexSource 对一个来源重建索引：
-// 删旧行 → 分块 → 嵌入（唯一嵌入点）→ 整行（含向量）落 DB → 失效内存索引。
+// 分块 → 嵌入（唯一嵌入点）→ 事务内替换旧行 → 失效内存索引。
+// 先嵌入再删除：嵌入失败时旧索引保持可用。
 func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 	sourceType string, sourceID store.UUID, sourceName, text string) (int, error) {
 
 	if s.Pg == nil && s.DB == nil {
 		return 0, fmt.Errorf("no store backend")
 	}
-	if s.Pg == nil {
-		if err := s.DB.WithContext(ctx).
+
+	chunks := SplitChunks(text, 1200, 150)
+	if len(chunks) == 0 {
+		// 空内容也必须清掉该来源旧行，否则旧索引会继续被检索到。
+		if s.Pg != nil {
+			if err := s.Pg.DeleteSource(ctx, hexID(projectID), sourceType, hexID(sourceID)); err != nil {
+				return 0, err
+			}
+		} else if err := s.DB.WithContext(ctx).
 			Where("project_id = ? AND source_type = ? AND source_id = ?",
 				projectID, sourceType, sourceID).
 			Delete(&IndexedChunk{}).Error; err != nil {
 			return 0, err
 		}
-	}
-
-	chunks := SplitChunks(text, 1200, 150)
-	if len(chunks) == 0 {
 		s.invalidate(projectID)
 		return 0, nil
 	}
@@ -154,10 +160,23 @@ func (s *Store) IndexSource(ctx context.Context, projectID store.UUID,
 		}
 	} else if s.vectorInDB {
 		// TiDB VECTOR 列以 '[f1,f2,…]' 字面量写入
-		if err := s.insertVectorRows(ctx, rows, vecs); err != nil {
-			return 0, err
-		}
-	} else if err := s.DB.WithContext(ctx).Create(&rows).Error; err != nil {
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("project_id = ? AND source_type = ? AND source_id = ?",
+				projectID, sourceType, sourceID).Delete(&IndexedChunk{}).Error; err != nil {
+				return err
+			}
+			return s.insertVectorRows(ctx, tx, rows, vecs)
+		})
+	} else {
+		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := tx.Where("project_id = ? AND source_type = ? AND source_id = ?",
+				projectID, sourceType, sourceID).Delete(&IndexedChunk{}).Error; err != nil {
+				return err
+			}
+			return tx.Create(&rows).Error
+		})
+	}
+	if err != nil {
 		return 0, err
 	}
 	s.invalidate(projectID)
@@ -198,6 +217,12 @@ type Hit struct {
 // Search 混合检索：向量 top-k 与 BM25 top-k，RRF 融合。
 // 查询文本嵌入是本函数唯一的嵌入调用。
 func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, k int) ([]Hit, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.DB == nil && s.Pg == nil {
+		return nil, fmt.Errorf("no store backend")
+	}
 	if k <= 0 {
 		k = 5
 	}
@@ -212,68 +237,101 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	const rrfK = 60.0
 	scores := map[string]float64{}
 	hits := map[string]Hit{}
-	// 名次从 1 开始（RRF 原式）；切片遍历顺序即该路的名次顺序。
-	nextRank := 0
-	nextRankFor := func() int { nextRank++; return nextRank }
 	addRanked := func(id string, rank int) {
 		scores[id] += 1.0 / (rrfK + float64(rank))
 	}
 
 	// 向量路
+	vectorSeen := map[string]bool{}
 	qvecs, err := s.Embed.Embed(ctx, []string{query})
-	if err == nil && len(qvecs) == 1 {
-		if s.Pg != nil {
-			pgHits, err := s.Pg.SearchVector(ctx, hexID(projectID), qvecs[0], k, gen)
-			if err == nil {
-				for _, r := range pgHits {
-					addRanked(r.ID, nextRankFor())
-					hits[r.ID] = Hit{
-						ChunkID: r.ID, Content: r.Content,
-						SourceType: r.SourceType, SourceID: r.SourceID,
-						SourceName: r.SourceName, Score: r.Score,
-					}
-				}
+	if err != nil {
+		return nil, fmt.Errorf("embed query: %w", err)
+	}
+	if len(qvecs) != 1 || len(qvecs[0]) == 0 {
+		return nil, fmt.Errorf("embed query: expected one nonempty vector")
+	}
+	if s.Pg != nil {
+		pgHits, err := s.Pg.SearchVector(ctx, hexID(projectID), qvecs[0], k, gen)
+		if err != nil {
+			return nil, fmt.Errorf("search vectors: %w", err)
+		}
+		for i, r := range pgHits {
+			if vectorSeen[r.ID] {
+				continue
 			}
+			vectorSeen[r.ID] = true
+			addRanked(r.ID, i+1)
+			hits[r.ID] = Hit{
+				ChunkID: r.ID, Content: r.Content,
+				SourceType: r.SourceType, SourceID: r.SourceID,
+				SourceName: r.SourceName, Score: r.Score,
+			}
+		}
+	} else {
+		var vecHits []vecEntry
+		if s.vectorInDB {
+			vecHits, err = s.vectorSearchDB(ctx, projectID, qvecs[0], k, gen)
 		} else {
-			var vecHits []vecEntry
-			if s.vectorInDB {
-				vecHits = s.vectorSearchDB(ctx, projectID, qvecs[0], k)
-			} else {
-				vecHits = s.vectorSearch(ctx, projectID, qvecs[0], k)
+			vecHits, err = s.vectorSearch(ctx, projectID, qvecs[0], k, gen)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("search vectors: %w", err)
+		}
+		for i, e := range vecHits {
+			if vectorSeen[e.id] {
+				continue
 			}
-			for _, e := range vecHits {
-				addRanked(e.id, nextRankFor())
-				hits[e.id] = Hit{
-					ChunkID: e.id, Content: e.content,
-					SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
-				}
+			vectorSeen[e.id] = true
+			addRanked(e.id, i+1)
+			hits[e.id] = Hit{
+				ChunkID: e.id, Content: e.content,
+				SourceType: e.stype, SourceID: e.sid, SourceName: e.sname,
 			}
 		}
 	}
 
 	// BM25 路
-	bm := s.bm25For(ctx, projectID)
-	for _, id := range s.bm25Search(projectID, query, k) {
-		r := nextRankFor()
-		if _, ok := hits[id]; ok {
-			addRanked(id, r) // 两路共同命中：两路的倒数相加
-			continue
+	bm, err := s.bm25For(ctx, projectID, gen)
+	if err != nil {
+		return nil, fmt.Errorf("load BM25 index: %w", err)
+	}
+	bmIDs := bm25Search(bm, query, k)
+	var missing []string
+	for _, id := range bmIDs {
+		if _, ok := hits[id]; !ok {
+			missing = append(missing, id)
 		}
-		var row IndexedChunk
-		if err := s.DB.WithContext(ctx).
-			Where("id = ? AND generation = ?", id, bm.generation).First(&row).Error; err != nil {
-			continue
+	}
+	if len(missing) > 0 {
+		if s.Pg != nil {
+			rows, err := s.Pg.RowsByID(ctx, hexID(projectID), gen, missing)
+			if err != nil {
+				return nil, fmt.Errorf("load BM25 candidates: %w", err)
+			}
+			for _, row := range rows {
+				hits[row.ID] = Hit{ChunkID: row.ID, Content: row.Content, SourceType: row.SourceType, SourceID: row.SourceID, SourceName: row.SourceName}
+			}
+		} else {
+			var rows []IndexedChunk
+			if err := s.DB.WithContext(ctx).Select("id", "content", "source_type", "source_id", "source_name").Where("project_id = ? AND generation = ? AND id IN ?", projectID, gen, missing).Find(&rows).Error; err != nil {
+				return nil, fmt.Errorf("load BM25 candidates: %w", err)
+			}
+			for _, row := range rows {
+				hits[row.ID] = Hit{ChunkID: row.ID, Content: row.Content, SourceType: row.SourceType, SourceID: row.SourceID.String(), SourceName: row.SourceName}
+			}
 		}
-		hits[id] = Hit{
-			ChunkID: row.ID, Content: row.Content,
-			SourceType: row.SourceType, SourceID: row.SourceID.String(),
-			SourceName: row.SourceName,
+		for _, id := range missing {
+			if _, ok := hits[id]; !ok {
+				return nil, fmt.Errorf("BM25 candidate %q no longer exists in project generation", id)
+			}
 		}
-		// 其余分支：仅在 BM25 命中的片段也拿它的**真实名次**取倒数，
-		// 而不是一个人造的大基数。原先写 `+= 10_000` 会丢掉该路实际名次，
-		// 使这类片段分数塌到接近 0 并被 top-k 截掉——docs/project/
-		// 12-ai-writing-design.md §6.2 已把该实现标为不能当作标准 RRF 结果。
-		addRanked(id, r)
+	}
+	bmSeen := map[string]bool{}
+	for i, id := range bmIDs {
+		if !bmSeen[id] {
+			bmSeen[id] = true
+			addRanked(id, i+1)
+		}
 	}
 
 	out := make([]Hit, 0, len(hits))
@@ -281,9 +339,17 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 		h.Score = scores[id]
 		out = append(out, h)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Score == out[j].Score {
+			return out[i].ChunkID < out[j].ChunkID
+		}
+		return out[i].Score > out[j].Score
+	})
 	if len(out) > k {
 		out = out[:k]
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -291,6 +357,7 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 func (s *Store) invalidate(projectID store.UUID) {
 	key := projectID.String()
 	s.mu.Lock()
+	s.version[key]++
 	delete(s.vec, key)
 	delete(s.bm25, key)
 	s.mu.Unlock()
@@ -298,26 +365,27 @@ func (s *Store) invalidate(projectID store.UUID) {
 
 // ── 向量索引（内存，从 DB 惰性加载——只 reload 不重嵌入）────
 
-func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID) *vecIndex {
+func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID, gen int64) (*vecIndex, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	key := projectID.String()
 	s.mu.RLock()
-	if idx, ok := s.vec[key]; ok {
+	if idx, ok := s.vec[key]; ok && idx.generation == gen {
 		s.mu.RUnlock()
-		return idx
+		return idx, nil
 	}
+	version := s.version[key]
 	s.mu.RUnlock()
 
-	// 只加载活动代次的片段：代次切换会 invalidate 缓存，故缓存始终对应当前代次。
-	gen, gerr := s.ActiveGeneration(ctx, projectID)
-	if gerr != nil {
-		return &vecIndex{}
-	}
 	var rows []IndexedChunk
-	_ = s.DB.WithContext(ctx).
+	if err := s.DB.WithContext(ctx).
 		Select("id", "content", "source_type", "source_id", "source_name", "embedding").
-		Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error
+		Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error; err != nil {
+		return nil, err
+	}
 
-	idx := &vecIndex{}
+	idx := &vecIndex{generation: gen}
 	for _, r := range rows {
 		if len(r.Embedding) == 0 {
 			continue
@@ -340,16 +408,25 @@ func (s *Store) vectorIndex(ctx context.Context, projectID store.UUID) *vecIndex
 		})
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.version[key] != version {
+		return nil, fmt.Errorf("vector index invalidated while loading")
+	}
 	s.vec[key] = idx
-	s.mu.Unlock()
-	return idx
+	return idx, nil
 }
 
 // vectorSearch 余弦 top-k（与 chromem 同为暴力精确检索，数据量级内够用）。
-func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []float32, k int) []vecEntry {
-	idx := s.vectorIndex(ctx, projectID)
+func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []float32, k int, gen int64) ([]vecEntry, error) {
+	idx, err := s.vectorIndex(ctx, projectID, gen)
+	if err != nil {
+		return nil, err
+	}
 	if len(idx.entries) == 0 {
-		return nil
+		return nil, nil
 	}
 	qn := 0.0
 	for _, x := range q {
@@ -357,7 +434,7 @@ func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []floa
 	}
 	qn = math.Sqrt(qn)
 	if qn == 0 {
-		return nil
+		return nil, nil
 	}
 	type scored struct {
 		e vecEntry
@@ -377,7 +454,12 @@ func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []floa
 			list = append(list, scored{e, cos})
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].s > list[j].s })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].s == list[j].s {
+			return list[i].e.id < list[j].e.id
+		}
+		return list[i].s > list[j].s
+	})
 	if len(list) > k {
 		list = list[:k]
 	}
@@ -385,7 +467,7 @@ func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []floa
 	for i, x := range list {
 		out[i] = x.e
 	}
-	return out
+	return out, nil
 }
 
 // ── BM25（纯 Go 内存倒排，项目级惰性构建）────────────
@@ -399,33 +481,30 @@ type bm25Index struct {
 	generation int64
 }
 
-func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
+func (s *Store) bm25For(ctx context.Context, projectID store.UUID, gen int64) (*bm25Index, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	key := projectID.String()
 	s.mu.RLock()
-	if idx, ok := s.bm25[key]; ok {
+	if idx, ok := s.bm25[key]; ok && idx.generation == gen {
 		s.mu.RUnlock()
-		return idx
+		return idx, nil
 	}
+	version := s.version[key]
 	s.mu.RUnlock()
-
-	gen, gerr := s.ActiveGeneration(ctx, projectID)
-	if gerr != nil {
-		return &bm25Index{tf: map[string]map[string]int{}, df: map[string]int{}}
-	}
 
 	var rows []IndexedChunk
 	if s.Pg != nil {
 		pgRows, err := s.Pg.SearchBM25(ctx, hexID(projectID), gen)
-		if err == nil {
-			for _, r := range pgRows {
-				rows = append(rows, IndexedChunk{
-					ID: r.ID, ProjectID: projectID, SourceType: r.SourceType,
-					SourceName: r.SourceName, ChunkIdx: r.ChunkIdx, Content: r.Content,
-				})
-			}
+		if err != nil {
+			return nil, err
 		}
-	} else {
-		_ = s.DB.Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error
+		for _, r := range pgRows {
+			rows = append(rows, IndexedChunk{ID: r.ID, Content: r.Content})
+		}
+	} else if err := s.DB.WithContext(ctx).Select("id", "content").Where("project_id = ? AND generation = ?", projectID, gen).Find(&rows).Error; err != nil {
+		return nil, err
 	}
 	idx := &bm25Index{
 		tf:         map[string]map[string]int{},
@@ -452,13 +531,18 @@ func (s *Store) bm25For(ctx context.Context, projectID store.UUID) *bm25Index {
 		idx.avg = float64(total) / float64(len(rows))
 	}
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if s.version[key] != version {
+		return nil, fmt.Errorf("BM25 index invalidated while loading")
+	}
 	s.bm25[key] = idx
-	s.mu.Unlock()
-	return idx
+	return idx, nil
 }
 
-func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
-	idx := s.bm25For(context.Background(), projectID)
+func bm25Search(idx *bm25Index, query string, k int) []string {
 	if len(idx.docs) == 0 {
 		return nil
 	}
@@ -489,7 +573,12 @@ func (s *Store) bm25Search(projectID store.UUID, query string, k int) []string {
 			list = append(list, scored{id, sc})
 		}
 	}
-	sort.Slice(list, func(i, j int) bool { return list[i].s > list[j].s })
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].s == list[j].s {
+			return list[i].id < list[j].id
+		}
+		return list[i].s > list[j].s
+	})
 	if len(list) > k {
 		list = list[:k]
 	}
@@ -525,9 +614,9 @@ func DecodeVec(b []byte) []float32 {
 
 // insertVectorRows TiDB 方言：embedding 列以向量字面量插入
 // （go-sql-driver 对 VECTOR 列按字符串交互）。
-func (s *Store) insertVectorRows(ctx context.Context, rows []IndexedChunk, vecs [][]float32) error {
+func (s *Store) insertVectorRows(ctx context.Context, tx *gorm.DB, rows []IndexedChunk, vecs [][]float32) error {
 	for i, r := range rows {
-		if err := s.DB.WithContext(ctx).Exec(
+		if err := tx.WithContext(ctx).Exec(
 			`INSERT INTO rag_chunks (id, project_id, source_type, source_id, source_name, chunk_idx, content, embedding, generation, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(6))`,
 			r.ID, r.ProjectID, r.SourceType, r.SourceID, r.SourceName,
@@ -542,17 +631,13 @@ func (s *Store) insertVectorRows(ctx context.Context, rows []IndexedChunk, vecs 
 // vectorSearchDB 库端余弦检索（TiDB vec_cosine_distance 下推）。
 // Serverless 档为库内精确扫描；Dedicated 有 columnar replica 时可建
 // HNSW 向量索引（见 0010 迁移注释），同一 SQL 自动加速。
-func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []float32, k int) []vecEntry {
+func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []float32, k int, gen int64) ([]vecEntry, error) {
 	var rows []struct {
 		ID         string
 		Content    string
 		SourceType string
 		SourceID   store.UUID
 		SourceName string
-	}
-	gen, gerr := s.ActiveGeneration(ctx, projectID)
-	if gerr != nil {
-		return nil
 	}
 	err := s.DB.WithContext(ctx).Raw(
 		`SELECT id, content, source_type, source_id, source_name
@@ -561,7 +646,7 @@ func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []fl
 		 ORDER BY vec_cosine_distance(embedding, ?)
 		 LIMIT ?`, projectID, gen, VecLiteral(q), k).Scan(&rows).Error
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	out := make([]vecEntry, len(rows))
 	for i, r := range rows {
@@ -570,7 +655,7 @@ func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []fl
 			sid: r.SourceID.String(), sname: r.SourceName,
 		}
 	}
-	return out
+	return out, nil
 }
 
 // VecLiteral []float32 → '[f1,f2,…]'（TiDB VECTOR 字面量）。

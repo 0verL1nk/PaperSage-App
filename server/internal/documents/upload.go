@@ -146,12 +146,14 @@ func (s *Service) upload(c *gin.Context) {
 			S3Key: s3Key, Remark: remarkPtr, ProjectID: store.UUID{UUID: pid}, FolderID: folderID, OwnerID: store.UUID{UUID: uid},
 		}
 		var duplicate bool
+		var replay bool
 		objectWritten := false
 		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-			resourceID, replay, err := importreceipt.Claim(tx, doc.OwnerID, importKey, "document", fingerprint, doc.ID)
+			resourceID, replayed, err := importreceipt.Claim(tx, doc.OwnerID, importKey, "document", fingerprint, doc.ID)
 			if err != nil {
 				return err
 			}
+			replay = replayed
 			if replay {
 				doc.ID = resourceID
 				if err := tx.Where("id = ? AND owner_id = ?", doc.ID, doc.OwnerID).First(&doc).Error; err != nil {
@@ -192,6 +194,9 @@ func (s *Service) upload(c *gin.Context) {
 		}
 		resp := toDocumentResponse(&doc)
 		resp.Duplicate = duplicate
+		if status == "uploaded" && !replay {
+			s.indexUploaded(&doc)
+		}
 		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(resp, ""))
 		return
 	}
@@ -218,7 +223,17 @@ func (s *Service) upload(c *gin.Context) {
 	}
 	resp := toDocumentResponse(&doc)
 	resp.Duplicate = dupCount > 0
+	if status == "uploaded" {
+		s.indexUploaded(&doc)
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(resp, ""))
+}
+
+// indexUploaded 触发异步抽取与索引；与 confirm 共用同一入口，避免直接上传漏索引。
+func (s *Service) indexUploaded(doc *store.Document) {
+	if s.Indexer != nil {
+		go s.Indexer.IndexDocument(doc.ProjectID, doc.ID, doc.Name, doc.S3Key, doc.Type)
+	}
 }
 
 // GET /documents/{id}/preview — 裸响应（非信封），inline Content-Disposition
@@ -273,9 +288,7 @@ func (s *Service) confirm(c *gin.Context) {
 	_ = s.DB.WithContext(ctx).Model(&doc).Update("status", "uploaded").Error
 	doc.Status = "uploaded"
 	// RAG 索引钩子：异步抽取+索引（失败不阻断入库）
-	if s.Indexer != nil {
-		go s.Indexer.IndexDocument(doc.ProjectID, doc.ID, doc.Name, doc.S3Key, doc.Type)
-	}
+	s.indexUploaded(&doc)
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(toDocumentResponse(&doc), ""))
 }
 

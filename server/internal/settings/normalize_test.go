@@ -78,6 +78,34 @@ func repeat(n int) string {
 	return string(b)
 }
 
+func TestNormalizeRejectsUnknownActiveProvider(t *testing.T) {
+	_, err := NormalizeCategory("agent", map[string]any{
+		"active_provider_id": "missing",
+		"providers":          []any{map[string]any{"id": "p", "models": []any{"A"}, "active_model": "A"}},
+	})
+	require.Error(t, err)
+}
+
+func TestNormalizeRejectsInvalidModelSelection(t *testing.T) {
+	for _, provider := range []map[string]any{
+		{"models": []any{map[string]any{"x": 1}}},
+		{"models": []any{"A", 42}},
+		{"models": []any{" "}},
+		{"models": []any{"A"}, "active_model": "B"},
+		{"models": []any{"A"}, "active_model": ""},
+	} {
+		_, err := NormalizeCategory("agent", map[string]any{"providers": []any{provider}})
+		require.Error(t, err)
+	}
+}
+
+func TestNormalizeLegacyProviderKeepsDefaultModel(t *testing.T) {
+	out, err := NormalizeCategory("agent", map[string]any{"providers": []any{map[string]any{"id": "p", "models": []any{"A", "B"}}}})
+	require.NoError(t, err)
+	provider := out["providers"].([]any)[0].(map[string]any)
+	assert.Equal(t, "B", provider["active_model"])
+}
+
 // Error() 接口实现
 func TestErrorMessages(t *testing.T) {
 	assert.Equal(t, "boom", (&ValidationError{Msg: "boom"}).Error())

@@ -251,7 +251,8 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		if !ok {
 			return
 		}
-		items, total := queue.GetHistory(c.Request.Context(), pid, auth.CurrentUser(c).ID.UUID)
+		limit, _ := strconv.Atoi(c.Query("limit"))
+		items, total := queue.GetHistory(c.Request.Context(), pid, auth.CurrentUser(c).ID.UUID, limit)
 		out := make([]gin.H, 0, len(items))
 		for i := range items {
 			j := &items[i]

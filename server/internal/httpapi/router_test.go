@@ -36,6 +36,21 @@ func TestHealth(t *testing.T) {
 	assertBody(t, resp, `{"status":"healthy","version":"`+buildinfo.Version+`","commit":"`+buildinfo.Commit+`","buildTime":"`+buildinfo.Date+`","goVersion":"`+runtime.Version()+`"}`)
 }
 
+func TestPublicHealthHidesBuildMetadata(t *testing.T) {
+	srv := httptest.NewServer(New(testLogger()))
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/health", nil)
+	require.NoError(t, err)
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assertBody(t, resp, `{"status":"healthy"}`)
+}
+
 func TestHealthReflectsBuildMetadata(t *testing.T) {
 	oldVersion, oldCommit, oldDate := buildinfo.Version, buildinfo.Commit, buildinfo.Date
 	buildinfo.Version, buildinfo.Commit, buildinfo.Date = "1.2.3", "0123456789abcdef0123456789abcdef01234567", "2026-10-28T00:00:00Z"

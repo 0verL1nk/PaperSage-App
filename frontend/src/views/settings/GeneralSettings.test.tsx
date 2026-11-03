@@ -4,6 +4,8 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
 import { useSettingsStore } from '@/store/settings-store'
+import { toast } from 'sonner'
+vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
 import type { AllSettings, CategorySettings } from '@/services/settings-api'
 
 // Mock the store before importing the component
@@ -111,9 +113,6 @@ vi.mock('@/components/ui/checkbox', () => ({
     </button>
   ),
 }))
-vi.mock('./VersionInfo', () => ({
-  VersionInfo: () => null,
-}))
 
 import { GeneralSettings } from './GeneralSettings'
 
@@ -138,6 +137,7 @@ function installMockStore(): ReturnType<typeof vi.fn> {
       settings: fixtureSettings,
       loading: false,
       error: null,
+      pendingAgentModelChanges: 0,
       fetchSettings: vi.fn(),
       patchCategory,
       resetCategory: vi.fn(),
@@ -163,6 +163,7 @@ describe('GeneralSettings', () => {
         settings: settingsWithoutUi,
         loading: false,
         error: null,
+        pendingAgentModelChanges: 0,
         fetchSettings: vi.fn(),
         patchCategory: vi.fn().mockResolvedValue(undefined),
         resetCategory: vi.fn(),
@@ -203,6 +204,14 @@ describe('GeneralSettings', () => {
 
     const expected: Partial<CategorySettings> = { language: 'en-US' }
     expect(patchCategory).toHaveBeenCalledWith('ui', expected)
+  })
+
+  it('shows a visible error when saving fails', async () => {
+    const patchCategory = installMockStore()
+    patchCategory.mockRejectedValueOnce(new Error('save failed'))
+    render(<GeneralSettings />)
+    await userEvent.setup().click(screen.getByTestId('select-option-dark'))
+    expect(toast.error).toHaveBeenCalled()
   })
 
   it('calls patchCategory when the sidebar checkbox is toggled', async () => {

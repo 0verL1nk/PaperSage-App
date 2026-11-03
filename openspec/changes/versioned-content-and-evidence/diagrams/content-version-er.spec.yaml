@@ -1,0 +1,307 @@
+meta:
+  profile: engineering-review
+  theme: academic
+  layout: horizontal
+  routing: orthogonal
+  canvas: auto
+  grid:
+    size: 8
+    snap: true
+  title: Content Versioning and Evidence — Proposed Logical ER
+  description: >-
+    Proposed logical ER for review only. Physical constraints and migrations must be validated before implementation;
+    this diagram does not assert deployed schema facts.
+  legend: >-
+    Solid = FK/ownership; dashed = nullable or logical semantic relation (not always an FK); cardinalities are stated on
+    edges. PK = primary key; FK = foreign key.
+nodes:
+  - id: projects
+    label: |-
+      projects
+      PK id
+    type: service
+    size: xl
+    position:
+      x: 64
+      'y': 128
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: project_sources
+    label: |-
+      project_sources
+      PK id
+      FK project_id
+      current_head: CAS aggregate pointer
+    type: service
+    size: xl
+    position:
+      x: 344
+      'y': 128
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: source_versions
+    label: |-
+      source_versions
+      PK id; FK source_id
+      revision; object_key; sha256
+      UNIQUE(source_id, revision)
+    type: service
+    size: xl
+    position:
+      x: 624
+      'y': 128
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: source_extractions
+    label: |-
+      source_extractions
+      PK id; FK source_version_id
+      extractor_version; status
+      UNIQUE(source_version_id, extractor_version)
+    type: service
+    size: xl
+    position:
+      x: 904
+      'y': 128
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: source_segments
+    label: |-
+      source_segments
+      PK id; FK extraction_id
+      ordinal; locator
+      UNIQUE(extraction_id, ordinal)
+    type: service
+    size: xl
+    position:
+      x: 1184
+      'y': 128
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: documents
+    label: |-
+      documents
+      PK id
+      source_id NULL → project_sources
+      legacy rows not backfilled
+    type: service
+    size: xl
+    position:
+      x: 344
+      'y': 344
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: latex_files
+    label: |-
+      latex_files
+      PK id
+      source_id NULL → project_sources
+      legacy rows not backfilled
+    type: service
+    size: xl
+    position:
+      x: 344
+      'y': 536
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: rag_index_generations
+    label: |-
+      rag_index_generations
+      PK id; FK project_id
+      status; config
+      manifest binds source revisions
+    type: service
+    size: xl
+    position:
+      x: 624
+      'y': 344
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: rag_chunks
+    label: |-
+      rag_chunks
+      PK id; FK generation_id
+      FK source_version_id; extraction_id
+      UNIQUE key includes generation_id
+    type: service
+    size: xl
+    position:
+      x: 904
+      'y': 344
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: agent_evidence
+    label: |-
+      agent_evidence
+      PK id; run_id / seq fields (Run omitted)
+      FK source_version_id / extraction_id
+      locator; legacy rows unverified
+    type: service
+    size: xl
+    position:
+      x: 1184
+      'y': 344
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: agent_change_proposals
+    label: |-
+      agent_change_proposals
+      PK id; FK base_source_version_id
+      status; evidence dependencies
+    type: service
+    size: xl
+    position:
+      x: 1184
+      'y': 568
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#475569'
+      fontColor: '#0F172A'
+      fontSize: 12
+      strokeWidth: 1.5
+  - id: legend_note
+    label: |-
+      PROPOSED LOGICAL ER; validate constraints before migration.
+      PK/FK = primary/foreign key; solid = FK; dashed = nullable/semantic.
+      Edges show cardinality; manuscript revisions reuse source_versions.
+    type: document
+    size: xl
+    position:
+      x: 64
+      'y': 568
+    style:
+      fillColor: '#FFFFFF'
+      strokeColor: '#94A3B8'
+      fontColor: '#334155'
+      fontSize: 11
+      strokeWidth: 1
+edges:
+  - from: projects
+    to: project_sources
+    type: primary
+    label: '1 : 0..N'
+  - from: project_sources
+    to: source_versions
+    type: primary
+    label: '1 : 0..N revisions'
+  - from: source_versions
+    to: source_extractions
+    type: primary
+    label: '1 : 0..N'
+  - from: source_extractions
+    to: source_segments
+    type: primary
+    label: '1 : 0..N'
+  - from: project_sources
+    to: documents
+    type: optional
+    label: 'source 0..N : document 0..1; nullable FK'
+  - from: project_sources
+    to: latex_files
+    type: optional
+    label: 'source 0..N : latex_file 0..1; nullable FK'
+  - from: projects
+    to: rag_index_generations
+    type: primary
+    label: '1 : 0..N'
+  - from: rag_index_generations
+    to: source_versions
+    type: optional
+    label: N:M manifest (revision identity)
+    style:
+      dashed: true
+      strokeWidth: 1
+    waypoints:
+      - x: 784
+        'y': 296
+      - x: 784
+        'y': 256
+  - from: rag_index_generations
+    to: rag_chunks
+    type: primary
+    label: '1 : 0..N'
+  - from: source_versions
+    to: rag_chunks
+    type: primary
+    label: '1 : 0..N'
+  - from: source_extractions
+    to: rag_chunks
+    type: primary
+    label: '1 : 0..N'
+  - from: source_versions
+    to: agent_evidence
+    type: primary
+    label: '1 : 0..N evidence'
+  - from: source_extractions
+    to: agent_evidence
+    type: primary
+    label: '1 : 0..N; locator'
+  - from: project_sources
+    to: source_versions
+    type: optional
+    label: CAS current-head selection; logical pointer only, no circular FK assumed
+    style:
+      dashed: true
+      strokeWidth: 1
+    waypoints:
+      - x: 504
+        'y': 232
+      - x: 704
+        'y': 232
+  - from: source_versions
+    to: agent_change_proposals
+    type: primary
+    label: 'base manuscript revision 1 : 0..N proposals'
+    waypoints:
+      - x: 784
+        'y': 264
+      - x: 1312
+        'y': 264
+  - from: agent_evidence
+    to: agent_change_proposals
+    type: optional
+    label: N:M evidence dependencies
+    style:
+      dashed: true
+      strokeWidth: 1
+modules: []

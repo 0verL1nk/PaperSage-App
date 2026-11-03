@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { ChevronDown, ChevronRight, Loader2, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { useNavigate } from '@tanstack/react-router'
 
 import { Button } from '@/components/ui/button'
@@ -14,6 +16,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { ModelSelector } from '@/views/settings/model-selector'
 import { useSettingsStore } from '@/store/settings-store'
+import { useSessionStore } from '@/store/session-store'
 import { useChatStore, type ChatMessage, type ChatPart } from '@/store/chat-store'
 import * as agentApi from '@/services/agent-api'
 import { latexKeys } from '@/lib/query-keys'
@@ -28,7 +31,10 @@ import { cn } from '@/lib/utils'
  */
 export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mode?: 'default' | 'preparation' }) {
   const navigate = useNavigate()
-  const { settings, fetchSettings, patchCategory } = useSettingsStore()
+  const { t } = useTranslation()
+  const isGuest = useSessionStore((state) => state.isGuest)
+  const { settings, fetchSettings, patchCategory, pendingAgentModelChanges, error: settingsError } = useSettingsStore()
+  const savingModel = pendingAgentModelChanges > 0
   const agent = settings?.agent
   const providers = agent?.providers ?? []
   const hasProvider = providers.length > 0
@@ -37,29 +43,33 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
   // 只在 hasProvider 为真时才渲染——于是「没设置 → 显示未配置 → 不加载设置」成了死循环，
   // 用户打开面板永远看到「尚未配置 AI 模型」。（e2e 抓到的真 bug。）
   useEffect(() => {
-    if (!settings) void fetchSettings().catch(() => {})
-  }, [settings, fetchSettings])
+    if (!settings && !isGuest) void fetchSettings().catch(() => {})
+  }, [settings, fetchSettings, isGuest])
 
   const chat = useChatStore()
   const queryClient = useQueryClient()
   const [input, setInput] = useState('')
   const [pickerOpen, setPickerOpen] = useState(false)
+  const selectedProvider = agent?.active_provider_id
+    ? providers.find((p) => p.id === agent.active_provider_id)
+    : providers.find((p) => p.api_key?.trim() && p.base_url?.trim() && p.models.length > 0)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   // 会话列表：切会话从这里进来
   const convQuery = useQuery({
     queryKey: ['agent-conversations', projectId],
     queryFn: () => agentApi.listConversations(projectId),
-    enabled: hasProvider,
+    enabled: !isGuest && !!projectId,
   })
-  const conversations = convQuery.data ?? []
+  const conversations = isGuest ? [] : convQuery.data ?? []
+  const hasHistory = chat.messages.length > 0 || conversations.length > 0
 
   const activeConversationId = chat.conversationId ?? conversations[0]?.id ?? null
   const processedWritingStateTools = useRef(new Set<string>())
 
   // 打开面板即接上最近一次会话（没有就等用户发第一条）
   useEffect(() => {
-    if (!activeConversationId || chat.conversationId === activeConversationId) return
+    if (isGuest || !activeConversationId || chat.conversationId === activeConversationId) return
     void chat.open(activeConversationId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId])
@@ -82,7 +92,9 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
 
   const send = async (message = input) => {
     const content = message.trim()
-    if (!content || chat.streaming) return
+    // 同一 tick 内设置可能已变（保存中/最后一个 provider 被删），必须读最新 store 而非闭包里的渲染值。
+    const latest = useSettingsStore.getState()
+    if (!content || chat.streaming || latest.pendingAgentModelChanges > 0 || !latest.settings?.agent.providers.length) return
     if (message === input) setInput('')
     // 第一条消息会在 store 里顺带建出会话：把会话列表拉一次，
     // 否则下拉框里看不到刚建的这个会话。
@@ -97,7 +109,39 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     }
   }
 
-  if (!hasProvider) {
+  if (isGuest) {
+    return (
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <PanelHeader />
+        <div className="flex-1 flex items-center justify-center p-6">
+          <div className="max-w-[240px] text-center">
+            <Sparkles size={18} className="mx-auto mb-4 text-muted-foreground" />
+            <p className="text-[13px] font-medium mb-1">登录后可使用 AI 助手</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">游客项目只保存在本浏览器，AI 对话需要登录账号。</p>
+            <Button size="sm" className="rounded-xl" onClick={() => void navigate({ to: '/auth' })}>
+              去登录
+            </Button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!settings && !hasHistory) {
+    return (
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        <PanelHeader />
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6">
+          {settingsError ? <>
+            <p role="alert" className="text-sm text-destructive">设置加载失败，请重试。</p>
+            <Button size="sm" onClick={() => void fetchSettings().catch(() => {})}>重试</Button>
+          </> : <p className="text-sm text-muted-foreground">正在加载模型设置…</p>}
+        </div>
+      </div>
+    )
+  }
+
+  if (!hasProvider && !chat.streaming && !hasHistory && !convQuery.isError) {
     // 未配置模型：引导去设置，而不是给一个发不出去的空输入框
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -107,8 +151,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
             <div className="w-12 h-12 rounded-2xl bg-muted flex items-center justify-center mx-auto mb-4">
               <Sparkles size={18} className="text-muted-foreground" />
             </div>
-              <p className="text-[13px] font-medium mb-1">尚未配置 AI 模型</p>
-              <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
+            <p className="text-[13px] font-medium mb-1">尚未配置 AI 模型</p>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mb-4">
               {mode === 'preparation' ? '配置模型后，研究顾问才能通过对话帮你梳理并保存研究计划。' : '在设置里添加模型服务商后即可开始对话'}
             </p>
             <Button size="sm" className="rounded-xl" onClick={() => void navigate({ to: '/app/settings' })}>
@@ -163,16 +207,43 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
             )}
           </>
         }
-        model={
+        model={hasProvider ? (
           <ModelSelector
             variant="compact"
-            value={{ providerId: agent?.active_provider_id ?? '', model: '' }}
-            // 选择器回写 settings：此前它只改本地 state，选中的模型根本到不了后端
-            onChange={(sel) => void patchCategory('agent', { active_provider_id: sel.providerId })}
+            value={{ providerId: selectedProvider?.id ?? agent?.active_provider_id ?? '', model: selectedProvider?.active_model === undefined ? selectedProvider?.models.at(-1) ?? '' : selectedProvider.active_model || '' }}
+            disabled={savingModel || chat.streaming}
+            onChange={(sel) => {
+              void patchCategory('agent', { model_selection: { provider_id: sel.providerId, model: sel.model } })
+                .catch((error: unknown) => {
+                  if (!(error instanceof DOMException && error.name === 'AbortError')) {
+                    toast.error(t('agent.modelSaveFailed'))
+                  }
+                })
+            }}
           />
-        }
+        ) : undefined}
       />
 
+      {!settings && settingsError && (
+        <div className="px-4 py-2 flex items-center gap-2 text-xs text-destructive">
+          设置加载失败，请重试。
+          <Button size="sm" variant="outline" onClick={() => void fetchSettings().catch(() => {})}>重试设置</Button>
+        </div>
+      )}
+      {settings && !hasProvider && !chat.streaming && (
+        <div className="px-4 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+          尚未配置 AI 模型
+          <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/app/settings' })}>去设置</Button>
+        </div>
+      )}
+      {convQuery.isError && (
+        <div className="px-4 py-2 flex items-center gap-2 text-xs text-destructive">
+          会话加载失败，请重试。
+          <Button size="sm" variant="outline" onClick={() => void convQuery.refetch()}>重试会话</Button>
+        </div>
+      )}
+
+      {savingModel && <p className="px-4 py-2 text-xs text-muted-foreground">{t('agent.savingModelSettings')}</p>}
       <ScrollArea className="flex-1">
         <div className="p-4 space-y-4">
           {chat.messages.length === 0 && (
@@ -189,7 +260,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                     '我还没确定选题，想从兴趣方向开始梳理。',
                     '我有一个初步想法，帮我判断怎么形成研究问题。',
                     '我有任务书或导师要求，想一起拆解。',
-                  ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                  ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
                 </div>
               )}
             </div>
@@ -206,6 +277,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         <div className="relative group">
           <textarea
             value={input}
+            disabled={!hasProvider}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -219,7 +291,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <Button
             size="icon-xs"
             className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"
-            disabled={chat.streaming ? false : !input.trim()}
+            disabled={!chat.streaming && (savingModel || !hasProvider || !input.trim())}
             onClick={() => (chat.streaming ? void chat.cancel() : void send())}
             title={chat.streaming ? '停止' : '发送'}
           >

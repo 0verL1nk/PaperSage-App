@@ -7,6 +7,7 @@ import userEvent from '@testing-library/user-event'
 import { apiClient } from '@/services/client'
 import { useSettingsStore } from '@/store/settings-store'
 import type { AllSettings } from '@/services/settings-api'
+import '@/i18n'
 
 // Mock the store before importing the component so the component picks up the mock
 vi.mock('@/store/settings-store', async () => {
@@ -44,6 +45,7 @@ function installMockStore(overrides: Partial<ReturnType<typeof useSettingsStore.
       settings: null as AllSettings | null,
       loading: false,
       error: null as string | null,
+      pendingAgentModelChanges: 0,
       fetchSettings,
       patchCategory: vi.fn(),
       resetCategory: vi.fn(),
@@ -61,12 +63,11 @@ describe('SettingsPage', () => {
     vi.spyOn(apiClient, 'get').mockRejectedValue(new Error('offline'))
   })
 
-  it('keeps settings interactive when backend version is unavailable', async () => {
+  it('keeps settings interactive', async () => {
     const patchCategory = vi.fn().mockResolvedValue(undefined)
     installMockStore({ settings: fixtureSettings, patchCategory })
     render(<SettingsPage />)
 
-    expect(await screen.findByText('后端版本暂不可用')).toBeInTheDocument()
     await userEvent.click(screen.getByRole('checkbox', { name: '默认收起侧边栏' }))
     expect(patchCategory).toHaveBeenCalledWith('ui', { sidebar_collapsed: true })
   })

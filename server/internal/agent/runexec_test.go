@@ -7,14 +7,29 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
+
+func TestModelErrorsNeverPersistAPIKey(t *testing.T) {
+	message := friendlyErr(errors.New("upstream rejected fake-secret-key"))
+	assert.NotContains(t, message, "fake-secret-key")
+}
+
+func TestIterationLimitIsExplainedToUser(t *testing.T) {
+	assert.Contains(t, friendlyErr(adk.ErrExceedMaxIterations), "迭代上限")
+}
+
+func TestRagSearchModeDisclosesHashFallback(t *testing.T) {
+	assert.Contains(t, ragSearchMode(rag.HashEmbedder{Dim: 8}), "降级")
+}
 
 func TestCloseRacesAdmissionAndOtherClosers(t *testing.T) {
 	for range 20 {

@@ -5,6 +5,7 @@ package settings
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -13,6 +14,8 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+	"gorm.io/gorm/logger"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
@@ -63,7 +66,10 @@ type Service struct {
 func NewService(db *gorm.DB) *Service { return &Service{DB: db} }
 
 // ValidationError 表示分类校验失败（对应 SettingsServiceError → 422）。
-type ValidationError struct{ Msg string }
+type ValidationError struct {
+	Msg      string
+	internal bool
+}
 
 // UnknownCategoryError 对应 python "Unknown category: {cat}" 契约文案。
 type UnknownCategoryError struct{ Category string }
@@ -73,15 +79,16 @@ func (e *UnknownCategoryError) Error() string { return "Unknown category: " + e.
 func (e *ValidationError) Error() string { return e.Msg }
 
 // GetAll 读取全部分类并与默认值合并。
-func (s *Service) GetAll(ctx context.Context, uid uuid.UUID) map[string]map[string]any {
+func (s *Service) GetAll(ctx context.Context, uid uuid.UUID) (map[string]map[string]any, error) {
 	var rows []store.UserSettings
-	_ = s.DB.WithContext(ctx).Where("user_id = ?", store.UUID{UUID: uid}).Find(&rows).Error
+	if err := s.DB.WithContext(ctx).Where("user_id = ?", store.UUID{UUID: uid}).Find(&rows).Error; err != nil {
+		return nil, err
+	}
 	stored := map[string]map[string]any{}
 	for _, r := range rows {
 		var m map[string]any
-		_ = json.Unmarshal(r.Settings, &m)
-		if m == nil {
-			m = map[string]any{}
+		if err := json.Unmarshal(r.Settings, &m); err != nil || m == nil {
+			return nil, errors.New("invalid saved settings")
 		}
 		stored[r.Category] = m
 	}
@@ -89,37 +96,134 @@ func (s *Service) GetAll(ctx context.Context, uid uuid.UUID) map[string]map[stri
 	for cat, def := range DefaultSettings {
 		merged[cat] = shallowMerge(def, stored[cat])
 	}
-	return merged
+	return merged, nil
 }
 
 // GetCategory 读取单分类（合并默认值）。
-func (s *Service) GetCategory(ctx context.Context, uid uuid.UUID, cat string) map[string]any {
+func (s *Service) GetCategory(ctx context.Context, uid uuid.UUID, cat string) (map[string]any, error) {
 	var row store.UserSettings
 	err := s.DB.WithContext(ctx).
 		Where("user_id = ? AND category = ?", store.UUID{UUID: uid}, cat).First(&row).Error
 	stored := map[string]any{}
-	if err == nil {
-		_ = json.Unmarshal(row.Settings, &stored)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
 	}
-	return shallowMerge(DefaultSettings[cat], stored)
+	if err == nil {
+		if json.Unmarshal(row.Settings, &stored) != nil || stored == nil {
+			return nil, errors.New("invalid saved settings")
+		}
+	}
+	return shallowMerge(DefaultSettings[cat], stored), nil
 }
 
 // UpdateCategory 合并更新（PATCH）：current+partial → 规范化校验 → upsert。
 func (s *Service) UpdateCategory(ctx context.Context, uid uuid.UUID, cat string, partial map[string]any) (map[string]any, *ValidationError) {
-	current := s.GetCategory(ctx, uid, cat)
-	merged := shallowMerge(current, partial)
-	return s.applyValidated(ctx, uid, cat, merged)
+	var normalized map[string]any
+	db := s.DB.WithContext(ctx).Session(&gorm.Session{Logger: logger.Discard})
+	err := db.Transaction(func(tx *gorm.DB) error {
+		// Insert-if-absent also obtains SQLite's write lock before reading.
+		seed := store.UserSettings{UserID: store.UUID{UUID: uid}, Category: cat, Settings: datatypes.JSON([]byte(`{}`))}
+		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&seed).Error; err != nil {
+			return err
+		}
+		var row store.UserSettings
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("user_id = ? AND category = ?", store.UUID{UUID: uid}, cat).First(&row).Error; err != nil {
+			return err
+		}
+		stored := map[string]any{}
+		if err := json.Unmarshal(row.Settings, &stored); err != nil || stored == nil {
+			return errors.New("invalid saved settings")
+		}
+		merged := shallowMerge(shallowMerge(DefaultSettings[cat], stored), partial)
+		if selection, ok := partial["model_selection"]; ok {
+			if cat != "agent" || len(partial) != 1 {
+				return &ValidationError{Msg: "model_selection must be the only field in an agent patch"}
+			}
+			if err := applyModelSelection(merged, selection); err != nil {
+				return err
+			}
+			delete(merged, "model_selection")
+		}
+		var err error
+		if _, selecting := partial["model_selection"]; selecting {
+			normalized, err = normalizeAgent(merged, true)
+		} else {
+			normalized, err = NormalizeCategory(cat, merged)
+		}
+		if err != nil {
+			return &ValidationError{Msg: err.Error()}
+		}
+		if _, selecting := partial["model_selection"]; selecting {
+			// Keep legacy provider fields unchanged after validation.
+			normalized["providers"] = merged["providers"]
+		}
+		b, err := json.Marshal(normalized)
+		if err != nil {
+			return err
+		}
+		return tx.Model(&row).Update("settings", datatypes.JSON(b)).Error
+	})
+	if err != nil {
+		var validation *ValidationError
+		if errors.As(err, &validation) {
+			return nil, validation
+		}
+		return nil, &ValidationError{Msg: "Failed to save settings", internal: true}
+	}
+	return normalized, nil
+}
+
+func applyModelSelection(settings map[string]any, raw any) *ValidationError {
+	selection, ok := raw.(map[string]any)
+	if !ok || len(selection) != 2 {
+		return &ValidationError{Msg: "model_selection must contain only provider_id and model"}
+	}
+	id, idOK := selection["provider_id"].(string)
+	model, modelOK := selection["model"].(string)
+	if !idOK || strings.TrimSpace(id) == "" || !modelOK || strings.TrimSpace(model) == "" {
+		return &ValidationError{Msg: "model_selection provider_id and model must be non-empty strings"}
+	}
+	providers, ok := settings["providers"].([]any)
+	if !ok {
+		return &ValidationError{Msg: "field providers: must be a list"}
+	}
+	seen := make(map[string]bool, len(providers))
+	var selected map[string]any
+	for _, item := range providers {
+		provider, ok := item.(map[string]any)
+		if !ok {
+			return &ValidationError{Msg: "field providers: entries must be objects"}
+		}
+		providerID, ok := provider["id"].(string)
+		if !ok || strings.TrimSpace(providerID) == "" || seen[providerID] {
+			return &ValidationError{Msg: "provider IDs must be unique non-empty strings"}
+		}
+		seen[providerID] = true
+		if providerID == id {
+			selected = provider
+		}
+	}
+	if selected == nil {
+		return &ValidationError{Msg: "model_selection provider_id must identify a provider"}
+	}
+	selected["active_model"] = model
+	settings["active_provider_id"] = id
+	return nil
 }
 
 // ReplaceCategory 整体替换（PUT）：规范化校验后 upsert
 // （Pydantic model_dump 会填充全部默认字段，故存储仍为完整字段集）。
 func (s *Service) ReplaceCategory(ctx context.Context, uid uuid.UUID, cat string, data map[string]any) (map[string]any, *ValidationError) {
+	if _, ok := data["model_selection"]; ok {
+		return nil, &ValidationError{Msg: "model_selection is only supported in an agent patch"}
+	}
 	return s.applyValidated(ctx, uid, cat, data)
 }
 
 // ResetCategory 删除存储行（读取时回退默认值）。
-func (s *Service) ResetCategory(ctx context.Context, uid uuid.UUID, cat string) {
-	_ = s.DB.WithContext(ctx).
+func (s *Service) ResetCategory(ctx context.Context, uid uuid.UUID, cat string) error {
+	return s.DB.WithContext(ctx).
 		Where("user_id = ? AND category = ?", store.UUID{UUID: uid}, cat).
 		Delete(&store.UserSettings{}).Error
 }
@@ -129,25 +233,31 @@ func (s *Service) applyValidated(ctx context.Context, uid uuid.UUID, cat string,
 	if err != nil {
 		return nil, &ValidationError{Msg: err.Error()}
 	}
-	s.upsert(ctx, uid, cat, normalized)
-	return s.GetCategory(ctx, uid, cat), nil
+	if err := s.upsert(ctx, uid, cat, normalized); err != nil {
+		return nil, &ValidationError{Msg: "Failed to save settings", internal: true}
+	}
+	return normalized, nil
 }
 
-func (s *Service) upsert(ctx context.Context, uid uuid.UUID, cat string, data map[string]any) {
+func (s *Service) upsert(ctx context.Context, uid uuid.UUID, cat string, data map[string]any) error {
 	b, _ := json.Marshal(data)
+	// SQL log interpolation would expose provider API keys on failed writes.
+	db := s.DB.WithContext(ctx).Session(&gorm.Session{Logger: logger.Discard})
 	var row store.UserSettings
-	err := s.DB.WithContext(ctx).
+	err := db.
 		Where("user_id = ? AND category = ?", store.UUID{UUID: uid}, cat).First(&row).Error
 	if err == nil {
 		row.Settings = datatypes.JSON(b)
-		_ = s.DB.WithContext(ctx).Save(&row).Error
-	} else {
-		_ = s.DB.WithContext(ctx).Create(&store.UserSettings{
-			UserID:   store.UUID{UUID: uid},
-			Category: cat,
-			Settings: datatypes.JSON(b),
-		}).Error
+		return db.Save(&row).Error
 	}
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+	return db.Create(&store.UserSettings{
+		UserID:   store.UUID{UUID: uid},
+		Category: cat,
+		Settings: datatypes.JSON(b),
+	}).Error
 }
 
 func shallowMerge(base, overlay map[string]any) map[string]any {
@@ -174,7 +284,7 @@ func NormalizeCategory(cat string, data map[string]any) (map[string]any, error) 
 	case "editor":
 		return normalizeEditor(data)
 	case "agent":
-		return normalizeAgent(data)
+		return normalizeAgent(data, false)
 	default:
 		return nil, &UnknownCategoryError{Category: cat}
 	}
@@ -286,8 +396,9 @@ func normalizeEditor(data map[string]any) (map[string]any, error) {
 	}, nil
 }
 
-func normalizeAgent(data map[string]any) (map[string]any, error) {
+func normalizeAgent(data map[string]any, allowLegacyEmptyModel bool) (map[string]any, error) {
 	providers := []any{}
+	ids := map[string]bool{}
 	if raw, ok := data["providers"]; ok && raw != nil {
 		list, ok := raw.([]any)
 		if !ok {
@@ -298,16 +409,33 @@ func normalizeAgent(data map[string]any) (map[string]any, error) {
 			if !ok {
 				return nil, fmt.Errorf("field providers[%d]: must be an object", i)
 			}
-			norm, err := normalizeProvider(p)
+			norm, err := normalizeProvider(p, allowLegacyEmptyModel)
 			if err != nil {
 				return nil, fmt.Errorf("field providers[%d]: %s", i, err)
 			}
+			id := norm["id"].(string)
+			if ids[id] {
+				return nil, fmt.Errorf("provider IDs must be unique")
+			}
+			ids[id] = true
 			providers = append(providers, norm)
 		}
 	}
 	active, err := pickString(data, "active_provider_id", "")
 	if err != nil {
 		return nil, err
+	}
+	if active != "" {
+		found := false
+		for _, provider := range providers {
+			if provider.(map[string]any)["id"] == active {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, fmt.Errorf("active_provider_id must identify a provider")
+		}
 	}
 	temp := 0.7
 	if v, ok := data["temperature"]; ok {
@@ -334,7 +462,7 @@ func normalizeAgent(data map[string]any) (map[string]any, error) {
 	}, nil
 }
 
-func normalizeProvider(p map[string]any) (map[string]any, error) {
+func normalizeProvider(p map[string]any, allowLegacyEmptyModel bool) (map[string]any, error) {
 	id, err := pickString(p, "id", "")
 	if err != nil {
 		return nil, err
@@ -343,7 +471,9 @@ func normalizeProvider(p map[string]any) (map[string]any, error) {
 		return nil, fmt.Errorf("id too long")
 	}
 	if id == "" {
-		id = strings.ReplaceAll(uuid.Must(uuid.NewV7()).String(), "-", "")[:12] // v7 hex 前缀（时间有序）
+		id = strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+	} else if strings.TrimSpace(id) == "" {
+		return nil, fmt.Errorf("id must not be blank")
 	}
 	name, err := pickString(p, "name", "")
 	if err != nil {
@@ -379,11 +509,33 @@ func normalizeProvider(p map[string]any) (map[string]any, error) {
 		if !ok {
 			return nil, fmt.Errorf("models must be a list")
 		}
+		for _, item := range list {
+			model, ok := item.(string)
+			if !ok || strings.TrimSpace(model) == "" {
+				return nil, fmt.Errorf("models must contain non-empty strings")
+			}
+		}
 		models = list
 	}
-	active, err := pickString(p, "active_model", "")
+	defaultModel := ""
+	if _, exists := p["active_model"]; !exists && len(models) > 0 {
+		defaultModel, _ = models[len(models)-1].(string)
+	}
+	active, err := pickString(p, "active_model", defaultModel)
 	if err != nil {
 		return nil, err
+	}
+	if (len(models) > 0 || active != "") && (!allowLegacyEmptyModel || active != "") {
+		valid := false
+		for _, model := range models {
+			if model == active {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return nil, fmt.Errorf("active_model must be one of models")
+		}
 	}
 	return map[string]any{
 		"id": id, "name": name, "type": typ, "base_url": baseURL,
@@ -413,7 +565,12 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 
 	g.GET("", func(c *gin.Context) {
 		u := currentUserID(c)
-		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(AllSettingsResponse{Settings: s.GetAll(c.Request.Context(), u)}, ""))
+		data, err := s.GetAll(c.Request.Context(), u)
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to load settings"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(AllSettingsResponse{Settings: data}, ""))
 	})
 	cat := func(c *gin.Context) string { return c.Param("category") }
 
@@ -424,10 +581,19 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			return
 		}
 		u := currentUserID(c)
-		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: s.GetCategory(c.Request.Context(), u, category)}, ""))
+		data, err := s.GetCategory(c.Request.Context(), u, category)
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to load settings"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: data}, ""))
 	})
 
 	writeValidationError := func(c *gin.Context, e *ValidationError) {
+		if e.internal {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: e.Msg})
+			return
+		}
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 422, Info: e.Msg})
 	}
 
@@ -471,7 +637,10 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			return
 		}
 		u := currentUserID(c)
-		s.ResetCategory(c.Request.Context(), u, category)
-		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: s.GetCategory(c.Request.Context(), u, category)}, ""))
+		if err := s.ResetCategory(c.Request.Context(), u, category); err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to reset settings"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: shallowMerge(DefaultSettings[category], nil)}, ""))
 	})
 }

@@ -340,10 +340,11 @@ export async function deleteGuestFolder(folderId: string): Promise<void> {
   })
 }
 
-export async function listGuestDocuments(projectId: string, folderId: string | null): Promise<ProjectDocument[]> {
+// folderId 省略表示整个项目（不限目录）；显式 null 表示根目录。
+export async function listGuestDocuments(projectId: string, folderId?: string | null): Promise<ProjectDocument[]> {
   return withStore('documents', 'readonly', async (tx) => {
     const docs = await requestResult(tx.objectStore('documents').index('projectId').getAll(projectId)) as StoredDocument[]
-    return docs.filter((doc) => (doc.folderId ?? null) === folderId).map(documentMetadata)
+    return docs.filter((doc) => folderId === undefined || (doc.folderId ?? null) === folderId).map(documentMetadata)
   })
 }
 

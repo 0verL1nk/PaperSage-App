@@ -45,6 +45,12 @@ export interface AgentSettings {
   memory_enabled: boolean
 }
 
+export interface ModelSelection {
+  provider_id: string
+  model: string
+}
+
+export type ModelSelectionPatch = { model_selection: ModelSelection }
 export type CategorySettings = UISettings | EditorSettings | AgentSettings
 
 export interface AllSettings {
@@ -74,13 +80,16 @@ export async function getCategorySettings<T extends CategorySettings>(
   return res.settings as T
 }
 
+export function updateCategory(category: 'agent', settings: ModelSelectionPatch): Promise<CategoryResponse>
+export function updateCategory(category: SettingsCategory, settings: Partial<CategorySettings>): Promise<CategoryResponse>
 export async function updateCategory(
   category: SettingsCategory,
-  settings: Partial<CategorySettings>,
+  settings: Partial<CategorySettings> | ModelSelectionPatch,
 ): Promise<CategoryResponse> {
   requireAccountSettings()
-  return requestApi<CategoryResponse, { settings: Partial<CategorySettings> }>({
+  return requestApi<CategoryResponse, { settings: Partial<CategorySettings> | ModelSelectionPatch }>({
     method: 'patch',
+    skipGlobalLoading: true,
     url: SETTINGS.category(category),
     data: { settings },
   })

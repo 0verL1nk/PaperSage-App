@@ -1,6 +1,9 @@
 package store
 
 import (
+	"errors"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,15 +15,44 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/migrations"
 )
 
+func embeddedMigrationVersions(t *testing.T, dialect string) []uint {
+	t.Helper()
+	migrationFS, directory, err := migrations.FSFor(dialect)
+	require.NoError(t, err)
+	source, err := iofs.New(migrationFS, directory)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, source.Close()) }()
+	current, err := source.First()
+	require.NoError(t, err)
+	var versions []uint
+	for {
+		up, _, err := source.ReadUp(current)
+		require.NoError(t, err)
+		require.NoError(t, up.Close())
+		down, _, err := source.ReadDown(current)
+		require.NoError(t, err)
+		require.NoError(t, down.Close())
+		versions = append(versions, current)
+		next, err := source.Next(current)
+		if errors.Is(err, os.ErrNotExist) {
+			break
+		}
+		require.NoError(t, err)
+		current = next
+	}
+	return versions
+}
+
 func TestMigrationsRecognizeDeployedSchema(t *testing.T) {
 	for _, dialect := range []string{"postgres", "mysql"} {
 		t.Run(dialect, func(t *testing.T) {
+			versions := embeddedMigrationVersions(t, dialect)
+			for _, historical := range []uint{19, 20, 21} {
+				require.Contains(t, versions, historical, "deployed migration history must remain packaged")
+			}
+			head := versions[len(versions)-1]
 			for _, version := range []int{18, 21} {
-				name := "upgrade_from_18"
-				if version == 21 {
-					name = "already_at_21"
-				}
-				t.Run(name, func(t *testing.T) {
+				t.Run(fmt.Sprintf("from_%d", version), func(t *testing.T) {
 					migrationFS, directory, err := migrations.FSFor(dialect)
 					require.NoError(t, err)
 					source, err := iofs.New(migrationFS, directory)
@@ -33,17 +65,23 @@ func TestMigrationsRecognizeDeployedSchema(t *testing.T) {
 						require.NoError(t, sourceErr)
 						require.NoError(t, databaseErr)
 					})
-
+					expectedSteps := 0
+					for _, candidate := range versions {
+						if candidate > uint(version) {
+							expectedSteps++
+						}
+					}
 					err = runner.Up()
-					if version == 21 {
+					if expectedSteps == 0 {
 						require.ErrorIs(t, err, migrate.ErrNoChange)
-						require.Empty(t, database.MigrationSequence, "an already deployed schema must not replay DDL")
 					} else {
 						require.NoError(t, err)
-						require.Len(t, database.MigrationSequence, 3, "restore every migration between schema 18 and 21")
 					}
-					require.Equal(t, 21, database.CurrentVersion)
+					require.Equal(t, expectedSteps, len(database.MigrationSequence))
+					require.Equal(t, int(head), database.CurrentVersion)
 					require.False(t, database.IsDirty)
+					require.ErrorIs(t, runner.Up(), migrate.ErrNoChange)
+					require.Equal(t, expectedSteps, len(database.MigrationSequence), "current schema must not replay DDL")
 				})
 			}
 		})
