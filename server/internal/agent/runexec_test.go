@@ -82,8 +82,8 @@ func TestTerminalTransactionIsIdempotentAndKeepsApproval(t *testing.T) {
 	defer cancel()
 	rc := runContext{RunID: root.ID, ConversationID: conv.ID}
 	// A committed child is owned by the parent even if its creation result was lost.
-	require.NoError(t, svc.finalizeRun(ctx, rc, "partial", nil, RunCancelled, "cancelled"))
-	require.NoError(t, svc.finalizeRun(ctx, rc, "late completion", nil, RunCompleted, ""))
+	require.NoError(t, svc.finalizeRun(ctx, rc, "partial", RunCancelled, "cancelled"))
+	require.NoError(t, svc.finalizeRun(ctx, rc, "late completion", RunCompleted, ""))
 	require.NoError(t, db.First(&root, "id = ?", root.ID).Error)
 	require.NoError(t, db.First(child, "id = ?", child.ID).Error)
 	assert.Equal(t, RunCancelled, root.Status)
@@ -114,7 +114,7 @@ func TestTerminalTransactionIsIdempotentAndKeepsApproval(t *testing.T) {
 		root := store.AgentRun{ID: store.MustNewUUID(), ConversationID: conv.ID, AgentKey: AgentKeyMain, Status: RunRunning}
 		require.NoError(t, db.Create(&root).Error)
 		rc := runContext{RunID: root.ID, ConversationID: conv.ID}
-		require.ErrorIs(t, svc.finalizeRun(ctx, rc, "answer", nil, RunCompleted, ""), failure)
+		require.ErrorIs(t, svc.finalizeRun(ctx, rc, "answer", RunCompleted, ""), failure)
 		require.NoError(t, db.First(&root, "id = ?", root.ID).Error)
 		assert.Equal(t, RunFailed, root.Status)
 		assert.NotNil(t, root.CompletedAt)

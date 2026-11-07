@@ -74,6 +74,9 @@ DATA_DIR=/var/lib/papersage
 
 `AGENT_DOCUMENT_READ_LIMIT_BYTES` 默认为 0，不限制单次文献分段大小；部署者可明确设置正数字节数作为可选单次预算。超过预算会明确报错，可使用较小分段续读，不截断或限制完整文档的总长度。未指定 `max_bytes` 或其值为 0 时仍只返回读取信息，不自动向模型发送全文。
 `AGENT_MAX_ITERATIONS` 默认为 20，是 Eino DeepAgent 的显式迭代上限（框架不接受 0 表示无限）；达到上限时界面会提示可发送“继续”接着处理，部署者可按模型成本调整。
+OpenCode 网关的 OpenAI 兼容 BaseURL 必须写到 `https://opencode.ai/zen/go/v1`（缺 `/v1` 会 404）；其他 OpenAI 兼容端点同理，BaseURL 应包含版本段。
+
+AI 运行时按**单实例**部署收敛遗留 Run（`ReconcileOrphanRuns`，属于 `agent-chat-reliability-and-ux`）：服务启动时把本进程启动前仍为 `running` 的记录标记为失败并写入中断原因，避免订阅端永久悬挂。该行为不适用于多实例；若未来改为多实例，必须先引入租约/心跳再启用。模型 HTTP 响应头超时由 `AGENT_MODEL_TIMEOUT` 配置（默认 2 分钟，必须为正）；30 分钟 Run 超时仍是最终兜底，流式空闲读超时尚未单独实现。
 
 `DATABASE_MIGRATION_URL` 可使用直接数据库连接，`DATABASE_URL` 可使用池化连接。发布命令通过独立受限进程运行 `migrate`；服务启动不执行迁移。版本发布前必须审查待执行 DDL，破坏性变更应先备份并单独确认。
 
@@ -96,6 +99,8 @@ DATA_DIR=/var/lib/papersage
 5. 保留 Vercel 旧 API，待新端点的健康、证书和关键业务通过后，切换前端 API 地址；最后从 Vercel 页面验证真实登录、配置读取、SSE和 local/online 环境选择。
 
 域名和证书切换不是每次 CD 的一部分。配置未确认、DNS未切换或浏览器验收未完成时，不得宣称生产迁移成功。真实对话测试只使用获授权账号，不把模拟流当成真实模型结果。
+
+发布后至少核验：本机直连 `/health` 的版本/提交；公网 `/health` 仅返回状态；真实登录后的 SSE 流式文本与工具事件；取消后的终态与已生成内容；刷新/重开后历史中的工具卡、建议卡与 Run 状态；断线重连后不重复文本。任一项未执行时在验收记录中单列，不用 HTTP 200 代替。
 
 ## 激活与回滚
 

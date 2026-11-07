@@ -46,6 +46,10 @@ type streamWriter struct {
 	w        gin.ResponseWriter
 	flusher  http.Flusher
 	stepOpen bool
+	ended    bool
+	// seq 是当前正在推送的持久化事件序号；只有事件 part 带 SSE id，
+	// start/finish/心跳不带，避免污染客户端 afterSeq。
+	seq int64
 }
 
 func newStreamWriter(c *gin.Context) (*streamWriter, bool) {
@@ -67,6 +71,9 @@ func (s *streamWriter) part(v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
 		return
+	}
+	if s.seq > 0 {
+		_, _ = fmt.Fprintf(s.w, "id: %d\n", s.seq)
 	}
 	_, _ = fmt.Fprintf(s.w, "data: %s\n\n", b)
 	s.flusher.Flush()
@@ -139,6 +146,10 @@ func (s *streamWriter) Error(text string) {
 
 // Finish 收尾：关掉未结束的 step，推 finish 与终止标记。
 func (s *streamWriter) Finish() {
+	if s.ended {
+		return
+	}
+	s.ended = true
 	s.FinishStep()
 	s.part(map[string]any{"type": evFinish})
 	_, _ = fmt.Fprint(s.w, "data: [DONE]\n\n")
@@ -157,6 +168,10 @@ func (s *streamWriter) ping() {
 
 // Abort 客户端/服务端取消。
 func (s *streamWriter) Abort(reason string) {
+	if s.ended {
+		return
+	}
+	s.ended = true
 	s.FinishStep()
 	s.part(map[string]any{"type": evAbort, "reason": reason})
 	_, _ = fmt.Fprint(s.w, "data: [DONE]\n\n")

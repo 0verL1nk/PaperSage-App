@@ -60,17 +60,21 @@ var toolSpecs = map[string]ToolSpec{
 	"list_latex_files":  {Risk: RiskRead},
 	"read_latex_file":   {Risk: RiskRead},
 	"search_references": {Risk: RiskRead},
+	"wiki_read":         {Risk: RiskRead},
 	"compile_project":   {Risk: RiskWrite},
 	// 建议类工具：产出建议但不写盘，仍需用户确认才由服务端应用。
 	"propose_edit": {Risk: RiskWrite, RequiresApproval: true},
+	// 写研究蓝图与 wiki：工具自身要求用户确认/修订号，但审计必须显示为 write。
+	"save_writing_preparation": {Risk: RiskWrite},
+	"wiki_write":               {Risk: RiskWrite},
 }
 
-// specFor 未知工具按最保守的读处理（不会因未登记而放开写权限）。
+// specFor 未知工具按最保守的写处理（不会因未登记而放开权限）。
 func specFor(name string) ToolSpec {
 	if s, ok := toolSpecs[name]; ok {
 		return s
 	}
-	return ToolSpec{Risk: RiskRead}
+	return ToolSpec{Risk: RiskWrite}
 }
 
 // recordToolCall 落一条工具调用记录并返回它。

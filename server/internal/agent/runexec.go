@@ -226,7 +226,7 @@ func (s *Service) StartRun(rc runContext) error {
 			ctx, cancel = context.WithDeadline(context.Background(), rc.finalizeDeadline)
 		}
 		defer cancel()
-		err := s.finalizeRun(ctx, rc, "", nil, RunCancelled, errServiceClosing.Error())
+		err := s.finalizeRun(ctx, rc, "", RunCancelled, errServiceClosing.Error())
 		s.recordCloseError(rc.RunID, err)
 		return errors.Join(errServiceClosing, err)
 	}
@@ -277,12 +277,8 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 
 	textID := "text_" + rc.RunID.String()
 	var final strings.Builder
-	type toolEvt struct {
-		Tool   string `json:"tool"`
-		Result string `json:"result"`
-	}
-	var toolEvents []toolEvt
 	toolNames := map[string]string{}
+	toolResults := 0
 	childRunsByAgent := map[string]store.UUID{}
 	status, failure := RunFailed, ""
 	defer func() {
@@ -293,7 +289,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		}
 		finishCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), runFinalizeTimeout)
 		defer cancel()
-		s.recordCloseError(rc.RunID, s.finalizeRun(finishCtx, rc, final.String(), toolEvents, status, failure))
+		s.recordCloseError(rc.RunID, s.finalizeRun(finishCtx, rc, final.String(), status, failure))
 	}()
 	fail := func(msg string) { failure = msg }
 
@@ -301,7 +297,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("模型配置不可用")
 		return
 	}
-	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String())
+	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String(), s.Cfg.AgentModelTimeout)
 	if err != nil {
 		fail("模型初始化失败")
 		return
@@ -335,7 +331,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		Name:        mainAgentName,
 		Description: "论文写作助手（可读写项目文件与文献、触发编译）",
 		ChatModel:   chatModel,
-		Instruction: systemPrompt,
+		Instruction: s.systemPromptFor(ctx, rc.ProjectID, rc.UserID),
 		SubAgents:   subAgents,
 		ToolsConfig: adk.ToolsConfig{
 			// 让子 agent 的事件（带 AgentName）一并流出来：框架已经说明事件来自哪个
@@ -393,6 +389,9 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	// 工具调用事件带 toolCallId：前端不再需要按同名队列配对。
 	emitCalls := func(tcs []schema.ToolCall, targetRun store.UUID, silent bool) {
 		for _, tc := range tcs {
+			if tc.ID == "" || tc.Function.Name == "" {
+				continue // 框架内部空调用不应出现在审计与 UI
+			}
 			if _, seen := toolCallRows[tc.ID]; seen {
 				continue // 流式 chunk 可能重发同一调用
 			}
@@ -463,7 +462,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 				record(targetRun, evtToolOutput, map[string]string{"toolCallId": m.ToolCallID, "output": res})
 			} else {
 				emit(targetRun, evtToolOutput, map[string]string{"toolCallId": m.ToolCallID, "output": res})
-				toolEvents = append(toolEvents, toolEvt{Tool: name, Result: res})
+				toolResults++
 			}
 		}
 	}
@@ -511,7 +510,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			handleMsg(ev.Output.MessageOutput.Message, targetRun, silent)
 		}
 	}
-	if final.Len() == 0 && len(toolEvents) == 0 {
+	if final.Len() == 0 && toolResults == 0 {
 		fail("模型未返回内容，请重试")
 		return
 	}
@@ -590,9 +589,9 @@ func readRunEvents(ctx context.Context, iter *adk.AsyncIterator[*adk.AgentEvent]
 	return out
 }
 
-// persistAssistant 落库助手终答（文本 + 工具活动 part）并推进会话更新时间。
-func (s *Service) persistAssistant(ctx context.Context, rc runContext, content string, toolEvents any, status string) (*store.AgentMessage, error) {
-	msg, err := s.createAssistantMessage(ctx, s.DB, rc.ConversationID, &rc.RunID, content, toolEvents)
+// persistAssistant 落库助手终答并推进会话更新时间。
+func (s *Service) persistAssistant(ctx context.Context, rc runContext, parts []transcriptPart, status string) (*store.AgentMessage, error) {
+	msg, err := s.createAssistantMessage(ctx, s.DB, rc.ConversationID, &rc.RunID, parts)
 	if err != nil {
 		return nil, err
 	}
@@ -611,7 +610,20 @@ func (s *Service) persistAssistant(ctx context.Context, rc runContext, content s
 // finalizeRun commits parent/children, partial answer, and the final event together.
 // Claiming only running rows prevents a late path from overwriting a terminal Run
 // or emitting another completion; activities precede the stream-ending event.
-func (s *Service) finalizeRun(ctx context.Context, rc runContext, content string, tools any, status, failure string) error {
+func (s *Service) finalizeRun(ctx context.Context, rc runContext, content string, status, failure string) error {
+	transcriptFailure := failure
+	if status == RunCancelled {
+		// 取消是用户动作，不把 context canceled 作为可见错误写进转录。
+		transcriptFailure = ""
+	}
+	parts, buildErr := s.buildTranscript(ctx, rc.RunID, content, transcriptFailure)
+	if buildErr != nil {
+		if content != "" {
+			parts = []transcriptPart{{Type: PartText, Status: "completed", Text: &content}}
+		} else {
+			parts = nil
+		}
+	}
 	var messageErr error
 	err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		result := tx.Model(&store.AgentRun{}).Where("id = ? AND status = ?", rc.RunID, RunRunning).
@@ -623,7 +635,7 @@ func (s *Service) finalizeRun(ctx context.Context, rc runContext, content string
 		// Isolate message persistence so a failed answer cannot strand its Run.
 		messageErr = tx.Transaction(func(msgTx *gorm.DB) error {
 			var err error
-			msg, err = (&Service{DB: msgTx}).persistAssistant(ctx, rc, content, tools, status)
+			msg, err = (&Service{DB: msgTx}).persistAssistant(ctx, rc, parts, status)
 			return err
 		})
 		updates := map[string]any{}
@@ -710,7 +722,9 @@ func (s *Service) streamRun(ctx context.Context, sw *streamWriter, runID, convID
 		terminal := false
 		for _, ev := range events {
 			last = ev.Sequence
+			sw.seq = ev.Sequence
 			terminal = s.emitProtocol(sw, ev, &textOpen) || terminal
+			sw.seq = 0
 		}
 		if terminal {
 			sw.Finish()
@@ -784,6 +798,9 @@ func (s *Service) emitProtocol(sw *streamWriter, ev store.AgentEvent, textOpen *
 		if *textOpen {
 			sw.TextEnd(str("id"))
 			*textOpen = false
+		}
+		if str("status") == RunCancelled {
+			sw.Abort("cancelled")
 		}
 		return true
 	}

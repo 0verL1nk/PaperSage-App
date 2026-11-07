@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/schema"
@@ -46,12 +47,18 @@ type Service struct {
 	// cancels 登记进行中 Run 的取消函数（POST /runs/:id/cancel）。
 	cancelMu sync.Mutex
 	cancels  map[store.UUID]context.CancelFunc
-	closing  bool
-	runs     sync.WaitGroup
-	drained  chan struct{}
-	closeErr error
-	runCtx   context.Context
-	stopRuns context.CancelCauseFunc
+	// retries 防止并发双击重试创建多个 Run；单实例内有效。
+	// shortcut: in-process and unbounded; add a DB unique key if retries become frequent.
+	retryMu sync.Mutex
+	retries map[string]store.UUID
+	// startedAt 用于启动时收敛上一进程遗留的 running Run。
+	startedAt time.Time
+	closing   bool
+	runs      sync.WaitGroup
+	drained   chan struct{}
+	closeErr  error
+	runCtx    context.Context
+	stopRuns  context.CancelCauseFunc
 	// files 复用 latex 域的文件服务（路径校验 + 存储 + 缓存），应用建议时用。
 	// 必须复用同一个实例：FilesService 带自己的 LRU 内容缓存，各建一份会让
 	// 同一 S3 key 出现两份缓存、读出陈旧内容。
@@ -61,11 +68,14 @@ type Service struct {
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
 	cfg *config.Settings, rg *rag.Store) *Service {
 	runCtx, stopRuns := context.WithCancelCause(context.Background())
-	return &Service{
+	s := &Service{
 		DB: db, Storage: stg, Cfg: cfg, RAG: rg, files: files,
 		hub: newRunHub(), cancels: map[store.UUID]context.CancelFunc{},
+		retries: map[string]store.UUID{}, startedAt: time.Now().UTC(),
 		runCtx: runCtx, stopRuns: stopRuns,
 	}
+	_ = s.ReconcileOrphanRuns(context.Background())
+	return s
 }
 
 func writeModelResolutionError(c *gin.Context, err error) {
@@ -132,7 +142,7 @@ func (s *Service) chat(c *gin.Context) {
 
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
 // 值会快照进 Run，避免换了提示却仍声称同一实验条件。
-const systemPromptVersion = "v2"
+const systemPromptVersion = "v3"
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
 	if idStr != "" {

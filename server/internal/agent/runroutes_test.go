@@ -119,7 +119,7 @@ func TestRunLifecycleContract(t *testing.T) {
 	runsPath := "/api/v1/agent/conversations/" + convID.String() + "/runs"
 
 	// 1. 创建 Run
-	rec := do(http.MethodPost, runsPath, `{"content":"看看我的文件","clientRequestId":"req-1"}`)
+	rec := do(http.MethodPost, runsPath, `{"content":"看看我的文件","clientRequestId":"req-1","expectedThreadVersion":0}`)
 	require.Equal(t, 200, rec.Code, rec.Body.String())
 	var created createResp
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
@@ -149,7 +149,7 @@ func TestRunLifecycleContract(t *testing.T) {
 	assert.Equal(t, "succeeded", calls[0].State)
 
 	// 3. 幂等：同一 clientRequestId 复用同一 Turn 与同一 Run，不重复执行
-	rec = do(http.MethodPost, runsPath, `{"content":"看看我的文件","clientRequestId":"req-1"}`)
+	rec = do(http.MethodPost, runsPath, `{"content":"看看我的文件","clientRequestId":"req-1","expectedThreadVersion":0}`)
 	require.Equal(t, 200, rec.Code)
 	var again createResp
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
@@ -351,7 +351,7 @@ func TestLegacyChatReusesCommittedRun(t *testing.T) {
 	}))
 	defer fake.Close()
 	_, db, path, do := lifecycleAPI(t, fake.URL)
-	id := createdRunID(t, do(http.MethodPost, path, `{"content":"question","clientRequestId":"same"}`))
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"question","clientRequestId":"same","expectedThreadVersion":0}`))
 	var conv store.AgentConversation
 	require.NoError(t, db.First(&conv).Error)
 	legacyPath := "/api/v1/projects/" + conv.ProjectID.String() + "/agent/chat"
@@ -432,7 +432,7 @@ func TestChildRunClosesBeforeParentOnCancelAndError(t *testing.T) {
 			t.Cleanup(func() { close(release) })
 			svc, db, path, do := lifecycleAPI(t, fake.URL)
 			svc.RAG, _ = rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
-			id := createdRunID(t, do(http.MethodPost, path, `{"content":"search"}`))
+			id := createdRunID(t, do(http.MethodPost, path, `{"content":"search","expectedThreadVersion":0}`))
 			t.Cleanup(func() { svc.CancelRun(id) })
 			var children []store.AgentRun
 			require.Eventually(t, func() bool {
@@ -497,7 +497,7 @@ func TestRunExecutesModelCapturedAtCreation(t *testing.T) {
 		}
 	}))
 	defer func() { require.NoError(t, db.Callback().Create().Remove("test:change-model")) }()
-	id := createdRunID(t, do(http.MethodPost, path, `{"content":"hello"}`))
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"hello","expectedThreadVersion":0}`))
 	var request map[string]any
 	select {
 	case request = <-requests:
@@ -523,7 +523,7 @@ func TestRunExecutesModelCapturedAtCreation(t *testing.T) {
 func TestRunSettingsDatabaseFailureIsNotReportedAsMissingModel(t *testing.T) {
 	_, db, path, do := lifecycleAPI(t, "http://unused.invalid")
 	require.NoError(t, db.Migrator().DropTable(&store.UserSettings{}))
-	rec := do(http.MethodPost, path, `{"content":"hello"}`)
+	rec := do(http.MethodPost, path, `{"content":"hello","expectedThreadVersion":0}`)
 	require.Equal(t, http.StatusInternalServerError, rec.Code, rec.Body.String())
 	assert.NotContains(t, rec.Body.String(), "尚未配置")
 	assert.NotContains(t, rec.Body.String(), "user_settings")
@@ -540,7 +540,7 @@ func TestCloseDuringRunCreationDoesNotLeaveRunningRow(t *testing.T) {
 	}))
 	defer func() { require.NoError(t, db.Callback().Update().Remove("test:pause-turn")) }()
 	response := make(chan *httptest.ResponseRecorder, 1)
-	go func() { response <- do(http.MethodPost, path, `{"content":"work"}`) }()
+	go func() { response <- do(http.MethodPost, path, `{"content":"work","expectedThreadVersion":0}`) }()
 	select {
 	case <-entered:
 	case <-time.After(3 * time.Second):
@@ -575,7 +575,7 @@ func TestServiceCloseCancelsAndRejectsRuns(t *testing.T) {
 	t.Cleanup(fake.Close)
 	t.Cleanup(func() { close(release) })
 	svc, db, path, do := lifecycleAPI(t, fake.URL)
-	id := createdRunID(t, do(http.MethodPost, path, `{"content":"work"}`))
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"work","expectedThreadVersion":0}`))
 	t.Cleanup(func() { svc.CancelRun(id) })
 	select {
 	case <-entered:
@@ -627,7 +627,7 @@ func TestServiceCloseWaitsForCompletion(t *testing.T) {
 	}))
 	t.Cleanup(fake.Close)
 	svc, db, path, do := lifecycleAPI(t, fake.URL)
-	id := createdRunID(t, do(http.MethodPost, path, `{"content":"work"}`))
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"work","expectedThreadVersion":0}`))
 	t.Cleanup(func() { svc.CancelRun(id) })
 	select {
 	case <-entered:
@@ -645,7 +645,7 @@ func TestServiceCloseWaitsForCompletion(t *testing.T) {
 		t.Fatalf("Close returned before in-flight work finished: %v", err)
 	case <-time.After(30 * time.Millisecond):
 	}
-	rec := do(http.MethodPost, path, `{"content":"rejected during drain"}`)
+	rec := do(http.MethodPost, path, `{"content":"rejected during drain","expectedThreadVersion":0}`)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code, rec.Body.String())
 	close(release)
 	require.NoError(t, <-done)
@@ -676,7 +676,7 @@ func TestCancelWhileModelBlockedPersistsTerminal(t *testing.T) {
 			t.Cleanup(fake.Close)
 			t.Cleanup(func() { close(release) })
 			svc, db, path, do := lifecycleAPI(t, fake.URL)
-			id := createdRunID(t, do(http.MethodPost, path, `{"content":"keep working"}`))
+			id := createdRunID(t, do(http.MethodPost, path, `{"content":"keep working","expectedThreadVersion":0}`))
 			t.Cleanup(func() { svc.CancelRun(id) })
 			select {
 			case <-entered:
@@ -695,4 +695,44 @@ func TestCancelWhileModelBlockedPersistsTerminal(t *testing.T) {
 			assertRunTerminal(t, db, id, agent.RunCancelled)
 		})
 	}
+}
+
+func TestCreateRunRequiresExpectedVersion(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "scripted failure", http.StatusBadRequest)
+	}))
+	defer fake.Close()
+	_, _, path, do := lifecycleAPI(t, fake.URL)
+	rec := do(http.MethodPost, path, `{"content":"question","clientRequestId":"no-version"}`)
+	require.Equal(t, http.StatusPreconditionRequired, rec.Code, rec.Body.String())
+}
+
+func TestRetryIsIdempotentForSameClientRequest(t *testing.T) {
+	fake := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "scripted failure", http.StatusBadRequest)
+	}))
+	defer fake.Close()
+	_, db, path, do := lifecycleAPI(t, fake.URL)
+	id := createdRunID(t, do(http.MethodPost, path, `{"content":"question","clientRequestId":"first","expectedThreadVersion":0}`))
+	assertRunTerminal(t, db, id, agent.RunFailed)
+
+	retryPath := "/api/v1/agent/runs/" + id.String() + "/retry"
+	var wg sync.WaitGroup
+	results := make([]*httptest.ResponseRecorder, 2)
+	for i := range results {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			results[i] = do(http.MethodPost, retryPath, `{"clientRequestId":"retry-1"}`)
+		}(i)
+	}
+	wg.Wait()
+	require.Equal(t, http.StatusOK, results[0].Code, results[0].Body.String())
+	require.Equal(t, http.StatusOK, results[1].Code, results[1].Body.String())
+	first := createdRunID(t, results[0])
+	second := createdRunID(t, results[1])
+	assert.Equal(t, first, second, "同一 clientRequestId 的并发重试必须返回同一个 Run")
+	var runs int64
+	require.NoError(t, db.Model(&store.AgentRun{}).Count(&runs).Error)
+	assert.EqualValues(t, 2, runs, "原始 Run + 一个重试 Run")
 }

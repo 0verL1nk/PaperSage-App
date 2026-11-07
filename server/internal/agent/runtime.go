@@ -21,6 +21,7 @@ const (
 	PartApproval = "approval"
 	PartCitation = "citation"
 	PartArtifact = "artifact"
+	PartProposal = "proposal"
 	PartError    = "error"
 )
 
@@ -278,9 +279,10 @@ func (s *Service) createUserMessage(ctx context.Context, tx *gorm.DB,
 	return &msg, nil
 }
 
-// createAssistantMessage 落库助手终答：文本 part + 工具活动 part。
+// createAssistantMessage 落库助手终答：parts 由事件事实重建，保留文本、
+// 每个 toolCallId 的工具、建议与错误，而不是一条聚合工具记录。
 func (s *Service) createAssistantMessage(ctx context.Context, tx *gorm.DB,
-	convID store.UUID, runID *store.UUID, content string, toolEvents any) (*store.AgentMessage, error) {
+	convID store.UUID, runID *store.UUID, parts []transcriptPart) (*store.AgentMessage, error) {
 	now := time.Now().UTC()
 	msg := store.AgentMessage{
 		ID: store.MustNewUUID(), ConversationID: convID,
@@ -289,17 +291,8 @@ func (s *Service) createAssistantMessage(ctx context.Context, tx *gorm.DB,
 	if err := tx.WithContext(ctx).Create(&msg).Error; err != nil {
 		return nil, err
 	}
-	ord := 0
-	if content != "" {
-		if err := s.appendPart(ctx, tx, msg.ID, ord, PartText, "completed", &content, nil); err != nil {
-			return nil, err
-		}
-		ord++
-	}
-	// 工具活动整段作为一个 tool part（含 args/result）。
-	// 待工具状态机落地后再逐次调用拆成独立 part。
-	if b, err := json.Marshal(toolEvents); err == nil && len(b) > 4 {
-		if err := s.appendPart(ctx, tx, msg.ID, ord, PartTool, "completed", nil, datatypes.JSON(b)); err != nil {
+	for i, p := range parts {
+		if err := s.appendPart(ctx, tx, msg.ID, i, p.Type, p.Status, p.Text, p.Content); err != nil {
 			return nil, err
 		}
 	}

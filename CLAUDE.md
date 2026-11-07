@@ -106,13 +106,16 @@ server/
 - **Agent 运行时（模式 B）**：一次提交 = Turn + Run；`POST /agent/conversations/:id/runs` 建 Run 并**立刻返回**，执行在独立 goroutine 里跑（`internal/agent/runexec.go`），客户端断开也照常跑完；`GET /agent/runs/:id/events` 订阅事件
 - **会话要先显式建**：`POST /projects/:id/agent/conversations`。Run 路径要求会话已存在，面板在**第一条消息**时先建会话再发 Run——没有这个入口，新项目的第一句话会静默丢失
 - **事件真相在 `agent_events`**（Run 内单调 sequence），进程内 hub 只做唤醒——多实例/重启不丢事件
+- **SSE 序号与续传**：每条事件用标准 `id:` 携带 `agent_events.sequence`；`GET /agent/runs/:id/events?afterSeq=` 先补历史再跟随。断线只停止推送、不取消 Run；心跳不带 `id:`，避免污染续传位置
 - **传输协议对齐 AI SDK UI Message Stream**（`internal/agent/protocol.go`，响应头 `x-vercel-ai-ui-message-stream: v1`）：part 词汇为 `start` / `text-*` / `tool-input-*` / `tool-output-*` / `data-*` / `finish` / `[DONE]`。工具事件带 `toolCallId`，**不再按同名工具配对**
 - **消息由 Part 组成**（`agent_message_parts`），不再有 `content` / `tool_events` 两列；前端用 Normalized Store + Reducer 按 part id 幂等归并（`frontend/src/store/chat-store.ts`）
-- **工具调用是可审计状态机**（`agent_tool_calls`）：`ready → executing → succeeded|failed`，需审批者停在 `awaiting_approval`；带 `seq` 与 `idempotency_key`
+- **转录在 Run 终态重建**：从 `agent_events` + `agent_tool_calls` + `agent_change_proposals` 生成 text / tool / proposal / error parts；建议状态以建议表为准，子 agent 的 silent 事件不进入主转录
+- **工具调用是可审计状态机**（`agent_tool_calls`）：普通工具 `executing → succeeded|failed`，需审批工具停在 `awaiting_approval`；带 `seq` 与 `idempotency_key`。所有工具必须在 `toolSpecs` 登记风险级别，未登记不得默认只读
+- **取消/重试**：取消幂等，界面区分 `cancelling`；重试只允许 failed/cancelled，携带 `clientRequestId` 防重复计费。单实例部署启动时收敛上一进程遗留的 `running` Run（`ReconcileOrphanRuns`）；多实例不在当前范围
 - **助手不直接改稿**：主 agent 无写盘工具，`propose_edit` 只产出建议；用户确认后由服务端**重新校验基准版本**再应用（`internal/agent/proposals.go`）。旧建议在稿件变化后转 `stale`，不得用旧基准覆盖新内容
 - **Agent 基座用 Eino prebuilt `DeepAgent`**（`adk/prebuilt/deep`）：多 agent 是**声明式**的——子 agent 放进 `deep.Config.SubAgents`，由它生成 `task` 工具编排；**不要手工包 `adk.NewAgentTool`**，也不要自己解析工具参数去判断「哪个子 agent」——开 `ToolsConfig.EmitInternalEvents` 后 `AgentEvent.AgentName` 已经给出事件来源
 - **多 Agent 拓扑**：主 agent 只挂领域工具；`search_references` 是声明的子 agent，调用时开子 Run（`parent_run_id`）形成 Run 树。子 agent 的事件写进**它自己的子 Run** 留档，**不计入主回答**——用户始终只面对一个 Assistant。子 agent 只回最终结论，其多轮检索过程不外泄到主上下文
-- 不设 `Backend` / `Shell`（不注册文件系统与命令工具）、不设 `MaxIteration`：不凭空加能力，也不凭空定上限
+- 不设 `Backend` / `Shell`（不注册文件系统与命令工具）；`AGENT_MAX_ITERATIONS` 是 Eino DeepAgent 的显式上限（默认 20，框架不接受 0 表示无限）
 - 幂等：`clientRequestId`（Turn/Run）、`idempotency_key`（工具副作用）、`expectedThreadVersion` 乐观锁（会话版本）
 
 ### LaTeX Pipeline
@@ -258,7 +261,11 @@ Recent change archived: `2026-09-05-migrate-backend-to-go`（Python→Go 后端�
 
 ### Issue tracker
 
-Issues tracked via GitHub Issues using `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues tracked via GitHub Issues using `gh` CLI, organized by Milestone and (when the token has `project` scope) GitHub Project. Use `area:*`, `role:product|backend|frontend|test|ops`, and `priority:P0|P1|P2` labels. See `docs/agents/issue-tracker.md` and `docs/agents/delivery-workflow.md`.
+
+### Delivery workflow
+
+Product-style delivery: freeze scope in OpenSpec, mirror workstreams as GitHub Issues under a Milestone, run backend/frontend/test/ops in parallel with disjoint file ownership, then actually launch the app and walk the user journey before claiming completion. See `docs/agents/delivery-workflow.md`.
 
 ### Triage labels
 

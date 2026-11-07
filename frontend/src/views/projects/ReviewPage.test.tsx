@@ -13,6 +13,9 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
 }))
 vi.mock('@/hooks/use-latex', () => ({ useLatexFiles, useLatexFileContent }))
+vi.mock('./ai-panel', () => ({
+  AiPanel: ({ mode }: { mode: string }) => <div data-testid="review-agent" data-mode={mode} />,
+}))
 
 import { ReviewPage } from './ReviewPage'
 
@@ -36,6 +39,7 @@ describe('ReviewPage', () => {
     expect(screen.getAllByText('已通过').length).toBeGreaterThan(0)
     expect(screen.getByText(/不会替你判断研究结论或学术质量/)).toBeInTheDocument()
     expect(screen.queryByText(/阶段状态/)).not.toBeInTheDocument()
+    expect(screen.getByTestId('review-agent')).toHaveAttribute('data-mode', 'review')
   })
 
   it('offers a fix path when the project has no main file', () => {

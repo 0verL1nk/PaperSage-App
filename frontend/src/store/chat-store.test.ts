@@ -1,17 +1,30 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { emptyChatState, messagesFromApi, reduceChatEvent, useChatStore, type ChatState } from '@/store/chat-store'
 import * as api from '@/services/agent-api'
 import type { RunStreamEvent } from '@/services/agent-api'
+import { FrontendApiError } from '@/services/errors'
 
 vi.mock('@/services/agent-api', () => ({
   createConversation: vi.fn(),
   createRun: vi.fn(),
   streamRun: vi.fn(),
   listMessages: vi.fn(),
+  getConversation: vi.fn(),
+  listProposals: vi.fn(),
+  retryRun: vi.fn(),
   cancelRun: vi.fn(),
   applyProposal: vi.fn(),
   rejectProposal: vi.fn(),
 }))
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  useChatStore.setState({ ...emptyChatState })
+  vi.mocked(api.listMessages).mockResolvedValue([])
+  vi.mocked(api.getConversation).mockResolvedValue({ id: 'c-old', title: '旧会话', threadVersion: 1 })
+  vi.mocked(api.listProposals).mockResolvedValue([])
+  vi.mocked(api.streamRun).mockResolvedValue(undefined)
+})
 
 function feed(events: RunStreamEvent[], from: ChatState = emptyChatState): ChatState {
   return events.reduce((s, e) => reduceChatEvent(s, e), from)
@@ -202,7 +215,8 @@ describe('send 动作', () => {
       expect(state.error).toMatch(/会话/)
       expect(api.createRun).toHaveBeenCalledTimes(1)
       expect(api.cancelRun).not.toHaveBeenCalled()
-      expect(fetch).toHaveBeenCalledTimes(1)
+      // 初次订阅 + 3 次退避重连后仍失败，才交给用户显式重试。
+      expect(fetch).toHaveBeenCalledTimes(4)
     } finally {
       vi.unstubAllGlobals()
     }
@@ -212,8 +226,8 @@ describe('send 动作', () => {
     useChatStore.setState({ ...emptyChatState, conversationId: 'c-old' })
     stubRun(1)
     vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
-      onEvent({ type: 'start', messageId: 'm1' })
-      onEvent({ type: 'text-delta', id: 't1', delta: '部分内容' })
+      onEvent({ type: 'start', messageId: 'm1' }, {})
+      onEvent({ type: 'text-delta', id: 't1', delta: '部分内容' }, {})
       throw new TypeError('network error')
     })
     await expect(useChatStore.getState().send('p1', '问题')).rejects.toThrow(/后台可能仍在运行/)
@@ -247,14 +261,78 @@ describe('send 动作', () => {
     expect(api.createRun).toHaveBeenCalledWith('c-old', expect.objectContaining({ expectedThreadVersion: 3 }))
   })
 
-  it('重新打开已有会话后不把未知版本当成 0 发送', async () => {
-    vi.mocked(api.listMessages).mockResolvedValue([])
+  it('重新打开已有会话后带上服务端版本，不再省略 CAS', async () => {
+    vi.mocked(api.getConversation).mockResolvedValue({ id: 'c-old', title: '旧会话', threadVersion: 7 })
     await useChatStore.getState().open('c-old')
-    stubRun(1)
+    stubRun(8)
 
     await useChatStore.getState().send('p1', '继续')
 
-    expect(api.createRun).toHaveBeenCalledWith('c-old', expect.objectContaining({ expectedThreadVersion: undefined }))
+    expect(api.createRun).toHaveBeenCalledWith('c-old', expect.objectContaining({ expectedThreadVersion: 7 }))
+  })
+
+  it('409 更新会话版本并提供重试，不静默重发', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    vi.mocked(api.createRun).mockRejectedValueOnce(new FrontendApiError('会话已在其他位置被修改', {
+      kind: 'http',
+      status: 409,
+      details: { code: 409, data: { threadVersion: 5 } },
+    }))
+
+    await useChatStore.getState().send('p1', '问题')
+
+    const state = useChatStore.getState()
+    expect(state.conversationVersion).toBe(5)
+    expect(state.errorAction).toBe('retry-send')
+    expect(state.lastFailedContent).toBe('问题')
+    expect(state.streaming).toBe(false)
+  })
+
+  it('新对话 reset 后保持空白，不被自动重开为历史会话', () => {
+    useChatStore.setState({
+      ...emptyChatState,
+      conversationId: 'c-old',
+      messages: [{ id: 'm1', role: 'assistant', status: 'completed', parts: [] }],
+    })
+
+    useChatStore.getState().reset()
+
+    expect(useChatStore.getState().conversationId).toBeNull()
+    expect(useChatStore.getState().messages).toEqual([])
+    expect(useChatStore.getState().isNewConversation).toBe(true)
+  })
+
+  it('快速切换会话时迟到的历史响应不覆盖当前会话', async () => {
+    let resolveFirst!: (rows: Awaited<ReturnType<typeof api.listMessages>>) => void
+    vi.mocked(api.listMessages)
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve }))
+      .mockResolvedValueOnce([{
+        id: 'm2', role: 'assistant', status: 'completed', createdAt: '',
+        parts: [{ id: 't2', ordinal: 0, type: 'text', status: 'completed', text: '第二个会话', createdAt: '' }],
+      }])
+
+    const first = useChatStore.getState().open('c1')
+    const second = useChatStore.getState().open('c2')
+    resolveFirst([{
+      id: 'm1', role: 'assistant', status: 'completed', createdAt: '',
+      parts: [{ id: 't1', ordinal: 0, type: 'text', status: 'completed', text: '第一个会话', createdAt: '' }],
+    }])
+    await Promise.all([first, second])
+
+    expect(textOf(useChatStore.getState())).toBe('第二个会话')
+  })
+
+  it('历史恢复保留工具与建议类型，不降级成 text', () => {
+    const rows = messagesFromApi([{
+      id: 'm-history', role: 'assistant', status: 'completed', runId: 'r1', createdAt: '',
+      parts: [
+        { id: 'call_1', ordinal: 0, type: 'tool', status: 'succeeded', content: { toolName: 'read_latex_file', output: 'x' }, createdAt: '' },
+        { id: 'proposal-p1', ordinal: 1, type: 'proposal', status: 'pending', content: { proposalId: 'p1' }, createdAt: '' },
+      ],
+    }])
+
+    expect(rows[0].parts.map((p) => p.type)).toEqual(['tool', 'proposal'])
+    expect(rows[0].parts[1].meta?.proposalId).toBe('p1')
   })
 
   it('快速重复发送只创建一个 Run', async () => {
@@ -278,10 +356,10 @@ describe('send 动作', () => {
     let started!: () => void
     const startedPromise = new Promise<void>((resolve) => { started = resolve })
     vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
-      onEvent({ type: 'start', messageId: 'm-old' })
+      onEvent({ type: 'start', messageId: 'm-old' }, {})
       started()
       await new Promise<void>((resolve) => { release = resolve })
-      onEvent({ type: 'text-delta', delta: '旧会话内容' })
+      onEvent({ type: 'text-delta', delta: '旧会话内容' }, {})
     })
 
     const sending = useChatStore.getState().send('p1', '问题')

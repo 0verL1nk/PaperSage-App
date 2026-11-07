@@ -84,6 +84,20 @@ func TestDeleteConversationIsSoftDelete(t *testing.T) {
 	msgPath := convURL(convID) + "/messages"
 	require.Equal(t, 200, do(http.MethodGet, msgPath).Code, "删除前消息应可读")
 
+	// 会话详情必须返回线程版本，供客户端提交时携带 expectedThreadVersion。
+	detail := do(http.MethodGet, convURL(convID))
+	require.Equal(t, 200, detail.Code)
+	var detailBody struct {
+		Data struct {
+			ID            string `json:"id"`
+			ThreadVersion int64  `json:"threadVersion"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.NewDecoder(detail.Body).Decode(&detailBody))
+	assert.Equal(t, convID.String(), detailBody.Data.ID)
+	assert.EqualValues(t, 0, detailBody.Data.ThreadVersion)
+	assert.Equal(t, 404, do(http.MethodGet, convURL(foreignID)).Code, "越权读取会话详情应 404")
+
 	listPath := "/api/v1/projects/" + pid.String() + "/agent/conversations"
 	listLen := func() int {
 		rec := do(http.MethodGet, listPath)

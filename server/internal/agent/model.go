@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	"github.com/cloudwego/eino/components/model"
@@ -155,15 +156,26 @@ func ResolveModelWithEnv(ctx context.Context, db *gorm.DB, userID interface{ Str
 // NewChatModel 用 eino-ext 的 OpenAI 兼容组件构建模型
 // （DeepSeek/OpenAI/SiliconFlow 等兼容端点通用）。
 // sessionID 用于 OpenCode 网关按会话稳定路由（官方要求，缺失时请求会被拒绝）。
-func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string) (model.BaseChatModel, error) {
+func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeout time.Duration) (model.BaseChatModel, error) {
 	cfg := &openai.ChatModelConfig{
 		APIKey:  r.APIKey,
 		BaseURL: strings.TrimRight(r.BaseURL, "/"),
 		Model:   r.Model,
 	}
-	if sessionID != "" && isOpenCodeGateway(r.BaseURL) {
-		cfg.HTTPClient = &http.Client{Transport: openCodeSessionTransport{base: http.DefaultTransport, sessionID: sessionID}}
+	base, _ := http.DefaultTransport.(*http.Transport)
+	if base != nil {
+		base = base.Clone()
+	} else {
+		base = &http.Transport{Proxy: http.ProxyFromEnvironment}
 	}
+	if timeout > 0 {
+		base.ResponseHeaderTimeout = timeout
+	}
+	var rt http.RoundTripper = base
+	if sessionID != "" && isOpenCodeGateway(r.BaseURL) {
+		rt = openCodeSessionTransport{base: rt, sessionID: sessionID}
+	}
+	cfg.HTTPClient = &http.Client{Transport: rt}
 	return openai.NewChatModel(ctx, cfg)
 }
 

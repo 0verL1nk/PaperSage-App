@@ -25,6 +25,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g.GET("/projects/:project_id/agent/conversations", s.listConversations)
 	g.POST("/projects/:project_id/agent/conversations", s.createConversation)
 	g.GET("/projects/:project_id/agent/proposals", s.listProposals)
+	g.GET("/agent/conversations/:conversation_id", s.getConversation)
 	g.GET("/agent/conversations/:conversation_id/messages", s.listMessages)
 	g.DELETE("/agent/conversations/:conversation_id", s.deleteConversation)
 
@@ -120,6 +121,27 @@ func (s *Service) createConversation(c *gin.Context) {
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
 		"id": conv.ID.String(), "title": conv.Title, "version": conv.Version,
+	}, ""))
+}
+
+// getConversation GET /agent/conversations/:conversation_id
+// 返回线程版本，供客户端在每次提交时携带 expectedThreadVersion。
+func (s *Service) getConversation(c *gin.Context) {
+	ctx := c.Request.Context()
+	uid := auth.CurrentUser(c).ID
+	cidU, err := parseUUIDParam(c.Param("conversation_id"))
+	if err != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	var conv store.AgentConversation
+	if err := s.DB.WithContext(ctx).
+		Where("id = ? AND user_id = ?", store.UUID{UUID: cidU}, uid).First(&conv).Error; err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
+		return
+	}
+	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
+		"id": conv.ID.String(), "title": conv.Title, "threadVersion": conv.Version,
 	}, ""))
 }
 

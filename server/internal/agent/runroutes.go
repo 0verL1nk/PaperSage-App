@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -40,6 +41,10 @@ func (s *Service) createRunHandler(c *gin.Context) {
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || len([]rune(req.ClientRequestID)) > 64 {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	if req.ExpectedThreadVersion == nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusPreconditionRequired, Info: "缺少 expectedThreadVersion：请先读取会话版本"})
 		return
 	}
 
@@ -142,8 +147,26 @@ func (s *Service) cancelRun(c *gin.Context) {
 		return
 	}
 	cancelled := s.CancelRun(runID)
+	var run store.AgentRun
+	// 等 Run 循环落终态再返回：客户端不必再猜“已请求取消”还是“已取消”。
+	deadline := time.Now().Add(runFinalizeTimeout)
+wait:
+	for {
+		_ = s.DB.WithContext(ctx).Select("status").Where("id = ?", runID).First(&run).Error
+		if run.Status != RunRunning || time.Now().After(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			break wait
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	if run.Status == RunCancelled {
+		cancelled = true
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK,
-		httpapi.Success(gin.H{"cancelled": cancelled}, ""))
+		httpapi.Success(gin.H{"cancelled": cancelled, "status": run.Status}, ""))
 }
 
 // retryRun POST /agent/runs/:run_id/retry
@@ -167,8 +190,29 @@ func (s *Service) retryRun(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Run not found"})
 		return
 	}
+	if old.Status == RunRunning {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "Run 仍在执行，不能重试"})
+		return
+	}
 	if old.TurnID == nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Run has no turn"})
+		return
+	}
+
+	var req struct {
+		ClientRequestID string `json:"clientRequestId"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.ClientRequestID == "" {
+		req.ClientRequestID = store.MustNewUUID().String()
+	}
+	key := runID.String() + ":" + req.ClientRequestID
+
+	// 双击/并发重试只创建一个新 Run；单实例内有效，跨重启不保证。
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	if id, ok := s.retries[key]; ok {
+		writeRetryResponse(c, id)
 		return
 	}
 
@@ -210,10 +254,14 @@ func (s *Service) retryRun(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
 		return
 	}
+	s.retries[key] = run.ID
+	writeRetryResponse(c, run.ID)
+}
 
+func writeRetryResponse(c *gin.Context, runID store.UUID) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
-		"runId":     run.ID.String(),
-		"streamUrl": "/api/v1/agent/runs/" + run.ID.String() + "/events",
+		"runId":     runID.String(),
+		"streamUrl": "/api/v1/agent/runs/" + runID.String() + "/events",
 	}, ""))
 }
 
