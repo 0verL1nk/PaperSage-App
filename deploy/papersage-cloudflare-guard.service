@@ -1,0 +1,15 @@
+[Unit]
+Description=PaperSage Cloudflare-only ingress guard
+Wants=network-online.target
+After=network-online.target
+Before=caddy.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I /usr/local/lib/papersage/cloudflare_guard.py refresh
+# Two 15s request timeouts plus 30s for DNS, nft and slow or stalled streams.
+TimeoutStartSec=60
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
