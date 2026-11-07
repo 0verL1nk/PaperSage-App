@@ -20,6 +20,7 @@ export type AgentPartType =
   | 'text'
   | 'tool'
   | 'activity'
+  | 'proposal'
   | 'approval'
   | 'citation'
   | 'artifact'
@@ -82,10 +83,22 @@ export interface AgentConversationHandle {
   version: number
 }
 
+export interface AgentConversationDetail {
+  id: string
+  title: string
+  threadVersion: number
+}
+
 /** 新项目还没有会话时，第一条消息先建会话（Run 路径要求会话已存在）。 */
 export function createConversation(projectId: string, title?: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
   return postJson<AgentConversationHandle>(AGENT.conversations(projectId), { title: title ?? '' }, config)
+}
+
+/** 会话详情：打开已有会话时拿 threadVersion，保证每次提交都能参与 CAS。 */
+export function getConversation(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<AgentConversationDetail>(AGENT.conversation(conversationId), config)
 }
 
 export function listMessages(conversationId: string, config?: ApiRequestConfig) {
@@ -115,12 +128,12 @@ export function createRun(conversationId: string, input: CreateRunInput, config?
 
 export function cancelRun(runId: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
-  return postJson<{ cancelled: boolean }>(AGENT.cancelRun(runId), {}, config)
+  return postJson<{ cancelled: boolean; status?: string }>(AGENT.cancelRun(runId), {}, config)
 }
 
-export function retryRun(runId: string, config?: ApiRequestConfig) {
+export function retryRun(runId: string, clientRequestId?: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
-  return postJson<{ runId: string; streamUrl: string }>(AGENT.retryRun(runId), {}, config)
+  return postJson<{ runId: string; streamUrl: string }>(AGENT.retryRun(runId), { clientRequestId }, config)
 }
 
 export function listRunEvidence(runId: string, config?: ApiRequestConfig) {
@@ -133,19 +146,25 @@ export interface RunStreamEvent {
   [key: string]: unknown
 }
 
+export interface RunStreamMeta {
+  /** SSE 标准 id: 行携带的 agent_events.sequence，用于 afterSeq 断点续传。 */
+  eventId?: number
+}
+
 /**
  * 订阅 Run 的事件流。
  *
  * 用 fetch + ReadableStream 而非 EventSource：EventSource 不支持 POST 与自定义头
  * （鉴权要靠 Authorization），也拿不到我们需要的中止控制。协议见后端 protocol.go：
  * SSE 的 data: 行承载 JSON part，末尾是终止标记 [DONE]（不是 JSON，必须跳过）。
+ * id: 行是持久化事件序号，只用于重连游标，不进入 part 载荷。
  */
 export async function streamRun(
   runId: string,
   opts: {
     afterSeq?: number
     signal?: AbortSignal
-    onEvent: (event: RunStreamEvent) => void
+    onEvent: (event: RunStreamEvent, meta: RunStreamMeta) => void
   },
 ): Promise<void> {
   requireSignedInForAI()
@@ -176,9 +195,16 @@ export async function streamRun(
       while ((separator = /\r?\n\r?\n/.exec(buffer))) {
         const chunk = buffer.slice(0, separator.index)
         buffer = buffer.slice(separator.index + separator[0].length)
-        const data = chunk.split(/\r?\n/)
+        const lines = chunk.split(/\r?\n/)
+        let eventId: number | undefined
+        const data = lines
           .filter((line) => line === 'data' || line.startsWith('data:'))
           .map((line) => line === 'data' ? '' : line.slice(5).replace(/^ /, ''))
+        for (const line of lines) {
+          if (!line.startsWith('id:')) continue
+          const parsed = Number(line.slice(3).trim())
+          if (Number.isFinite(parsed)) eventId = parsed
+        }
         if (!data.length) continue
         const payload = data.join('\n')
         if (payload === '[DONE]') return
@@ -188,7 +214,7 @@ export async function streamRun(
         } catch {
           throw new Error('AI 事件流格式错误，回答可能未完成；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送')
         }
-        opts.onEvent(event)
+        opts.onEvent(event, { eventId })
         if (event.type === 'finish' || event.type === 'abort') return
       }
     }

@@ -57,6 +57,27 @@ describe('streamRun（UI Message Stream 解析）', () => {
     ])
   })
 
+  it('把 SSE id: 行作为 afterSeq 游标，且不写进 part 载荷', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => sseResponse([
+      'id: 7\ndata: {"type":"start","messageId":"m1"}\n\n',
+      'id: 8\ndata: {"type":"text-delta","id":"t1","delta":"a"}\n\n',
+      'data: [DONE]\n\n',
+    ])))
+    const metas: Array<{ eventId?: number }> = []
+    await streamRun('run-1', { onEvent: (_event, meta) => metas.push(meta) })
+    expect(metas).toEqual([{ eventId: 7 }, { eventId: 8 }])
+  })
+
+  it('重连时把 afterSeq 放进事件流地址', async () => {
+    await collect(['data: [DONE]\n\n'])
+    vi.mocked(fetch).mockClear()
+    await streamRun('run-1', { afterSeq: 7, onEvent: () => {} })
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v1/agent/runs/run-1/events?afterSeq=7'),
+      expect.anything(),
+    )
+  })
+
   it('跨 chunk 边界不丢事件：JSON 被切成两半也能拼回', async () => {
     const full = 'data: {"type":"text-delta","id":"t1","delta":"跨边界"}\n\n'
     const events = await collect([full.slice(0, 20), full.slice(20), 'data: [DONE]\n\n'])

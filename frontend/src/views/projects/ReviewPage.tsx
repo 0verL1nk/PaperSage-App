@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLatexFileContent, useLatexFiles } from '@/hooks/use-latex'
 import { evaluateReviewChecks } from './review-checks'
+import { AiPanel } from './ai-panel'
 
 export function ReviewPage() {
   const { projectId = '' } = useParams({ strict: false })
@@ -99,6 +100,16 @@ export function ReviewPage() {
             <span>{actionCount} 项需要处理</span>
           </div>
         )}
+
+        <Card className="overflow-hidden rounded-2xl border-border/50 shadow-sm">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">AI 助手</CardTitle>
+            <CardDescription>解释检查结果、定位问题或判断还需要补什么；不会直接修改正文。</CardDescription>
+          </CardHeader>
+          <div className="h-[520px] border-t border-border/40">
+            <AiPanel projectId={projectId} mode="review" />
+          </div>
+        </Card>
 
         <p className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground">
           <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-amber-700" />

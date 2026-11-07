@@ -2,6 +2,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +26,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.False(t, s.Debug)
 	assert.Equal(t, 0, s.AgentDocumentReadLimitBytes)
 	assert.Equal(t, 20, s.AgentMaxIterations)
+	assert.Equal(t, 2*time.Minute, s.AgentModelTimeout)
 	assert.Equal(t, []string{"localhost", "127.0.0.1"}, s.AllowedHosts)
 	assert.Equal(t, "0.0.0.0", s.Host)
 	assert.Equal(t, 5478, s.Port)
@@ -158,6 +160,12 @@ func TestMigrationDSN(t *testing.T) {
 
 func TestAgentMaxIterationsMustBePositive(t *testing.T) {
 	t.Setenv("AGENT_MAX_ITERATIONS", "0")
+	_, err := Load()
+	require.Error(t, err)
+}
+
+func TestAgentModelTimeoutMustBePositive(t *testing.T) {
+	t.Setenv("AGENT_MODEL_TIMEOUT", "0s")
 	_, err := Load()
 	require.Error(t, err)
 }

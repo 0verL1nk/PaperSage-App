@@ -94,6 +94,14 @@ async function mockAgentApis(
     const url = route.request().url()
     const method = route.request().method()
 
+    if (method === 'GET' && /\/api\/v1\/agent\/conversations\/[^/]+$/.test(url)) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: { id: 'conv-1', title: '看看我的文件', threadVersion: 2 }, info: '' }),
+      })
+      return
+    }
     if (url.includes('/evidence') && method === 'GET') {
       await route.fulfill({
         status: 200,

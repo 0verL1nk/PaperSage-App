@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ChevronDown, ChevronRight, Loader2, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { ArrowDown, ChevronDown, ChevronRight, Loader2, Plus, Send, Sparkles, Square, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from '@tanstack/react-router'
 
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +28,7 @@ import { cn } from '@/lib/utils'
  * 三层信息密度（参考架构 §5.4）：对话主线 → 消息内活动（工具卡片/子 agent 活动）
  * → 按需展开的执行细节。默认简洁，工具细节折叠起来，不把执行轨迹倒进主线。
  */
-export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mode?: 'default' | 'preparation' }) {
+export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mode?: 'default' | 'preparation' | 'review' }) {
   const navigate = useNavigate()
   const { t } = useTranslation()
   const isGuest = useSessionStore((state) => state.isGuest)
@@ -54,6 +53,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     ? providers.find((p) => p.id === agent.active_provider_id)
     : providers.find((p) => p.api_key?.trim() && p.base_url?.trim() && p.models.length > 0)
   const bottomRef = useRef<HTMLDivElement | null>(null)
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [atBottom, setAtBottom] = useState(true)
 
   // 会话列表：切会话从这里进来
   const convQuery = useQuery({
@@ -64,19 +65,26 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
   const conversations = isGuest ? [] : convQuery.data ?? []
   const hasHistory = chat.messages.length > 0 || conversations.length > 0
 
-  const activeConversationId = chat.conversationId ?? conversations[0]?.id ?? null
+  // 新对话时不要回退到 conversations[0]，否则 reset 会立刻被自动重开。
+  const activeConversationId = chat.conversationId ?? (chat.isNewConversation ? null : conversations[0]?.id ?? null)
   const processedWritingStateTools = useRef(new Set<string>())
 
   // 打开面板即接上最近一次会话（没有就等用户发第一条）
   useEffect(() => {
     if (isGuest || !activeConversationId || chat.conversationId === activeConversationId) return
-    void chat.open(activeConversationId)
+    void chat.open(activeConversationId, projectId)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeConversationId])
 
+  const onScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 80)
+  }
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ block: 'end' })
-  }, [chat.messages])
+    if (atBottom) bottomRef.current?.scrollIntoView({ block: 'end' })
+  }, [chat.messages, atBottom])
 
   useEffect(() => {
     if (mode !== 'preparation') return
@@ -94,11 +102,11 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     const content = message.trim()
     // 同一 tick 内设置可能已变（保存中/最后一个 provider 被删），必须读最新 store 而非闭包里的渲染值。
     const latest = useSettingsStore.getState()
-    if (!content || chat.streaming || latest.pendingAgentModelChanges > 0 || !latest.settings?.agent.providers.length) return
+    if (!content || chat.streaming || chat.cancelling || latest.pendingAgentModelChanges > 0 || !latest.settings?.agent.providers.length) return
     if (message === input) setInput('')
     // 第一条消息会在 store 里顺带建出会话：把会话列表拉一次，
     // 否则下拉框里看不到刚建的这个会话。
-    const firstMessage = !activeConversationId
+    const firstMessage = !chat.conversationId
     try {
       await chat.send(projectId, content)
       if (firstMessage) await convQuery.refetch()
@@ -107,6 +115,15 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
       void convQuery.refetch()
       useChatStore.setState({ error: e instanceof Error ? e.message : '发送失败' })
     }
+  }
+
+  const retrySend = () => {
+    void chat.retrySend(projectId).catch(() => {})
+  }
+
+  const lastAssistant = [...chat.messages].reverse().find((m) => m.role === 'assistant')
+  const retryLastRun = () => {
+    if (lastAssistant?.runId) void chat.retryRun(lastAssistant.runId).catch(() => {})
   }
 
   if (isGuest) {
@@ -243,41 +260,98 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         </div>
       )}
 
-      {savingModel && <p className="px-4 py-2 text-xs text-muted-foreground">{t('agent.savingModelSettings')}</p>}
-      <ScrollArea className="flex-1">
-        <div className="p-4 space-y-4">
-          {chat.messages.length === 0 && (
-            <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
-              <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">
-                AI
-              </div>
-              {mode === 'preparation'
-                ? '告诉我你感兴趣的方向、已有想法或手头材料。我会一次聚焦一个问题，区分事实与假设，并在你确认后保存研究蓝图。'
-                : '可以让我查看你的文件与资料、检索文献，或者对稿件提出修改建议。'}
-              {mode === 'preparation' && (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {[
-                    '我还没确定选题，想从兴趣方向开始梳理。',
-                    '我有一个初步想法，帮我判断怎么形成研究问题。',
-                    '我有任务书或导师要求，想一起拆解。',
-                  ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
-                </div>
-              )}
-            </div>
-          )}
-          {chat.messages.map((m) => (
-            <MessageRow key={m.id} message={m} projectId={projectId} />
-          ))}
-          {chat.error && <p className="text-[11px] text-destructive">{chat.error}</p>}
-          <div ref={bottomRef} />
+      {chat.reconnecting && (
+        <div role="status" className="px-4 py-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
+          <Loader2 className="size-3 animate-spin" /> 连接中断，正在重连…
         </div>
-      </ScrollArea>
+      )}
+      {chat.cancelling && (
+        <div role="status" className="px-4 py-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <Loader2 className="size-3 animate-spin" /> 正在停止…
+        </div>
+      )}
+      {savingModel && <p className="px-4 py-2 text-xs text-muted-foreground">{t('agent.savingModelSettings')}</p>}
+      <div className="relative flex-1 min-h-0">
+        <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto overscroll-contain">
+          <div className="p-4 space-y-4">
+            {chat.messages.length === 0 && (
+              <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
+                <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">
+                  AI
+                </div>
+                {mode === 'preparation'
+                  ? '告诉我你感兴趣的方向、已有想法或手头材料。我会一次聚焦一个问题，区分事实与假设，并在你确认后保存研究蓝图。'
+                  : mode === 'review'
+                    ? '我可以解释当前检查结果、帮你判断哪些问题缺材料，或按优先级整理下一步。不会直接改稿。'
+                    : '可以让我查看你的文件与资料、检索文献，或者对稿件提出修改建议。'}
+                {mode === 'preparation' && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[
+                      '我还没确定选题，想从兴趣方向开始梳理。',
+                      '我有一个初步想法，帮我判断怎么形成研究问题。',
+                      '我有任务书或导师要求，想一起拆解。',
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                  </div>
+                )}
+                {mode === 'review' && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {[
+                      '解释当前检查结果，告诉我先改哪一项。',
+                      '哪些问题是因为材料不足？还需要补什么？',
+                      '帮我把需要处理的问题按优先级排序。',
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                  </div>
+                )}
+              </div>
+            )}
+            {chat.messages.map((m) => (
+              <MessageRow key={m.id} message={m} projectId={projectId} hideErrorPart={!!chat.error && m.id === chat.messages[chat.messages.length - 1]?.id} />
+            ))}
+            <p className="sr-only" aria-live="polite">
+              {chat.streaming ? '正在生成回答' : chat.reconnecting ? '连接中断，正在重连' : chat.cancelling ? '正在停止' : ''}
+            </p>
+            {chat.error && (
+              <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-[11px] text-destructive space-y-2">
+                <p>{chat.error}</p>
+                <div className="flex flex-wrap gap-2">
+                  {chat.errorAction === 'retry-send' && chat.lastFailedContent && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={retrySend}>重试发送</Button>
+                  )}
+                  {lastAssistant?.runId && (lastAssistant.status === 'failed' || lastAssistant.status === 'cancelled') && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={retryLastRun}>重试回答</Button>
+                  )}
+                  {chat.errorAction === 'settings' && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => void navigate({ to: '/app/settings' })}>去设置</Button>
+                  )}
+                  {chat.errorAction === 'network' && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={lastAssistant?.runId ? retryLastRun : retrySend}>重试</Button>
+                  )}
+                </div>
+              </div>
+            )}
+            <div ref={bottomRef} />
+          </div>
+        </div>
+        {!atBottom && (
+          <Button
+            size="icon-xs"
+            aria-label="回到最新"
+            className="absolute bottom-3 right-3 rounded-full shadow"
+            onClick={() => {
+              setAtBottom(true)
+              bottomRef.current?.scrollIntoView({ block: 'end' })
+            }}
+          >
+            <ArrowDown className="size-3.5" />
+          </Button>
+        )}
+      </div>
 
       <div className="p-4 border-t border-border/40 bg-muted/5 flex-none">
         <div className="relative group">
           <textarea
             value={input}
-            disabled={!hasProvider}
+            disabled={!hasProvider || chat.cancelling}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -285,17 +359,22 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                 void send()
               }
             }}
-            placeholder={mode === 'preparation' ? '说说你的研究兴趣、初步想法或遇到的困难…' : '问点什么…'}
+            placeholder={mode === 'preparation'
+              ? '说说你的研究兴趣、初步想法或遇到的困难…'
+              : mode === 'review'
+                ? '问检查结果、问题依据或还需要补什么…'
+                : '问点什么…'}
             className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28"
           />
           <Button
             size="icon-xs"
             className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"
-            disabled={!chat.streaming && (savingModel || !hasProvider || !input.trim())}
+            disabled={chat.cancelling || (!chat.streaming && (savingModel || !hasProvider || !input.trim()))}
             onClick={() => (chat.streaming ? void chat.cancel() : void send())}
-            title={chat.streaming ? '停止' : '发送'}
+            aria-label={chat.cancelling ? '正在停止' : chat.streaming ? '停止生成' : '发送消息'}
+            title={chat.cancelling ? '正在停止' : chat.streaming ? '停止' : '发送'}
           >
-            {chat.streaming ? <Square size={12} /> : <Send size={14} />}
+            {chat.cancelling ? <Loader2 className="size-3 animate-spin" /> : chat.streaming ? <Square size={12} /> : <Send size={14} />}
           </Button>
         </div>
       </div>
@@ -317,7 +396,20 @@ function PanelHeader({ right, model }: { right?: React.ReactNode; model?: React.
   )
 }
 
-function MessageRow({ message, projectId }: { message: ChatMessage; projectId: string }) {
+const TOOL_STATUS_LABELS: Record<string, string> = {
+  'input-available': '准备中',
+  executing: '执行中',
+  succeeded: '成功',
+  failed: '失败',
+  denied: '已拒绝',
+  'awaiting_approval': '等待确认',
+}
+
+function toolStatusLabel(status: string): string {
+  return TOOL_STATUS_LABELS[status] ?? status
+}
+
+function MessageRow({ message, projectId, hideErrorPart = false }: { message: ChatMessage; projectId: string; hideErrorPart?: boolean }) {
   if (message.role === 'user') {
     const text = message.parts.map((p) => p.text).join('')
     return (
@@ -330,7 +422,7 @@ function MessageRow({ message, projectId }: { message: ChatMessage; projectId: s
   }
   return (
     <div className="space-y-2">
-      {message.parts.map((p) => (
+      {message.parts.filter((p) => !(hideErrorPart && p.type === 'error')).map((p) => (
         <PartView key={p.id} part={p} projectId={projectId} />
       ))}
       {message.runId && <RunEvidence runId={message.runId} />}
@@ -339,6 +431,8 @@ function MessageRow({ message, projectId }: { message: ChatMessage; projectId: s
           <Loader2 size={11} className="animate-spin" /> 正在生成
         </div>
       )}
+      {message.status === 'cancelled' && <p className="text-[11px] text-muted-foreground">已停止生成</p>}
+      {message.status === 'failed' && <p className="text-[11px] text-destructive">本次生成失败</p>}
     </div>
   )
 }
@@ -397,16 +491,19 @@ function PartView({ part, projectId }: { part: ChatPart; projectId: string }) {
 
 function ToolCard({ part }: { part: ChatPart }) {
   const [open, setOpen] = useState(false)
-  const meta = (part.meta ?? {}) as { toolName?: string; input?: unknown; output?: unknown }
+  const meta = (part.meta ?? {}) as { toolName?: string; input?: unknown; output?: unknown; durationMs?: number; error?: string }
+  const duration = typeof meta.durationMs === 'number' ? ` · ${Math.round(meta.durationMs)}ms` : ''
   return (
     <div className="rounded-xl border border-border/40 bg-muted/20 overflow-hidden">
       <button
+        type="button"
         className="w-full flex items-center gap-1.5 px-3 py-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span className="font-medium">{meta.toolName ?? '工具'}</span>
-        <span className="ml-auto text-[10px] opacity-70">{part.status}</span>
+        <span className="ml-auto text-[10px] opacity-70">{toolStatusLabel(part.status)}{duration}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2">
@@ -415,6 +512,7 @@ function ToolCard({ part }: { part: ChatPart }) {
               {JSON.stringify(meta.input, null, 2)}
             </pre>
           )}
+          {meta.error && <p className="text-[10px] text-destructive">{meta.error}</p>}
           {meta.output != null && (
             <pre className="text-[10px] bg-background/60 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
               {typeof meta.output === 'string' ? meta.output : JSON.stringify(meta.output, null, 2)}
@@ -478,6 +576,9 @@ function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId
           {proposal.newText}
         </pre>
         {proposal.reason && <p className="text-[11px] text-muted-foreground">{proposal.reason}</p>}
+        {proposal.status === 'stale' && (
+          <p className="text-[11px] text-muted-foreground">稿件已变化，请基于当前内容重新请求修改建议。</p>
+        )}
       </div>
       {pending && (
         <div className="px-3 pb-3 flex gap-2">
@@ -495,6 +596,8 @@ function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId
                 await queryClient.invalidateQueries({
                   queryKey: latexKeys.content(projectId, proposal.filePath),
                 })
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : '应用建议失败，请重试')
               } finally {
                 setBusy(false)
               }
@@ -511,6 +614,8 @@ function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId
               setBusy(true)
               try {
                 await decide(proposalId, false)
+              } catch (error) {
+                toast.error(error instanceof Error ? error.message : '拒绝建议失败，请重试')
               } finally {
                 setBusy(false)
               }

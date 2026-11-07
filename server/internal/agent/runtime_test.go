@@ -499,7 +499,7 @@ func TestEventInsertCancellationCannotStrandRun(t *testing.T) {
 	require.NoError(t, svc.DB.Where("run_id = ?", rc.RunID).Find(&events).Error)
 	assert.EqualValues(t, 0, run.LastSequence)
 	assert.Empty(t, events, "cancelled append must roll back both the event and its sequence")
-	require.NoError(t, svc.finalizeRun(context.Background(), rc, "partial", nil, RunCancelled, "cancelled"))
+	require.NoError(t, svc.finalizeRun(context.Background(), rc, "partial", RunCancelled, "cancelled"))
 	require.NoError(t, svc.DB.First(&run, "id = ?", rc.RunID).Error)
 	assert.Equal(t, RunCancelled, run.Status)
 	require.NoError(t, svc.DB.Where("run_id = ?", rc.RunID).Find(&events).Error)

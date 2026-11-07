@@ -137,6 +137,22 @@ export async function mockWritingPageAPIs(page: Page) {
     })
   })
 
+  // AI 面板打开会话时会取详情/未决建议；未 mock 会打到真实后端并触发 401 登出。
+  await page.route(/\/api\/v1\/agent\/conversations\/[^/]+$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: { id: 'conv-1', title: '会话', threadVersion: 0 }, info: '' }),
+    })
+  })
+  await page.route('**/api/v1/projects/*/agent/proposals**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [], info: '' }),
+    })
+  })
+
   await page.route(API_LATEX_FILES, async (route) => {
     await route.fulfill({
       status: 200,

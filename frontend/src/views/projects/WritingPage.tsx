@@ -144,6 +144,7 @@ export function WritingPage() {
 
   // UI state
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
+  const sidebarPanel = Resizable.usePanelRef()
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [compiler, setCompiler] = useState('pdflatex')
   const [numPages, setNumPages] = useState(0)
@@ -676,8 +677,8 @@ export function WritingPage() {
     <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => setActiveTab('files')} />
-        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => setActiveTab('ai')} />
+        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { sidebarPanel.current?.expand(); setActiveTab('files') }} />
+        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { sidebarPanel.current?.expand(); setActiveTab('ai') }} />
         <div className="mt-auto flex flex-col gap-4">
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
@@ -688,7 +689,7 @@ export function WritingPage() {
         <Resizable.Group orientation="horizontal" id="writing-layout-v9">
           {!isMobile && (
             <>
-              <Resizable.Panel defaultSize={18} minSize={12} collapsible>
+              <Resizable.Panel defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
                   {activeTab === 'files' ? (
                     <div
