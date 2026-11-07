@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'server/**'
+      - '.dockerignore'
       - 'latex_render/**'
       - '.github/workflows/docker.yml'
 
@@ -57,7 +58,7 @@ jobs:
             render=true
           else
             changed=$(git diff --name-only "$BEFORE" "$SHA")
-            if grep -qE '^(server|frontend)/' <<< "$changed"; then app=true; fi
+            if grep -qE '^(server/|\.dockerignore$)' <<< "$changed"; then app=true; fi
             if grep -q '^latex_render/' <<< "$changed"; then render=true; fi
           fi
           echo "app=$app" >> "$GITHUB_OUTPUT"
@@ -103,8 +104,8 @@ jobs:
           file: ./${{ matrix.dockerfile }}
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
           # 供应链证明：provenance（构建来源/SLSA）+ SBOM（组件清单）随镜像
           # 推送到 registry，docker buildx 原生 attestation
           provenance: mode=max

@@ -1,5 +1,8 @@
-api.paper.overlink.top {
+# Only enable this proxy after the Cloudflare-only ingress guard is active.
+api-papersage.overlink.top {
 	reverse_proxy 127.0.0.1:5478 {
 		flush_interval -1
+		header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		header_up X-Real-IP {http.request.header.CF-Connecting-IP}
 	}
 }

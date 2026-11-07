@@ -533,10 +533,18 @@ class DeploymentTemplateTests(unittest.TestCase):
         path = SCRIPT.with_name("Caddyfile")
         self.assertTrue(path.exists(), "Caddy template has not been implemented")
         content = path.read_text()
-        self.assertIn("api.paper.overlink.top {", content)
+        self.assertIn("api-papersage.overlink.top {", content)
         self.assertIn("reverse_proxy 127.0.0.1:5478", content)
         self.assertIn("flush_interval -1", content)
+        self.assertIn("header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}", content)
+        self.assertIn("header_up X-Real-IP {http.request.header.CF-Connecting-IP}", content)
         self.assertNotIn("http://", content)
+
+    def test_caddy_requires_the_ingress_guard(self):
+        content = SCRIPT.with_name("caddy-cloudflare-guard.conf").read_text()
+        self.assertIn("Requires=papersage-cloudflare-guard.service", content)
+        self.assertIn("After=papersage-cloudflare-guard.service", content)
+        self.assertIn("ExecStartPre=+/usr/sbin/nft list table inet papersage_cloudflare", content)
 
     def test_sudoers_allows_only_the_validating_helper_without_setenv(self):
         path = SCRIPT.with_name("papersage-deploy.sudoers")

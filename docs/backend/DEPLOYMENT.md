@@ -81,14 +81,19 @@ DATA_DIR=/var/lib/papersage
 
 ## HTTPS、SSE 与首次切换
 
-`deploy/Caddyfile` 为 `api.paper.overlink.top` 提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。
+`deploy/Caddyfile` 为 `api-papersage.overlink.top` 提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。原 `api.paper.overlink.top` 暂留 Vercel 作为迁移回退；不要擅自删除旧服务。
+
+`deploy/papersage-cloudflare-guard.service` 使用 `deploy/cloudflare_guard.py` 从 Cloudflare 官方 HTTPS 地址读取并校验 IPv4/IPv6 网段，以单个 nftables 批次更新专属 `inet papersage_cloudflare` 表。仅 TCP/UDP 80、443 限定来源为 Cloudflare；回环、SSH 和其他端口不改。`deploy/caddy-cloudflare-guard.conf` 使 Caddy 在防护成功且该表存在时才启动。不要使用系统自带 `nftables.service` 的全规则集清空操作。
+
+守卫在启动时获取官方列表，列表不可用或不完整时失败且不放行 Caddy。Cloudflare 更新网段后需运行受控的 `refresh` 并检查结果；现阶段尚无定时刷新。Cloudflare IP 网段被多个账户共享：此规则阻止非 Cloudflare 来源直接访问，并不证明某请求来自本账户；更严格的源站身份校验须单独配置。
 
 首次切换顺序：
 
 1. 完成 API-only 构建、服务配置、数据库/R2连通与本机回环健康验证。
 2. 验证新二进制的版本、提交和取消/失败语义。
-3. 确认安全组允许必要的80/443端口，再将 API 域名指向新服务器并验证证书。
-4. 从 Vercel 页面验证真实登录、配置读取、SSE和 local/online 环境选择。
+3. 先确认 Cloudflare 边缘证书覆盖新域名，部署守卫与 Caddy；源站需要有效证书且 Cloudflare 仅针对该主机使用 Full (strict)。不要未经核对修改同一区域其他站点的 TLS 模式。
+4. 验证 Cloudflare 经新域名访问新服务器、非 Cloudflare 来源不能直连 Web 端口且 SSH 正常；确认安全组允许 Cloudflare 的80/443流量。
+5. 保留 Vercel 旧 API，待新端点的健康、证书和关键业务通过后，切换前端 API 地址；最后从 Vercel 页面验证真实登录、配置读取、SSE和 local/online 环境选择。
 
 域名和证书切换不是每次 CD 的一部分。配置未确认、DNS未切换或浏览器验收未完成时，不得宣称生产迁移成功。真实对话测试只使用获授权账号，不把模拟流当成真实模型结果。
 
