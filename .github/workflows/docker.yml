@@ -97,7 +97,7 @@ jobs:
 
       - name: Build & Push
         if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: ./${{ matrix.context }}
           file: ./${{ matrix.dockerfile }}
