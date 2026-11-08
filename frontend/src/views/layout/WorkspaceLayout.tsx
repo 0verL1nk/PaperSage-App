@@ -75,8 +75,8 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
           )}
         </div>
 
-        {/* Center: Clean Pill Tabs with improved Hover */}
-        <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center p-1 bg-muted/60 rounded-full border border-border/50 shadow-sm">
+        {/* Center: Clean Pill Tabs with improved Hover（>=1024 才用绝对居中，避免 768 压住标题） */}
+        <div className="hidden lg:flex absolute left-1/2 -translate-x-1/2 items-center p-1 bg-muted/60 rounded-full border border-border/50 shadow-sm">
           {projectTabs.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.key
@@ -114,8 +114,8 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
         </div>
       </header>
 
-      {/* Mobile Tabs Fallback */}
-      <nav className="md:hidden flex-none sticky top-14 z-40 bg-background/80 backdrop-blur-xl border-b border-border/40 px-2">
+      {/* Mobile Tabs Fallback（<1024 横向滚动，不换行也不压标题） */}
+      <nav className="lg:hidden flex-none sticky top-14 z-40 bg-background/80 backdrop-blur-xl border-b border-border/40 px-2">
         <div className="flex h-12 items-center gap-1 overflow-x-auto no-scrollbar">
           {projectTabs.map((tab) => {
             const isActive = activeTab === tab.key

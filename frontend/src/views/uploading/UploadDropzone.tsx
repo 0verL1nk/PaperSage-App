@@ -85,15 +85,15 @@ export function UploadDropzone({ projectId, folderId, onClose }: UploadDropzoneP
 
   const onDrop = useCallback(
     (acceptedFiles: File[], fileRejections: FileRejection[]) => {
-      if (fileRejections.length > 0) {
-        toast.error(`${fileRejections.length} 个文件未添加`, {
-          description: fileRejections.map(({ file, errors }) => {
-            const reason = errors[0]?.code === 'file-too-large' ? '文件过大'
-              : errors[0]?.code === 'file-invalid-type' ? '不支持的文件类型'
-                : errors[0]?.message ?? '无法添加'
-            return `${file.name}：${reason}`
-          }).join('；'),
-        })
+      // 每个被拒文件单独提示，避免一次拖入多个时只看到笼统的汇总
+      for (const { file, errors } of fileRejections) {
+        const code = errors[0]?.code
+        const reason = code === 'file-too-large'
+          ? `文件过大，单个文件最大 ${fmtSize(MAX_FILE_SIZE_BYTES)}`
+          : code === 'file-invalid-type'
+            ? '不支持的文件类型，仅支持 PDF、DOCX、TXT'
+            : errors[0]?.message ?? '无法添加'
+        toast.error(`未添加 ${file.name}`, { description: reason })
       }
       const batch = acceptedFiles.map((file) => ({ id: ++idRef.current, file, status: 'uploading' as const }))
       setItems((prev) => [...prev, ...batch])

@@ -127,7 +127,11 @@ test.describe('Browser compilation recovery', () => {
 
     await page.goto(WRITING_URL)
     await page.getByTestId('compile-button').click()
-    await expect(page.getByText('SwiftLaTeX worker stopped unexpectedly')).toBeVisible({ timeout: 15_000 })
+    // The card shows a human-readable reason; the raw engine text lives behind
+    // a disclosure so first-time users are not confronted with internals.
+    await expect(page.getByText('编译失败，请查看日志定位问题')).toBeVisible({ timeout: 15_000 })
+    await page.getByText('查看原始日志').click()
+    await expect(page.getByText('SwiftLaTeX worker stopped unexpectedly')).toBeVisible()
     await expect(page.getByTestId('retry-browser-compile')).toBeVisible()
     await page.getByTestId('retry-browser-compile').click()
     await expect.poll(() => uploads).toBe(1)
@@ -212,8 +216,8 @@ test.describe('Browser compilation recovery', () => {
     await expect(page.getByTestId('retry-browser-upload')).toBeVisible({ timeout: 15_000 })
     await expect(page.getByText(/临时对象存储失败|temporary object storage failure/)).toBeVisible()
     await page.getByTestId('retry-browser-upload').click()
-    await expect(page.getByTestId('retry-browser-upload')).toHaveCount(0)
     await expect.poll(() => uploadAttempts).toBe(2)
+    await expect(page.getByTestId('retry-browser-upload')).toHaveCount(0)
     expect(compileJobs).toBe(1)
   })
 })

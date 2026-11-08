@@ -313,12 +313,14 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("构建工具失败")
 		return
 	}
+	// 工具失败要能被状态机与转录识别；错误文本只给模型看，不能当判据。
+	toolFailures := &toolFailureTracker{}
 	// 子 agent 交给 DeepAgent 编排：它会生成一个 `task` 工具
 	// （参数 subagent_type / description），由主 agent 自主决定何时委派。
 	var subAgents []adk.Agent
 	if s.RAG != nil {
 		if tcm, ok := chatModel.(model.ToolCallingChatModel); ok {
-			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, rc.RunID, tcm); serr == nil {
+			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, rc.RunID, tcm, toolFailures); serr == nil {
 				subAgents = append(subAgents, sa)
 			}
 		}
@@ -337,7 +339,10 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			// 让子 agent 的事件（带 AgentName）一并流出来：框架已经说明事件来自哪个
 			// agent，不必再去解析 task 工具的参数猜目标（那是重复造轮子）。
 			EmitInternalEvents: true,
-			ToolsNodeConfig:    compose.ToolsNodeConfig{Tools: tools},
+			ToolsNodeConfig: compose.ToolsNodeConfig{
+				Tools:               tools,
+				ToolCallMiddlewares: []compose.ToolMiddleware{{Invokable: toolFailures.middleware}},
+			},
 		},
 		// Eino 不接受 0 表示无限：这里显式传入运维配置值，达到上限时向用户明确报错。
 		MaxIteration: s.Cfg.AgentMaxIterations,
@@ -452,8 +457,12 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			// 其余原样输出，不做额外字符截断——截断只会让结构化内容变成无法解析的半截文本。
 			// 模型上下文由工具自身负责（如 read_document 的抽取上限）。
 			res, _ := s.storeArtifact(ctx, rc, name, m.Content)
+			failed := toolFailures.failedCall(m.ToolCallID)
 			if rowID, ok := toolCallRows[m.ToolCallID]; ok {
-				if specFor(name).RequiresApproval {
+				if failed {
+					// 失败的工具调用不能进入审批态：否则建议卡永远等不到决定。
+					s.finishToolCall(ctx, rowID, ToolFailed, res, "")
+				} else if specFor(name).RequiresApproval {
 					// 建议类工具：调用停在 awaiting_approval，直到用户对建议做出决定；
 					// 顺带把建议挂到这次调用上（args 里带 path），并把 diff 推给前端。
 					// Run 不挂起——助手已经交付了建议，等待确认的是用户而非模型。
@@ -477,10 +486,14 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 					s.finishToolCall(ctx, rowID, ToolSucceeded, res, "")
 				}
 			}
+			payload := map[string]string{"toolCallId": m.ToolCallID, "output": res}
+			if failed {
+				payload["status"] = "failed"
+			}
 			if silent {
-				record(targetRun, evtToolOutput, map[string]string{"toolCallId": m.ToolCallID, "output": res})
+				record(targetRun, evtToolOutput, payload)
 			} else {
-				emit(targetRun, evtToolOutput, map[string]string{"toolCallId": m.ToolCallID, "output": res})
+				emit(targetRun, evtToolOutput, payload)
 				toolResults++
 			}
 		}
@@ -511,6 +524,9 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			}
 		}
 		if ev.Err != nil {
+			// The client gets a friendly message; operators need the provider's
+			// actual failure (status, error body) to diagnose configuration.
+			slog.Warn("agent run failed", "run_id", rc.RunID.String(), "err", ev.Err)
 			fail(friendlyErr(ev.Err))
 			return
 		}
@@ -806,7 +822,11 @@ func (s *Service) emitProtocol(sw *streamWriter, ev store.AgentEvent, textOpen *
 		sw.ToolInput(str("toolCallId"), str("toolName"))
 		sw.ToolInputAvailable(str("toolCallId"), str("toolName"), str("input"))
 	case evtToolOutput:
-		sw.ToolOutput(str("toolCallId"), str("output"))
+		if str("status") == "failed" {
+			sw.ToolOutputError(str("toolCallId"), str("output"))
+		} else {
+			sw.ToolOutput(str("toolCallId"), str("output"))
+		}
 	case evtActivity:
 		sw.Data("activity", p)
 	case evtProposal:

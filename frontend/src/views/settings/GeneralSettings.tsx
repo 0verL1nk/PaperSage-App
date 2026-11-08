@@ -58,7 +58,7 @@ export function GeneralSettings() {
               value={ui.language}
               onValueChange={handleLanguageChange}
             >
-              <SelectTrigger id="language" className="w-40">
+              <SelectTrigger id="language" className="w-56">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>

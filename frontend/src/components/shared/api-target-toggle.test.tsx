@@ -75,4 +75,12 @@ describe('ApiTargetToggle', () => {
     expect(localStorage.getItem(KEY)).toBeNull()
     expect(reload).not.toHaveBeenCalled()
   })
+
+  it('生产构建不渲染切换入口', () => {
+    vi.stubEnv('PROD', true)
+    const { container } = render(<ApiTargetToggle />)
+
+    expect(container).toBeEmptyDOMElement()
+    vi.unstubAllEnvs()
+  })
 })

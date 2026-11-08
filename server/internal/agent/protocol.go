@@ -25,20 +25,21 @@ const (
 
 // Part 类型（协议词汇）。
 const (
-	evStart       = "start"
-	evTextStart   = "text-start"
-	evTextDelta   = "text-delta"
-	evTextEnd     = "text-end"
-	evStartStep   = "start-step"
-	evFinishStep  = "finish-step"
-	evToolInStart = "tool-input-start"
-	evToolInAvail = "tool-input-available"
-	evToolOut     = "tool-output-available"
-	evToolDenied  = "tool-output-denied"
-	evDataPrefix  = "data-" // 业务自定义：data-conversation / data-proposal / …
-	evError       = "error"
-	evFinish      = "finish"
-	evAbort       = "abort"
+	evStart        = "start"
+	evTextStart    = "text-start"
+	evTextDelta    = "text-delta"
+	evTextEnd      = "text-end"
+	evStartStep    = "start-step"
+	evFinishStep   = "finish-step"
+	evToolInStart  = "tool-input-start"
+	evToolInAvail  = "tool-input-available"
+	evToolOut      = "tool-output-available"
+	evToolOutError = "tool-output-error"
+	evToolDenied   = "tool-output-denied"
+	evDataPrefix   = "data-" // 业务自定义：data-conversation / data-proposal / …
+	evError        = "error"
+	evFinish       = "finish"
+	evAbort        = "abort"
 )
 
 // streamWriter 以 SSE 推送 UI Message Stream part。
@@ -133,6 +134,11 @@ func (s *streamWriter) ToolInputAvailable(toolCallID, toolName string, input str
 
 func (s *streamWriter) ToolOutput(toolCallID, result string) {
 	s.part(map[string]any{"type": evToolOut, "toolCallId": toolCallID, "output": result})
+}
+
+// ToolOutputError 表示工具执行失败但 Run 继续（模型可读错误并改道）。
+func (s *streamWriter) ToolOutputError(toolCallID, text string) {
+	s.part(map[string]any{"type": evToolOutError, "toolCallId": toolCallID, "errorText": text})
 }
 
 // Data 推一条业务自定义 part（data-<name>）。

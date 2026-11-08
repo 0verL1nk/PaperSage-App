@@ -187,6 +187,12 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
       }
       return next
     }
+    case 'tool-output-error': {
+      const part = findOrCreatePart(ensureAssistant(), String(event.toolCallId ?? ''), 'tool')
+      part.meta = { ...(part.meta ?? {}), output: event.errorText }
+      part.status = 'failed'
+      return next
+    }
     case 'tool-output-denied': {
       const part = findOrCreatePart(ensureAssistant(), String(event.toolCallId ?? ''), 'tool')
       part.status = 'denied'
