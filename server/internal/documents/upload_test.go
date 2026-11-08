@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
 )
@@ -178,4 +179,23 @@ func TestMoveRemarkDeleteFlow(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 	resp = ts.Do(t, http.MethodDelete, "/api/v1/documents/"+id, nil)
 	assert.Equal(t, 404, resp.StatusCode)
+}
+
+func TestDeleteDocumentCleansDerivedIndex(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	doc := store.Document{Name: "d.pdf", Type: "application/pdf", Size: 3, Status: "uploaded",
+		S3Key: "k", ProjectID: p.ID, OwnerID: ts.UserID()}
+	require.NoError(t, ts.DB.Create(&doc).Error)
+
+	var deletedProject, deletedDoc store.UUID
+	ts.DocumentService.Indexer = &documents.DocIndexer{
+		DeleteDocument: func(projectID, docID store.UUID) {
+			deletedProject, deletedDoc = projectID, docID
+		},
+	}
+	resp := ts.Do(t, http.MethodDelete, "/api/v1/documents/"+doc.ID.String(), nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, p.ID, deletedProject, "删除文献必须清理该项目的派生索引")
+	assert.Equal(t, doc.ID, deletedDoc)
 }

@@ -489,3 +489,26 @@ func TestIndexSourceClearsRowsForEmptyText(t *testing.T) {
 		Where("project_id = ? AND source_type = ? AND source_id = ?", pid, "document", sid).Count(&count).Error)
 	require.Zero(t, count)
 }
+
+func TestDeleteProjectRemovesAllSources(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	pid, otherPID := store.MustNewUUID(), store.MustNewUUID()
+	docA, docB, otherDoc := store.MustNewUUID(), store.MustNewUUID(), store.MustNewUUID()
+	_, err := s.IndexSource(ctx, pid, "document", docA, "a.pdf", "对比学习 self-supervised 表示学习范式。")
+	require.NoError(t, err)
+	_, err = s.IndexSource(ctx, pid, "wiki", docB, "笔记", "对比学习的负样本构造。")
+	require.NoError(t, err)
+	_, err = s.IndexSource(ctx, otherPID, "document", otherDoc, "other.pdf", "对比学习在推荐系统的应用。")
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeleteProject(ctx, pid))
+
+	hits, err := s.Search(ctx, pid, "对比学习", 3)
+	require.NoError(t, err)
+	assert.Empty(t, hits, "项目删除后不得再命中其任何来源")
+
+	other, err := s.Search(ctx, otherPID, "对比学习", 3)
+	require.NoError(t, err)
+	assert.NotEmpty(t, other, "其他项目的索引不受影响")
+}

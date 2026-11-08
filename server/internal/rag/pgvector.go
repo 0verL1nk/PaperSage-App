@@ -114,6 +114,16 @@ func (p *PgStore) DeleteSource(ctx context.Context, projectID, sourceType, sourc
 	return err
 }
 
+// DeleteProject 删一个项目的全部块（永久删除项目时调用）。
+func (p *PgStore) DeleteProject(ctx context.Context, projectID string) error {
+	if err := p.acquire(ctx); err != nil {
+		return err
+	}
+	defer p.release()
+	_, err := p.conn.Exec(ctx, `DELETE FROM rag_chunks WHERE project_id=$1`, projectID)
+	return err
+}
+
 // SearchVector 向量检索下推：ORDER BY embedding <=> $query LIMIT k
 // （HNSW 索引命中，pgvector 余弦距离）。
 func (p *PgStore) SearchVector(ctx context.Context, projectID string, q []float32, k int, generation int64) ([]PgRow, error) {

@@ -387,6 +387,9 @@ func (s *Service) delete(c *gin.Context) {
 	// S3 对象删除失败不阻断（Python 侧行为：仅告警）
 	_ = s.Storage.Delete(ctx, doc.S3Key)
 	_ = s.DB.WithContext(ctx).Delete(&doc).Error
+	if s.Indexer != nil && s.Indexer.DeleteDocument != nil {
+		s.Indexer.DeleteDocument(doc.ProjectID, doc.ID)
+	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"id": did.String(), "deleted": true}, ""))
 }
 

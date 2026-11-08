@@ -202,6 +202,24 @@ func (s *Store) DeleteSource(ctx context.Context, projectID store.UUID,
 	return nil
 }
 
+// DeleteProject 删一个项目的全部块（永久删除项目时调用）。
+func (s *Store) DeleteProject(ctx context.Context, projectID store.UUID) error {
+	if s.Pg != nil {
+		if err := s.Pg.DeleteProject(ctx, hexID(projectID)); err != nil {
+			return err
+		}
+		s.invalidate(projectID)
+		return nil
+	}
+	if err := s.DB.WithContext(ctx).
+		Where("project_id = ?", projectID).
+		Delete(&IndexedChunk{}).Error; err != nil {
+		return err
+	}
+	s.invalidate(projectID)
+	return nil
+}
+
 // ── 检索（hybrid + RRF）──────────────────────────────
 
 // Hit 单条检索结果。

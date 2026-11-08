@@ -95,7 +95,14 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	// 文献入库 → 索引钩子（documents 不 import rag：回调闭包解耦）
 	docSvc.Indexer = &documents.DocIndexer{
 		IndexDocument: indexDocumentHook(s3, ragStore),
+		DeleteDocument: func(projectID, docID store.UUID) {
+			if err := ragStore.DeleteSource(context.Background(), projectID, "document", docID); err != nil {
+				slog.Warn("rag: delete doc index failed", "doc", docID.String(), "err", err)
+			}
+		},
 	}
+	// 永久删除项目后清理对象存储与派生索引（软删不触发级联，必须显式处理）。
+	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 
@@ -167,6 +174,36 @@ func indexDocumentHook(s3 *storage.S3, ragStore *rag.Store) documents.IndexDocFn
 		}
 		if _, err := ragStore.IndexSource(ctx, projectID, "document", docID, name, text); err != nil {
 			slog.Warn("rag: index failed", "name", name, "err", err)
+		}
+	}
+}
+
+// purgeProjectHook 清理已永久删除项目的对象与派生索引。行已删除，失败只记日志。
+func purgeProjectHook(db *gorm.DB, s3 storage.Storage, ragStore *rag.Store) func(context.Context, store.UUID) {
+	return func(ctx context.Context, projectID store.UUID) {
+		var docs []store.Document
+		if err := db.WithContext(ctx).Unscoped().Where("project_id = ?", projectID).Find(&docs).Error; err != nil {
+			slog.Warn("purge: list documents failed", "project", projectID.String(), "err", err)
+		}
+		for _, d := range docs {
+			if err := s3.Delete(ctx, d.S3Key); err != nil {
+				slog.Warn("purge: delete document object failed", "key", d.S3Key, "err", err)
+			}
+		}
+		var files []store.LatexFile
+		if err := db.WithContext(ctx).Unscoped().Where("project_id = ?", projectID).Find(&files).Error; err != nil {
+			slog.Warn("purge: list latex files failed", "project", projectID.String(), "err", err)
+		}
+		for _, f := range files {
+			if f.S3Key == nil || *f.S3Key == "" {
+				continue
+			}
+			if err := s3.Delete(ctx, *f.S3Key); err != nil {
+				slog.Warn("purge: delete latex object failed", "key", *f.S3Key, "err", err)
+			}
+		}
+		if err := ragStore.DeleteProject(ctx, projectID); err != nil {
+			slog.Warn("purge: delete rag chunks failed", "project", projectID.String(), "err", err)
 		}
 	}
 }

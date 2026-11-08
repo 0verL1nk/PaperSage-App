@@ -30,8 +30,12 @@ type Service struct {
 // IndexDocFn 索引钩子签名（bootstrap 闭包实现）。
 type IndexDocFn = func(projectID, docID store.UUID, name, s3Key, contentType string)
 
+// DeleteDocFn 删除文献后清理派生索引（bootstrap 闭包实现）。
+type DeleteDocFn = func(projectID, docID store.UUID)
+
 type DocIndexer struct {
-	IndexDocument IndexDocFn
+	IndexDocument  IndexDocFn
+	DeleteDocument DeleteDocFn
 }
 
 // NewService wires the documents domain（storage 为对象存储接口）。

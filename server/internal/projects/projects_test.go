@@ -238,3 +238,16 @@ func TestOwnerIsolation(t *testing.T) {
 	resp := ts.Do(t, http.MethodGet, "/api/v1/projects/"+p.ID.String(), nil)
 	assert.Equal(t, 404, resp.StatusCode)
 }
+
+func TestPurgeProjectRunsCleanupHook(t *testing.T) {
+	ts := testutil.New(t)
+	p := store.Project{Name: "待永久删除", OwnerID: ts.UserID(), Status: "active"}
+	require.NoError(t, ts.DB.Create(&p).Error)
+	require.NoError(t, ts.DB.Delete(&p).Error)
+
+	var purged store.UUID
+	ts.ProjectService.OnPurge = func(_ context.Context, id store.UUID) { purged = id }
+	resp := ts.Do(t, http.MethodDelete, "/api/v1/projects/trash/project/"+p.ID.String(), nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, p.ID, purged, "永久删除项目必须触发对象存储与派生索引清理")
+}
