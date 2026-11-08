@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
+import { testAgentConnection } from '@/services/settings-api'
 import type { ProviderConfig, ProviderType, ModelSelectionPatch } from '@/services/settings-api'
 import { ModelSelector } from './model-selector'
 
@@ -19,6 +20,20 @@ const TEMPERATURE_OPTIONS = [
   { value: '1.0', labelKey: 'agent.creative' },
   { value: '1.5', labelKey: 'agent.inventive' },
 ]
+
+const PROVIDER_PRESETS = [
+  { id: 'openai', label: 'OpenAI', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o-mini' },
+  { id: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
+  { id: 'siliconflow', label: 'SiliconFlow', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct' },
+  { id: 'opencode', label: 'OpenCode Zen', baseUrl: 'https://opencode.ai/zen/go/v1', model: 'deepseek-v4.1-flash' },
+] as const
+
+const CUSTOM_PRESET = 'custom'
+
+type TestState = {
+  status: 'idle' | 'testing' | 'ok' | 'error'
+  message: string
+}
 
 const WRITING_STYLES = [
   { value: 'academic', labelKey: 'agent.academic' },
@@ -121,9 +136,16 @@ export function AgentSettings() {
         </CardHeader>
         <CardContent className="space-y-3">
           {a.providers.length === 0 && !editingId && (
-            <p className="text-sm text-muted-foreground py-2">
-              {t('agent.noProviders')}
-            </p>
+            <div className="py-2 space-y-1">
+              <p className="text-sm text-muted-foreground">
+                {t('agent.noProviders')}
+              </p>
+              <p className={`text-sm ${a.server_fallback?.configured ? 'text-muted-foreground' : 'text-destructive'}`}>
+                {a.server_fallback?.configured
+                  ? t('agent.serverFallbackConfigured', { model: a.server_fallback.model })
+                  : t('agent.serverFallbackMissing')}
+              </p>
+            </div>
           )}
 
           {a.providers.map((provider) => (
@@ -272,15 +294,22 @@ function ProviderCard({
 }: ProviderCardProps) {
   const { t } = useTranslation()
   const [newModel, setNewModel] = useState('')
+  const [testState, setTestState] = useState<TestState>({ status: 'idle', message: '' })
 
   if (isEditing && editDraft) {
     const d = editDraft
+    const presetId = PROVIDER_PRESETS.find((p) => p.baseUrl === d.base_url)?.id ?? CUSTOM_PRESET
+
+    function changeDraft(next: ProviderConfig) {
+      setTestState({ status: 'idle', message: '' })
+      onDraftChange(next)
+    }
 
     function flushPendingModel(): ProviderConfig {
       const trimmed = newModel.trim()
       if (!trimmed || d.models.includes(trimmed)) return d
       const next = { ...d, models: [...d.models, trimmed], active_model: d.active_model || trimmed }
-      onDraftChange(next)
+      changeDraft(next)
       setNewModel('')
       return next
     }
@@ -288,7 +317,7 @@ function ProviderCard({
     function addModel() {
       const trimmed = newModel.trim()
       if (!trimmed || d.models.includes(trimmed)) return
-      onDraftChange({ ...d, models: [...d.models, trimmed], active_model: d.active_model || trimmed })
+      changeDraft({ ...d, models: [...d.models, trimmed], active_model: d.active_model || trimmed })
       setNewModel('')
     }
 
@@ -297,22 +326,69 @@ function ProviderCard({
       const newActive = d.active_model === d.models[idx]
         ? (updated[0] ?? '')
         : d.active_model
-      onDraftChange({ ...d, models: updated, active_model: newActive })
+      changeDraft({ ...d, models: updated, active_model: newActive })
+    }
+
+    function applyPreset(id: string) {
+      const preset = PROVIDER_PRESETS.find((p) => p.id === id)
+      if (!preset) return
+      const models = d.models.includes(preset.model) ? d.models : [...d.models, preset.model]
+      changeDraft({
+        ...d,
+        type: 'openai_compatible',
+        base_url: preset.baseUrl,
+        models,
+        active_model: preset.model,
+      })
+    }
+
+    async function testConnection() {
+      setTestState({ status: 'testing', message: '' })
+      try {
+        const result = await testAgentConnection({
+          base_url: d.base_url,
+          api_key: d.api_key,
+          model: d.active_model || d.models[0] || newModel.trim(),
+        })
+        setTestState({
+          status: 'ok',
+          message: result.models?.length
+            ? t('agent.testSuccessModels', { count: result.models.length })
+            : t('agent.testSuccess'),
+        })
+      } catch (error) {
+        setTestState({
+          status: 'error',
+          message: error instanceof Error && error.message ? error.message : t('agent.testFailed'),
+        })
+      }
     }
 
     return (
       <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
         <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
+          <Label className="text-xs text-muted-foreground">{t('agent.preset')}</Label>
+          <Select value={presetId} onValueChange={applyPreset}>
+            <SelectTrigger className="h-8 text-sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {PROVIDER_PRESETS.map((p) => (
+                <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>
+              ))}
+              <SelectItem value={CUSTOM_PRESET}>{t('agent.custom')}</SelectItem>
+            </SelectContent>
+          </Select>
           <Label className="text-xs text-muted-foreground">{t('agent.name')}</Label>
           <Input
             value={d.name}
-            onChange={(e) => onDraftChange({ ...editDraft, name: e.target.value })}
+            onChange={(e) => changeDraft({ ...editDraft, name: e.target.value })}
             className="h-8 text-sm"
           />
           <Label className="text-xs text-muted-foreground">{t('agent.type')}</Label>
           <Select
             value={d.type}
-            onValueChange={(v) => onDraftChange({ ...editDraft, type: v as ProviderType })}
+            onValueChange={(v) => changeDraft({ ...editDraft, type: v as ProviderType })}
           >
             <SelectTrigger className="h-8 text-sm">
               <SelectValue />
@@ -325,7 +401,7 @@ function ProviderCard({
           <Label className="text-xs text-muted-foreground">{t('agent.baseUrl')}</Label>
           <Input
             value={d.base_url}
-            onChange={(e) => onDraftChange({ ...editDraft, base_url: e.target.value })}
+            onChange={(e) => changeDraft({ ...editDraft, base_url: e.target.value })}
             placeholder="https://api.openai.com/v1"
             className="h-8 text-sm"
           />
@@ -333,7 +409,7 @@ function ProviderCard({
           <Input
             type="password"
             value={d.api_key}
-            onChange={(e) => onDraftChange({ ...editDraft, api_key: e.target.value })}
+            onChange={(e) => changeDraft({ ...editDraft, api_key: e.target.value })}
             placeholder="sk-..."
             className="h-8 text-sm"
           />
@@ -350,7 +426,7 @@ function ProviderCard({
                     variant={d.active_model === m ? 'default' : 'outline'}
                     size="sm"
                     className="flex-1 justify-start h-7 text-xs"
-                    onClick={() => onDraftChange({ ...editDraft, active_model: m })}
+                    onClick={() => changeDraft({ ...editDraft, active_model: m })}
                   >
                     {m}
                     {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">{t('agent.active')}</span>}
@@ -376,13 +452,33 @@ function ProviderCard({
           </div>
         </div>
 
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" size="sm" onClick={onCancel}>
-            <X className="size-3 mr-1" /> {t('agent.cancel')}
-          </Button>
-          <Button variant="default" size="sm" onClick={() => onSave(flushPendingModel())}>
-            <Check className="size-3 mr-1" /> {t('agent.save')}
-          </Button>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => void testConnection()}
+              disabled={testState.status === 'testing' || !d.base_url.trim() || !d.api_key.trim()}
+            >
+              {testState.status === 'testing' ? t('agent.testing') : t('agent.testConnection')}
+            </Button>
+            {(testState.status === 'ok' || testState.status === 'error') && (
+              <span
+                role={testState.status === 'error' ? 'alert' : 'status'}
+                className={`text-xs ${testState.status === 'ok' ? 'text-green-600' : 'text-destructive'}`}
+              >
+                {testState.message}
+              </span>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="ghost" size="sm" onClick={onCancel}>
+              <X className="size-3 mr-1" /> {t('agent.cancel')}
+            </Button>
+            <Button variant="default" size="sm" onClick={() => onSave(flushPendingModel())}>
+              <Check className="size-3 mr-1" /> {t('agent.save')}
+            </Button>
+          </div>
         </div>
       </div>
     )

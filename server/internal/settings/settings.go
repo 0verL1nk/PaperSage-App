@@ -3,12 +3,19 @@
 package settings
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -17,9 +24,12 @@ import (
 	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent/opencode"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
+	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
+	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
 // currentUserID 从认证中间件注入的用户取 UUID。
@@ -59,11 +69,14 @@ func isValidCategory(cat string) bool {
 
 // Service 设置域逻辑。
 type Service struct {
-	DB *gorm.DB
+	DB  *gorm.DB
+	Cfg *config.Settings
 }
 
 // NewService wires the settings domain.
-func NewService(db *gorm.DB) *Service { return &Service{DB: db} }
+func NewService(db *gorm.DB, cfg *config.Settings) *Service {
+	return &Service{DB: db, Cfg: cfg}
+}
 
 // ValidationError 表示分类校验失败（对应 SettingsServiceError → 422）。
 type ValidationError struct {
@@ -543,6 +556,209 @@ func normalizeProvider(p map[string]any, allowLegacyEmptyModel bool) (map[string
 	}, nil
 }
 
+// ── 服务端兜底与连接测试 ──
+
+// ServerFallback reports whether a server-side model is available when the
+// user has configured no provider. Admin settings win over env, matching
+// agent.ResolveModelWithEnv. The API key is never exposed.
+type ServerFallback struct {
+	Configured bool   `json:"configured"`
+	Model      string `json:"model"`
+}
+
+// ServerFallback reads admin settings, then env.
+func (s *Service) ServerFallback() ServerFallback {
+	if s.DB != nil {
+		if a := syssettings.GetAgent(s.DB); a.APIKey != "" && a.BaseURL != "" {
+			model := a.Model
+			if model == "" && s.Cfg != nil {
+				model = s.Cfg.AgentModel
+			}
+			return ServerFallback{Configured: true, Model: model}
+		}
+	}
+	if s.Cfg != nil && s.Cfg.AgentAPIKey != "" && s.Cfg.AgentBaseURL != "" {
+		return ServerFallback{Configured: true, Model: s.Cfg.AgentModel}
+	}
+	return ServerFallback{}
+}
+
+// withServerFallback injects the read-only status into agent responses. It is
+// added after normalization, so it is never persisted.
+func (s *Service) withServerFallback(category string, data map[string]any) map[string]any {
+	if category != "agent" {
+		return data
+	}
+	if data == nil {
+		data = map[string]any{}
+	}
+	data["server_fallback"] = s.ServerFallback()
+	return data
+}
+
+const agentTestTimeout = 10 * time.Second
+
+// AgentTestRequest is the connection-check payload. The key is used only for
+// the outbound probe and is never echoed or logged.
+type AgentTestRequest struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Model   string `json:"model"`
+}
+
+// AgentTestResult is returned when the probe succeeds.
+type AgentTestResult struct {
+	OK     bool     `json:"ok"`
+	Models []string `json:"models,omitempty"`
+}
+
+type providerHTTPError struct{ status int }
+
+func (e providerHTTPError) Error() string {
+	return fmt.Sprintf("provider returned HTTP %d", e.status)
+}
+
+// TestAgentConnection probes an OpenAI-compatible endpoint: GET /models first,
+// then a one-token chat completion. The 10s budget covers both attempts.
+func (s *Service) TestAgentConnection(ctx context.Context, req AgentTestRequest) (*AgentTestResult, error) {
+	base := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
+	apiKey := strings.TrimSpace(req.APIKey)
+	u, err := url.Parse(base)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, errors.New("base_url must be a valid http(s) URL")
+	}
+	ctx, cancel := context.WithTimeout(ctx, agentTestTimeout)
+	defer cancel()
+	client := testClientFactory(base)
+
+	models, err := fetchProviderModels(ctx, client, base, apiKey)
+	if err == nil {
+		return &AgentTestResult{OK: true, Models: models}, nil
+	}
+	var httpErr providerHTTPError
+	if !errors.As(err, &httpErr) {
+		return nil, providerTransportError(err)
+	}
+	model := strings.TrimSpace(req.Model)
+	if model == "" {
+		return nil, httpErr
+	}
+	if err := probeProviderChat(ctx, client, base, apiKey, model); err != nil {
+		var chatErr providerHTTPError
+		if !errors.As(err, &chatErr) {
+			return nil, providerTransportError(err)
+		}
+		return nil, chatErr
+	}
+	return &AgentTestResult{OK: true}, nil
+}
+
+// testClientFactory is swapped by tests that probe httptest loopback servers.
+var testClientFactory = newAgentTestClient
+
+// publicOnlyControl rejects targets that resolve to private, loopback or
+// link-local addresses so the connection probe cannot be used as an SSRF
+// scanner against the server's own network or cloud metadata.
+func publicOnlyControl(_, address string, _ syscall.RawConn) error {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return errors.New("provider host did not resolve to an IP")
+	}
+	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
+		return errors.New("provider host resolves to a private address")
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return errors.New("provider host resolves to a private address")
+	}
+	return nil
+}
+
+func newAgentTestClient(baseURL string) *http.Client {
+	dial := (&net.Dialer{Timeout: agentTestTimeout, Control: publicOnlyControl}).DialContext
+	var rt http.RoundTripper
+	if base, ok := http.DefaultTransport.(*http.Transport); ok {
+		base = base.Clone()
+		base.DialContext = dial
+		rt = base
+	} else {
+		rt = &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: dial}
+	}
+	if opencode.IsGateway(baseURL) {
+		rt = opencode.SessionTransport(rt, uuid.NewString())
+	}
+	return &http.Client{Transport: rt, Timeout: agentTestTimeout}
+}
+
+func fetchProviderModels(ctx context.Context, client *http.Client, base, apiKey string) ([]string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, providerHTTPError{status: resp.StatusCode}
+	}
+	var body struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	// A 2xx response already proves connectivity; an unusual body is not a failure.
+	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body) != nil {
+		return nil, nil
+	}
+	models := make([]string, 0, len(body.Data))
+	for _, m := range body.Data {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			models = append(models, id)
+		}
+	}
+	return models, nil
+}
+
+func probeProviderChat(ctx context.Context, client *http.Client, base, apiKey, model string) error {
+	payload, err := json.Marshal(map[string]any{
+		"model":      model,
+		"messages":   []map[string]string{{"role": "user", "content": "ping"}},
+		"max_tokens": 1,
+	})
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/chat/completions", bytes.NewReader(payload))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return providerHTTPError{status: resp.StatusCode}
+	}
+	return nil
+}
+
+func providerTransportError(err error) error {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return errors.New("connection timed out")
+	}
+	return errors.New("could not connect to provider")
+}
+
 // ── HTTP 路由 ──
 
 // SettingsResponse / AllSettingsResponse 对应 schemas。
@@ -570,7 +786,28 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to load settings"})
 			return
 		}
+		data["agent"] = s.withServerFallback("agent", data["agent"])
 		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(AllSettingsResponse{Settings: data}, ""))
+	})
+
+	// Probe an OpenAI-compatible endpoint with the user's draft credentials.
+	// The key is never logged or echoed back.
+	g.POST("/agent/test", func(c *gin.Context) {
+		var req AgentTestRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		if strings.TrimSpace(req.BaseURL) == "" || strings.TrimSpace(req.APIKey) == "" {
+			httpapi.WriteError(c.Writer, httpapi.BadRequest("base_url and api_key are required"))
+			return
+		}
+		result, err := s.TestAgentConnection(c.Request.Context(), req)
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusBadGateway, Info: err.Error()})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(result, ""))
 	})
 	cat := func(c *gin.Context) string { return c.Param("category") }
 
@@ -586,6 +823,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to load settings"})
 			return
 		}
+		data = s.withServerFallback(category, data)
 		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: data}, ""))
 	})
 
@@ -624,6 +862,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 				writeValidationError(c, verr)
 				return
 			}
+			data = s.withServerFallback(category, data)
 			_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: data}, ""))
 		}
 	}
@@ -641,6 +880,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Failed to reset settings"})
 			return
 		}
-		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: shallowMerge(DefaultSettings[category], nil)}, ""))
+		settings := s.withServerFallback(category, shallowMerge(DefaultSettings[category], nil))
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(SettingsResponse{Category: category, Settings: settings}, ""))
 	})
 }

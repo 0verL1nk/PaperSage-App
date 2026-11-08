@@ -12,6 +12,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent/opencode"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -50,7 +51,7 @@ func TestModelSelectionThroughSettingsService(t *testing.T) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&store.UserSettings{}))
 	uid := uuid.New()
-	service := settings.NewService(db)
+	service := settings.NewService(db, nil)
 	for _, selected := range []string{"A", "B"} {
 		_, validationErr := service.UpdateCategory(context.Background(), uid, "agent", map[string]any{
 			"active_provider_id": "p",
@@ -114,13 +115,10 @@ func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { retu
 
 func TestOpenCodeGatewayAddsSessionHeader(t *testing.T) {
 	var got string
-	transport := openCodeSessionTransport{
-		base: roundTripFunc(func(r *http.Request) (*http.Response, error) {
-			got = r.Header.Get("x-opencode-session")
-			return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
-		}),
-		sessionID: "conv-1",
-	}
+	transport := opencode.SessionTransport(roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		got = r.Header.Get("x-opencode-session")
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(""))}, nil
+	}), "conv-1")
 	req, err := http.NewRequest(http.MethodPost, "https://opencode.ai/inference/go/openai/v1/chat/completions", nil)
 	require.NoError(t, err)
 	_, err = transport.RoundTrip(req)
@@ -129,7 +127,7 @@ func TestOpenCodeGatewayAddsSessionHeader(t *testing.T) {
 }
 
 func TestOpenCodeGatewayDetection(t *testing.T) {
-	require.True(t, isOpenCodeGateway("https://opencode.ai/inference/go/openai/v1"))
-	require.False(t, isOpenCodeGateway("https://api.minimax.cn/v1"))
-	require.False(t, isOpenCodeGateway("https://notopencode.ai.example/v1"))
+	require.True(t, opencode.IsGateway("https://opencode.ai/inference/go/openai/v1"))
+	require.False(t, opencode.IsGateway("https://api.minimax.cn/v1"))
+	require.False(t, opencode.IsGateway("https://notopencode.ai.example/v1"))
 }

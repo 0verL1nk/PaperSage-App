@@ -67,7 +67,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	docSvc := documents.NewService(db, s3)
 
-	setSvc := settings.NewService(db)
+	setSvc := settings.NewService(db, cfg)
 
 	compileSvc, err := latex.NewService(latex.NewClsiClient(cfg.LatexCLSIBaseURL, cfg.LatexCLSITimeoutSeconds), cfg)
 	if err != nil {

@@ -124,7 +124,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	ts.ProjectService = projSvc
 	docSvc := documents.NewService(db, mem)
 	ts.DocumentService = docSvc
-	setSvc := settings.NewService(db)
+	setSvc := settings.NewService(db, cfg)
 
 	api := httpapi.New(nil)
 	v1 := api.Group(httpapi.APIVersion)

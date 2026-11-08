@@ -1,4 +1,4 @@
-import { getJson, putJson, requestApi } from './client'
+import { getJson, postJson, putJson, requestApi } from './client'
 import { SETTINGS } from './api-routes'
 import { useSessionStore } from '@/store'
 import { GuestCapabilityError } from './guest-local-workspace'
@@ -43,6 +43,21 @@ export interface AgentSettings {
   temperature: number
   writing_style: string
   memory_enabled: boolean
+  server_fallback?: {
+    configured: boolean
+    model: string
+  }
+}
+
+export interface AgentTestRequest {
+  base_url: string
+  api_key: string
+  model: string
+}
+
+export interface AgentTestResult {
+  ok: boolean
+  models?: string[]
 }
 
 export interface ModelSelection {
@@ -113,5 +128,14 @@ export async function resetCategory(
   return requestApi<CategoryResponse>({
     method: 'delete',
     url: SETTINGS.category(category),
+  })
+}
+
+export async function testAgentConnection(
+  payload: AgentTestRequest,
+): Promise<AgentTestResult> {
+  requireAccountSettings()
+  return postJson<AgentTestResult, AgentTestRequest>(SETTINGS.agentTest, payload, {
+    skipGlobalLoading: true,
   })
 }

@@ -84,6 +84,7 @@ export const LATEX = {
 export const SETTINGS = {
   all: `${V1}/settings`,
   category: (category: string) => `${V1}/settings/${category}`,
+  agentTest: `${V1}/settings/agent/test`,
 } as const
 
 // --- Agent ---

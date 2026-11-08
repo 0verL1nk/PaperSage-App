@@ -1,16 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { getJson, putJson, requestApi } from './client'
+import { getJson, postJson, putJson, requestApi } from './client'
 import {
   getSettings,
   getCategorySettings,
   updateCategory,
   replaceCategory,
   resetCategory,
+  testAgentConnection,
 } from './settings-api'
 import { SETTINGS } from './api-routes'
 
 vi.mock('./client', () => ({
   getJson: vi.fn(),
+  postJson: vi.fn(),
   putJson: vi.fn(),
   requestApi: vi.fn(),
 }))
@@ -18,6 +20,7 @@ vi.mock('./client', () => ({
 describe('settings api', () => {
   beforeEach(() => {
     vi.mocked(getJson).mockReset()
+    vi.mocked(postJson).mockReset()
     vi.mocked(putJson).mockReset()
     vi.mocked(requestApi).mockReset()
   })
@@ -81,6 +84,16 @@ describe('settings api', () => {
         method: 'delete',
         url: SETTINGS.category('ui'),
       })
+    })
+  })
+
+  describe('testAgentConnection', () => {
+    it('posts the draft provider to the agent test route', async () => {
+      const payload = { base_url: 'https://example.invalid/v1', api_key: 'secret', model: 'm1' }
+      vi.mocked(postJson).mockResolvedValue({ ok: true, models: ['m1'] })
+      const result = await testAgentConnection(payload)
+      expect(postJson).toHaveBeenCalledWith(SETTINGS.agentTest, payload, { skipGlobalLoading: true })
+      expect(result).toEqual({ ok: true, models: ['m1'] })
     })
   })
 })
