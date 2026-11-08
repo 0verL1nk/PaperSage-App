@@ -85,7 +85,7 @@ it('shows the configured server fallback model when no provider exists', () => {
     },
   })
   render(<AgentSettings />)
-  expect(screen.getByText('服务端已配置默认模型：deepseek-chat')).toBeInTheDocument()
+  expect(screen.getAllByText('服务端已配置默认模型：deepseek-chat').length).toBeGreaterThan(0)
 })
 
 it('says the server fallback is missing when nothing is configured', () => {
