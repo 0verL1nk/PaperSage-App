@@ -37,6 +37,17 @@ func (s *Service) ReconcileOrphanRuns(ctx context.Context) error {
 			if result.RowsAffected == 0 {
 				return nil
 			}
+			// 崩溃可能让 last_sequence 落后于已落库事件；先对齐到真实最大值，
+			// 否则补终态事件会撞 agent_events 的唯一键。
+			var maxSeq int64
+			if err := tx.Model(&store.AgentEvent{}).Where("run_id = ?", run.ID).
+				Select("COALESCE(MAX(sequence), 0)").Scan(&maxSeq).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&store.AgentRun{}).Where("id = ?", run.ID).
+				Update("last_sequence", maxSeq).Error; err != nil {
+				return err
+			}
 			if err := s.appendEventTx(ctx, tx, run.ConversationID, run.ID, evtRunError,
 				map[string]string{"message": "服务重启，执行已中断"}); err != nil {
 				return err
