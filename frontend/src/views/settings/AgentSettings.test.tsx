@@ -8,7 +8,7 @@ import { updateCategory } from '@/services/settings-api'
 import type { AllSettings } from '@/services/settings-api'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
-vi.mock('@/services/settings-api', () => ({ getSettings: vi.fn(), updateCategory: vi.fn(), resetCategory: vi.fn() }))
+vi.mock('@/services/settings-api', () => ({ getSettings: vi.fn(), updateCategory: vi.fn(), resetCategory: vi.fn(), testAgentConnection: vi.fn() }))
 vi.mock('./model-selector', () => ({
   ModelSelector: ({ value, onChange, disabled }: { value: { providerId: string; model: string }; onChange: (s: { providerId: string; model: string }) => void; disabled?: boolean }) => <button disabled={disabled} onClick={() => onChange({ providerId: 'p', model: 'B' })}>{value.model || 'none'}</button>,
 }))

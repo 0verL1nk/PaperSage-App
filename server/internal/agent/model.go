@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -21,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent/opencode"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
@@ -172,31 +172,9 @@ func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeo
 		base.ResponseHeaderTimeout = timeout
 	}
 	var rt http.RoundTripper = base
-	if sessionID != "" && isOpenCodeGateway(r.BaseURL) {
-		rt = openCodeSessionTransport{base: rt, sessionID: sessionID}
+	if sessionID != "" && opencode.IsGateway(r.BaseURL) {
+		rt = opencode.SessionTransport(rt, sessionID)
 	}
 	cfg.HTTPClient = &http.Client{Transport: rt}
 	return openai.NewChatModel(ctx, cfg)
-}
-
-func isOpenCodeGateway(baseURL string) bool {
-	u, err := url.Parse(baseURL)
-	if err != nil {
-		return false
-	}
-	host := strings.ToLower(u.Hostname())
-	return host == "opencode.ai" || strings.HasSuffix(host, ".opencode.ai")
-}
-
-type openCodeSessionTransport struct {
-	base      http.RoundTripper
-	sessionID string
-}
-
-func (t openCodeSessionTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	clone := req.Clone(req.Context())
-	if clone.Header.Get("x-opencode-session") == "" {
-		clone.Header.Set("x-opencode-session", t.sessionID)
-	}
-	return t.base.RoundTrip(clone)
 }

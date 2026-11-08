@@ -26,19 +26,22 @@ import (
 
 // 契约来源：backend/tests/test_settings_api.py 语义 + routes/settings.py
 
-func newSettingsTestServer(t *testing.T) (*httptest.Server, *gorm.DB) {
+func newSettingsTestServer(t *testing.T, cfgs ...*config.Settings) (*httptest.Server, *gorm.DB) {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(store.AllModels()...))
 
 	cfg := &config.Settings{SecretKey: "t", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7}
+	if len(cfgs) > 0 && cfgs[0] != nil {
+		cfg = cfgs[0]
+	}
 	authSvc := auth.NewService(db, cfg, nil)
 
 	api := httpapi.New(nil)
 	v1 := api.Group(httpapi.APIVersion)
 	auth.Mount(v1, authSvc)
-	Mount(v1, authSvc.AuthRequired(), NewService(db))
+	Mount(v1, authSvc.AuthRequired(), NewService(db, cfg))
 
 	// 预置固定 ID 用户
 	require.NoError(t, db.Create(&store.User{
@@ -111,7 +114,7 @@ func testConcurrentPatches(t *testing.T, existing bool) {
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&store.UserSettings{}))
 	uid := uuid.New()
-	svc := NewService(db)
+	svc := NewService(db, nil)
 	if existing {
 		_, initialErr := svc.UpdateCategory(context.Background(), uid, "agent", map[string]any{})
 		require.Nil(t, initialErr)
@@ -278,7 +281,7 @@ func TestModelSelectionInterleavesWithProviderPatch(t *testing.T) {
 	sqlDB.SetMaxOpenConns(2)
 	t.Cleanup(func() { _ = sqlDB.Close() })
 	require.NoError(t, db.AutoMigrate(&store.UserSettings{}))
-	uid, svc := uuid.New(), NewService(db)
+	uid, svc := uuid.New(), NewService(db, nil)
 	providers := []any{
 		map[string]any{"id": "a", "api_key": "secret-a", "models": []any{"a1", "a2"}, "active_model": "a1"},
 		map[string]any{"id": "b", "api_key": "old-b", "models": []any{"b1"}, "active_model": "b1"},
@@ -368,7 +371,7 @@ func TestFailedSettingsWriteDoesNotLogAPIKey(t *testing.T) {
 	}).Error)
 	require.NoError(t, db.Exec(`CREATE TRIGGER reject_secret BEFORE UPDATE ON user_settings BEGIN SELECT RAISE(FAIL, 'write failed'); END`).Error)
 	logs.Reset()
-	_, saveErr := NewService(db).UpdateCategory(context.Background(), uid, "agent", map[string]any{
+	_, saveErr := NewService(db, nil).UpdateCategory(context.Background(), uid, "agent", map[string]any{
 		"model_selection": map[string]any{"provider_id": "p", "model": "b"},
 	})
 	require.NotNil(t, saveErr)
