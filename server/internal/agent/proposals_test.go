@@ -126,6 +126,13 @@ func TestProposalApplyReject(t *testing.T) {
 	require.Equal(t, 200, rec.Code)
 	assert.Equal(t, "XYZ DEF", content(), "驳回不得改稿")
 
+	// PostgreSQL CHAR(64) 会补空格：带填充的基准哈希仍应可应用
+	base := md5Hex("XYZ DEF")
+	p4 := newProposal("XYZ", "PADDED", base+strings.Repeat(" ", 64-len(base)))
+	rec = do(token, http.MethodPost, "/api/v1/agent/change-proposals/"+p4.ID.String()+"/apply", "")
+	require.Equal(t, 200, rec.Code, rec.Body.String())
+	assert.Equal(t, "PADDED DEF", content())
+
 	// 列表：能按状态查到
 	rec = do(token, http.MethodGet, "/api/v1/projects/"+pid.String()+"/agent/proposals?status=stale", "")
 	require.Equal(t, 200, rec.Code)
