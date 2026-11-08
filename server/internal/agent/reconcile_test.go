@@ -29,7 +29,7 @@ func TestReconcileOrphanRunsFailsRunsFromPreviousProcess(t *testing.T) {
 	orphan := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: store.MustNewUUID(), AgentKey: AgentKeyMain,
 		Status: RunRunning, ModelProvider: "p", ModelName: "m", PromptVersion: "v",
-		StartedAt: &old,
+		StartedAt: &old, LastSequence: 1,
 	}
 	fresh := time.Now().UTC().Add(time.Hour)
 	live := store.AgentRun{
@@ -39,6 +39,11 @@ func TestReconcileOrphanRunsFailsRunsFromPreviousProcess(t *testing.T) {
 	}
 	require.NoError(t, db.Create(&orphan).Error)
 	require.NoError(t, db.Create(&live).Error)
+	// 崩溃场景：事件已写到 seq=2，但 last_sequence 仍是 1。
+	require.NoError(t, db.Create(&store.AgentEvent{
+		ID: store.MustNewUUID(), ConversationID: orphan.ConversationID,
+		RunID: orphan.ID, Sequence: 2, EventType: evtTextDelta,
+	}).Error)
 
 	svc := &Service{DB: db, startedAt: time.Now().UTC()}
 	require.NoError(t, svc.ReconcileOrphanRuns(context.Background()))
