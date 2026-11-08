@@ -253,4 +253,30 @@ describe('AiPanel', () => {
     expect(screen.queryByText('参考材料 · 0')).not.toBeInTheDocument()
     expect(screen.queryByText('依据暂时无法读取')).not.toBeInTheDocument()
   })
+
+  it('compile_project 工具卡只声称“已请求编译”，不把内部请求当成编译结果', () => {
+    useSettingsStore.setState({ settings: { ui: {}, editor: {}, agent: { providers: [{ id: 'p', name: 'P', models: ['m'], active_model: 'm' }], active_provider_id: 'p' } } } as never)
+    useChatStore.setState({
+      ...emptyChatState,
+      messages: [{
+        id: 'm1',
+        role: 'assistant',
+        status: 'completed',
+        parts: [{
+          id: 't1',
+          type: 'tool',
+          status: 'succeeded',
+          text: '',
+          meta: { toolName: 'compile_project', output: 'browser_compile_request:{"root_file":"main.tex"}' },
+        }],
+      }],
+    })
+
+    render(<AiPanel projectId="p1" />)
+
+    expect(screen.getByText('已请求编译')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /compile_project/ }))
+    expect(screen.getByText('结果在写作页查看，模型无法直接读取编译结果。')).toBeInTheDocument()
+    expect(screen.queryByText(/browser_compile_request/)).not.toBeInTheDocument()
+  })
 })

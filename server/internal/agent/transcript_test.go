@@ -78,3 +78,32 @@ func TestBuildTranscriptKeepsToolIdentityAndProposal(t *testing.T) {
 	require.NotNil(t, parts[4].Text)
 	assert.Equal(t, "boom", *parts[4].Text)
 }
+
+func TestBuildTranscriptMarksFailedToolOutput(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/transcript-failed.db"),
+		&gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(store.AllModels()...))
+	t.Cleanup(func() {
+		if sqlDB, e := db.DB(); e == nil {
+			_ = sqlDB.Close()
+		}
+	})
+
+	convID, runID := store.MustNewUUID(), store.MustNewUUID()
+	add := func(seq int64, typ string, payload any) {
+		t.Helper()
+		require.NoError(t, db.Create(&store.AgentEvent{
+			ID: store.MustNewUUID(), ConversationID: convID, RunID: runID,
+			Sequence: seq, EventType: typ, PayloadJSON: datatypes.JSON(mustJSON(payload)),
+		}).Error)
+	}
+	add(1, evtToolInput, map[string]string{"toolCallId": "c1", "toolName": "read_latex_file", "input": `{"path":"main.tex"}`})
+	add(2, evtToolOutput, map[string]string{"toolCallId": "c1", "output": "工具执行失败：NoSuchKey", "status": "failed"})
+
+	svc := &Service{DB: db}
+	parts, err := svc.buildTranscript(context.Background(), runID, "", "")
+	require.NoError(t, err)
+	require.Len(t, parts, 1)
+	assert.Equal(t, ToolFailed, parts[0].Status, "刷新后失败的工具卡必须仍是失败")
+}

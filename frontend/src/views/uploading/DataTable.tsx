@@ -16,14 +16,16 @@ import { createColumns, type DocumentActions } from './columns'
 interface DataTableProps {
   data: ProjectDocument[]
   actions: DocumentActions
-  globalFilter: string
+  /** 当前范围内（搜索/类型筛选前）的文档总数，用于区分空库与无匹配结果。 */
+  totalCount: number
+  onClearFilters: () => void
   /** Called when row selection changes with the array of selected row IDs. */
   onRowSelectionChange?: (selectedIds: string[]) => void
 }
 
 const PAGE_SIZE = 20
 
-export function DataTable({ data, actions, globalFilter, onRowSelectionChange }: DataTableProps) {
+export function DataTable({ data, actions, totalCount, onClearFilters, onRowSelectionChange }: DataTableProps) {
   const [sorting, setSorting] = useState<{ id: string; desc: boolean }[]>([])
   const [rowSelection, setRowSelection] = useState<Record<string, boolean>>({})
   const columns = createColumns(actions)
@@ -46,7 +48,7 @@ export function DataTable({ data, actions, globalFilter, onRowSelectionChange }:
     // 选中态以文档 ID 为 key（默认的行索引在删除/刷新后会让选中
     // 「漂移」到补位上来的新行——多选删除后误选后续文件的根源）
     getRowId: (row) => row.id,
-    state: { sorting, globalFilter, rowSelection },
+    state: { sorting, rowSelection },
     onSortingChange: setSorting,
     onRowSelectionChange: (updater) => {
       const newSelection = typeof updater === 'function' ? updater(rowSelection) : updater
@@ -109,7 +111,16 @@ export function DataTable({ data, actions, globalFilter, onRowSelectionChange }:
             ) : (
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
-                  暂无文档
+                  {totalCount === 0 ? (
+                    <span>还没有资料，点击右上角「上传」添加 PDF、DOCX 或 TXT。</span>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1.5">
+                      <span>没有匹配的结果</span>
+                      <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={onClearFilters}>
+                        清除搜索和筛选
+                      </Button>
+                    </div>
+                  )}
                 </TableCell>
               </TableRow>
             )}

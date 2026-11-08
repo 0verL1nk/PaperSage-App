@@ -85,6 +85,17 @@ describe('reduceChatEvent', () => {
     expect(byId['call_2']).toBe('第二次的结果')
   })
 
+  it('工具失败输出标记为 failed 并保留错误文本', () => {
+    const s = feed([
+      { type: 'start', messageId: 'm1' },
+      { type: 'tool-input-start', toolCallId: 'call_1', toolName: 'read_latex_file' },
+      { type: 'tool-output-error', toolCallId: 'call_1', errorText: '工具执行失败：NoSuchKey' },
+    ])
+    const tool = s.messages[0].parts.find((p) => p.type === 'tool')
+    expect(tool?.status).toBe('failed')
+    expect((tool?.meta as { output?: string })?.output).toBe('工具执行失败：NoSuchKey')
+  })
+
   it('建议 part 登记进 proposals，供卡片渲染', () => {
     const s = feed([
       { type: 'start', messageId: 'm1' },

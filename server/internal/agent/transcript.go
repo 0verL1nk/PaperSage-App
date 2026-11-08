@@ -55,7 +55,7 @@ func (b *transcriptBuilder) addTool(toolCallID, toolName, input string) {
 	})
 }
 
-func (b *transcriptBuilder) finishTool(toolCallID, output string) {
+func (b *transcriptBuilder) finishTool(toolCallID, output, status string) {
 	i, ok := b.toolIndex[toolCallID]
 	if !ok {
 		return
@@ -67,6 +67,10 @@ func (b *transcriptBuilder) finishTool(toolCallID, output string) {
 	}
 	meta["output"] = output
 	b.parts[i].Content, _ = json.Marshal(meta)
+	if status == "failed" {
+		b.parts[i].Status = ToolFailed
+		return
+	}
 	b.parts[i].Status = "succeeded"
 }
 
@@ -122,7 +126,7 @@ func (s *Service) buildTranscript(ctx context.Context, runID store.UUID, fallbac
 				}
 			}
 		case evtToolOutput:
-			b.finishTool(str(p, "toolCallId"), str(p, "output"))
+			b.finishTool(str(p, "toolCallId"), str(p, "output"), str(p, "status"))
 		case evtActivity:
 			content, _ := json.Marshal(p)
 			status := str(p, "status")

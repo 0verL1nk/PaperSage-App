@@ -37,7 +37,13 @@ import {
  * 切换后**整页刷新**——访问令牌与 React Query 缓存都绑定在原来的后端上，
  * 不刷新会拿到「A 后端签发的 token 去请求 B 后端」这种半坏状态。
  */
-export function ApiTargetToggle({ prominent = false }: { prominent?: boolean }) {
+export function ApiTargetToggle(props: { prominent?: boolean }) {
+  // 生产构建只暴露部署后端；切换入口是开发/联调能力，不对普通用户展示
+  if (import.meta.env.PROD) return null
+  return <ApiTargetToggleMenu {...props} />
+}
+
+function ApiTargetToggleMenu({ prominent = false }: { prominent?: boolean }) {
   const [target, setTarget] = useState<ApiTarget>(() => getApiTarget())
   const [customDialogOpen, setCustomDialogOpen] = useState(false)
   const [customAddress, setCustomAddress] = useState(() => getCustomApiBaseUrl())

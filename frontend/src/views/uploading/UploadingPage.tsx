@@ -57,10 +57,23 @@ export function UploadingPage() {
   const { data: folders = [] } = useProjectFolders(projectId)
   const deleteMutation = useDeleteDocument(projectId, selectedFolderId)
 
+  const normalizedSearch = searchQuery.trim().toLowerCase()
   const filteredDocs = documents.filter((doc) => {
     if (typeFilter !== 'all' && doc.type !== typeFilter) return false
-    return true
+    if (!normalizedSearch) return true
+    return doc.name.toLowerCase().includes(normalizedSearch)
+      || (doc.remark ?? '').toLowerCase().includes(normalizedSearch)
   })
+
+  const clearFilters = useCallback(() => {
+    setTypeFilter('all')
+    setSearchQuery('')
+  }, [])
+
+  // 筛选后已不在结果中的文档不再占据预览区
+  const visiblePreviewDoc = previewDoc && filteredDocs.some((d) => d.id === previewDoc.id)
+    ? previewDoc
+    : null
 
   const handlePreview = useCallback((doc: ProjectDocument) => {
     setPreviewDoc(doc)
@@ -161,7 +174,8 @@ export function UploadingPage() {
         <DataTable
           data={filteredDocs}
           actions={actions}
-          globalFilter={searchQuery}
+          totalCount={documents.length}
+          onClearFilters={clearFilters}
           onRowSelectionChange={handleRowSelectionChange}
         />
       </div>
@@ -176,9 +190,9 @@ export function UploadingPage() {
     </div>
   )
 
-  const previewPanel = previewDoc ? (
+  const previewPanel = visiblePreviewDoc ? (
     <aside className="h-full border-l border-border/30 bg-muted/10">
-      <DocumentPreviewPanel document={previewDoc} onClose={handleClosePreview} />
+      <DocumentPreviewPanel document={visiblePreviewDoc} onClose={handleClosePreview} />
     </aside>
   ) : null
 
@@ -193,7 +207,7 @@ export function UploadingPage() {
           <div className="flex-1 min-h-0">{tableContent}</div>
           {previewPanel && <div className="h-96 shrink-0 border-t border-border/30">{previewPanel}</div>}
         </div>
-      ) : previewDoc ? (
+      ) : previewPanel ? (
         /* Desktop with preview: three-pane resizable */
         <Resizable.Group orientation="horizontal" id="uploading-layout-3">
           <Resizable.Panel defaultSize={PANEL_SIZES.folder} minSize={PANEL_SIZES.minFolder}>

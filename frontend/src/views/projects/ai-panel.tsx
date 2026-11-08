@@ -500,6 +500,9 @@ function ToolCard({ part }: { part: ChatPart }) {
   const [open, setOpen] = useState(false)
   const meta = (part.meta ?? {}) as { toolName?: string; input?: unknown; output?: unknown; durationMs?: number; error?: string }
   const duration = typeof meta.durationMs === 'number' ? ` · ${Math.round(meta.durationMs)}ms` : ''
+  // compile_project 只负责把请求交给写作页，模型拿不到真实编译结果。
+  const isCompileRequest = meta.toolName === 'compile_project'
+  const statusLabel = isCompileRequest && part.status === 'succeeded' ? '已请求编译' : toolStatusLabel(part.status)
   return (
     <div className="rounded-xl border border-border/40 bg-muted/20 overflow-hidden">
       <button
@@ -510,7 +513,7 @@ function ToolCard({ part }: { part: ChatPart }) {
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         <span className="font-medium">{meta.toolName ?? '工具'}</span>
-        <span className="ml-auto text-[10px] opacity-70">{toolStatusLabel(part.status)}{duration}</span>
+        <span className="ml-auto text-[10px] opacity-70">{statusLabel}{duration}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2">
@@ -520,7 +523,9 @@ function ToolCard({ part }: { part: ChatPart }) {
             </pre>
           )}
           {meta.error && <p className="text-[10px] text-destructive">{meta.error}</p>}
-          {meta.output != null && (
+          {isCompileRequest && part.status === 'succeeded' ? (
+            <p className="text-[10px] text-muted-foreground">结果在写作页查看，模型无法直接读取编译结果。</p>
+          ) : meta.output != null && (
             <pre className="text-[10px] bg-background/60 rounded-lg p-2 overflow-x-auto whitespace-pre-wrap">
               {typeof meta.output === 'string' ? meta.output : JSON.stringify(meta.output, null, 2)}
             </pre>

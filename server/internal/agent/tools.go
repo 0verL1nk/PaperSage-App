@@ -5,8 +5,12 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log/slog"
+	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/model"
@@ -21,6 +25,40 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
+
+// toolErrorPrefix 标记「工具失败但 Run 继续」的结果；模型据此解释失败。
+const toolErrorPrefix = "工具执行失败："
+
+// credentialURL 把错误里的连接串凭据脱敏后再交给外部模型。
+var credentialURL = regexp.MustCompile(`(?i)(\w+://)[^/\s:@]+:[^/\s@]+@`)
+
+// toolFailureTracker 记录哪些 toolCallId 失败过。错误文本本身只是给模型看的
+// 结果，不能反过来当作状态判据（正常输出也可能以同样的字开头）。
+type toolFailureTracker struct{ failed sync.Map }
+
+func (t *toolFailureTracker) failedCall(callID string) bool {
+	_, ok := t.failed.Load(callID)
+	return ok
+}
+
+// middleware 把工具失败变成模型可读的结果。
+// 默认行为是工具返回 error 即中断整个 Run，用户只会看到「模型调用失败」——
+// 但文件不存在、锚点对不上这类问题模型本可以自行解释或改用别的做法。
+// 取消/超时仍然向上抛：那是用户或系统要求停止，不是可恢复的工具错误。
+func (t *toolFailureTracker) middleware(next compose.InvokableToolEndpoint) compose.InvokableToolEndpoint {
+	return func(ctx context.Context, input *compose.ToolInput) (*compose.ToolOutput, error) {
+		out, err := next(ctx, input)
+		if err == nil {
+			return out, nil
+		}
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return nil, err
+		}
+		t.failed.Store(input.CallID, struct{}{})
+		slog.Warn("tool call failed", "tool", input.Name, "call_id", input.CallID, "err", err)
+		return &compose.ToolOutput{Result: toolErrorPrefix + credentialURL.ReplaceAllString(err.Error(), "$1***:***@")}, nil
+	}
+}
 
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
@@ -169,7 +207,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 	// 稿件覆盖」。改为产出带锚点的建议，由用户确认后经服务端校验基准版本再应用。
 	proposeEdit, err := utils.InferTool(
 		"propose_edit",
-		"提出对某个 LaTeX 源文件的修改建议（不直接改稿，用户确认后才应用）。需给出目标文件路径、要替换的原文片段、替换后的新文与理由。old_text 必须与文件当前内容逐字一致，否则会被拒绝——不确定时先 read_latex_file。",
+		"提出对某个 LaTeX 源文件的修改建议（不直接改稿，用户确认后才应用）。用户提出任何改稿请求（包括“给个建议”“帮我改”“润色这段”）都必须调用本工具，不要用回复里的代码块代替建议卡。需给出目标文件路径、要替换的原文片段、替换后的新文与理由。old_text 必须与文件当前内容逐字一致，否则会被拒绝——不确定时先 read_latex_file。",
 		func(ctx context.Context, in struct {
 			Path    string `json:"path" jsonschema:"description=文件路径，如 main.tex"`
 			OldText string `json:"old_text" jsonschema:"description=要被替换的原文片段（必须与文件当前内容逐字一致）"`
@@ -217,7 +255,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 
 	compileProject, err := utils.InferTool(
 		"compile_project",
-		"请求当前写作页在用户浏览器中运行 LaTeX 编译。修改论文后用来验证能否编译通过。",
+		"请求当前写作页在用户浏览器中运行 LaTeX 编译。只发起请求，不返回编译结果；结果由用户在写作页查看。",
 		func(ctx context.Context, in struct {
 			RootFile string `json:"root_file,omitempty" jsonschema:"description=编译入口文件，默认 main.tex 可省略"`
 		}) (string, error) {
@@ -240,7 +278,8 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 			if err != nil {
 				return "", err
 			}
-			return "browser_compile_request:" + string(request), nil
+			return "browser_compile_request:" + string(request) +
+				"\n\n已请求浏览器在写作页编译；编译结果只在写作页显示，你无法读取，不要声称编译已成功。", nil
 		})
 	if err != nil {
 		return nil, err
@@ -322,7 +361,8 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 // `task` 工具（参数 subagent_type / description）来做编排，因此这里返回 agent 本身，
 // 不再手工包 AgentTool。用户视角仍只有一个 Assistant（参考架构 §9.1）。
 func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
-	projectID, ownerID, rootRunID store.UUID, chatModel model.ToolCallingChatModel) (adk.Agent, error) {
+	projectID, ownerID, rootRunID store.UUID, chatModel model.ToolCallingChatModel,
+	tracker *toolFailureTracker) (adk.Agent, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -440,7 +480,8 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 		Model: chatModel,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools: []tool.BaseTool{ragSearch, wikiRead, wikiWrite},
+				Tools:               []tool.BaseTool{ragSearch, wikiRead, wikiWrite},
+				ToolCallMiddlewares: []compose.ToolMiddleware{{Invokable: tracker.middleware}},
 			},
 		},
 	})

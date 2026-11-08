@@ -40,6 +40,7 @@ import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
 import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
+import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
 import { createBrowserCompileJob, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult } from '@/services/latex-api'
 
 function toPdfFile(source: PdfRangeSource | { data: Uint8Array }) {
@@ -145,6 +146,7 @@ export function WritingPage() {
   // UI state
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
+  const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor')
   const sidebarPanel = Resizable.usePanelRef()
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [compiler, setCompiler] = useState('pdflatex')
@@ -220,7 +222,6 @@ export function WritingPage() {
   const [compileError, setCompileError] = useState<string | null>(null)
   const [compileLogs, setCompileLogs] = useState<string | null>(null)
   const [compileWarning, setCompileWarning] = useState<string | null>(null)
-  const [showFullLogs, setShowFullLogs] = useState(false)
 
   const isCompiling = isBrowserCompiling
     || isPublishingBrowserResult
@@ -334,6 +335,9 @@ export function WritingPage() {
 
   const handleEditorChange = (value: string | undefined) => {
     if (value === undefined) return
+    // Keep the React copy in sync: the mobile pane switch unmounts Monaco and
+    // remounts it from this value, and compile reads it for the active file.
+    setEditorContent(value)
     autoSave.onChange(value)
   }
 
@@ -342,6 +346,7 @@ export function WritingPage() {
     activeFilePathRef.current = filePath
     setActiveFilePath(filePath)
     setEditorContent('')
+    if (isMobile) setMobilePane('editor')
   }
 
   const handleDownloadPdf = useCallback(async () => {
@@ -383,7 +388,6 @@ export function WritingPage() {
     if (browserCompileAbortRef.current) return
     const controller = new AbortController()
     browserCompileAbortRef.current = controller
-    setShowFullLogs(false)
     setCompileError(null)
     setCompileLogs(null)
     setCompileWarning(null)
@@ -674,6 +678,73 @@ export function WritingPage() {
   const loadedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' || resource.state === 'cacheWarning').length
   const cachedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' && resource.cached).length
 
+  const hasMissingResource = resourceList.some((resource) => resource.state === 'missing' || resource.status === 404)
+  const compileFailureKind = classifyCompileFailure(compileError, compileLogs, hasMissingResource)
+  const compileFailureText = compileFailureMessage(compileFailureKind)
+
+  const compileToolbar = (
+    <>
+      <Select value={compiler} onValueChange={setCompiler}>
+        <SelectTrigger
+          aria-label="选择 LaTeX 编译器"
+          className={cn(
+            'h-7 border-transparent bg-transparent px-2 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 focus-visible:border-ring',
+            isMobile ? 'w-[100px]' : 'w-[112px]',
+          )}
+        >
+          <SelectValue>{compilerLabel}</SelectValue>
+        </SelectTrigger>
+        <SelectContent align="end">
+          {COMPILER_OPTIONS.map((option) => (
+            <SelectItem key={option.value} value={option.value} disabled={!option.supported}>
+              <span className="flex items-center gap-2">
+                {option.label}
+                {!option.supported && <span className="text-xs text-muted-foreground">暂不可用</span>}
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="初始化浏览器 LaTeX 环境"
+        title="初始化浏览器 LaTeX 环境"
+        className="rounded-md text-muted-foreground hover:text-foreground"
+        onClick={() => setIsLatexSetupOpen(true)}
+      >
+        <HardDrive size={14} />
+      </Button>
+      <Button
+        variant="default"
+        size="sm"
+        data-testid="compile-button"
+        aria-label={isCompiling ? '编译中' : '编译'}
+        title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
+        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-9' : 'h-7')}
+        onClick={() => void handleCompile()}
+        disabled={isCompiling || !compilerSupported}
+      >
+        {isCompiling ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className="fill-current" />}
+        <span>{isCompiling ? '编译中' : '编译'}</span>
+      </Button>
+      {isBrowserCompiling && !isPublishingBrowserResult && (
+        <Button
+          variant="ghost"
+          size="sm"
+          data-testid="cancel-browser-compile"
+          aria-label="取消浏览器编译"
+          title="停止浏览器引擎并取消编译任务"
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
+          onClick={handleCancelBrowserCompile}
+        >
+          <Square size={12} className="fill-current" />
+          <span className="hidden sm:inline">取消</span>
+        </Button>
+      )}
+    </>
+  )
+
   const sidebarBody = activeTab === 'files' ? (
     <div
       className="flex-1 flex flex-col h-full overflow-hidden relative"
@@ -733,8 +804,8 @@ export function WritingPage() {
         <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
         <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
         <div className="mt-auto flex flex-col gap-4">
-          <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
-          <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
+          <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
+          <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
         </div>
       </aside>
 
@@ -746,7 +817,7 @@ export function WritingPage() {
         >
           <div className="h-12 flex-none flex items-center justify-between border-b border-border/40 px-4">
             <span className="text-sm font-semibold">{activeTab === 'files' ? '文件' : 'AI 助手'}</span>
-            <Button variant="ghost" size="icon-sm" aria-label="关闭侧栏" onClick={() => setMobileSidebarOpen(false)}>
+            <Button variant="ghost" size="icon-sm" className="h-11 w-11" aria-label="关闭侧栏" onClick={() => setMobileSidebarOpen(false)}>
               <X className="size-4" />
             </Button>
           </div>
@@ -754,8 +825,36 @@ export function WritingPage() {
         </div>
       )}
 
-      <div className="flex-1 min-w-0">
-        <Resizable.Group orientation="horizontal" id="writing-layout-v9">
+      <div className="flex-1 min-w-0 flex flex-col">
+        {isMobile && (
+          <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-border/40 bg-muted/10 px-2">
+            <div role="tablist" aria-label="写作视图" className="flex rounded-lg bg-muted/60 p-0.5">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === 'editor'}
+                data-testid="writing-pane-editor"
+                onClick={() => setMobilePane('editor')}
+                className={cn('min-h-9 rounded-md px-2 text-xs font-medium transition-colors', mobilePane === 'editor' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
+              >
+                编辑
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={mobilePane === 'preview'}
+                data-testid="writing-pane-preview"
+                onClick={() => setMobilePane('preview')}
+                className={cn('min-h-9 rounded-md px-2 text-xs font-medium transition-colors', mobilePane === 'preview' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
+              >
+                预览
+              </button>
+            </div>
+            <div className="flex items-center gap-1">{compileToolbar}</div>
+          </div>
+        )}
+        <div className="flex-1 min-h-0">
+        <Resizable.Group orientation="horizontal" id={isMobile ? 'writing-layout-mobile' : 'writing-layout-v9'}>
           {!isMobile && (
             <>
               <Resizable.Panel defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
@@ -768,6 +867,7 @@ export function WritingPage() {
           )}
 
           {/* Editor Panel */}
+          {(!isMobile || mobilePane === 'editor') && (
           <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
@@ -779,63 +879,11 @@ export function WritingPage() {
                     <SavingStatus isSaving={saveMutation.isPending} />
                   </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <Select value={compiler} onValueChange={setCompiler}>
-                    <SelectTrigger
-                      aria-label="选择 LaTeX 编译器"
-                      className="h-7 w-[112px] border-transparent bg-transparent px-2 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 focus-visible:border-ring"
-                    >
-                      <SelectValue>{compilerLabel}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent align="end">
-                      {COMPILER_OPTIONS.map((option) => (
-                        <SelectItem key={option.value} value={option.value} disabled={!option.supported}>
-                          <span className="flex items-center gap-2">
-                            {option.label}
-                            {!option.supported && <span className="text-xs text-muted-foreground">暂不可用</span>}
-                          </span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label="初始化浏览器 LaTeX 环境"
-                    title="初始化浏览器 LaTeX 环境"
-                    className="rounded-md text-muted-foreground hover:text-foreground"
-                    onClick={() => setIsLatexSetupOpen(true)}
-                  >
-                    <HardDrive size={14} />
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    data-testid="compile-button"
-                    aria-label={isCompiling ? '编译中' : '编译'}
-                    title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
-                    className="h-7 gap-1.5 px-2.5 text-xs"
-                    onClick={() => void handleCompile()}
-                    disabled={isCompiling || !compilerSupported}
-                  >
-                    {isCompiling ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className="fill-current" />}
-                    <span>{isCompiling ? '编译中' : '编译'}</span>
-                  </Button>
-                  {isBrowserCompiling && !isPublishingBrowserResult && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      data-testid="cancel-browser-compile"
-                      aria-label="取消浏览器编译"
-                      title="停止浏览器引擎并取消编译任务"
-                      className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
-                      onClick={handleCancelBrowserCompile}
-                    >
-                      <Square size={12} className="fill-current" />
-                      <span>取消</span>
-                    </Button>
-                  )}
-                </div>
+                {!isMobile && (
+                  <div className="flex items-center gap-1">
+                    {compileToolbar}
+                  </div>
+                )}
               </div>
               <div className="flex-1 relative overflow-hidden">
                 {!activeFilePath ? (
@@ -856,9 +904,11 @@ export function WritingPage() {
               </div>
             </section>
           </Resizable.Panel>
+          )}
 
           {/* Preview Panel */}
-          <Resizable.Panel defaultSize={40} minSize={20}>
+          {(!isMobile || mobilePane === 'preview') && (
+          <Resizable.Panel defaultSize={isMobile ? 100 : 40} minSize={20}>
             <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
                 <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Preview</span>
@@ -936,7 +986,7 @@ export function WritingPage() {
                 </div>
               </div>
 
-              <div ref={previewContainerRef} className="flex-1 overflow-y-auto p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+              <div ref={previewContainerRef} className="flex-1 overflow-auto p-3 sm:p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
                 {compileWarning && (
                   <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
@@ -952,7 +1002,7 @@ export function WritingPage() {
                     </div>
                   </div>
                 )}
-                {isCompiling && browserProgressMessage && (
+                {isCompiling && browserProgressMessage && !compileError && (
                   <div role="status" aria-live="polite" className="sticky top-0 z-10 mx-auto mb-5 max-w-2xl rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Loader2 size={15} className="shrink-0 animate-spin text-primary" />
@@ -1025,32 +1075,39 @@ export function WritingPage() {
                         复制
                       </button>
                     </div>
-                    <pre className="text-[11px] text-destructive/80 whitespace-pre-wrap font-mono leading-relaxed">{compileError}</pre>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      data-testid="retry-browser-compile"
-                      className="mt-3 h-8 gap-2"
-                      onClick={() => void handleCompile()}
-                      disabled={isCompiling}
-                    >
-                      {isCompiling && <Loader2 size={13} className="animate-spin" />}
-                      {isCompiling ? '正在重试编译' : '重试编译'}
-                    </Button>
-                    {compileLogs && (
-                      <div className="mt-3">
-                        <button
-                          className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
-                          onClick={() => setShowFullLogs(!showFullLogs)}
-                        >
-                          {showFullLogs ? '收起完整日志' : '查看完整日志'}
-                        </button>
-                        {showFullLogs && (
-                          <pre className="mt-2 text-[10px] text-muted-foreground/70 whitespace-pre-wrap font-mono leading-relaxed max-h-80 overflow-y-auto bg-muted/30 rounded-lg p-3">
-                            {compileLogs}
-                          </pre>
-                        )}
-                      </div>
+                    <p className="text-sm leading-6 text-destructive/90">{compileFailureText}</p>
+                    <details className="mt-3">
+                      <summary className="w-fit cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                        查看原始日志
+                      </summary>
+                      <pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70">
+                        {compileLogs ? `${compileError}\n\n--- Full Logs ---\n${compileLogs}` : compileError}
+                      </pre>
+                    </details>
+                    {compileFailureKind === 'resource' ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="reinit-latex-resources"
+                        className="mt-3 h-8 gap-2"
+                        onClick={() => setIsLatexSetupOpen(true)}
+                        disabled={isCompiling}
+                      >
+                        <HardDrive size={13} />
+                        重新初始化资源
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        data-testid="retry-browser-compile"
+                        className="mt-3 h-8 gap-2"
+                        onClick={() => void handleCompile()}
+                        disabled={isCompiling}
+                      >
+                        {isCompiling && <Loader2 size={13} className="animate-spin" />}
+                        {isCompiling ? '正在重试编译' : '重试编译'}
+                      </Button>
                     )}
                   </div>
                 ) : pdfFileSource ? (
@@ -1075,7 +1132,9 @@ export function WritingPage() {
               </div>
             </aside>
           </Resizable.Panel>
+          )}
         </Resizable.Group>
+        </div>
       </div>
       <LatexEnvironmentSetup open={isLatexSetupOpen} onOpenChange={setIsLatexSetupOpen} disabled={isCompiling} />
       <DeleteConfirmDialog />
@@ -1098,7 +1157,7 @@ function TabButton({ icon, active, onClick, testId }: { icon: React.ReactNode; a
     <button
       data-testid={testId}
       onClick={onClick}
-      className={cn("p-2 rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
+      className={cn("flex h-11 w-11 items-center justify-center rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
     >
       {icon}
     </button>
