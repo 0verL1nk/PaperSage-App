@@ -26,6 +26,8 @@ type TemplateCreator func(ctx context.Context, projectID, userID uuid.UUID) erro
 type Service struct {
 	DB       *gorm.DB
 	OnCreate TemplateCreator
+	// OnPurge 永久删除项目后清理对象存储与派生索引（装配层注入，失败只记日志）。
+	OnPurge func(ctx context.Context, projectID store.UUID)
 }
 
 // NewService wires the projects domain.
@@ -416,6 +418,9 @@ func (s *Service) purgeProject(c *gin.Context) {
 	if res.Error != nil || res.RowsAffected == 0 {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Project not found in trash"})
 		return
+	}
+	if s.OnPurge != nil {
+		s.OnPurge(ctx, store.UUID{UUID: pid})
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{"id": pid.String(), "permanently_deleted": true}, ""))
 }
