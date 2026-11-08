@@ -31,12 +31,32 @@ func (s *Service) linkProposal(ctx context.Context, toolCallID, runID store.UUID
 	var in struct {
 		Path string `json:"path"`
 	}
-	if json.Unmarshal([]byte(args), &in) != nil || in.Path == "" {
+	if json.Unmarshal([]byte(args), &in) == nil && in.Path != "" {
+		_ = s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
+			Where("run_id = ? AND file_path = ? AND tool_call_id IS NULL", runID, in.Path).
+			Update("tool_call_id", toolCallID).Error
 		return
 	}
-	_ = s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
-		Where("run_id = ? AND file_path = ? AND tool_call_id IS NULL", runID, in.Path).
-		Update("tool_call_id", toolCallID).Error
+	// 某些流式 provider 不把 arguments 回填到消息里；propose_edit 每次只产出一条建议，
+	// 用该 Run 最新未关联的 pending 建议兜底，避免建议卡永久不可见。
+	var p store.AgentChangeProposal
+	if err := s.DB.WithContext(ctx).
+		Where("run_id = ? AND tool_call_id IS NULL AND status = ?", runID, ProposalPending).
+		Order("created_at DESC").First(&p).Error; err == nil {
+		_ = s.DB.WithContext(ctx).Model(&p).Update("tool_call_id", toolCallID).Error
+	}
+}
+
+// latestPendingProposal 是该 Run 最近一条未决建议；用于 provider 未回填
+// toolCallId/args 时仍能把建议事件推给前端。
+func (s *Service) latestPendingProposal(ctx context.Context, runID store.UUID) (*store.AgentChangeProposal, error) {
+	var p store.AgentChangeProposal
+	if err := s.DB.WithContext(ctx).
+		Where("run_id = ? AND status = ?", runID, ProposalPending).
+		Order("created_at DESC").First(&p).Error; err != nil {
+		return nil, err
+	}
+	return &p, nil
 }
 
 // decideProposal 是唯一的决策路径：apply / reject 两个入口共用它。
