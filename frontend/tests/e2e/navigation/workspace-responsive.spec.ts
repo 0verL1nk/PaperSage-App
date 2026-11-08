@@ -103,9 +103,13 @@ test('project workspace stages, writing editor, and reference library fit phone/
         expect(geometry.editorRight, `editor should stay within viewport at ${viewport.name}`).toBeLessThanOrEqual(viewport.width + 1)
       }
       if (route.path === 'prepare' && viewport.width < 1024) {
-        const chatTop = await page.getByRole('region', { name: '研究准备对话' }).evaluate((element) => element.getBoundingClientRect().top)
-        const summaryTop = await page.getByText('研究蓝图', { exact: true }).evaluate((element) => element.closest('aside')?.getBoundingClientRect().top ?? Number.POSITIVE_INFINITY)
-        expect(chatTop, `mobile preparation should put the conversation before the summary at ${viewport.name}`).toBeLessThan(summaryTop)
+        const tablist = page.getByRole('tablist', { name: '研究准备视图' })
+        await expect(tablist).toBeVisible()
+        await expect(page.getByRole('tab', { name: '研究顾问' })).toHaveAttribute('aria-selected', 'true')
+        await expect(page.getByRole('region', { name: '研究准备对话' })).toBeVisible()
+        await page.getByRole('tab', { name: '研究蓝图' }).click()
+        await expect(page.getByRole('region', { name: '研究准备对话' })).toBeHidden()
+        await page.getByRole('tab', { name: '研究顾问' }).click()
       }
       if (viewport.width < 768) {
         const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : route.path === 'uploading' ? '上传资料' : '论文撰写' })
@@ -143,7 +147,7 @@ test('browser-local guest can create and save a real project across mobile, tabl
   await page.setViewportSize({ width: 320, height: 640 })
   await page.goto('/guest')
   await expect(page).toHaveURL(/\/app\/projects$/)
-  await expect(page.getByText('本机游客 · 未同步')).toBeVisible()
+  await expect(page.getByRole('link', { name: '本机游客，登录并导入' })).toBeVisible()
   await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
   // Browser-local guest workspaces never call an API, so the backend selector
   // is intentionally omitted from the guest shell.
@@ -180,6 +184,9 @@ test('browser-local guest can create and save a real project across mobile, tabl
     })
   }, projectId)
   await page.reload()
+  const briefTab = page.getByRole('tab', { name: '研究蓝图' })
+  await expect(briefTab).toBeVisible()
+  await briefTab.click()
   await expect(page.getByText('本机游客工作区持久化验收')).toBeVisible()
 
   for (const viewport of viewports) {
@@ -190,6 +197,10 @@ test('browser-local guest can create and save a real project across mobile, tabl
     const activeStage = page.getByRole('button', { name: '写作准备' })
     await expect(activeStage).toBeVisible()
     expect(await activeStage.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+    if (viewport.width < 1024) {
+      await expect(briefTab).toBeVisible()
+      await briefTab.click()
+    }
     await expect(page.getByText('本机游客工作区持久化验收')).toBeVisible()
   }
   expect(unmockedApiRequests, 'browser-local guest reads and writes must not call cloud APIs').toEqual([])

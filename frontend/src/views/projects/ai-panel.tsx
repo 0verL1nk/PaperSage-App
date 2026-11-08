@@ -21,6 +21,7 @@ import * as agentApi from '@/services/agent-api'
 import { latexKeys } from '@/lib/query-keys'
 import { writingStateKeys } from '@/services/writing-state-api'
 import { cn } from '@/lib/utils'
+import { ChatMarkdown } from './chat-markdown'
 
 /**
  * AI 助手面板。
@@ -188,7 +189,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <>
             <DropdownMenu open={pickerOpen} onOpenChange={setPickerOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground max-w-[120px]">
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground max-w-[72px] sm:max-w-[120px]">
                   <span className="truncate">
                     {conversations.find((c) => c.id === activeConversationId)?.title ?? '新对话'}
                   </span>
@@ -273,9 +274,9 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
       {savingModel && <p className="px-4 py-2 text-xs text-muted-foreground">{t('agent.savingModelSettings')}</p>}
       <div className="relative flex-1 min-h-0">
         <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto overscroll-contain">
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-6">
             {chat.messages.length === 0 && (
-              <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[12px] leading-relaxed relative">
+              <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[13px] leading-6 relative">
                 <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">
                   AI
                 </div>
@@ -364,7 +365,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
               : mode === 'review'
                 ? '问检查结果、问题依据或还需要补什么…'
                 : '问点什么…'}
-            className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[12px] focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28"
+            className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28"
           />
           <Button
             size="icon-xs"
@@ -386,7 +387,7 @@ function PanelHeader({ right, model }: { right?: React.ReactNode; model?: React.
   return (
     <div className="p-4 min-h-14 border-b border-border/40 flex items-center justify-between gap-2 flex-none bg-card/50">
       <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2 shrink-0">
-        <Sparkles size={14} className="text-primary" /> AI Assistant
+        <Sparkles size={14} className="text-primary" /> <span className="hidden sm:inline">AI Assistant</span>
       </h3>
       <div className="flex items-center gap-1 min-w-0">
         {model}
@@ -414,16 +415,22 @@ function MessageRow({ message, projectId, hideErrorPart = false }: { message: Ch
     const text = message.parts.map((p) => p.text).join('')
     return (
       <div className="flex justify-end">
-        <div className="max-w-[85%] rounded-2xl bg-primary/10 border border-primary/10 px-3 py-2 text-[12px] whitespace-pre-wrap">
+        <div className="max-w-[85%] min-w-0 rounded-2xl bg-primary/10 border border-primary/10 px-3.5 py-2.5 text-[14px] leading-6 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
           {text}
         </div>
       </div>
     )
   }
+  const lastTextPartId = [...message.parts].reverse().find((p) => p.type === 'text')?.id
   return (
-    <div className="space-y-2">
+    <div className="min-w-0 space-y-3">
       {message.parts.filter((p) => !(hideErrorPart && p.type === 'error')).map((p) => (
-        <PartView key={p.id} part={p} projectId={projectId} />
+        <PartView
+          key={p.id}
+          part={p}
+          projectId={projectId}
+          streaming={message.status === 'streaming' && p.id === lastTextPartId}
+        />
       ))}
       {message.runId && <RunEvidence runId={message.runId} />}
       {message.status === 'streaming' && (
@@ -474,10 +481,10 @@ function RunEvidence({ runId }: { runId: string }) {
   )
 }
 
-function PartView({ part, projectId }: { part: ChatPart; projectId: string }) {
+function PartView({ part, projectId, streaming = false }: { part: ChatPart; projectId: string; streaming?: boolean }) {
   if (part.type === 'text') {
     if (!part.text) return null
-    return <div className="text-[12px] leading-relaxed whitespace-pre-wrap">{part.text}</div>
+    return <ChatMarkdown text={part.text} streaming={streaming} />
   }
   if (part.type === 'tool') return <ToolCard part={part} />
   if (part.type === 'activity') return <ActivityRow part={part} />

@@ -6,7 +6,7 @@ import {
   Search, Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus, AlertTriangle,
-  HardDrive, ExternalLink,
+  HardDrive, ExternalLink, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
@@ -144,6 +144,7 @@ export function WritingPage() {
 
   // UI state
   const [activeTab, setActiveTab] = useState<SidebarTab>('files')
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const sidebarPanel = Resizable.usePanelRef()
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [compiler, setCompiler] = useState('pdflatex')
@@ -673,17 +674,85 @@ export function WritingPage() {
   const loadedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' || resource.state === 'cacheWarning').length
   const cachedResourceCount = resourceList.filter((resource) => resource.state === 'loaded' && resource.cached).length
 
+  const sidebarBody = activeTab === 'files' ? (
+    <div
+      className="flex-1 flex flex-col h-full overflow-hidden relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragOver && (
+        <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center pointer-events-none">
+          <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
+        </div>
+      )}
+      <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
+        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件" onClick={() => fileTreeRef.current?.createLeaf()}><Plus size={14} /></Button>
+          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件夹" onClick={() => fileTreeRef.current?.createInternal()}><FolderPlus size={14} /></Button>
+          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={handleUploadClick}><Upload size={14} /></Button>
+          <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
+        </div>
+      </div>
+      {filesError ? (
+        <div role="alert" className="m-3 space-y-2 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-xs">
+          <p className="font-medium text-destructive">文件列表加载失败</p>
+          <p className="break-words text-muted-foreground">{filesError.message}</p>
+          <Button type="button" size="sm" variant="outline" className="min-h-10" onClick={() => void refetchFiles()}>
+            重试
+          </Button>
+        </div>
+      ) : (
+        <WritingFileTree
+          ref={fileTreeRef}
+          files={files}
+          activeFilePath={activeFilePath}
+          onSelect={(path) => {
+            handleSelectFile(path)
+            if (isMobile) setMobileSidebarOpen(false)
+          }}
+          onDeleteFile={handleDeleteFile}
+          onDeleteFolder={handleDeleteFolder}
+          onCreateFile={handleTreeCreateFile}
+          onRenameFile={handleTreeRenameFile}
+          onRenameFolder={handleTreeRenameFolder}
+          onMoveFile={handleTreeMoveFile}
+          onExternalDrop={(fileList) => uploadFiles(fileList)}
+        />
+      )}
+    </div>
+  ) : (
+    <AiPanel projectId={projectId} />
+  )
+
   return (
-    <div className="flex h-full w-full bg-background overflow-hidden select-none font-sans">
+    <div className="relative flex h-full w-full bg-background overflow-hidden select-none font-sans">
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { sidebarPanel.current?.expand(); setActiveTab('files') }} />
-        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { sidebarPanel.current?.expand(); setActiveTab('ai') }} />
+        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
+        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
         <div className="mt-auto flex flex-col gap-4">
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
           <button className="p-2 text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
         </div>
       </aside>
+
+      {isMobile && mobileSidebarOpen && (
+        <div
+          role="dialog"
+          aria-label={activeTab === 'files' ? '文件侧栏' : 'AI 助手侧栏'}
+          className="absolute inset-y-0 left-12 right-0 z-40 flex flex-col bg-card shadow-xl"
+        >
+          <div className="h-12 flex-none flex items-center justify-between border-b border-border/40 px-4">
+            <span className="text-sm font-semibold">{activeTab === 'files' ? '文件' : 'AI 助手'}</span>
+            <Button variant="ghost" size="icon-sm" aria-label="关闭侧栏" onClick={() => setMobileSidebarOpen(false)}>
+              <X className="size-4" />
+            </Button>
+          </div>
+          <div className="flex-1 min-h-0 overflow-hidden">{sidebarBody}</div>
+        </div>
+      )}
 
       <div className="flex-1 min-w-0">
         <Resizable.Group orientation="horizontal" id="writing-layout-v9">
@@ -691,54 +760,7 @@ export function WritingPage() {
             <>
               <Resizable.Panel defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
-                  {activeTab === 'files' ? (
-                    <div
-                      className="flex-1 flex flex-col h-full overflow-hidden relative"
-                      onDragOver={handleDragOver}
-                      onDragLeave={handleDragLeave}
-                      onDrop={handleDrop}
-                    >
-                      {isDragOver && (
-                        <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center pointer-events-none">
-                          <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
-                        </div>
-                      )}
-                      <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
-                        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
-                        <div className="flex items-center gap-1">
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件" onClick={() => fileTreeRef.current?.createLeaf()}><Plus size={14} /></Button>
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件夹" onClick={() => fileTreeRef.current?.createInternal()}><FolderPlus size={14} /></Button>
-                          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={handleUploadClick}><Upload size={14} /></Button>
-                          <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
-                        </div>
-                      </div>
-                      {filesError ? (
-                        <div role="alert" className="m-3 space-y-2 rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-xs">
-                          <p className="font-medium text-destructive">文件列表加载失败</p>
-                          <p className="break-words text-muted-foreground">{filesError.message}</p>
-                          <Button type="button" size="sm" variant="outline" className="min-h-10" onClick={() => void refetchFiles()}>
-                            重试
-                          </Button>
-                        </div>
-                      ) : (
-                        <WritingFileTree
-                          ref={fileTreeRef}
-                          files={files}
-                          activeFilePath={activeFilePath}
-                          onSelect={handleSelectFile}
-                          onDeleteFile={handleDeleteFile}
-                          onDeleteFolder={handleDeleteFolder}
-                          onCreateFile={handleTreeCreateFile}
-                          onRenameFile={handleTreeRenameFile}
-                          onRenameFolder={handleTreeRenameFolder}
-                          onMoveFile={handleTreeMoveFile}
-                          onExternalDrop={(fileList) => uploadFiles(fileList)}
-                        />
-                      )}
-                    </div>
-                  ) : (
-                    <AiPanel projectId={projectId} />
-                  )}
+                  {sidebarBody}
                 </aside>
               </Resizable.Panel>
               <ResizeHandle />

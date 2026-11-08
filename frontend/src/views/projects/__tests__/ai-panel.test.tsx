@@ -170,6 +170,43 @@ describe('AiPanel', () => {
     expect(screen.getByRole('button', { name: /我还没确定选题/ })).toBeInTheDocument()
   })
 
+  it('renders assistant Markdown as semantic nodes instead of a plain-text wall', () => {
+    useSettingsStore.setState({ settings: { ui: {}, editor: {}, agent: { providers: [{ id: 'p', name: 'P', models: ['m'], active_model: 'm' }], active_provider_id: 'p' } } } as never)
+    useChatStore.setState({
+      ...emptyChatState,
+      messages: [{
+        id: 'm1',
+        role: 'assistant',
+        status: 'completed',
+        parts: [{
+          id: 'text',
+          type: 'text',
+          status: 'completed',
+          text: '## 结论\n\n- 要点一\n- 要点二\n\n| 项 | 值 |\n| --- | --- |\n| A | 1 |',
+        }],
+      }],
+    })
+
+    render(<AiPanel projectId="p1" />)
+
+    expect(screen.getByRole('heading', { level: 2, name: '结论' })).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.queryByText(/## 结论/)).not.toBeInTheDocument()
+  })
+
+  it('keeps user messages in a right-aligned bubble', () => {
+    useSettingsStore.setState({ settings: { ui: {}, editor: {}, agent: { providers: [{ id: 'p', name: 'P', models: ['m'], active_model: 'm' }], active_provider_id: 'p' } } } as never)
+    useChatStore.setState({
+      ...emptyChatState,
+      messages: [{ id: 'u1', role: 'user', status: 'completed', parts: [{ id: 'text', type: 'text', text: '我的问题', status: 'completed' }] }],
+    })
+
+    render(<AiPanel projectId="p1" />)
+
+    expect(screen.getByText('我的问题')).toHaveClass('max-w-[85%]')
+  })
+
   it('历史助手消息展示可展开的参考材料和原文摘录', async () => {
     useSettingsStore.setState({ settings: { ui: {}, editor: {}, agent: { providers: [{ id: 'p', name: 'P', models: ['m'], active_model: 'm' }], active_provider_id: 'p' } } } as never)
     useChatStore.setState({

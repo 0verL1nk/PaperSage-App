@@ -17,7 +17,9 @@ describe('GuestSessionBadge', () => {
     render(<GuestSessionBadge />)
     expect(screen.getByText('本机游客 · 未同步')).toBeInTheDocument()
     expect(screen.getByText(/清除站点数据可能无法恢复/)).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /登录并导入/ })).toHaveAttribute('href', '/auth')
+    const importLinks = screen.getAllByRole('link', { name: /登录并导入/ })
+    expect(importLinks.length).toBeGreaterThan(0)
+    for (const link of importLinks) expect(link).toHaveAttribute('href', '/auth')
     expect(screen.queryByText(/到期|额度|云端会话/)).not.toBeInTheDocument()
   })
 

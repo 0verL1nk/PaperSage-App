@@ -64,7 +64,8 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
     await guestButton.click()
     await expect(page).toHaveURL(/\/app\/projects$/)
     await expect(page.getByRole('heading', { name: '所有项目' })).toBeVisible()
-    await expect(page.getByText('本机游客 · 未同步')).toBeVisible()
+    const guestBadge = page.locator('a[aria-label="本机游客，登录并导入"]:visible, span:has-text("本机游客 · 未同步"):visible')
+    await expect(guestBadge.first()).toBeVisible()
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), {
       message: `guest project dashboard must not overflow horizontally at ${viewport.name}`,
     }).toBe(true)

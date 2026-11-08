@@ -132,9 +132,16 @@ function CompactSelector({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button disabled={disabled} variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground">
-          {label}
-          <ChevronsUpDown className="size-3" />
+        <Button
+          disabled={disabled}
+          variant="ghost"
+          size="sm"
+          title={label}
+          className="h-7 min-w-0 max-w-[150px] gap-1 text-xs text-muted-foreground lg:max-w-none"
+        >
+          <span className="min-w-0 truncate lg:hidden">{value.model || label}</span>
+          <span className="hidden min-w-0 truncate lg:inline">{label}</span>
+          <ChevronsUpDown className="size-3 shrink-0" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-56">
