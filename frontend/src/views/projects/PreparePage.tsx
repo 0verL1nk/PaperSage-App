@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
 import { ArrowUpRight, Check, FileText, Sparkles } from 'lucide-react'
 
@@ -10,6 +10,7 @@ import { useDocuments } from '@/services/files-api'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import type { WritingBrief } from '@/services/writing-state-api'
 import { useSessionStore } from '@/store'
+import { cn } from '@/lib/utils'
 
 function briefSummary(brief: WritingBrief) {
   return [
@@ -29,6 +30,7 @@ function briefSummary(brief: WritingBrief) {
 
 export function PreparePage() {
   const { projectId = '' } = useParams({ strict: false })
+  const [mobileView, setMobileView] = useState<'chat' | 'brief'>('chat')
   const isGuest = useSessionStore((session) => session.isGuest)
   const { data: state, isLoading, error } = useWritingState(projectId)
   const { data: documents = [] } = useDocuments(projectId, null, true)
@@ -72,8 +74,37 @@ export function PreparePage() {
   const summary = briefSummary(state.brief)
 
   return (
-    <div className="grid h-full min-h-0 gap-4 overflow-y-auto p-3 sm:p-5 lg:grid-cols-[minmax(250px,0.78fr)_minmax(0,1.8fr)] lg:overflow-hidden">
-      <aside className="order-2 min-w-0 space-y-4 lg:order-1 lg:overflow-y-auto lg:pr-1">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-3 sm:p-5 lg:grid lg:gap-4 lg:grid-cols-[minmax(250px,0.78fr)_minmax(0,1.8fr)] lg:overflow-hidden">
+      <div role="tablist" aria-label="研究准备视图" className="flex flex-none gap-1 rounded-xl border border-border/50 bg-card p-1 lg:hidden">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileView === 'chat'}
+          onClick={() => setMobileView('chat')}
+          className={cn(
+            'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
+            mobileView === 'chat' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground',
+          )}
+        >
+          <Sparkles className="size-4" />研究顾问
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={mobileView === 'brief'}
+          onClick={() => setMobileView('brief')}
+          className={cn(
+            'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
+            mobileView === 'brief' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground',
+          )}
+        >
+          <FileText className="size-4" />研究蓝图
+        </button>
+      </div>
+      <aside className={cn(
+        'order-2 min-w-0 space-y-4 lg:order-1 lg:block lg:overflow-y-auto lg:pr-1',
+        mobileView === 'brief' ? 'flex-1 overflow-y-auto' : 'hidden',
+      )}>
         <div className="px-1 py-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">写作准备</p>
           <h1 className="mt-2 text-2xl font-semibold tracking-tight">和研究顾问一起理清思路</h1>
@@ -139,7 +170,10 @@ export function PreparePage() {
         </Card>
       </aside>
 
-      <section aria-label="研究准备对话" className="order-1 flex h-[min(72dvh,720px)] min-h-[480px] min-w-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm lg:order-2 lg:h-full lg:min-h-0">
+      <section aria-label="研究准备对话" className={cn(
+        'order-1 min-w-0 flex-col overflow-hidden rounded-2xl border border-border/50 bg-card shadow-sm lg:order-2 lg:flex lg:h-full lg:min-h-0',
+        mobileView === 'chat' ? 'flex flex-1 min-h-0' : 'hidden',
+      )}>
         {isGuest ? (
           <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
             <Sparkles className="size-8 text-primary" />
