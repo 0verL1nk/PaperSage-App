@@ -93,7 +93,8 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 	}
 	_ = f
 	sum := md5.Sum([]byte(content))
-	if hex.EncodeToString(sum[:]) != p.BaseContentHash {
+	// PostgreSQL 的 CHAR 会补空格到列宽；不 trim 会让所有建议在 PG 上恒为 stale。
+	if hex.EncodeToString(sum[:]) != strings.TrimSpace(p.BaseContentHash) {
 		// 稿件已变：不得用旧基准写回，标记过期，让用户重新生成
 		_ = s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
 			Where("id = ? AND status = ?", p.ID, ProposalPending).

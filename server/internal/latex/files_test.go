@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -257,4 +259,26 @@ func TestForeignProjectDenied(t *testing.T) {
 
 	resp := ts.Do(t, http.MethodGet, latexPath(p, "/"), nil)
 	assert.Equal(t, 404, resp.StatusCode)
+}
+
+// PostgreSQL 的 CHAR(64) 会补空格；相同内容再次保存不应被当成变更。
+func TestUpdateSameContentWithPaddedHashSkipsWrite(t *testing.T) {
+	ts, p := seed(t)
+	body, _ := json.Marshal(map[string]any{"path": "main.tex", "content": "ABC"})
+	resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var f store.LatexFile
+	require.NoError(t, ts.DB.Where("project_id = ? AND file_path = ?", p.ID, "main.tex").First(&f).Error)
+	require.NotNil(t, f.ContentHash)
+	padded := *f.ContentHash + strings.Repeat(" ", 64-len(*f.ContentHash))
+	old := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, ts.DB.Model(&f).Updates(map[string]any{"content_hash": padded, "last_saved_at": old}).Error)
+
+	body, _ = json.Marshal(map[string]any{"content": "ABC"})
+	resp = ts.Do(t, http.MethodPut, latexPath(p, "/main.tex"), body)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	require.NoError(t, ts.DB.Where("id = ?", f.ID).First(&f).Error)
+	assert.True(t, f.LastSavedAt.Equal(old), "内容未变时不应重写文件")
 }

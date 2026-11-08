@@ -292,7 +292,8 @@ func (s *FilesService) UpdateFile(ctx context.Context, projectID uuid.UUID, file
 	contentBytes := []byte(content)
 	sum := md5.Sum(contentBytes)
 	newHash := hex.EncodeToString(sum[:])
-	if f.ContentHash != nil && *f.ContentHash == newHash {
+	// PostgreSQL 的 CHAR 会补空格到列宽；不 trim 会把未变化的保存误判为变更。
+	if f.ContentHash != nil && strings.TrimSpace(*f.ContentHash) == newHash {
 		return f, nil // 内容未变，跳过
 	}
 	s3Key := ""
