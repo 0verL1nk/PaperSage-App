@@ -186,16 +186,22 @@ export function AgentSettings() {
           <CardTitle className="text-base">{t('agent.defaultModel')}</CardTitle>
         </CardHeader>
         <CardContent>
-          <ModelSelector
-            value={{
-              providerId: activeProvider?.id ?? a.active_provider_id,
-              model: activeProvider?.active_model === undefined ? activeProvider?.models.at(-1) ?? '' : activeProvider.active_model || '',
-            }}
-            disabled={saving}
-            onChange={({ providerId, model }) => {
-              void save({ model_selection: { provider_id: providerId, model } })
-            }}
-          />
+          {a.providers.length === 0 && a.server_fallback?.configured ? (
+            <p className="text-sm text-muted-foreground">
+              {t('agent.serverFallbackConfigured', { model: a.server_fallback.model })}
+            </p>
+          ) : (
+            <ModelSelector
+              value={{
+                providerId: activeProvider?.id ?? a.active_provider_id,
+                model: activeProvider?.active_model === undefined ? activeProvider?.models.at(-1) ?? '' : activeProvider.active_model || '',
+              }}
+              disabled={saving}
+              onChange={({ providerId, model }) => {
+                void save({ model_selection: { provider_id: providerId, model } })
+              }}
+            />
+          )}
         </CardContent>
       </Card>
 

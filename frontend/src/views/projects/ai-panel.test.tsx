@@ -59,6 +59,26 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn()
 })
 
+describe('AI panel server fallback', () => {
+  it('allows chatting on the server default model when the user has no provider', () => {
+    useSettingsStore.setState({
+      settings: {
+        ...settings,
+        agent: {
+          ...settings.agent,
+          providers: [],
+          active_provider_id: '',
+          server_fallback: { configured: true, model: 'deepseek-v4.1-flash' },
+        },
+      },
+    })
+    render(<AiPanel projectId="p" />)
+    expect(screen.queryByText('尚未配置 AI 模型')).not.toBeInTheDocument()
+    expect(screen.getByText('服务端默认 · deepseek-v4.1-flash')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('问点什么…')).toBeInTheDocument()
+  })
+})
+
 describe('AI panel model selection', () => {
   it('shows exactly one error for a real failed settings request', async () => {
     const actual = await vi.importActual<typeof import('@/services/settings-api')>('@/services/settings-api')

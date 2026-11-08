@@ -37,10 +37,12 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
   const savingModel = pendingAgentModelChanges > 0
   const agent = settings?.agent
   const providers = agent?.providers ?? []
-  const hasProvider = providers.length > 0
+  const serverFallback = agent?.server_fallback
+  // 服务端兜底（env/管理端）也算可用模型：设置页能看到，面板不能反而说「尚未配置」。
+  const hasModel = providers.length > 0 || Boolean(serverFallback?.configured)
 
   // 面板必须自己加载 settings：它原先依赖 ModelSelector 去加载，而 ModelSelector
-  // 只在 hasProvider 为真时才渲染——于是「没设置 → 显示未配置 → 不加载设置」成了死循环，
+  // 只在有 provider 时才渲染——于是「没设置 → 显示未配置 → 不加载设置」成了死循环，
   // 用户打开面板永远看到「尚未配置 AI 模型」。（e2e 抓到的真 bug。）
   useEffect(() => {
     if (!settings && !isGuest) void fetchSettings().catch(() => {})
@@ -103,7 +105,9 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     const content = message.trim()
     // 同一 tick 内设置可能已变（保存中/最后一个 provider 被删），必须读最新 store 而非闭包里的渲染值。
     const latest = useSettingsStore.getState()
-    if (!content || chat.streaming || chat.cancelling || latest.pendingAgentModelChanges > 0 || !latest.settings?.agent.providers.length) return
+    const latestAgent = latest.settings?.agent
+    const canUseServerFallback = Boolean(latestAgent?.server_fallback?.configured)
+    if (!content || chat.streaming || chat.cancelling || latest.pendingAgentModelChanges > 0 || (!latestAgent?.providers.length && !canUseServerFallback)) return
     if (message === input) setInput('')
     // 第一条消息会在 store 里顺带建出会话：把会话列表拉一次，
     // 否则下拉框里看不到刚建的这个会话。
@@ -159,7 +163,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     )
   }
 
-  if (!hasProvider && !chat.streaming && !hasHistory && !convQuery.isError) {
+  if (!hasModel && !chat.streaming && !hasHistory && !convQuery.isError) {
     // 未配置模型：引导去设置，而不是给一个发不出去的空输入框
     return (
       <div className="flex-1 flex flex-col h-full overflow-hidden">
@@ -225,7 +229,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
             )}
           </>
         }
-        model={hasProvider ? (
+        model={providers.length > 0 ? (
           <ModelSelector
             variant="compact"
             value={{ providerId: selectedProvider?.id ?? agent?.active_provider_id ?? '', model: selectedProvider?.active_model === undefined ? selectedProvider?.models.at(-1) ?? '' : selectedProvider.active_model || '' }}
@@ -239,6 +243,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                 })
             }}
           />
+        ) : serverFallback?.configured ? (
+          <span className="text-[11px] text-muted-foreground">服务端默认 · {serverFallback.model}</span>
         ) : undefined}
       />
 
@@ -248,7 +254,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <Button size="sm" variant="outline" onClick={() => void fetchSettings().catch(() => {})}>重试设置</Button>
         </div>
       )}
-      {settings && !hasProvider && !chat.streaming && (
+      {settings && !hasModel && !chat.streaming && (
         <div className="px-4 py-2 flex items-center gap-2 text-xs text-muted-foreground">
           尚未配置 AI 模型
           <Button size="sm" variant="outline" onClick={() => void navigate({ to: '/app/settings' })}>去设置</Button>
@@ -291,7 +297,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                       '我还没确定选题，想从兴趣方向开始梳理。',
                       '我有一个初步想法，帮我判断怎么形成研究问题。',
                       '我有任务书或导师要求，想一起拆解。',
-                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
                   </div>
                 )}
                 {mode === 'review' && (
@@ -300,7 +306,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                       '解释当前检查结果，告诉我先改哪一项。',
                       '哪些问题是因为材料不足？还需要补什么？',
                       '帮我把需要处理的问题按优先级排序。',
-                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasProvider} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
                   </div>
                 )}
               </div>
@@ -352,7 +358,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         <div className="relative group">
           <textarea
             value={input}
-            disabled={!hasProvider || chat.cancelling}
+            disabled={!hasModel || chat.cancelling}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
@@ -370,7 +376,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <Button
             size="icon-xs"
             className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"
-            disabled={chat.cancelling || (!chat.streaming && (savingModel || !hasProvider || !input.trim()))}
+            disabled={chat.cancelling || (!chat.streaming && (savingModel || !hasModel || !input.trim()))}
             onClick={() => (chat.streaming ? void chat.cancel() : void send())}
             aria-label={chat.cancelling ? '正在停止' : chat.streaming ? '停止生成' : '发送消息'}
             title={chat.cancelling ? '正在停止' : chat.streaming ? '停止' : '发送'}
