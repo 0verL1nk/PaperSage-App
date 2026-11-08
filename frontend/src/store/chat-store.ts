@@ -372,7 +372,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           meta: { proposalId: proposal.id, proposal },
         })
       }
-      const proposals = Object.fromEntries(pending.map((p) => [p.id, p]))
+      const proposals = Object.fromEntries(allProposals.map((p) => [p.id, p]))
       set({
         messages,
         proposals,

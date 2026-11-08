@@ -198,7 +198,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
               <DropdownMenuContent align="start" className="w-56">
                 <DropdownMenuLabel>会话</DropdownMenuLabel>
                 {conversations.map((c) => (
-                  <DropdownMenuItem key={c.id} onSelect={() => void chat.open(c.id)}>
+                  <DropdownMenuItem key={c.id} onSelect={() => void chat.open(c.id, projectId)}>
                     <span className="truncate">{c.title}</span>
                   </DropdownMenuItem>
                 ))}

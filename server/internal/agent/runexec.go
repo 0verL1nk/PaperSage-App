@@ -389,30 +389,40 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	// 工具调用事件带 toolCallId：前端不再需要按同名队列配对。
 	emitCalls := func(tcs []schema.ToolCall, targetRun store.UUID, silent bool) {
 		for _, tc := range tcs {
-			if tc.ID == "" || tc.Function.Name == "" {
-				continue // 框架内部空调用不应出现在审计与 UI
+			if tc.ID == "" {
+				continue
+			}
+			// 流式 chunk 可能先给 id/name、后给完整 arguments；先更新参数表，
+			// 否则 linkProposal 会拿到空 args，建议永远挂不到 tool_call 上。
+			if tc.Function.Name != "" {
+				toolNames[tc.ID] = tc.Function.Name
+			}
+			if tc.Function.Arguments != "" {
+				toolArgs[tc.ID] = tc.Function.Arguments
+			}
+			if tc.Function.Name == "" {
+				continue // 参数片段，等 name 到齐再登记调用
 			}
 			if _, seen := toolCallRows[tc.ID]; seen {
 				continue // 流式 chunk 可能重发同一调用
 			}
-			toolNames[tc.ID] = tc.Function.Name
-			toolArgs[tc.ID] = tc.Function.Arguments
 			toolSeq++
+			args := toolArgs[tc.ID]
 			if row, rerr := s.recordToolCall(ctx, s.DB, targetRun, toolSeq,
-				tc.Function.Name, tc.Function.Arguments); rerr == nil {
+				tc.Function.Name, args); rerr == nil {
 				toolCallRows[tc.ID] = row.ID
 			}
 			if silent {
 				// 子 agent 的调用：记在子 Run 名下留档，但不推进主回答
 				record(targetRun, evtToolInput, map[string]string{
 					"toolCallId": tc.ID, "toolName": tc.Function.Name,
-					"input": tc.Function.Arguments,
+					"input": args,
 				})
 				continue
 			}
 			emit(targetRun, evtToolInput, map[string]string{
 				"toolCallId": tc.ID, "toolName": tc.Function.Name,
-				"input": tc.Function.Arguments,
+				"input": args,
 			})
 		}
 	}
@@ -451,7 +461,16 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 						s.linkProposal(ctx, rowID, rc.RunID, args)
 					}
 					s.finishToolCall(ctx, rowID, ToolAwaiting, res, "")
-					if p, perr := s.latestProposalOfCall(ctx, rowID); perr == nil {
+					p, perr := s.latestProposalOfCall(ctx, rowID)
+					if perr != nil {
+						p, perr = s.latestPendingProposal(ctx, rc.RunID)
+					}
+					if perr == nil {
+						if p.ToolCallID == nil {
+							_ = s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
+								Where("id = ?", p.ID).Update("tool_call_id", rowID).Error
+							p.ToolCallID = &rowID
+						}
 						emit(targetRun, evtProposal, proposalPayload(p))
 					}
 				} else {
