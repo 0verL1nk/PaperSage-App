@@ -52,12 +52,22 @@ R2唯一对象：`acceptance/papersage-20261030/cloud-preflight.txt`。只在确
 - 后续 PR 将 goreleaser 构建收敛为 linux/amd64-only；v0.1.2 仍按历史配置产出多平台归档。
 - 本次未验证登录后的真实模型对话、R2 业务读写与 LaTeX 编译闭环。
 
+## 2026-11-08 v0.1.3–v0.1.5 发布与真实模型验收
+
+- `v0.1.3`（`cd72663`）：AI 对话可靠性——终态转录重建、线程版本 CAS、SSE `id:`/`afterSeq`、取消/重试、孤儿 Run 收敛、阶段上下文与检查页助手。
+- `v0.1.4`（`edd2941`）：修复真实路径建议卡——流式工具参数保留、建议事件兜底、历史 applied/rejected 卡可见。
+- `v0.1.5`（`a00f3a9`）：孤儿 Run 收敛前对齐 `last_sequence`，消除重启时的 `agent_events` 唯一键冲突。
+- 服务器 env 与生产账号 provider 的 opencode BaseURL 已统一为 `https://opencode.ai/zen/go/v1`；服务器 env `/models` 返回 200（`deepseek-v4.1-flash`）。
+- 真实 opencode 已验证：流式文本、工具调用、取消（服务端终态后收口）、刷新历史、新对话、切会话、建议卡产出/应用/拒绝/刷新状态。
+- `v0.1.5` 服务器直连 health：`0.1.5` / `a00f3a9`，service active；公网 `/health` 仅返回 status，匿名 API 401，CORS 预检 204。
+- 未实测：强制断流重连（#48）、真实 LaTeX 编译联动、embedding/R2 业务闭环、邮件实际收件。
+
 ## 未完成 / 阻塞
 
-- 向量认证仍失败；服务端env模型返回401。用户私有模型/管理后台配置未读取、未验收。
-- 新域名健康检查已通过，但 Cloudflare 至源站是否为 Strict 未验证；前端生产 API 仍指向原Vercel入口，尚未切换。源站guard已启用，但公网完整链路和SSH长期回归仍需验证。
+- 向量认证仍失败（pgvector 连接认证）；真实模型已通过，服务端 env 与账号 provider 已更新。
+- 新域名健康检查已通过，但 Cloudflare 至源站是否为 Strict 未验证；前端生产 API 已切换至新域名。源站guard已启用，但公网完整链路和SSH长期回归仍需验证。
 - Cloudflare 地址表目前只在启动或手工操作时刷新；Caddy 启动前只检查专属 nft 表是否存在，不校验具体规则，运行中其他服务的全局 `flush ruleset` 也可能移除该表。需设计并验证安全刷新、故障告警和独立上游防护，不能声称已持续自动保护。
-- 没有真实模型生成/embedding、邮件实际收件、应用层上传/保存/编译闭环和业务负载性能结果。
+- 真实模型生成已验证；embedding、邮件实际收件、应用层上传/保存/编译闭环和业务负载性能仍未验收。
 - R2本轮证明的是存储原语及清理，不是整个应用业务已通过。
 
 后续先解决有权限/凭据条件的任务，其余本地实现继续；相关OpenSpec任务保持未完成，禁止用本记录替代最终上线验收。
