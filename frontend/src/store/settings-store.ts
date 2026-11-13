@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { z } from 'zod'
+import { useSessionStore } from './session-store'
 import {
   type AllSettings,
   type SettingsCategory,
@@ -33,6 +34,37 @@ const DEFAULT_ALL_SETTINGS: AllSettings = {
   ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
   editor: { font_size: 14, tab_size: 2, auto_save: true, auto_save_interval: 30, word_wrap: true },
   agent: { providers: [], active_provider_id: '', temperature: 0.7, writing_style: 'academic', memory_enabled: true },
+}
+
+const GUEST_SETTINGS_KEY = 'papersage_guest_settings'
+
+function isGuestSession() {
+  return useSessionStore.getState().isGuest
+}
+
+// Guests have no account to store preferences on, so ui/editor settings stay
+// on the device. AI settings need a server-side provider, hence not persisted.
+function readGuestSettings(): AllSettings {
+  try {
+    const raw = window.localStorage.getItem(GUEST_SETTINGS_KEY)
+    if (!raw) return DEFAULT_ALL_SETTINGS
+    const parsed = JSON.parse(raw) as Partial<AllSettings>
+    return {
+      ui: { ...DEFAULT_ALL_SETTINGS.ui, ...parsed.ui },
+      editor: { ...DEFAULT_ALL_SETTINGS.editor, ...parsed.editor },
+      agent: DEFAULT_ALL_SETTINGS.agent,
+    }
+  } catch {
+    return DEFAULT_ALL_SETTINGS
+  }
+}
+
+function writeGuestSettings(settings: AllSettings) {
+  try {
+    window.localStorage.setItem(GUEST_SETTINGS_KEY, JSON.stringify({ ui: settings.ui, editor: settings.editor }))
+  } catch {
+    // Storage unavailable: keep the in-memory value for this session.
+  }
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => {
@@ -78,6 +110,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
       if (fetchGeneration !== generation) throw new DOMException('Settings cleared', 'AbortError')
       return effective
     } catch (err) {
+      if (fetchGeneration === generation && isGuestSession()) {
+        const guest = readGuestSettings()
+        confirmed = guest
+        set({ settings: guest, loading: false, error: null })
+        return guest
+      }
       if (fetchGeneration === generation) {
         const msg = err instanceof Error ? err.message : 'Failed to load settings'
         set({ error: msg, loading: false })
@@ -98,6 +136,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
   },
 
   patchCategory: (category, partial) => {
+    if (isGuestSession()) {
+      if (category === 'agent') return Promise.reject(new Error('登录后可保存 AI 设置'))
+      const current = get().settings ?? readGuestSettings()
+      const next = { ...current, [category]: { ...current[category], ...partial } } as AllSettings
+      confirmed = next
+      writeGuestSettings(next)
+      set({ settings: next })
+      return Promise.resolve()
+    }
     const saveGeneration = generation
     confirmed ??= get().settings
     const selection = 'model_selection' in partial ? partial.model_selection : null
@@ -139,6 +186,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => {
   },
 
   resetCategory: (category) => {
+    if (isGuestSession()) {
+      if (category === 'agent') return Promise.resolve()
+      const current = get().settings ?? readGuestSettings()
+      const next = { ...current, [category]: DEFAULT_ALL_SETTINGS[category] } as AllSettings
+      confirmed = next
+      writeGuestSettings(next)
+      set({ settings: next })
+      return Promise.resolve()
+    }
     const resetGeneration = generation
     return enqueue(resetGeneration, async () => {
       try {

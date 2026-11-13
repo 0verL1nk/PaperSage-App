@@ -43,6 +43,9 @@ const config = defineConfig({
     },
   },
   build: {
+    // Release builds ship minified code without source maps; never embed secrets.
+    sourcemap: false,
+    minify: true,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -94,6 +97,9 @@ const config = defineConfig({
     // Keep JSDOM/React suites from saturating CI hosts with many logical CPUs;
     // high worker counts caused otherwise trivial component tests to exceed 5s.
     maxWorkers: 4,
+    // userEvent + jsdom on slow self-hosted ARM runners needs more than the 5s
+    // default; a real regression still shows up as a failure, just later.
+    testTimeout: 20_000,
   },
   resolve: {
     alias: {

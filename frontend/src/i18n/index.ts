@@ -2,7 +2,7 @@
  * i18n：zh-CN 默认，en-US 可选。
  *
  * 语言来源优先级：localStorage（papersage_lang，先于后端避免首屏跳变）
- * → 后端 settings ui.language（加载完成后 changeLanguage 同步，跨设备权威）。
+ * 到 后端 settings ui.language（加载完成后 changeLanguage 同步，跨设备权威）。
  * 尚未迁移的模块（writing/uploading 深层文案）保持中文，逐步抽取。
  */
 import i18n from 'i18next'

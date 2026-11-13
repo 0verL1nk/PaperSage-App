@@ -2,7 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { useSessionStore } from '@/store'
-import { GuestSessionBadge, OPEN_GUEST_IMPORT_EVENT } from '@/components/domain/GuestSessionBadge'
+import { GuestModeChip, GuestSessionBadge, OPEN_GUEST_IMPORT_EVENT } from '@/components/domain/GuestSessionBadge'
 
 vi.mock('@tanstack/react-router', () => ({
   Link: ({ to, children, ...props }: { to: string; children: React.ReactNode; className?: string }) => <a href={to} {...props}>{children}</a>,
@@ -35,6 +35,16 @@ describe('GuestSessionBadge', () => {
   it('renders nothing when there is no active guest workspace or import to review', () => {
     useSessionStore.setState({ accessToken: 'account-token', refreshToken: 'refresh', isGuest: false, guestImportPending: false, tokenType: 'Bearer', restored: true })
     const { container } = render(<GuestSessionBadge />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('shows a compact chip only while working as a guest', () => {
+    const { container, rerender } = render(<GuestModeChip />)
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/auth')
+    expect(screen.getByText('本机')).toBeInTheDocument()
+
+    useSessionStore.setState({ accessToken: 'account-token', refreshToken: 'refresh', isGuest: false, guestImportPending: true, tokenType: 'Bearer', restored: true })
+    rerender(<GuestModeChip />)
     expect(container).toBeEmptyDOMElement()
   })
 })

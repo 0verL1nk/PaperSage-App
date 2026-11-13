@@ -1,0 +1,199 @@
+name: Desktop
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'frontend/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'desktop/**'
+      - 'frontend/**'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.name }} build
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            platform: windows-amd64
+          # Only Windows ships today. macOS needs a native Apple toolchain and
+          # Linux packaging is not part of the supported desktop targets yet.
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          # server/go.mod pins the newer toolchain; desktop builds on it too.
+          go-version-file: server/go.mod
+          cache-dependency-path: |
+            desktop/go.sum
+            server/go.sum
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      # PR builds only compile the exe; NSIS is needed for packaging only.
+      - name: Install NSIS
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          if (Get-Command makensis -ErrorAction SilentlyContinue) { exit 0 }
+          choco install nsis -y --no-progress
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          if pkg-config --exists webkitgtk-6.0 gtk4; then exit 0; fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev \
+            gcc pkg-config libc6-dev
+
+      - name: Unit tests (pure Go packages)
+        working-directory: desktop
+        run: go test ./internal/assets/... ./internal/deeplink/... ./internal/foldersync/... ./internal/windowstate/...
+
+      - name: Resolve version
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          } else {
+            $version = "0.0.0-dev.$env:GITHUB_RUN_NUMBER"
+          }
+          $config = Get-Content desktop/build/config.yml -Raw
+          $config = $config -replace 'version: "[^"]*"', "version: `"$version`""
+          Set-Content desktop/build/config.yml $config -NoNewline
+          "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $infoPath = 'desktop/build/windows/info.json'
+          $info = Get-Content $infoPath -Raw | ConvertFrom-Json
+          $info.fixed.file_version = $version
+          $info.fixed.product_version = $version
+          $info.info.'0409'.FileVersion = $version
+          $info.info.'0409'.ProductVersion = $version
+          $info | ConvertTo-Json -Depth 10 | Set-Content $infoPath
+
+      - name: Resolve version
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          else
+            version="0.0.0-dev.${GITHUB_RUN_NUMBER}"
+          fi
+          perl -0pi -e 's/version: "[^"]*"/version: "'"$version"'"/' desktop/build/config.yml
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            plutil -replace CFBundleVersion -string "$version" desktop/build/darwin/Info.plist
+            plutil -replace CFBundleShortVersionString -string "$version" desktop/build/darwin/Info.plist
+          else
+            perl -0pi -e 's/^version: .*$/version: "'"$version"'"/m' desktop/build/linux/nfpm/nfpm.yaml
+          fi
+
+      # Bundled alongside the desktop binary; obfuscated only for release builds.
+      - name: Build bundled backend
+        shell: bash
+        working-directory: server
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p ../desktop/bin/backend
+          out="../desktop/bin/backend/papersage"
+          if [ "$RUNNER_OS" = "Windows" ]; then out="$out.exe"; fi
+          go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/papersage
+
+      - name: Build (pull request)
+        if: github.event_name == 'pull_request'
+        working-directory: desktop
+        env:
+          ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
+        run: go tool wails3 task build VERSION=${{ env.VERSION }}
+
+      - name: Build & package
+        if: github.event_name != 'pull_request'
+        working-directory: desktop
+        env:
+          ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
+        run: go tool wails3 task package VERSION=${{ env.VERSION }}
+
+      - name: Stage release assets (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          Copy-Item desktop/bin/papersage.exe release/papersage-windows-amd64.exe
+          if ($env:GITHUB_EVENT_NAME -ne 'pull_request') {
+            $installer = Get-ChildItem desktop/bin/*-installer.exe | Select-Object -First 1
+            if (-not $installer) { throw "NSIS installer was not produced" }
+            Copy-Item $installer.FullName release/papersage-windows-amd64-installer.exe
+          }
+          Get-ChildItem release/* -File | Get-FileHash -Algorithm SHA256 | ForEach-Object {
+            "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)"
+          } | Set-Content release/SHA256SUMS
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: papersage-desktop-${{ matrix.platform }}
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish release assets
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: papersage-desktop-*
+          path: dist
+          merge-multiple: true
+
+      - name: Merge platform checksums
+        run: |
+          cd dist
+          cat SHA256SUMS SHA256SUMS-darwin SHA256SUMS-linux 2>/dev/null | sort -u > SHA256SUMS.all
+          mv SHA256SUMS.all SHA256SUMS
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          fail_on_unmatched_files: true

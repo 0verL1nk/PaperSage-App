@@ -1,4 +1,4 @@
-import { Link, useLocation } from '@tanstack/react-router'
+import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { ShieldCheck,
   FileText,
   Trash2,
@@ -11,7 +11,8 @@ import { ShieldCheck,
   Plus,
   Menu,
 } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
+import { Events } from '@wailsio/runtime'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -28,7 +29,8 @@ import { cn } from '@/lib/utils'
 import { logout } from '@/services/auth-api'
 import { useGroups } from '@/services/projects-api'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
-import { GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
+import { GuestModeChip, GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
+import { DesktopAppMenu, WindowControls } from '@/components/desktop/desktop-titlebar'
 import { useSessionStore } from '@/store'
 
 interface MainLayoutProps {
@@ -53,21 +55,29 @@ function avatarInitials(username: string | undefined) {
 
 export function MainLayout({ children }: MainLayoutProps) {
   const isGuest = useSessionStore((session) => session.isGuest)
+  const guestImportPending = useSessionStore((session) => session.guestImportPending)
   const { t } = useTranslation()
   const { data: me, isLoading: isMeLoading, isError: isMeError, refetch: refetchMe } = useMe()
   const accountLabel = isGuest ? t('account.localGuest') : me?.username ?? t(isMeLoading ? 'account.loading' : 'account.unavailable')
   const location = useLocation()
+  const navigate = useNavigate()
   const currentPath = location.pathname
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const { data: groups = [] } = useGroups()
 
+  useEffect(() => Events.On('menu:new-project', () => {
+    sessionStorage.setItem('papersage:open-create-project', '1')
+    void navigate({ to: '/app/projects' })
+  }), [navigate])
+
   return (
-    <div className="flex h-screen flex-col bg-background font-sans tracking-tight overflow-hidden">
+    <div className="flex h-full flex-col bg-background font-sans tracking-tight overflow-hidden">
       {/* Header: Fixed height */}
-      <header className="apple-glass flex-none flex h-12 items-center justify-between px-4 border-b border-border z-50">
+      <header className="apple-glass desktop-drag relative z-50 flex h-12 flex-none select-none items-center justify-between border-b border-border pl-4">
         {/* Left: Logo and Mobile Menu */}
-        <div className="flex items-center lg:w-64">
+        <div className="desktop-no-drag flex items-center lg:w-64">
+          <DesktopAppMenu className="mr-1" />
           <div className="lg:hidden flex items-center mr-2">
             <Sheet open={mobileMenuOpen} onOpenChange={setMobileMenuOpen}>
               <SheetTrigger asChild>
@@ -146,7 +156,7 @@ export function MainLayout({ children }: MainLayoutProps) {
         </div>
 
         {/* Center: Search */}
-        <div className="relative flex-1 max-w-xl px-4 hidden md:block">
+        <div className="desktop-no-drag relative hidden max-w-xl flex-1 px-4 md:block">
           <Search className="absolute left-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             type="search"
@@ -157,10 +167,11 @@ export function MainLayout({ children }: MainLayoutProps) {
         </div>
 
         {/* Right: Actions */}
-        <div className="flex items-center justify-end lg:w-64 gap-1">
+        <div className="desktop-no-drag flex items-center justify-end gap-1 lg:w-64">
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden" aria-label={t('layout.search')}>
             <Search className="size-4 text-muted-foreground" />
           </Button>
+          <GuestModeChip className="rounded-full" />
           {!isGuest && <ApiTargetToggle />}
           <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted" aria-label={t('layout.notifications')}>
             <Bell className="size-4 text-muted-foreground" />
@@ -214,6 +225,7 @@ export function MainLayout({ children }: MainLayoutProps) {
               </>}
             </DropdownMenuContent>
           </DropdownMenu>
+          <WindowControls className="ml-1" />
         </div>
       </header>
 
@@ -264,7 +276,11 @@ export function MainLayout({ children }: MainLayoutProps) {
 
         {/* Main Content: Only this part scrolls */}
         <main className="flex-1 bg-background overflow-y-auto relative">
-          <GuestSessionBadge />
+          {!isGuest && guestImportPending && (
+            <div className="px-8 pt-6 md:px-12">
+              <GuestSessionBadge />
+            </div>
+          )}
           {children}
         </main>
       </div>

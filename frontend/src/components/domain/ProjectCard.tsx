@@ -48,11 +48,12 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
             <Button
               variant="ghost"
               size="icon-xs"
+              aria-label="删除项目"
               onClick={(e) => {
                 e.stopPropagation()
                 setShowDeleteConfirm(true)
               }}
-              className="opacity-0 group-hover:opacity-100 transition-all duration-300 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
+              className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-all duration-300 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-full"
             >
               <Trash2 className="h-3.5 w-3.5" />
             </Button>
@@ -71,17 +72,18 @@ export function ProjectCard({ project, onClick }: ProjectCardProps) {
           )}
         </div>
 
-        <div className="flex items-center justify-between mt-4 relative z-10">
-          <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 group-hover:text-muted-foreground transition-colors duration-300">
+        <div className="flex items-center justify-between gap-2 mt-4 relative z-10">
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/60 group-hover:text-muted-foreground transition-colors duration-300">
             {project.scenario === 'intro_paper' ? '入门级学术小论文' : '本科毕业论文'}
           </span>
-          {project.group ? (
-            <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-muted/50 text-muted-foreground/70 group-hover:bg-primary/5 group-hover:text-primary transition-all duration-300">
-              {project.group.name}
-            </span>
-          ) : (
-            <span className="text-[10px] text-muted-foreground/50">{formattedDate}</span>
-          )}
+          <div className="flex min-w-0 items-center gap-2">
+            {project.group && (
+              <span className="max-w-[120px] truncate px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-muted/50 text-muted-foreground/70 group-hover:bg-primary/5 group-hover:text-primary transition-all duration-300">
+                {project.group.name}
+              </span>
+            )}
+            <span className="shrink-0 text-[10px] text-muted-foreground/50">{formattedDate}</span>
+          </div>
         </div>
         
         {/* Subtle hover background highlight */}

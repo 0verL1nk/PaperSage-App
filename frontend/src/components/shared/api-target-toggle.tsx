@@ -91,15 +91,20 @@ function ApiTargetToggleMenu({ prominent = false }: { prominent?: boolean }) {
           size={prominent ? 'sm' : 'icon'}
           className={cn(
             prominent
-              ? 'h-[44px] gap-1.5 rounded-full border-border/55 bg-background/75 px-3 text-xs font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background sm:px-3.5'
+              ? 'h-12 gap-1.5 rounded-full border-border/60 bg-background/80 px-3 text-[11.5px] font-medium text-foreground shadow-sm backdrop-blur-md transition-colors hover:bg-background hover:shadow'
               : 'relative size-12 rounded-full text-muted-foreground/75 hover:bg-muted/70 hover:text-foreground',
           )}
-          title={isLocal ? `接口环境：本地（${appEnv.localApiBaseUrl}）` : isCustom ? `接口环境：自定义（${customAddressHint}）` : '接口环境：在线'}
-          aria-label={`切换后端，当前：${isLocal ? '本地' : isCustom ? '自定义' : '在线'}`}
+          title={isLocal ? `服务器：本地（${appEnv.localApiBaseUrl}）` : isCustom ? `服务器：自定义（${customAddressHint}）` : '服务器：在线'}
+          aria-label={prominent
+            ? `切换服务器，当前：${isLocal ? '本地' : isCustom ? '自定义' : '在线'}`
+            : `切换后端，当前：${isLocal ? '本地' : isCustom ? '自定义' : '在线'}`}
         >
           {isLocal ? <HardDrive className="size-3.5" /> : isCustom ? <Link2 className="size-3.5" /> : <Cloud className="size-3.5" />}
           {prominent ? (
-            <><span>后端</span><span>{isLocal ? '本地' : isCustom ? '自定义' : '在线'}</span></>
+            <>
+              <span className="text-muted-foreground">服务器</span>
+              <span>{isLocal ? '本地' : isCustom ? '自定义' : '在线'}</span>
+            </>
           ) : (
             <span aria-hidden="true" className={cn(
               'absolute bottom-1 right-1 size-1.5 rounded-full ring-2 ring-background',
@@ -109,7 +114,7 @@ function ApiTargetToggleMenu({ prominent = false }: { prominent?: boolean }) {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel>后端环境</DropdownMenuLabel>
+        <DropdownMenuLabel>服务器环境</DropdownMenuLabel>
         {options.map((opt) => {
           const Icon = opt.icon
           const active = opt.value === target

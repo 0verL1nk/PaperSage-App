@@ -119,7 +119,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)
-	if err := latex.MountResources(engine.Engine, s3, cfg.LatexResourceProfile, cfg.LatexResourceRepository); err != nil {
+	if err := latex.MountResources(engine.Engine, s3, cfg.LatexResourceProfile, cfg.LatexResourceRepository, cfg.LatexResourceCatalogFile); err != nil {
 		return nil, fmt.Errorf("latex resource resolver init: %w", err)
 	}
 	v1 := engine.Group(httpapi.APIVersion)

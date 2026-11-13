@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ projectId: 'project-1' }),
 }))
+vi.mock('@/services/projects-api', () => ({ useProject: () => ({ data: { name: 'project-1' } }) }))
 vi.mock('@/services/writing-state-api', () => ({
   useWritingState: () => ({ data: undefined }),
   useSaveWritingState: () => mocks.saveWritingState,
@@ -42,6 +43,7 @@ vi.mock('@/hooks/use-compile-polling', () => ({
   useCompileStatusPolling: () => ({ data: undefined }),
   isTerminalStatus: () => true,
 }))
+vi.mock('@/lib/monaco-setup', () => ({}))
 vi.mock('@monaco-editor/react', () => ({
   default: () => <div data-testid="monaco-editor" />,
   useMonaco: () => null,

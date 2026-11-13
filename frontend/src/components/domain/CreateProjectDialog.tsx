@@ -144,7 +144,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
                 分组
               </Label>
               <Select value={groupId ?? NO_GROUP} onValueChange={(value) => setGroupId(value === NO_GROUP ? null : value)}>
-                <SelectTrigger id="group" aria-label="分组" className="h-10 w-full rounded-lg border-border/40 bg-muted/40 px-3 text-sm focus:bg-background">
+                <SelectTrigger id="group" aria-label="分组" className="h-12 w-full rounded-lg border-border/40 bg-muted/40 px-3 text-sm focus:bg-background">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent position="popper" align="start" className="w-[var(--radix-select-trigger-width)]">

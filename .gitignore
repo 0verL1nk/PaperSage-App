@@ -225,3 +225,12 @@ docs/proposal/.build-preview/
 /frontend/test-results/
 /server/test-results/
 /test-results/
+
+# Desktop embedded frontend build output; the placeholder keeps go:embed valid
+# on a clean checkout before the frontend build runs.
+desktop/internal/assets/dist/*
+!desktop/internal/assets/dist/.gitkeep
+
+# Desktop Wails packaging config lives under build/ (source, not artifacts).
+!desktop/build/
+!desktop/build/**

@@ -17,6 +17,7 @@ import {
 } from '@/services/latex-api'
 // Query keys（定义在 @/lib/query-keys，供 AI 面板等复用而不引入重依赖）
 import { latexKeys } from '@/lib/query-keys'
+import { pushFileToDisk } from '@/lib/folder-sync'
 export { latexKeys }
 
 // --- Queries ---
@@ -49,6 +50,7 @@ export function useSaveLatexFile(projectId: string) {
         queryKey: latexKeys.content(projectId, variables.filePath),
       })
       queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+      void pushFileToDisk(projectId, variables.filePath, variables.content)
     },
   })
 }

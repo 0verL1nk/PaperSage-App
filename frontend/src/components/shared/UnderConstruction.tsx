@@ -13,7 +13,7 @@ export function UnderConstruction({
   description = 'This feature is coming soon',
 }: UnderConstructionProps) {
   return (
-    <div className="flex h-full items-center justify-center">
+    <div className="flex min-h-[60vh] items-center justify-center p-8">
       <div className="text-center">
         <div className="mb-4 flex justify-center">
           <div className="rounded-full bg-muted p-4">

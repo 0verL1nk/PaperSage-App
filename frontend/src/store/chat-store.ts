@@ -9,6 +9,7 @@ import {
   type AgentErrorAction,
 } from '@/services/agent-errors'
 import { FrontendApiError } from '@/services/errors'
+import { notifyWhenBackground } from '@/lib/desktop'
 
 // 前端事件归并：Normalized Store + Event Reducer（参考架构 §5）。
 //
@@ -296,6 +297,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     currentStream = controller
     let seq = afterSeq
     let terminal = false
+    let terminalNotified = false
     let attempt = 0
     try {
       for (;;) {
@@ -309,6 +311,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
                 set({ lastEventId: seq })
               }
               if (ev.type === 'finish' || ev.type === 'abort') terminal = true
+              if (!terminalNotified && get().activeRunId === runId) {
+                if (ev.type === 'error') {
+                  terminalNotified = true
+                  void notifyWhenBackground('AI 回答失败', String(ev.errorText ?? '模型调用失败'))
+                } else if (ev.type === 'finish') {
+                  terminalNotified = true
+                  void notifyWhenBackground('AI 回答完成', '回答已完成，可回到应用查看')
+                }
+              }
               set((s) => s.activeRunId === runId ? reduceChatEvent(s, ev) : s)
             },
           })
@@ -316,7 +327,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
           break
         } catch (error) {
           if (controller.signal.aborted || terminal) break
-          if (!isRetryableStreamError(error) || attempt >= RECONNECT_DELAYS_MS.length) throw error
+          if (!isRetryableStreamError(error) || attempt >= RECONNECT_DELAYS_MS.length) {
+            if (!terminalNotified && !controller.signal.aborted) {
+              void notifyWhenBackground('AI 连接中断', '回答可能未完成，可回到应用查看')
+            }
+            throw error
+          }
           set({ reconnecting: true })
           await delay(RECONNECT_DELAYS_MS[attempt])
           attempt++

@@ -4,13 +4,20 @@ import { ResetPasswordPage } from '@/views/auth/reset-password-page'
 import { AdminPage } from '@/views/admin/AdminPage'
 import type { QueryClient } from '@tanstack/react-query'
 import {
+  Link,
   Outlet,
   RouterProvider,
   createRootRouteWithContext,
   createRoute,
   createRouter,
   redirect,
+  useNavigate,
+  useRouterState,
 } from '@tanstack/react-router'
+import { useEffect } from 'react'
+import { FileQuestion } from 'lucide-react'
+import { saveLastRoute } from '@/lib/last-route'
+import { getDesktopService, onDesktopDeepLink } from '@/lib/desktop'
 import { AuthPage } from '@/views/auth/auth-page'
 import { GuestWorkspacePage } from '@/views/auth/guest-workspace-page'
 import { GuestImportGate } from '@/components/domain/GuestImportGate'
@@ -44,11 +51,65 @@ function requireAuth() {
 
 // Root route - entry point
 const rootRoute = createRootRouteWithContext<AppRouterContext>()({
-  component: () => <><Outlet /><GuestImportGate /></>,
+  component: () => <><Outlet /><GuestImportGate /><RememberRoute /><DeepLinkRouter /></>,
+  notFoundComponent: NotFoundPage,
   beforeLoad: () => {
     // Check session restoration on app load
   },
 })
+
+function DeepLinkRouter() {
+  const navigate = useNavigate()
+  useEffect(() => {
+    let alive = true
+    const open = (path: string) => {
+      const match = /^\/project\/([^/]+)\/(prepare|writing|review)$/.exec(path)
+      if (!match) return
+      const [, projectId, stage] = match
+      const to = stage === 'writing'
+        ? '/project/$projectId/writing'
+        : stage === 'review' ? '/project/$projectId/review' : '/project/$projectId/prepare'
+      void navigate({ to, params: { projectId } })
+    }
+    void getDesktopService()?.consumeDeepLink().then((path) => {
+      if (alive && path) open(path)
+    })
+    const off = onDesktopDeepLink(open)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [navigate])
+  return null
+}
+
+function RememberRoute() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname })
+  useEffect(() => {
+    saveLastRoute(pathname)
+  }, [pathname])
+  return null
+}
+
+function NotFoundPage() {
+  return (
+    <div className="flex h-full min-h-[60vh] flex-col items-center justify-center gap-4 p-8 text-center">
+      <div className="flex size-16 items-center justify-center rounded-3xl bg-muted">
+        <FileQuestion className="size-7 text-muted-foreground" />
+      </div>
+      <div className="space-y-1">
+        <h1 className="text-lg font-semibold text-foreground">页面不存在</h1>
+        <p className="text-sm text-muted-foreground">链接可能已失效，或该页面已被移动。</p>
+      </div>
+      <Link
+        to="/app/projects"
+        className="inline-flex h-10 items-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90"
+      >
+        返回项目列表
+      </Link>
+    </div>
+  )
+}
 
 // Index/home route - redirect to projects or auth
 const indexRoute = createRoute({
@@ -147,8 +208,8 @@ const documentsRoute = createRoute({
   component: function Documents() {
     return (
       <UnderConstruction
-        title="Documents"
-        description="Reference management coming soon"
+        title="文档"
+        description="参考文献管理即将上线"
       />
     )
   },

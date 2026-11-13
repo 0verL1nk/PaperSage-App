@@ -57,7 +57,7 @@ test.describe('Writing page — happy path (OpenSpec 10.1)', () => {
     await page.goto(`/project/${projectId}/writing`)
 
     // 4. The Explorer sidebar and seed file appear
-    await expect(page.getByText('Explorer')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: '文件', exact: true })).toBeVisible({ timeout: 15_000 })
     await expect(page.getByTestId('file-node').filter({ hasText: 'main.tex' })).toBeVisible({
       timeout: 15_000,
     })

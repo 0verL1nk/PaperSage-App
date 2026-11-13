@@ -95,7 +95,7 @@ describe('AuthPage', () => {
 
     const guestButton = screen.getByRole('button', { name: '以游客身份体验 PaperSage' })
     expect(guestButton).toHaveTextContent('免注册体验 PaperSage')
-    expect(screen.getByText(/项目仅保存在此浏览器/)).toBeInTheDocument()
+    expect(screen.getByText(/项目仅保存在此设备/)).toBeInTheDocument()
     await userEvent.click(guestButton)
 
     await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: '/app/projects' }))
@@ -105,7 +105,7 @@ describe('AuthPage', () => {
 
   it('shows the backend selector on the public auth page', () => {
     renderAuthPage()
-    expect(screen.getByRole('button', { name: /切换后端，当前：在线/ })).toBeVisible()
+    expect(screen.getByRole('button', { name: /切换服务器，当前：在线/ })).toBeVisible()
   })
 
   it('shows registration failures in the active registration panel', async () => {

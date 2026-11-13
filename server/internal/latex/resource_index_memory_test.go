@@ -151,7 +151,7 @@ func TestPackageMapsSortedBeforeConcurrentRequests(t *testing.T) {
 	addTestPackageIndexEntries(t, stg, map[string][]resourcePackageIndexRecord{
 		"maps.map": {makeRecord("z.map"), makeRecord("a.map")},
 	})
-	service, err := newResourceService(stg, testResourceProfile, testResourceRepository)
+	service, err := newResourceService(stg, testResourceProfile, testResourceRepository, "")
 	require.NoError(t, err)
 	catalog, err := service.loadCatalog(t.Context())
 	require.NoError(t, err)

@@ -19,6 +19,23 @@ export type ApiTarget = 'online' | 'local' | 'custom'
 const API_TARGET_KEY = 'papersage_api_target'
 const CUSTOM_API_BASE_URL_KEY = 'papersage_custom_api_base_url'
 
+// Set by the desktop bootstrap once the supervised backend reports its URL.
+let desktopLocalApiBaseUrl = ''
+
+export function setDesktopLocalApiBaseUrl(value: string) {  const candidate = value.trim()
+  if (!candidate) {
+    desktopLocalApiBaseUrl = ''
+    return
+  }
+  try {
+    const url = new URL(candidate)
+    if (!['http:', 'https:'].includes(url.protocol)) return
+    desktopLocalApiBaseUrl = url.href.replace(/\/+$/, '')
+  } catch {
+    // Ignore malformed desktop URLs; keep the build-time local address.
+  }
+}
+
 export const appEnv = Object.freeze({
   apiBaseUrl: rawApiBaseUrl,
   localApiBaseUrl: rawLocalApiBaseUrl,
@@ -28,12 +45,17 @@ export const appEnv = Object.freeze({
   isTest: import.meta.env.MODE === 'test',
 })
 
-/** 当前选中的目标；未设置或值非法时回落 online。 */
+export function getDesktopLocalApiBaseUrl(): string {
+  return desktopLocalApiBaseUrl
+}
+
+/** 当前选中的目标；未设置或值非法时回落。桌面端首次启动默认用托管后端。 */
 export function getApiTarget(): ApiTarget {
-  if (typeof localStorage === 'undefined') return 'online'
+  if (typeof localStorage === 'undefined') return desktopLocalApiBaseUrl ? 'local' : 'online'
   const target = localStorage.getItem(API_TARGET_KEY)
   if (target === 'local') return 'local'
   if (target === 'custom' && getCustomApiBaseUrl()) return 'custom'
+  if (!target && desktopLocalApiBaseUrl) return 'local'
   return 'online'
 }
 
@@ -72,7 +94,7 @@ export function setCustomApiBaseUrl(value: string) {
 
 /** 目标对应的 base URL；online 为空串表示同源。 */
 export function getApiBaseUrlFor(target: ApiTarget) {
-  if (target === 'local') return rawLocalApiBaseUrl
+  if (target === 'local') return desktopLocalApiBaseUrl || rawLocalApiBaseUrl
   if (target === 'custom') return getCustomApiBaseUrl()
   return rawApiBaseUrl
 }

@@ -33,7 +33,7 @@ test.describe('Project lifecycle (golden path)', () => {
     await loginAs(page)
     await page.goto(`/project/${projectId}/writing`)
     // The Explorer sidebar heading should appear once the page loads
-    await expect(page.getByText('Explorer')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: '文件', exact: true })).toBeVisible({ timeout: 15_000 })
   })
 
   test('user can delete a project', async ({ page }) => {
@@ -61,8 +61,8 @@ test.describe('Project lifecycle (golden path)', () => {
         await confirmButton.click()
       }
 
-      // The project should no longer be visible
-      await expect(page.getByText(name)).not.toBeVisible({ timeout: 5_000 })
+      // Scope to the project title: a success toast also carries the name.
+      await expect(page.locator('h3').filter({ hasText: name })).toHaveCount(0, { timeout: 5_000 })
     }
   })
 
