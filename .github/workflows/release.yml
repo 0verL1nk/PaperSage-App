@@ -12,6 +12,12 @@ on:
 
 permissions:
   contents: read
+  checks: read
+
+# 同一 tag 只允许一个发布流程；不取消已开始的部署，避免半途中断。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   validate:
@@ -32,21 +38,45 @@ jobs:
           git fetch origin main
           git merge-base --is-ancestor HEAD origin/main
           echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-
-  server-ci:
-    needs: validate
-    uses: ./.github/workflows/server-ci.yml
-
-  frontend-ci:
-    needs: validate
-    uses: ./.github/workflows/frontend.yml
-
-  e2e:
-    needs: validate
-    uses: ./.github/workflows/e2e.yml
+      - name: Require green CI for the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ steps.source.outputs.commit }}
+        run: |
+          # 发布不再重复跑整套 CI：tag 必须指向 main 上 CI 已完成的提交。
+          # 只检查该提交实际产生的 check-runs（CI 按路径过滤，未改动的域不会跑）。
+          # 排除当前发布流程自己的 job，避免等待自身造成死锁。
+          deadline=$((SECONDS + 900))
+          while :; do
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100" \
+              --jq '.check_runs[]
+                | select(.app.slug == "github-actions")
+                | select(.name | IN("validate", "release", "deploy", "rollback") | not)
+                | [.name, (.conclusion // .status), .started_at] | @tsv' \
+              > checks.tsv
+            # 同名 check 取最新一次（重跑会追加记录）。
+            sort -t$'\t' -k1,1 -k3,3 checks.tsv | awk -F'\t' '{latest[$1]=$2} END {for (n in latest) print n"\t"latest[n]}' > latest.tsv
+            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral" && $2 != "queued" && $2 != "in_progress" && $2 != "waiting" && $2 != "requested" {print $1" ("$2")"}' latest.tsv)
+            pending=$(awk -F'\t' '$2 == "queued" || $2 == "in_progress" || $2 == "waiting" || $2 == "requested" {print $1}' latest.tsv)
+            success=$(awk -F'\t' '$2 == "success" {n++} END {print n+0}' latest.tsv)
+            if [ -n "$bad" ]; then
+              echo "::error::failing checks for $SHA: $bad"
+              exit 1
+            fi
+            if [ -z "$pending" ] && [ "$success" -gt 0 ]; then
+              echo "all $success completed checks are green for $SHA"
+              exit 0
+            fi
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::timed out waiting for CI on $SHA; cut the tag after main CI completes"
+              exit 1
+            fi
+            echo "waiting for CI on $SHA..."
+            sleep 20
+          done
 
   release:
-    needs: [validate, server-ci, frontend-ci, e2e]
+    needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
