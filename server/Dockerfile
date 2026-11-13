@@ -3,7 +3,7 @@
 # Build:  docker build -t papersage -f server/Dockerfile .
 # Run:    docker run -p 5478:5478 papersage
 
-FROM golang:1.27.3-alpine AS build
+FROM golang:1.27.4-alpine AS build
 WORKDIR /src
 COPY server/go.mod server/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
