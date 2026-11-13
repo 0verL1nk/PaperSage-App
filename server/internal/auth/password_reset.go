@@ -207,6 +207,16 @@ func (s *Service) sendAuthEmail(to, subject, body string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := s.resolveMailer().Send(ctx, to, subject, body); err != nil {
-		slog.Warn("password reset email delivery failed", "email", maskEmail(to), "err", err)
+		// 只记收件域：完整邮箱与正文里的 token 都不能进日志。
+		slog.Error("auth email delivery failed", "email_domain", emailDomain(to), "err", err)
 	}
+}
+
+// emailDomain 返回收件域用于日志；无法解析时返回 "***"。
+func emailDomain(address string) string {
+	at := strings.LastIndex(address, "@")
+	if at <= 0 || at == len(address)-1 {
+		return "***"
+	}
+	return address[at+1:]
 }

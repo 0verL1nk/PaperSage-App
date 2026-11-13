@@ -1,6 +1,9 @@
 package auth
 
 import (
+	"bytes"
+	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"testing"
@@ -10,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -137,6 +141,26 @@ func TestPasswordResetRejectsExpiredAndEmailVerificationTokens(t *testing.T) {
 			assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
 		})
 	}
+}
+
+func TestSendAuthEmailFailureLogsErrorWithMaskedDomain(t *testing.T) {
+	srv := newAuthTestServer(t)
+	defer srv.Close()
+
+	var buf bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	svc := NewService(srv.db, &config.Settings{}, failingSender{err: errors.New("smtp down")})
+	svc.sendAuthEmail("reset-user@example.com", "重置你的 PaperSage 密码", `<a href="/auth/reset-password#token=secret-token">`)
+
+	logged := buf.String()
+	assert.Contains(t, logged, "level=ERROR")
+	assert.Contains(t, logged, "email_domain=example.com")
+	assert.NotContains(t, logged, "reset-user@example.com", "full email must not be logged")
+	assert.NotContains(t, logged, "reset-user", "local part must not be logged")
+	assert.NotContains(t, logged, "secret-token", "reset token must not be logged")
 }
 
 func capturedEmails(sender *captureSender) []struct{ to, subject, html string } {
