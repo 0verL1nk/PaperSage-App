@@ -70,7 +70,7 @@ export function AdminPage() {
             <Input
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && addDomain()}
+              onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && addDomain()}
               placeholder="hit.edu.cn"
               className="h-9"
             />

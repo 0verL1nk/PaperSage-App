@@ -77,6 +77,18 @@ describe('AI panel server fallback', () => {
     expect(screen.getByText('服务端默认 · deepseek-v4.1-flash')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('问点什么…')).toBeInTheDocument()
   })
+
+  it('ignores Enter that confirms an IME composition', () => {
+    const send = vi.fn().mockResolvedValue(undefined)
+    useChatStore.setState({ send })
+    render(<AiPanel projectId="p" />)
+    const input = screen.getByPlaceholderText('问点什么…')
+    fireEvent.change(input, { target: { value: '你好' } })
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(send).not.toHaveBeenCalled()
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(send).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('AI panel model selection', () => {

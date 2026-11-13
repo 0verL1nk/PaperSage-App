@@ -167,7 +167,7 @@ function ApiTargetToggleMenu({ prominent = false }: { prominent?: boolean }) {
                 setCustomAddressError('')
               }}
               onKeyDown={(event) => {
-                if (event.key === 'Enter') saveCustomAddress()
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) saveCustomAddress()
               }}
               aria-invalid={Boolean(customAddressError)}
               aria-describedby={customAddressError ? 'custom-api-error' : undefined}

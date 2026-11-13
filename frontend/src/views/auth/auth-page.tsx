@@ -248,6 +248,9 @@ export function AuthPage() {
                       <Label htmlFor="username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">用户名</Label>
                       <Input
                         id="username"
+                        autoComplete="username"
+                        autoCapitalize="none"
+                        spellCheck={false}
                         {...loginForm.register('username')}
                         placeholder="请输入您的账号"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
@@ -265,6 +268,7 @@ export function AuthPage() {
                         <Input
                           id="password"
                           type={showPassword ? 'text' : 'password'}
+                          autoComplete="current-password"
                           {...loginForm.register('password')}
                           placeholder="••••••••"
                           className="h-12 bg-secondary/30 border-none px-4 pr-12 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
@@ -306,6 +310,9 @@ export function AuthPage() {
                       <Input
                         id="reg-email"
                         type="email"
+                        autoComplete="email"
+                        autoCapitalize="none"
+                        spellCheck={false}
                         {...registerForm.register('email')}
                         placeholder="your-id@hit.edu.cn"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
@@ -320,6 +327,7 @@ export function AuthPage() {
                       <Input
                         id="reg-password"
                         type="password"
+                        autoComplete="new-password"
                         {...registerForm.register('password')}
                         placeholder="至少 8 位，包含字母与数字"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
@@ -333,6 +341,7 @@ export function AuthPage() {
                       <Input
                         id="reg-confirm"
                         type="password"
+                        autoComplete="new-password"
                         {...registerForm.register('confirmPassword')}
                         placeholder="请再次输入密码"
                         className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
