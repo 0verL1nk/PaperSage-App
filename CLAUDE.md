@@ -10,11 +10,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 | Workflow | Status |
 |---|---|
-| Server CI (gofmt + vet + golangci-lint + tidy 漂移 + go test -race -shuffle, coverage >=48% baseline + govulncheck) | ![Server CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/server-ci.yml/badge.svg) |
-| Frontend CI (typecheck + lint + vitest + dependency review) | ![Frontend CI](https://github.com/0verL1nk/GraduateProject/actions/workflows/frontend.yml/badge.svg) |
-| E2E (Playwright) | ![E2E](https://github.com/0verL1nk/GraduateProject/actions/workflows/e2e.yml/badge.svg) |
-| Docker Build & Push (SBOM + provenance) | ![Docker](https://github.com/0verL1nk/GraduateProject/actions/workflows/docker.yml/badge.svg) |
-| Release (goreleaser, tag 触发) | ![Release](https://github.com/0verL1nk/GraduateProject/actions/workflows/release.yml/badge.svg) |
+| Server CI (gofmt + vet + golangci-lint + tidy 漂移 + go test -race -shuffle, coverage >=48% baseline + govulncheck) | ![Server CI](https://github.com/0verL1nk/PaperSage-App/actions/workflows/server-ci.yml/badge.svg) |
+| Frontend CI (typecheck + lint + vitest + dependency review) | ![Frontend CI](https://github.com/0verL1nk/PaperSage-App/actions/workflows/frontend.yml/badge.svg) |
+| E2E (Playwright) | ![E2E](https://github.com/0verL1nk/PaperSage-App/actions/workflows/e2e.yml/badge.svg) |
+| Docker Build & Push (SBOM + provenance) | ![Docker](https://github.com/0verL1nk/PaperSage-App/actions/workflows/docker.yml/badge.svg) |
+| Release (goreleaser, tag 触发) | ![Release](https://github.com/0verL1nk/PaperSage-App/actions/workflows/release.yml/badge.svg) |
 | PR Labeler（按路径打标） | — |
 
 > **待开启**（Settings → Code security）：Code scanning（SAST）与 Dependency graph。
