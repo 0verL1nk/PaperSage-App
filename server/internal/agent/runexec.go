@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
@@ -332,11 +333,24 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	// 主 agent 用 Eino prebuilt DeepAgent（ChatModelAgent + 子 agent 编排 + write_todos 规划）。
 	// 不设 Backend / Shell：不注册文件系统与命令执行工具——写作应用不需要，
 	// 多出一套 shell 也是我们不打算暴露的能力。
-	// Eino 的 BeforeModelRewriteState 钩子：每次模型调用前裁剪，覆盖单次 Run
-	// 内工具结果膨胀；跨 Run 的摘要压缩由 maybeCompact 负责。
+	// Eino 官方 summarization 中间件负责 Run 内压缩：工具结果把上下文推过阈值时
+	// 自动生成摘要；跨 Run 的摘要由 maybeCompact 持久化。摘要失败时 contextGuard
+	// 退回确定性裁剪，避免一次摘要调用打断整轮对话。
 	var handlers []adk.TypedChatModelAgentMiddleware[*schema.Message]
 	if rc.Model != nil && rc.Model.ContextWindow != nil {
-		handlers = append(handlers, &contextTrimHandler{window: *rc.Model.ContextWindow})
+		guard := &contextGuard{window: *rc.Model.ContextWindow}
+		summarizer, serr := summarization.New(ctx, &summarization.Config{
+			Model:           chatModel,
+			Trigger:         &summarization.TriggerCondition{ContextTokens: limitsFor(*rc.Model.ContextWindow).compact},
+			TokenCounter:    summarizationTokenCounter,
+			UserInstruction: compactionRetentionInstruction,
+		})
+		if serr != nil {
+			slog.Warn("summarization middleware unavailable; using deterministic trim", "err", serr)
+		} else {
+			guard.inner = summarizer
+		}
+		handlers = append(handlers, guard)
 	}
 	agent, err := deep.New(ctx, &deep.Config{
 		Name:        mainAgentName,

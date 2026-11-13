@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/schema"
 	"gorm.io/gorm"
@@ -147,23 +148,56 @@ func compactionBefore(p *compactionPayload, createdAt time.Time) bool {
 	return !createdAt.After(through)
 }
 
-// contextTrimHandler 是 Eino ChatModelAgentMiddleware 的 BeforeModelRewriteState
-// 钩子：每次模型调用前按块阈值做确定性裁剪，防止单次 Run 内工具结果把上下文撑爆。
-// 跨 Run 的摘要压缩由 maybeCompact 完成并持久化，避免“摘要的摘要”。
-type contextTrimHandler struct {
+// compactionRetentionInstruction 交给 Eino summarization 中间件，追加在它默认的
+// 摘要要求之后：论文场景里具体值丢了就找不回来。
+const compactionRetentionInstruction = "这是论文写作助手的历史对话。必须保留：研究目标与验收标准、" +
+	"硬约束（引用格式/禁改内容/术语）、已定决策及理由、当前断点（章节/文件/版本）、待办事项。" +
+	"专有名词、数字、文件名、路径、参数值必须逐字保留，不要改写或泛化。"
+
+// summarizationTokenCounter 交给 Eino summarization：默认计数器按 4 字符/token 估算，
+// 中文会低估；这里沿用 estimateTokens 的 CJK 口径。
+func summarizationTokenCounter(_ context.Context, in *summarization.TokenCounterInput) (int, error) {
+	total := 0
+	for _, m := range in.Messages {
+		if m == nil {
+			continue
+		}
+		total += estimateTokens(m.Content)
+		for _, tc := range m.ToolCalls {
+			total += estimateTokens(tc.Function.Arguments) + 8
+		}
+	}
+	for _, t := range in.Tools {
+		if t != nil {
+			total += estimateTokens(t.Desc)
+		}
+	}
+	return total, nil
+}
+
+// contextGuard 包住 Eino summarization 中间件：摘要失败时退回确定性裁剪，
+// 不让一次摘要调用把整轮对话打挂（框架默认是 fail-fast）。
+type contextGuard struct {
 	*adk.TypedBaseChatModelAgentMiddleware[*schema.Message]
+	inner  adk.TypedChatModelAgentMiddleware[*schema.Message]
 	window int
 }
 
-func (h *contextTrimHandler) BeforeModelRewriteState(
+func (h *contextGuard) BeforeModelRewriteState(
 	ctx context.Context,
 	state *adk.TypedChatModelAgentState[*schema.Message],
-	_ *adk.TypedModelContext[*schema.Message],
+	modelCtx *adk.TypedModelContext[*schema.Message],
 ) (context.Context, *adk.TypedChatModelAgentState[*schema.Message], error) {
-	if h.window <= 0 || len(state.Messages) == 0 {
-		return ctx, state, nil
+	if h.inner != nil {
+		nextCtx, nextState, err := h.inner.BeforeModelRewriteState(ctx, state, modelCtx)
+		if err == nil {
+			return nextCtx, nextState, nil
+		}
+		slog.Warn("summarization middleware failed; falling back to deterministic trim", "err", err)
 	}
-	state.Messages = trimMessages(state.Messages, limitsFor(h.window).block)
+	if state != nil {
+		state.Messages = trimMessages(state.Messages, limitsFor(h.window).block)
+	}
 	return ctx, state, nil
 }
 
