@@ -56,6 +56,9 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	// ── 邮件（启动默认；运行时可被管理后台 email 组覆盖）──
 	mailer := defaultMailer(cfg)
+	if degradedMailer(syssettings.GetEmail(db), cfg) {
+		slog.Warn("email: Resend/SMTP not configured; account emails (verification, password reset) will not be delivered")
+	}
 
 	// ── 域服务 ──
 	authSvc := auth.NewService(db, cfg, mailer)
@@ -79,7 +82,10 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	// compileQueue.RecoverOnStartup(ctx)
 
 	// ── RAG（嵌入端点：管理后台 embed 组 → env；都未配置哈希兜底）──
-	embedder := defaultEmbedder(cfg, db)
+	embedder := defaultEmbedder(syssettings.GetEmbed(db), cfg)
+	if embedderDegraded(embedder) {
+		slog.Warn("embedding: no admin embed config or EMBED_* env; semantic retrieval degraded to bag-of-words (hash) fallback")
+	}
 	ragStore, err := rag.NewStore(db, embedder, "")
 	if err != nil {
 		return nil, fmt.Errorf("rag store init: %w", err)
@@ -131,16 +137,15 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 func defaultMailer(cfg *config.Settings) email.Sender {
 	switch cfg.EmailProvider {
 	case "resend":
-		if cfg.ResendAPIKey != "" {
+		// From 需要域名；缺域名的 key 发不出信，按未配置处理。
+		if cfg.ResendAPIKey != "" && cfg.ResendDomain != "" {
 			from := "PaperSage <noreply@" + cfg.ResendDomain + ">"
 			return email.NewResend(cfg.ResendAPIKey, from, "https://api.resend.com")
 		}
 	case "smtp":
-		if cfg.SMTPHost != "" {
-			var a smtp.Auth
-			if cfg.SMTPUser != "" {
-				a = smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPassword, hostOnly(cfg.SMTPHost))
-			}
+		// From/MAIL FROM 用 SMTP_USER；为空时多数中继会拒收。
+		if cfg.SMTPHost != "" && cfg.SMTPUser != "" {
+			a := smtp.PlainAuth("", cfg.SMTPUser, cfg.SMTPPassword, hostOnly(cfg.SMTPHost))
 			return &email.SMTP{Host: cfg.SMTPHost, From: cfg.SMTPUser, Auth: a}
 		}
 	}
@@ -148,14 +153,39 @@ func defaultMailer(cfg *config.Settings) email.Sender {
 }
 
 // defaultEmbedder 管理后台 embed 组优先，env 其次，哈希兜底。
-func defaultEmbedder(cfg *config.Settings, db *gorm.DB) rag.Embedder {
-	if e := syssettings.GetEmbed(db); e.APIKey != "" && e.BaseURL != "" {
-		return &rag.HTTPEmbedder{BaseURL: e.BaseURL, APIKey: e.APIKey, Model: e.Model}
+func defaultEmbedder(admin syssettings.EmbedSettings, cfg *config.Settings) rag.Embedder {
+	if admin.APIKey != "" && admin.BaseURL != "" {
+		return &rag.HTTPEmbedder{BaseURL: admin.BaseURL, APIKey: admin.APIKey, Model: admin.Model}
 	}
 	if cfg.EmbedAPIKey != "" && cfg.EmbedBaseURL != "" {
 		return &rag.HTTPEmbedder{BaseURL: cfg.EmbedBaseURL, APIKey: cfg.EmbedAPIKey, Model: cfg.EmbedModel}
 	}
 	return rag.HashEmbedder{}
+}
+
+// degradedMailer 按运行时解析顺序判断有效邮件器是否退化为 Noop：
+// 管理后台 email 组优先（resend 需要 key+domain；noop 表示显式关闭），
+// 否则看启动配置。
+func degradedMailer(admin syssettings.EmailSettings, cfg *config.Settings) bool {
+	switch admin.Provider {
+	case "resend":
+		if admin.ResendAPIKey != "" && admin.ResendDomain != "" {
+			return false
+		}
+	case "noop":
+		return true
+	}
+	_, isNoop := defaultMailer(cfg).(email.Noop)
+	return isNoop
+}
+
+// embedderDegraded 报告嵌入器是否退回了哈希（词袋）实现。
+func embedderDegraded(e rag.Embedder) bool {
+	switch e.(type) {
+	case rag.HashEmbedder, *rag.HashEmbedder:
+		return true
+	}
+	return false
 }
 
 // indexDocumentHook 文献入库后的异步索引（抽取→索引，失败仅日志）。
