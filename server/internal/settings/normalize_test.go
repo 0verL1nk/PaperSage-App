@@ -118,3 +118,36 @@ func TestValidCategoriesMatch(t *testing.T) {
 	}
 	assert.False(t, isValidCategory("nope"))
 }
+
+func TestNormalizeProviderModelMetadata(t *testing.T) {
+	base := func(meta any) map[string]any {
+		return map[string]any{
+			"providers": []any{map[string]any{
+				"id": "p", "name": "P", "base_url": "https://example.com", "api_key": "k",
+				"models": []any{"m"}, "active_model": "m", "model_metadata": meta,
+			}},
+		}
+	}
+	out, err := NormalizeCategory("agent", base(map[string]any{
+		"m": map[string]any{"context_window": float64(128000), "supports_vision": true, "supports_tools": false},
+	}))
+	require.NoError(t, err)
+	provider := out["providers"].([]any)[0].(map[string]any)
+	meta := provider["model_metadata"].(map[string]any)["m"].(map[string]any)
+	require.Equal(t, 128000, meta["context_window"])
+	require.Equal(t, true, meta["supports_vision"])
+	require.Equal(t, false, meta["supports_tools"])
+
+	for name, meta := range map[string]any{
+		"not an object":      "x",
+		"unknown model":      map[string]any{"other": map[string]any{"context_window": float64(1)}},
+		"negative window":    map[string]any{"m": map[string]any{"context_window": float64(-1)}},
+		"non-integer window": map[string]any{"m": map[string]any{"context_window": 1.5}},
+		"bad vision flag":    map[string]any{"m": map[string]any{"supports_vision": "yes"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := NormalizeCategory("agent", base(meta))
+			require.Error(t, err)
+		})
+	}
+}

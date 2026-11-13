@@ -66,6 +66,12 @@ type ProviderItem = {
   id: string
   name: string
   models: string[]
+  model_metadata?: Record<string, { context_window?: number }>
+}
+
+function contextLabel(tokens?: number): string {
+  if (!tokens || tokens <= 0) return ''
+  return tokens >= 1_000_000 ? `${Math.round(tokens / 1_000_000)}M` : `${Math.round(tokens / 1000)}k`
 }
 
 function FullSelector({
@@ -99,11 +105,14 @@ function FullSelector({
         {providers.map((p) => (
           <SelectGroup key={p.id}>
             <SelectLabel>{p.name}</SelectLabel>
-            {p.models.map((m) => (
-              <SelectItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
-                {m}
-              </SelectItem>
-            ))}
+            {p.models.map((m) => {
+              const ctx = contextLabel(p.model_metadata?.[m]?.context_window)
+              return (
+                <SelectItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
+                  {m}{ctx ? <span className="text-muted-foreground"> · {ctx}</span> : null}
+                </SelectItem>
+              )
+            })}
           </SelectGroup>
         ))}
       </SelectContent>
@@ -159,11 +168,14 @@ function CompactSelector({
               {p.models.length === 0 && (
                 <DropdownMenuItem disabled>{t('modelSelector.none')}</DropdownMenuItem>
               )}
-              {p.models.map((m) => (
-                <DropdownMenuRadioItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
-                  {m}
-                </DropdownMenuRadioItem>
-              ))}
+              {p.models.map((m) => {
+                const ctx = contextLabel(p.model_metadata?.[m]?.context_window)
+                return (
+                  <DropdownMenuRadioItem key={JSON.stringify([p.id, m])} value={JSON.stringify([p.id, m])}>
+                    {m}{ctx ? <span className="text-muted-foreground"> · {ctx}</span> : null}
+                  </DropdownMenuRadioItem>
+                )
+              })}
             </DropdownMenuGroup>
           ))}
         </DropdownMenuRadioGroup>

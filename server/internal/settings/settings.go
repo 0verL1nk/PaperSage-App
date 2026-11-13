@@ -550,10 +550,68 @@ func normalizeProvider(p map[string]any, allowLegacyEmptyModel bool) (map[string
 			return nil, fmt.Errorf("active_model must be one of models")
 		}
 	}
-	return map[string]any{
+	out := map[string]any{
 		"id": id, "name": name, "type": typ, "base_url": baseURL,
 		"api_key": apiKey, "models": models, "active_model": active,
-	}, nil
+	}
+	if raw, ok := p["model_metadata"]; ok && raw != nil {
+		meta, err := normalizeModelMetadata(raw, models)
+		if err != nil {
+			return nil, err
+		}
+		if len(meta) > 0 {
+			out["model_metadata"] = meta
+		}
+	}
+	return out, nil
+}
+
+// normalizeModelMetadata 校验用户覆盖的模型能力；只接受已配置的模型 ID。
+// 未知字段被忽略，便于以后增加字段而不破坏旧客户端。
+func normalizeModelMetadata(raw any, models []any) (map[string]any, error) {
+	m, ok := raw.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("model_metadata must be an object")
+	}
+	allowed := make(map[string]bool, len(models))
+	for _, model := range models {
+		if id, ok := model.(string); ok {
+			allowed[id] = true
+		}
+	}
+	out := make(map[string]any, len(m))
+	for model, value := range m {
+		if !allowed[model] {
+			return nil, fmt.Errorf("model_metadata key %q is not in models", model)
+		}
+		fields, ok := value.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("model_metadata[%q] must be an object", model)
+		}
+		entry := map[string]any{}
+		for _, key := range []string{"context_window", "max_output_tokens"} {
+			if v, exists := fields[key]; exists && v != nil {
+				n, ok := v.(float64)
+				if !ok || n < 0 || n != float64(int64(n)) {
+					return nil, fmt.Errorf("model_metadata[%q].%s must be a non-negative integer", model, key)
+				}
+				entry[key] = int(n)
+			}
+		}
+		for _, key := range []string{"supports_vision", "supports_tools"} {
+			if v, exists := fields[key]; exists && v != nil {
+				b, ok := v.(bool)
+				if !ok {
+					return nil, fmt.Errorf("model_metadata[%q].%s must be a boolean", model, key)
+				}
+				entry[key] = b
+			}
+		}
+		if len(entry) > 0 {
+			out[model] = entry
+		}
+	}
+	return out, nil
 }
 
 // ── 服务端兜底与连接测试 ──
@@ -610,6 +668,16 @@ type AgentTestRequest struct {
 type AgentTestResult struct {
 	OK     bool     `json:"ok"`
 	Models []string `json:"models,omitempty"`
+	// ModelMetadata 只在 provider /models 返回可解析的能力字段时出现。
+	ModelMetadata map[string]ModelMetadata `json:"model_metadata,omitempty"`
+}
+
+// ModelMetadata 是测试连接时从 provider 解析出的能力（三态：缺省=未知）。
+type ModelMetadata struct {
+	ContextWindow   *int  `json:"context_window,omitempty"`
+	MaxOutputTokens *int  `json:"max_output_tokens,omitempty"`
+	SupportsVision  *bool `json:"supports_vision,omitempty"`
+	SupportsTools   *bool `json:"supports_tools,omitempty"`
 }
 
 type providerHTTPError struct{ status int }
@@ -631,9 +699,9 @@ func (s *Service) TestAgentConnection(ctx context.Context, req AgentTestRequest)
 	defer cancel()
 	client := testClientFactory(base)
 
-	models, err := fetchProviderModels(ctx, client, base, apiKey)
+	models, metadata, err := fetchProviderModels(ctx, client, base, apiKey)
 	if err == nil {
-		return &AgentTestResult{OK: true, Models: models}, nil
+		return &AgentTestResult{OK: true, Models: models, ModelMetadata: metadata}, nil
 	}
 	var httpErr providerHTTPError
 	if !errors.As(err, &httpErr) {
@@ -694,36 +762,114 @@ func newAgentTestClient(baseURL string) *http.Client {
 	return &http.Client{Transport: rt, Timeout: agentTestTimeout}
 }
 
-func fetchProviderModels(ctx context.Context, client *http.Client, base, apiKey string) ([]string, error) {
+func fetchProviderModels(ctx context.Context, client *http.Client, base, apiKey string) ([]string, map[string]ModelMetadata, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/models", nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, providerHTTPError{status: resp.StatusCode}
+		return nil, nil, providerHTTPError{status: resp.StatusCode}
 	}
 	var body struct {
-		Data []struct {
-			ID string `json:"id"`
-		} `json:"data"`
+		Data []map[string]any `json:"data"`
 	}
 	// A 2xx response already proves connectivity; an unusual body is not a failure.
 	if json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&body) != nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	models := make([]string, 0, len(body.Data))
+	metadata := make(map[string]ModelMetadata)
 	for _, m := range body.Data {
-		if id := strings.TrimSpace(m.ID); id != "" {
-			models = append(models, id)
+		id, _ := m["id"].(string)
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		models = append(models, id)
+		if md, ok := parseModelMetadata(m); ok {
+			metadata[id] = md
 		}
 	}
-	return models, nil
+	if len(metadata) == 0 {
+		metadata = nil
+	}
+	return models, metadata, nil
+}
+
+// parseModelMetadata 兼容常见 OpenAI-compatible 目录字段：
+// OpenRouter（context_length / architecture.input_modalities / supported_parameters）、
+// vLLM（max_model_len）、以及部分网关的 context_window / supports_* 布尔。
+func parseModelMetadata(m map[string]any) (ModelMetadata, bool) {
+	var md ModelMetadata
+	pickInt := func(keys ...string) *int {
+		for _, key := range keys {
+			if v, ok := m[key].(float64); ok && v > 0 {
+				n := int(v)
+				return &n
+			}
+		}
+		return nil
+	}
+	pickBool := func(keys ...string) *bool {
+		for _, key := range keys {
+			if v, ok := m[key].(bool); ok {
+				return &v
+			}
+		}
+		return nil
+	}
+	md.ContextWindow = pickInt("context_length", "max_context_length", "max_model_len", "context_window")
+	md.MaxOutputTokens = pickInt("max_completion_tokens", "max_output_tokens")
+	if top, ok := m["top_provider"].(map[string]any); ok {
+		if md.ContextWindow == nil {
+			md.ContextWindow = pickIntFrom(top, "context_length")
+		}
+		if md.MaxOutputTokens == nil {
+			md.MaxOutputTokens = pickIntFrom(top, "max_completion_tokens")
+		}
+	}
+	md.SupportsVision = pickBool("supports_vision")
+	if md.SupportsVision == nil {
+		if arch, ok := m["architecture"].(map[string]any); ok {
+			if mods, ok := arch["input_modalities"].([]any); ok {
+				vision := false
+				for _, mod := range mods {
+					if s, _ := mod.(string); strings.EqualFold(s, "image") {
+						vision = true
+					}
+				}
+				md.SupportsVision = &vision
+			}
+		}
+	}
+	md.SupportsTools = pickBool("supports_function_calling", "supports_tools")
+	if md.SupportsTools == nil {
+		if params, ok := m["supported_parameters"].([]any); ok {
+			tools := false
+			for _, p := range params {
+				if s, _ := p.(string); s == "tools" || s == "tool_choice" {
+					tools = true
+				}
+			}
+			md.SupportsTools = &tools
+		}
+	}
+	return md, md.ContextWindow != nil || md.MaxOutputTokens != nil ||
+		md.SupportsVision != nil || md.SupportsTools != nil
+}
+
+func pickIntFrom(m map[string]any, key string) *int {
+	if v, ok := m[key].(float64); ok && v > 0 {
+		n := int(v)
+		return &n
+	}
+	return nil
 }
 
 func probeProviderChat(ctx context.Context, client *http.Client, base, apiKey, model string) error {

@@ -135,7 +135,7 @@ func TestCompleteConversationHistory(t *testing.T) {
 	}
 	require.Equal(t, http.StatusNotFound, get(foreign).Code)
 
-	history, err := svc.loadHistory(context.Background(), conv)
+	history, err := svc.loadHistory(context.Background(), conv, store.UUID{}, nil)
 	require.NoError(t, err)
 	require.Len(t, history, count+2)
 	require.Empty(t, history[1].Content)
@@ -219,7 +219,7 @@ func TestHistoryConcurrentConversationDeletion(t *testing.T) {
 				}
 				return
 			}
-			history, err := svc.loadHistory(context.Background(), conv)
+			history, err := svc.loadHistory(context.Background(), conv, store.UUID{}, nil)
 			require.True(t, injected)
 			require.NoError(t, deleteErr)
 			if err == nil {
