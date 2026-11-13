@@ -37,8 +37,8 @@ GitHub Environment `production-server` 所需配置：
 |---|---|---|
 | Secret | `SERVER_SSH_KEY` | 本项目专用部署私钥，不使用个人 root 私钥 |
 | Secret | `SERVER_KNOWN_HOSTS` | 经人工核对的 SSH 主机公钥，不在部署时无条件信任扫描结果 |
-| Variable | `SERVER_HOST` | 服务器地址 |
-| Variable | `SERVER_USER` | 受限用户 `papersage-deploy`，不使用 root |
+| Secret | `SERVER_HOST` | 服务器地址（公开仓库不落明文） |
+| Secret | `SERVER_USER` | 受限用户 `papersage-deploy`，不使用 root |
 
 数据库、R2、邮件和模型运行凭据只保存在服务器，不作为发布 job 的环境输入。SSH 私钥只写入临时 runner 文件，步骤结束即删除。
 
@@ -50,6 +50,7 @@ GitHub Environment `production-server` 所需配置：
 | `/opt/papersage/current` | root-owned 当前版本符号链接 |
 | `/usr/local/sbin/papersage-release` | 从 `deploy/papersage-release.py` 安装的受限 root 发布命令 |
 | `/var/lib/papersage-deploy/uploads/` | 仅部署用户可写的归档上传目录 |
+| `/var/lib/papersage-deploy/.ssh/` | root-owned；目录 755、`authorized_keys` 644。sshd 以目标用户身份读取，权限过严（700/600）会让该用户所有公钥认证失败 |
 | `/etc/papersage/papersage.env` | root-only 运行配置，由 systemd 读取并传给进程 |
 | `/var/lib/papersage/` | 应用用户 `papersage` 的可写工作目录 |
 
