@@ -28,11 +28,11 @@ jobs:
           # API-only image; its Dockerfile copies server/ from the repository root.
           - context: .
             dockerfile: server/Dockerfile
-            image: papersage-app
+            image: papersage-server
             filter: app
           - context: latex_render
             dockerfile: latex_render/Dockerfile
-            image: papersage-render
+            image: papersage-clsi
             filter: render
 
     # The production CLSI image imports a full TeX Live distribution. Free

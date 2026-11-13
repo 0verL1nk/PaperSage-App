@@ -52,14 +52,6 @@ func estimateTokens(s string) int {
 	return (ascii+3)/4 + other
 }
 
-func messagesTokens(msgs []*schema.Message) int {
-	n := 0
-	for _, m := range msgs {
-		n += estimateTokens(m.Content)
-	}
-	return n
-}
-
 // trimHistory 保留 system 提示与尽量新的消息；必要时插入一条省略说明。
 // 最新一条消息即使超出预算也会保留，否则模型看不到用户当前问题。
 func trimHistory(system *schema.Message, msgs []*schema.Message, budget int) []*schema.Message {
