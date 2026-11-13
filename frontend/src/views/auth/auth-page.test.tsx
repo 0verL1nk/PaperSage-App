@@ -68,6 +68,13 @@ describe('AuthPage', () => {
     })
   })
 
+  it('labels credential fields for browser autofill', () => {
+    renderAuthPage()
+
+    expect(screen.getByLabelText('用户名')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByLabelText('密码')).toHaveAttribute('autocomplete', 'current-password')
+  })
+
   it('redirects away from /auth when a session already exists', async () => {
     setSessionTokens({
       accessToken: 'access-token',

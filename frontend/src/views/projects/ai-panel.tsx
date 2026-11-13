@@ -361,7 +361,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
             disabled={!hasModel || chat.cancelling}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
+              // 中文输入法确认候选词也会触发 Enter，此时不能发送。
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault()
                 void send()
               }

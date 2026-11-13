@@ -47,7 +47,7 @@ export function InlineInput({ onSubmit, onCancel, defaultValue }: {
       className="w-full px-1 text-[12px] bg-transparent border-b border-primary outline-none"
       defaultValue={defaultValue}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
           const val = (e.target as HTMLInputElement).value.trim()
           if (val) onSubmit(val)
           else onCancel()
