@@ -448,7 +448,7 @@ function ProviderCard({
             <Input
               value={newModel}
               onChange={(e) => setNewModel(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addModel() }}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) addModel() }}
               placeholder="gpt-4o / deepseek-chat"
               className="h-8 text-sm"
             />
