@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -209,29 +210,88 @@ func (s *Service) readHistory(ctx context.Context, convID store.UUID) ([]history
 	return out, nil
 }
 
-func (s *Service) loadHistory(ctx context.Context, convID UUID0) ([]*schema.Message, error) {
+func (s *Service) loadHistory(ctx context.Context, convID, projectID UUID0, model *ResolvedModel) ([]*schema.Message, error) {
 	msgs, err := s.readHistory(ctx, convID)
 	if err != nil {
 		return nil, err
 	}
-	out := []*schema.Message{{
+	system := &schema.Message{
 		Role:    schema.System,
 		Content: systemPrompt,
-	}}
+	}
+	out := make([]*schema.Message, 0, len(msgs)+4)
+	if model != nil && model.MemoryEnabled {
+		if index := s.memoryIndex(ctx, projectID); index != "" {
+			out = append(out, &schema.Message{Role: schema.System, Content: index})
+		}
+	}
+	compacted, _ := s.latestCompaction(ctx, convID)
+	if compacted != nil {
+		out = append(out, &schema.Message{
+			Role:    schema.System,
+			Content: fmt.Sprintf("较早对话的摘要（共 %d 条；原文未注入，需要细节请让用户重新提供）：\n%s", compacted.Dropped, compacted.Summary),
+		})
+	}
 	for _, m := range msgs {
+		if compactionBefore(compacted, m.message.CreatedAt) {
+			continue
+		}
 		role := schema.User
 		if m.message.Role == "assistant" {
 			role = schema.Assistant
 		}
-		var content strings.Builder
-		for _, p := range m.parts {
-			if p.Type == PartText && p.TextContent != nil {
-				content.WriteString(*p.TextContent)
-			}
-		}
-		out = append(out, &schema.Message{Role: role, Content: content.String()})
+		out = append(out, &schema.Message{Role: role, Content: messageText(m)})
 	}
-	return out, nil
+	window := 0
+	if model != nil && model.ContextWindow != nil {
+		window = *model.ContextWindow
+	}
+	return trimHistory(system, out, limitsFor(window).block), nil
+}
+
+const (
+	memoryIndexMaxEntries = 200
+	memoryIndexMaxBytes   = 25 * 1024
+)
+
+// memoryIndex 生成注入系统提示的项目记忆索引：只放标题与首行摘要，
+// 正文由 wiki_read 按需读取（对齐 Claude Code 的 MEMORY.md 索引模式）。
+func (s *Service) memoryIndex(ctx context.Context, projectID UUID0) string {
+	if s.DB == nil || projectID == (store.UUID{}) {
+		return ""
+	}
+	var pages []rag.WikiPage
+	if err := s.DB.WithContext(ctx).
+		Where("project_id = ? AND stale_at IS NULL", projectID).
+		Order("updated_at DESC").
+		Limit(memoryIndexMaxEntries).Find(&pages).Error; err != nil || len(pages) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("项目记忆索引（wiki，可用 wiki_read 读取正文；没有命中就不要臆测）：\n")
+	for _, p := range pages {
+		line := "- " + p.Title
+		if first := firstLine(p.Content); first != "" {
+			line += "：" + first
+		}
+		if b.Len()+len(line)+1 > memoryIndexMaxBytes {
+			break
+		}
+		b.WriteString(line)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func firstLine(s string) string {
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	s = strings.TrimSpace(s)
+	if r := []rune(s); len(r) > 120 {
+		s = string(r[:120])
+	}
+	return s
 }
 
 func friendlyErr(err error) string {
