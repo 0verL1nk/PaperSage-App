@@ -169,6 +169,7 @@ export function WritingPage() {
 
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
+  const mobileSidebarRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -283,6 +284,55 @@ export function WritingPage() {
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
+
+  // Mobile sidebar overlay: move focus in, keep Tab inside, close on Escape,
+  // and return focus to the tab button that opened it.
+  useEffect(() => {
+    if (!isMobile || !mobileSidebarOpen) return
+    const panel = mobileSidebarRef.current
+    if (!panel) return
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusable = () => Array.from(panel.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ))
+    focusable()[0]?.focus()
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        // 内联重命名/新建表单自己消费 Escape；这里不能再把整个侧栏关掉。
+        const target = event.target as HTMLElement | null
+        const editable = target?.closest('input, textarea, select, [contenteditable="true"]')
+        if (editable) return
+        event.preventDefault()
+        setMobileSidebarOpen(false)
+        return
+      }
+      if (event.key !== 'Tab') return
+      const items = focusable()
+      if (items.length === 0) return
+      const first = items[0]
+      const last = items[items.length - 1]
+      const active = document.activeElement
+      const wrap = event.shiftKey
+        ? active === first || active === panel
+        : active === last || active === panel
+      if (wrap) {
+        event.preventDefault()
+        ;(event.shiftKey ? last : first).focus()
+      }
+    }
+    // aria-modal：焦点被点到左侧活动栏时拉回面板，避免 Escape/Tab 失效。
+    const handleFocusIn = (event: FocusEvent) => {
+      if (panel.contains(event.target as Node)) return
+      focusable()[0]?.focus()
+    }
+    panel.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('focusin', handleFocusIn)
+    return () => {
+      panel.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('focusin', handleFocusIn)
+      previouslyFocused?.focus()
+    }
+  }, [isMobile, mobileSidebarOpen])
 
   // Sync editor with loaded file content (skip if user has local edits)
   useEffect(() => {
@@ -801,8 +851,8 @@ export function WritingPage() {
     <div className="relative flex h-full w-full bg-background overflow-hidden select-none font-sans">
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <TabButton testId="writing-tab-files" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-        <TabButton testId="writing-tab-ai" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
+        <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
+        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
         <div className="mt-auto flex flex-col gap-4">
           <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
           <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
@@ -811,7 +861,9 @@ export function WritingPage() {
 
       {isMobile && mobileSidebarOpen && (
         <div
+          ref={mobileSidebarRef}
           role="dialog"
+          aria-modal="true"
           aria-label={activeTab === 'files' ? '文件侧栏' : 'AI 助手侧栏'}
           className="absolute inset-y-0 left-12 right-0 z-40 flex flex-col bg-card shadow-xl"
         >
@@ -1152,10 +1204,11 @@ function ResizeHandle() {
   )
 }
 
-function TabButton({ icon, active, onClick, testId }: { icon: React.ReactNode; active: boolean; onClick: () => void; testId?: string }) {
+function TabButton({ icon, active, onClick, testId, label }: { icon: React.ReactNode; active: boolean; onClick: () => void; testId?: string; label?: string }) {
   return (
     <button
       data-testid={testId}
+      aria-label={label}
       onClick={onClick}
       className={cn("flex h-11 w-11 items-center justify-center rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
     >
