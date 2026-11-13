@@ -1,7 +1,17 @@
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { ArrowRight, Eye, EyeOff, HardDrive, LoaderCircle, MailCheck, ShieldCheck } from 'lucide-react'
+import {
+  ChevronRight,
+  Eye,
+  EyeOff,
+  HardDrive,
+  LoaderCircle,
+  LogIn,
+  MailCheck,
+  ShieldCheck,
+  UserPlus,
+} from 'lucide-react'
 import { useForm } from 'react-hook-form'
 import { toast } from 'sonner'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -20,6 +30,9 @@ import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
 import { getEmailDomains, resendVerification } from '@/services/auth-api'
 import { initializeGuestWorkspace } from '@/services/guest-local-workspace'
 import { ApiTargetToggle } from '@/components/shared/api-target-toggle'
+import { isDesktop } from '@/lib/desktop'
+import { DesktopAppMenu, WindowControls } from '@/components/desktop/desktop-titlebar'
+import { getApiTarget } from '@/lib/env'
 import { cn } from '@/lib/utils'
 import {
   loginSchema,
@@ -86,11 +99,16 @@ function AllowedDomainsHint() {
   })
   if (!data || data.length === 0) return null
   return (
-    <p className="text-[11px] text-muted-foreground/70 ml-1">
+    <p className="ml-1 text-[11px] text-muted-foreground/70">
       目前支持：{data.join('、')}
     </p>
   )
 }
+
+/** 表单控件共用的紧凑样式，保持登录 / 注册两栏观感一致。 */
+const fieldInputClass =
+  'h-10 rounded-[10px] border-input/70 bg-muted/40 px-3 text-[13.5px] transition-colors placeholder:text-muted-foreground/60 focus-visible:border-ring focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-ring/50'
+const fieldLabelClass = 'text-[12.5px] font-medium text-foreground/80'
 
 export function AuthPage() {
   const navigate = useNavigate()
@@ -169,228 +187,289 @@ export function AuthPage() {
   }
 
   return (
-    <div className="relative flex min-h-[100dvh] w-full items-center justify-center overflow-x-hidden overflow-y-auto bg-background py-8 font-sans sm:py-10">
-      <div className="absolute right-3 top-3 z-20 sm:right-5 sm:top-5">
-        <ApiTargetToggle />
-      </div>
+    <div className="relative flex h-full min-h-0 w-full overflow-hidden bg-background font-sans">
       {/* 银灰色系 Mesh 背景 (适配明暗主题) */}
-      <div aria-hidden="true" className="absolute inset-0 z-0 overflow-hidden pointer-events-none">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden">
         <div data-testid="auth-background-orb" className="auth-aurora auth-mesh absolute -left-[22%] -top-[25%] h-[78%] w-[86%] rounded-full blur-[96px]" />
         <div className="auth-aurora-warm auth-mesh-reverse absolute -bottom-[20%] -right-[20%] h-[72%] w-[78%] rounded-full blur-[100px]" />
         <div className="auth-aurora-cool auth-mesh absolute right-[4%] top-[12%] h-[52%] w-[54%] rounded-full blur-[90px] [animation-delay:-11s]" />
 
         <div className="auth-grid absolute inset-0" />
-        
+
         {/* 微弱噪点层提升质感 */}
         <div className="absolute inset-0 bg-noise opacity-[0.03] mix-blend-overlay dark:opacity-[0.05]" />
       </div>
 
-
-      <div className="auth-page-content relative z-10 w-full max-w-[420px] px-4 pt-12 animate-in fade-in zoom-in-95 duration-700 sm:px-6 sm:pt-8">
-        {/* Branding */}
-        <div className="mb-7 flex flex-col items-center text-center sm:mb-10">
-          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-foreground shadow-xl sm:mb-6 sm:h-16 sm:w-16">
-            <span className="text-3xl font-bold italic tracking-tighter text-background">S</span>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-            PaperSage
-          </h1>
-          <p className="mt-2 text-[15px] font-medium text-muted-foreground">
-            智能化科研文献管理工作台
-          </p>
-        </div>
-
-        {/* 统一风格的 Auth Card */}
-        <Card className="apple-popover gap-0 overflow-hidden rounded-[2rem] py-0">
-          <CardContent className="p-0">
-            <Tabs value={mode} onValueChange={(v) => {
-              setAuthError('')
-              setNeedsVerify(false)
-              setMode(v as AuthMode)
-            }} className="w-full">
-              <div className="px-5 pt-5 sm:px-8 sm:pt-8">
-                <TabsList className="grid w-full grid-cols-2 rounded-xl bg-secondary/50 p-1">
-                  <TabsTrigger value="login" className="h-12 rounded-lg text-sm font-semibold transition-all duration-200">
-                    账号登录
-                  </TabsTrigger>
-                  <TabsTrigger value="register" className="h-12 rounded-lg text-sm font-semibold transition-all duration-200">
-                    注册新账号
-                  </TabsTrigger>
-                </TabsList>
-              </div>
-
-              <SmoothHeight className="px-5 pb-5 pt-6 sm:px-8 sm:pb-6 sm:pt-8" data-testid="auth-panels">
-                <TabsContent value="login" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
-                  {pendingVerifyEmail && (
-                    <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4">
-                      <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
-                      <div className="flex-1 text-[13px] leading-relaxed text-foreground/80">
-                        验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
-                        请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
-                        {guestImportPending && <p className="mt-2 text-xs leading-5 text-muted-foreground">当前浏览器中的游客项目仍保存在本机。验证并登录后，你可以检查内容并确认导入；不会自动上传。</p>}
-                        <ResendButton email={pendingVerifyEmail} className="ml-1" />
-                      </div>
-                    </div>
-                  )}
-                  {needsVerify && loginForm.getValues('username') && (
-                    <div className="text-xs">
-                      <ResendButton email={loginForm.getValues('username')} className="font-medium" />
-                    </div>
-                  )}
-                  {authError && (
-                    <Alert variant="destructive" className="border-none bg-destructive/10 text-destructive rounded-xl py-3">
-                      <ShieldCheck className="mr-2 h-4 w-4" />
-                      <AlertDescription className="text-xs font-bold leading-none">{authError}</AlertDescription>
-                    </Alert>
-                  )}
-                  <form onSubmit={handleLoginSubmit} className="space-y-5">
-                    <div className="space-y-2.5">
-                      <Label htmlFor="username" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">用户名</Label>
-                      <Input
-                        id="username"
-                        autoComplete="username"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        {...loginForm.register('username')}
-                        placeholder="请输入您的账号"
-                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
-                      />
-                      {loginForm.formState.errors.username && (
-                        <p className="text-xs text-destructive ml-1">{loginForm.formState.errors.username.message}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between px-1">
-                        <Label htmlFor="password" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">密码</Label>
-                        <Link to="/auth/forgot-password" className="flex min-h-12 items-center px-2 text-[11px] font-bold text-primary transition-opacity hover:opacity-80">忘记密码？</Link>
-                      </div>
-                      <div className="relative">
-                        <Input
-                          id="password"
-                          type={showPassword ? 'text' : 'password'}
-                          autoComplete="current-password"
-                          {...loginForm.register('password')}
-                          placeholder="••••••••"
-                          className="h-12 bg-secondary/30 border-none px-4 pr-12 rounded-xl focus-visible:ring-1 focus-visible:ring-primary/50"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setShowPassword(!showPassword)}
-                          className="absolute right-1 top-1/2 flex size-12 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-foreground"
-                        >
-                          {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                        </button>
-                      </div>
-                      {loginForm.formState.errors.password && (
-                        <p className="text-xs text-destructive ml-1">{loginForm.formState.errors.password.message}</p>
-                      )}
-                    </div>
-                    <Button 
-                      type="submit" 
-                      variant="outline"
-                      disabled={loginMutation.isPending}
-                      className="flex h-12 w-full font-semibold text-[15px] mt-4 rounded-xl"
-                    >
-                      {loginMutation.isPending ? '正在连接...' : '立即登录'}
-                      {!loginMutation.isPending && <ArrowRight className="ml-2 h-4 w-4" />}
-                    </Button>
-                  </form>
-                </TabsContent>
-
-                <TabsContent value="register" className="mt-0 space-y-6 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
-                  {authError && (
-                    <Alert variant="destructive" className="border-none bg-destructive/10 text-destructive rounded-xl py-3">
-                      <ShieldCheck className="mr-2 h-4 w-4" />
-                      <AlertDescription className="text-xs font-bold leading-normal">{authError}</AlertDescription>
-                    </Alert>
-                  )}
-                  <form onSubmit={handleRegisterSubmit} className="space-y-5">
-                    <div className="space-y-2.5">
-                      <Label htmlFor="reg-email" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">学校邮箱</Label>
-                      <Input
-                        id="reg-email"
-                        type="email"
-                        autoComplete="email"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        {...registerForm.register('email')}
-                        placeholder="your-id@hit.edu.cn"
-                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
-                      />
-                      {registerForm.formState.errors.email && (
-                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.email.message}</p>
-                      )}
-                      <AllowedDomainsHint />
-                    </div>
-                    <div className="space-y-2.5">
-                      <Label htmlFor="reg-password" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">设置密码</Label>
-                      <Input
-                        id="reg-password"
-                        type="password"
-                        autoComplete="new-password"
-                        {...registerForm.register('password')}
-                        placeholder="至少 8 位，包含字母与数字"
-                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
-                      />
-                      {registerForm.formState.errors.password && (
-                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.password.message}</p>
-                      )}
-                    </div>
-                    <div className="space-y-2.5">
-                      <Label htmlFor="reg-confirm" className="ml-1 text-[11px] font-bold uppercase tracking-widest text-muted-foreground">确认密码</Label>
-                      <Input
-                        id="reg-confirm"
-                        type="password"
-                        autoComplete="new-password"
-                        {...registerForm.register('confirmPassword')}
-                        placeholder="请再次输入密码"
-                        className="h-12 bg-secondary/30 border-none px-4 rounded-xl"
-                      />
-                      {registerForm.formState.errors.confirmPassword && (
-                        <p className="text-xs text-destructive ml-1">{registerForm.formState.errors.confirmPassword.message}</p>
-                      )}
-                    </div>
-                    <Button
-                      type="submit"
-                      variant="outline"
-                      disabled={registerMutation.isPending}
-                      className="flex h-12 w-full font-semibold text-[15px] mt-4 rounded-xl"
-                    >
-                      {registerMutation.isPending ? '正在创建...' : '创建我的账号'}
-                    </Button>
-                  </form>
-                </TabsContent>
-              </SmoothHeight>
-            </Tabs>
-            <div className="mx-5 border-t border-border/35 py-4 sm:mx-8">
-              {guestError && <Alert variant="destructive" className="mb-3 rounded-xl"><ShieldCheck className="size-4" /><AlertDescription>{guestError}</AlertDescription></Alert>}
-              <button
-                type="button"
-                onClick={handleGuestStart}
-                disabled={guestStarting}
-                aria-label="以游客身份体验 PaperSage"
-                className="group flex min-h-[68px] w-full items-center justify-between gap-3 rounded-2xl border border-primary/15 bg-gradient-to-r from-primary/[0.09] via-primary/[0.045] to-transparent px-3.5 py-3 text-left shadow-sm shadow-primary/[0.04] transition-all hover:border-primary/30 hover:from-primary/[0.13] hover:via-primary/[0.07] hover:shadow-md hover:shadow-primary/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-75 sm:px-4"
-              >
-                <span className="flex min-w-0 items-center gap-3">
-                  <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors group-hover:bg-primary/15">
-                    {guestStarting ? <LoaderCircle className="size-[18px] animate-spin" /> : <HardDrive className="size-[18px]" />}
-                  </span>
-                  <span className="flex min-w-0 flex-col gap-0.5">
-                    <span className="text-[13px] font-semibold text-foreground">{guestStarting ? '正在准备本机工作区…' : '免注册体验 PaperSage'}</span>
-                    <span className="text-[11px] leading-4 text-muted-foreground">项目仅保存在此浏览器，可稍后导入账号</span>
-                  </span>
-                </span>
-                {!guestStarting && <ArrowRight className="size-4 shrink-0 text-primary/75 transition-transform group-hover:translate-x-0.5" />}
-              </button>
+      <div className="relative z-10 grid h-full w-full grid-cols-1 overflow-y-auto overscroll-contain lg:grid-cols-[minmax(0,1fr)_minmax(0,520px)] lg:overflow-hidden">
+        {/* 品牌栏：≥1024px 显示，垂直居中 */}
+        <aside className="hidden lg:flex lg:items-center lg:justify-center lg:px-14 xl:px-20">
+          <div className="flex w-full max-w-[340px] flex-col items-center text-center">
+            <div className="relative w-fit">
+              <div
+                aria-hidden="true"
+                className="absolute -inset-5 rounded-[28px] bg-accent/15 blur-2xl"
+              />
+              <img
+                src="/app-icon.png"
+                alt=""
+                className="relative size-[56px] rounded-[18px] shadow-[0_18px_40px_-18px_rgba(15,23,42,0.45)] ring-1 ring-black/5 dark:ring-white/10"
+              />
             </div>
-          </CardContent>
-          <div className="border-t border-border/20 bg-secondary/20 px-5 py-4 text-center sm:px-8">
-            <p className="text-[11px] font-medium text-muted-foreground">
-              继续操作即代表您同意我们的 <a href="#" className="text-foreground font-semibold hover:underline transition-all">服务条款</a> 和 <a href="#" className="text-foreground font-semibold hover:underline transition-all">隐私政策</a>
+            <h1 className="mt-7 text-[30px] font-semibold leading-none tracking-[-0.035em] text-foreground">
+              PaperSage
+            </h1>
+            <p className="mt-3 text-[13.5px] leading-6 text-muted-foreground">
+              智能化科研文献管理工作台
             </p>
           </div>
-        </Card>
+        </aside>
+
+        <main className="grid min-h-0 place-items-center px-4 sm:px-8 lg:border-l lg:border-border/40">
+          <div className="auth-page-content my-auto w-full max-w-[420px]">
+            {/* 窄屏品牌块：横向紧凑，低高度也不丢标题 */}
+            <div className="mb-5 flex items-center justify-center gap-2.5 lg:hidden">
+              <img
+                src="/app-icon.png"
+                alt=""
+                className="size-9 rounded-[10px] shadow ring-1 ring-black/5 dark:ring-white/10"
+              />
+              <div>
+                <h1 className="text-[17px] font-semibold leading-none tracking-tight text-foreground">PaperSage</h1>
+                <p className="mt-1 text-[11.5px] text-muted-foreground">智能化科研文献管理工作台</p>
+              </div>
+            </div>
+
+            <Card className="gap-0 overflow-hidden rounded-[18px] border border-border/60 bg-card/95 py-0 shadow-[0_30px_70px_-34px_rgba(15,23,42,0.55)] ring-1 ring-foreground/5 backdrop-blur-sm">
+              <CardContent className="p-0">
+                <div className="px-6 pb-5 pt-6 sm:px-7 sm:pt-7">
+                  <h2 className="text-[18px] font-semibold tracking-[-0.015em] text-foreground">
+                    {mode === 'login' ? '登录 PaperSage' : '创建 PaperSage 账号'}
+                  </h2>
+                  <p className="mt-1 text-[12.5px] leading-5 text-muted-foreground">
+                    {mode === 'login'
+                      ? getApiTarget() === 'online'
+                        ? '登录后同步你的文献、稿件与写作进度'
+                        : '登录本机工作区，稿件保存在本机'
+                      : '使用学校邮箱注册，验证后即可开始'}
+                  </p>
+
+                  <Tabs
+                    value={mode}
+                    onValueChange={(v) => {
+                      setAuthError('')
+                      setNeedsVerify(false)
+                      setMode(v as AuthMode)
+                    }}
+                    className="mt-5 w-full gap-0"
+                  >
+                    <TabsList className="grid w-full grid-cols-2 rounded-[10px] bg-muted/60 p-[3px]">
+                      <TabsTrigger value="login" className="text-[13px] font-medium transition-all duration-200">
+                        账号登录
+                      </TabsTrigger>
+                      <TabsTrigger value="register" className="text-[13px] font-medium transition-all duration-200">
+                        注册新账号
+                      </TabsTrigger>
+                    </TabsList>
+
+                    <SmoothHeight className="pt-5" data-testid="auth-panels">
+                      <TabsContent value="login" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
+                        {pendingVerifyEmail && (
+                          <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/[0.06] p-3">
+                            <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
+                            <div className="flex-1 text-[12px] leading-relaxed text-foreground/80">
+                              验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
+                              请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
+                              {guestImportPending && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">当前浏览器中的游客项目仍保存在本机。验证并登录后，你可以检查内容并确认导入；不会自动上传。</p>}
+                              <ResendButton email={pendingVerifyEmail} className="ml-1" />
+                            </div>
+                          </div>
+                        )}
+                        {needsVerify && loginForm.getValues('username') && (
+                          <div className="text-[11.5px]">
+                            <ResendButton email={loginForm.getValues('username')} className="font-medium" />
+                          </div>
+                        )}
+                        {authError && (
+                          <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                            <AlertDescription className="text-[12px] font-medium leading-snug">{authError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="username" className={fieldLabelClass}>用户名</Label>
+                            <Input
+                              id="username"
+                              autoComplete="username"
+                              autoCapitalize="none"
+                              spellCheck={false}
+                              {...loginForm.register('username')}
+                              placeholder="请输入您的账号"
+                              className={fieldInputClass}
+                            />
+                            {loginForm.formState.errors.username && (
+                              <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.username.message}</p>
+                            )}
+                          </div>
+                          <div className="space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="password" className={fieldLabelClass}>密码</Label>
+                              <Link to="/auth/forgot-password" className="text-[11.5px] font-medium text-primary/80 transition-colors hover:text-primary">
+                                忘记密码？
+                              </Link>
+                            </div>
+                            <div className="relative">
+                              <Input
+                                id="password"
+                                type={showPassword ? 'text' : 'password'}
+                                autoComplete="current-password"
+                                {...loginForm.register('password')}
+                                placeholder="••••••••"
+                                className={cn(fieldInputClass, 'pr-10')}
+                              />
+                              <button
+                                type="button"
+                                aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-0 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                              >
+                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </button>
+                            </div>
+                            {loginForm.formState.errors.password && (
+                              <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.password.message}</p>
+                            )}
+                          </div>
+                          <Button
+                            type="submit"
+                            disabled={loginMutation.isPending}
+                            className="h-12 w-full gap-2 rounded-[10px] text-[13.5px] font-semibold"
+                          >
+                            {loginMutation.isPending
+                              ? <LoaderCircle className="size-4 animate-spin" />
+                              : <LogIn className="size-4" />}
+                            {loginMutation.isPending ? '正在连接...' : '立即登录'}
+                          </Button>
+                        </form>
+
+                      </TabsContent>
+
+                      <TabsContent value="register" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
+                        {authError && (
+                          <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
+                            <ShieldCheck className="mr-2 h-4 w-4" />
+                            <AlertDescription className="text-[12px] font-medium leading-snug">{authError}</AlertDescription>
+                          </Alert>
+                        )}
+                        <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
+                          <div className="space-y-1.5">
+                            <Label htmlFor="reg-email" className={fieldLabelClass}>学校邮箱</Label>
+                            <Input
+                              id="reg-email"
+                              type="email"
+                              autoComplete="email"
+                              autoCapitalize="none"
+                              spellCheck={false}
+                              {...registerForm.register('email')}
+                              placeholder="your-id@hit.edu.cn"
+                              className={fieldInputClass}
+                            />
+                            {registerForm.formState.errors.email && (
+                              <p className="ml-1 text-[11.5px] text-destructive">{registerForm.formState.errors.email.message}</p>
+                            )}
+                            <AllowedDomainsHint />
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="reg-password" className={fieldLabelClass}>设置密码</Label>
+                            <Input
+                              id="reg-password"
+                              type="password"
+                              autoComplete="new-password"
+                              {...registerForm.register('password')}
+                              placeholder="至少 8 位，包含字母与数字"
+                              className={fieldInputClass}
+                            />
+                            {registerForm.formState.errors.password && (
+                              <p className="ml-1 text-[11.5px] text-destructive">{registerForm.formState.errors.password.message}</p>
+                            )}
+                          </div>
+                          <div className="space-y-1.5">
+                            <Label htmlFor="reg-confirm" className={fieldLabelClass}>确认密码</Label>
+                            <Input
+                              id="reg-confirm"
+                              type="password"
+                              autoComplete="new-password"
+                              {...registerForm.register('confirmPassword')}
+                              placeholder="请再次输入密码"
+                              className={fieldInputClass}
+                            />
+                            {registerForm.formState.errors.confirmPassword && (
+                              <p className="ml-1 text-[11.5px] text-destructive">{registerForm.formState.errors.confirmPassword.message}</p>
+                            )}
+                          </div>
+                          <Button
+                            type="submit"
+                            disabled={registerMutation.isPending}
+                            className="h-12 w-full gap-2 rounded-[10px] text-[13.5px] font-semibold"
+                          >
+                            {registerMutation.isPending
+                              ? <LoaderCircle className="size-4 animate-spin" />
+                              : <UserPlus className="size-4" />}
+                            {registerMutation.isPending ? '正在创建...' : '创建我的账号'}
+                          </Button>
+                        </form>
+                      </TabsContent>
+                    </SmoothHeight>
+                  </Tabs>
+
+                <div className="mt-4 border-t border-border/40 pt-3">
+                  {guestError && (
+                    <Alert variant="destructive" className="mb-2 rounded-lg py-2.5">
+                      <ShieldCheck className="size-4" />
+                      <AlertDescription className="text-[12px]">{guestError}</AlertDescription>
+                    </Alert>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleGuestStart}
+                    disabled={guestStarting}
+                    aria-label="以游客身份体验 PaperSage"
+                    className="flex min-h-12 w-full items-center justify-center gap-1.5 rounded-lg text-[12.5px] font-medium text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {guestStarting
+                      ? <LoaderCircle className="size-3.5 animate-spin" />
+                      : <HardDrive className="size-3.5" />}
+                    <span>{guestStarting ? '正在准备本机工作区…' : '免注册体验 PaperSage'}</span>
+                    {!guestStarting && <ChevronRight className="size-3.5 text-muted-foreground/50" />}
+                  </button>
+                  <p className="pb-1 text-center text-[11.5px] leading-4 text-muted-foreground">
+                    项目仅保存在此设备，可稍后导入账号
+                  </p>
+                </div>
+                </div>
+              </CardContent>
+
+              <div className="flex items-center justify-between gap-3 border-t border-border/50 bg-muted/25 px-5 py-3 sm:px-6">
+                <p className="text-[10.5px] leading-4 text-muted-foreground">
+                  继续操作即表示同意
+                  <a href="#" className="mx-1 font-medium text-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline">服务条款</a>
+                  和
+                  <a href="#" className="ml-1 font-medium text-foreground/80 underline-offset-2 transition-colors hover:text-foreground hover:underline">隐私政策</a>
+                </p>
+                {!isDesktop() && <ApiTargetToggle prominent />}
+              </div>
+            </Card>
+          </div>
+        </main>
       </div>
+
+      {isDesktop() && (
+        <>
+          <div className="desktop-drag absolute inset-x-0 top-0 z-30 h-9" aria-hidden="true" />
+          <DesktopAppMenu className="absolute left-3 top-2.5 z-40" />
+          <WindowControls className="absolute right-0 top-0 z-40 h-9" />
+        </>
+      )}
     </div>
   )
 }

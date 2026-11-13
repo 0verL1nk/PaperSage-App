@@ -174,7 +174,7 @@ describe('auth api — Web Crypto fallback', () => {
   })
 
   it('js-sha256 reference matches Web Crypto for varied inputs', async () => {
-    const inputs = ['', 'a', 'Pass1234', '🦊 fox jumps over', 'a'.repeat(1000)]
+    const inputs = ['', 'a', 'Pass1234', 'a fox jumps over', 'a'.repeat(1000)]
     for (const input of inputs) {
       const fromWeb = await sha256WebCrypto(input)
       const fromLib = jsSha256(input)

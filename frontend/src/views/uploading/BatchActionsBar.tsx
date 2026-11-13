@@ -17,7 +17,7 @@ export function BatchActionsBar({
   if (selectedCount === 0) return null
 
   return (
-    <div className="flex items-center gap-3 px-5 py-2 bg-accent/5 border-t border-accent/10">
+    <div className="flex flex-wrap items-center gap-3 px-5 py-2 bg-accent/5 border-t border-accent/10">
       <span className="text-[11px] font-medium text-accent-foreground">
         已选 {selectedCount} 项
       </span>

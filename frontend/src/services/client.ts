@@ -141,6 +141,11 @@ apiClient.interceptors.response.use(
       !requestConfig?.url?.includes('/auth/refresh') &&
       !requestConfig?.skipAuthRefresh
     ) {
+      // Guests have no tokens to refresh: a 401 is a capability limit, not an
+      // expired session. Bouncing them to /auth would discard device-local work.
+      if (useSessionStore.getState().isGuest) {
+        return Promise.reject(normalizeApiError(error))
+      }
       // login/register 的 401 是凭据错误，应交给页面展示错误提示；
       // 走 refresh 重定向会整页跳转 /auth 并清空表单状态
       // If already refreshing, wait for the refresh to complete
@@ -197,7 +202,7 @@ apiClient.interceptors.response.use(
       requestConfig?.url?.includes('/auth/register') ||
       requestConfig?.url?.includes('/auth/guest') ||
       requestConfig?.url?.includes('/auth/refresh')
-    if (!isAuthEndpoint && (normalized.status === 401 || normalized.status === 403)) {
+    if (!isAuthEndpoint && !useSessionStore.getState().isGuest && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()
       // Redirect to auth page
       if (typeof window !== 'undefined') {

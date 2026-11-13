@@ -19,6 +19,7 @@ import {
 import type { NodeRendererProps, TreeApi } from 'react-arborist'
 import { FileTypeIcon } from './file-tree-icons'
 import type { FileNodeData } from './writing-file-tree'
+import { useFileSyncStatus, type FileSyncStatus } from '@/store/folder-sync-store'
 
 // ---------------------------------------------------------------------------
 // Inline edit input (cancel on blur, submit on Enter)
@@ -145,6 +146,7 @@ export function NodeRenderer({
             )}
             <FileTypeIcon name={node.data.name} />
             <span className="truncate flex-1">{node.data.name}</span>
+            <FileSyncDot path={node.data.fullPath} />
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="w-40">
@@ -164,6 +166,29 @@ export function NodeRenderer({
         </ContextMenuContent>
       </ContextMenu>
     </div>
+  )
+}
+
+const SYNC_DOT: Partial<Record<FileSyncStatus, { dot: string; label: string }>> = {
+  conflict: { dot: 'bg-red-500', label: '与本机文件冲突' },
+  pending: { dot: 'bg-sky-500', label: '项目改动尚未写入本机' },
+  created: { dot: 'bg-emerald-500', label: '本机新增，待导入项目' },
+  modified: { dot: 'bg-amber-500', label: '本机已修改，待导入项目' },
+  deleted: { dot: 'bg-amber-500', label: '本机已删除' },
+  renamed: { dot: 'bg-amber-500', label: '本机已重命名' },
+}
+
+/** Sync state stays quiet unless the file needs attention. */
+function FileSyncDot({ path }: { path: string }) {
+  const status = useFileSyncStatus(path)
+  const meta = SYNC_DOT[status]
+  if (!meta) return null
+  return (
+    <span
+      aria-label={meta.label}
+      title={meta.label}
+      className={`size-1.5 shrink-0 rounded-full ${meta.dot}`}
+    />
   )
 }
 

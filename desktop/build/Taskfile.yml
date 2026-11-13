@@ -1,0 +1,58 @@
+version: '3'
+
+tasks:
+  go:mod:tidy:
+    internal: true
+    run: once
+    cmds:
+      - go mod tidy
+
+  install:frontend:deps:
+    summary: Installs the shared frontend dependencies
+    run: once
+    dir: ../frontend
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+    generates:
+      - node_modules
+    cmds:
+      - pnpm install
+
+  build:frontend:
+    summary: Builds the shared frontend and copies it into the embed directory
+    run: once
+    dir: ../frontend
+    vars:
+      # Set ONLINE_API_BASE_URL (task arg or env) to point the desktop client's
+      # "online" target at a deployed API. Unset builds keep it same-origin.
+      ONLINE_API_BASE_URL: '{{.ONLINE_API_BASE_URL | default ""}}'
+    env:
+      VITE_API_BASE_URL: '{{.ONLINE_API_BASE_URL}}'
+    sources:
+      - package.json
+      - pnpm-lock.yaml
+      - index.html
+      - vite.config.*
+      - src/**/*
+      - public/**/*
+    generates:
+      - dist/**/*
+    deps:
+      - task: install:frontend:deps
+    cmds:
+      - pnpm build
+      - rm -rf ../desktop/internal/assets/dist
+      - mkdir -p ../desktop/internal/assets/dist
+      - cp -r dist/. ../desktop/internal/assets/dist/
+
+  assets:
+    summary: Ensures the embedded frontend is current
+    deps:
+      - task: build:frontend
+
+  update:build-assets:
+    summary: Regenerates platform build assets from build/config.yml
+    dir: build
+    cmds:
+      - go tool wails3 update build-assets -name "{{.APP_NAME}}" -binaryname "{{.APP_NAME}}" -config config.yml -dir .

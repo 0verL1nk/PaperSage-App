@@ -38,7 +38,7 @@ test.describe('Cross-route navigation', () => {
     expect(projectId).not.toBe('')
     await loginAs(page)
     await page.goto(`/project/${projectId}/writing`)
-    await expect(page.getByText('Explorer')).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByRole('heading', { name: '文件', exact: true })).toBeVisible({ timeout: 15_000 })
   })
 
   test('logout clears session and protected route bounces back', async ({ page }) => {

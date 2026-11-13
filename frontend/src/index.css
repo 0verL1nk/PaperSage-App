@@ -434,3 +434,26 @@ select {
     }
   }
 }
+
+/* Wails frameless-window drag regions (Windows custom titlebar). */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+html.desktop-client body {
+  overflow: hidden;
+}
+
+.desktop-drag {
+  --wails-draggable: drag;
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.desktop-no-drag {
+  --wails-draggable: no-drag;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}

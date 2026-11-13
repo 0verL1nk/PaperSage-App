@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useSettingsStore } from '@/store/settings-store'
+import { useSessionStore } from '@/store'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -53,6 +54,7 @@ const TEMP_ID = '__new__'
 export function AgentSettings() {
   const { t } = useTranslation()
   const { settings, patchCategory, error, fetchSettings } = useSettingsStore()
+  const isGuest = useSessionStore((session) => session.isGuest)
   const agent = settings?.agent
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<ProviderConfig | null>(null)
@@ -129,6 +131,17 @@ export function AgentSettings() {
   const activeProvider = a.active_provider_id
     ? a.providers.find((p) => p.id === a.active_provider_id)
     : a.providers.find((p) => p.api_key?.trim() && p.base_url?.trim() && p.models.length > 0)
+
+  if (isGuest) {
+    return (
+      <div className="rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4">
+        <p className="text-sm font-medium text-foreground">登录后可配置 AI 模型</p>
+        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+          研究顾问与写作助手需要账号绑定的模型服务。游客项目仍可保存到本机，登录后会自动导入。
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-4">

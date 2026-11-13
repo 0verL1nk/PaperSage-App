@@ -2,7 +2,8 @@
        install-frontend install-clsi check-clsi clsi-dev clean \
        logs log-backend log-frontend log-clsi \
        docker-build docker-push docker-login \
-       build-server seed parity
+       build-server build-server-obfuscated seed parity \
+       desktop-dev desktop-build desktop-package
 
 # Colors
 GREEN := \033[0;32m
@@ -10,6 +11,11 @@ YELLOW := \033[0;33m
 BLUE := \033[0;34m
 RED := \033[0;31m
 NC := \033[0m
+
+# Platform binary suffix for the bundled backend
+ifeq ($(shell go env GOOS),windows)
+EXE_EXT := .exe
+endif
 
 # Paths
 PROC := ./scripts/proc.sh
@@ -37,7 +43,13 @@ help:
 	@echo ""
 	@echo "$(GREEN)Single binary:$(NC)"
 	@echo "  make build-server  - Build the standalone Go API binary"
+	@echo "  make build-server-obfuscated - Build the garble-obfuscated backend for the desktop client"
 	@echo "  make seed          - Seed e2e/dev database (deterministic data)"
+	@echo ""
+	@echo "$(GREEN)Desktop client:$(NC)"
+	@echo "  make desktop-dev    - Run the Wails client with the Vite dev server"
+	@echo "  make desktop-build  - Build the desktop binary into desktop/bin/"
+	@echo "  make desktop-package- Build the platform installer (NSIS/deb/AppImage)"
 	@echo ""
 	@echo "$(GREEN)Quality:$(NC)"
 	@echo "  make check         - Run all code quality checks"
@@ -199,6 +211,20 @@ docker-push: docker-build
 
 build-server: ## 构建独立 API 二进制
 	cd server && CGO_ENABLED=0 go build -o bin/ ./cmd/papersage
+
+build-server-obfuscated: ## 构建混淆后的 API 二进制（供桌面客户端内置）
+	@command -v garble >/dev/null 2>&1 || { echo "garble 未安装：go install mvdan.cc/garble@v0.18.0"; exit 1; }
+	@mkdir -p desktop/bin/backend
+	cd server && CGO_ENABLED=0 garble -literals -tiny build -trimpath -ldflags "-s -w" -o ../desktop/bin/backend/papersage$(EXE_EXT) ./cmd/papersage
+
+desktop-dev: ## 启动桌面客户端开发模式（Vite + Wails）
+	cd desktop && go tool wails3 task dev
+
+desktop-build: ## 构建桌面客户端
+	cd desktop && go tool wails3 task build
+
+desktop-package: ## 构建桌面安装包（NSIS/deb/AppImage）
+	cd desktop && go tool wails3 task package
 
 generate-dao: ## GORM 代码生成：schema/tables/*.sql 建库 → 类型安全 DAO（需 SCHEMA_DSN）
 	cd server && SCHEMA_DSN="$$(SCHEMA_DSN)" go run ./cmd/generate

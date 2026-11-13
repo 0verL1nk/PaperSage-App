@@ -71,7 +71,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
     { path: 'prepare', heading: '和研究顾问一起理清思路' },
     { path: 'review', heading: '提交前，把容易漏的地方过一遍' },
     { path: 'uploading', heading: '参考文献' },
-    { path: 'writing', heading: 'Explorer' },
+    { path: 'writing', heading: '文件' },
   ]
 
   for (const route of pages) {
@@ -87,7 +87,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
 
       const geometry = await page.evaluate(() => {
         const header = document.querySelector('header')?.getBoundingClientRect()
-        const nav = document.querySelector('nav.md\\:hidden')?.getBoundingClientRect()
+        const nav = document.querySelector('nav.lg\\:hidden')?.getBoundingClientRect()
         const main = document.querySelector('main')?.getBoundingClientRect()
         const editor = document.querySelector('.monaco-editor')?.getBoundingClientRect()
         return {

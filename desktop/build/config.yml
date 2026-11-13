@@ -1,0 +1,36 @@
+version: '3'
+
+# Used by Wails for build assets and the macOS Info.plist.
+info:
+  companyName: "PaperSage"
+  productName: "PaperSage"
+  productIdentifier: "com.papersage.desktop"
+  description: "PaperSage desktop client"
+  copyright: "Copyright 2026 PaperSage"
+  comments: "AI-assisted academic writing"
+  version: "0.1.0"
+
+# `go tool wails3 dev` runs these on start and on Go changes.
+dev_mode:
+  root_path: .
+  log_level: warn
+  debounce: 1000
+  ignore:
+    dir:
+      - .git
+      - bin
+      - internal/assets/dist
+    file:
+      - .DS_Store
+      - .gitignore
+    watched_extension:
+      - "*.go"
+    git_ignore: true
+  executes:
+    - cmd: go tool wails3 task common:assets
+      type: once
+    - cmd: go tool wails3 build
+      type: blocking
+    - cmd: go tool wails3 task run
+      type: primary
+      exit_policy: shutdown

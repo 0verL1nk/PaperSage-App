@@ -26,12 +26,10 @@ and [`BUILD-RECEIPT.xetex.json`](./wasmtex-dvipdfmx-2026/BUILD-RECEIPT.xetex.jso
 
 ## Browser EPS conversion
 
-EPS files are converted in a dedicated browser worker by EtterScript 0.0.7,
-an independent MIT-licensed PostScript interpreter that writes vector PDF.
-The pinned WebAssembly binary, MIT text, embedded-font notices, and other
-third-party license texts are in [`efterscript/`](./efterscript/). The worker
-reads the EPS DSC bounding box, sets the PDF page size, and offsets the drawing
-to the page origin before interpretation.
+EPS files are converted in a dedicated browser worker by the Stet EPS→PDF
+WebAssembly build. The pinned binary and its third-party license texts are in
+[`stet/`](./stet/). The worker reads the EPS DSC bounding box, sets the PDF page
+size, and offsets the drawing to the page origin before conversion.
 
 ## Browser acceptance status
 

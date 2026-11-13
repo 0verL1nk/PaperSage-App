@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useProjects, useGroups } from '@/services/projects-api'
 import { ProjectCard } from '@/components/domain/ProjectCard'
@@ -7,6 +7,7 @@ import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Trash2, Plus, FolderGit2 } from 'lucide-react'
+import { Events } from '@wailsio/runtime'
 
 export function ProjectListPage() {
   const navigate = useNavigate()
@@ -15,6 +16,15 @@ export function ProjectListPage() {
 
   const { data: projects = [], isLoading, error } = useProjects(selectedGroupId ?? undefined)
   const { data: groups = [] } = useGroups()
+
+  useEffect(() => {
+    const open = () => {
+      sessionStorage.removeItem('papersage:open-create-project')
+      setIsCreateDialogOpen(true)
+    }
+    if (sessionStorage.getItem('papersage:open-create-project')) open()
+    return Events.On('menu:new-project', open)
+  }, [])
 
   if (isLoading) {
     return (
@@ -64,7 +74,7 @@ export function ProjectListPage() {
           <p className="text-sm text-muted-foreground">管理并组织您的研究文献与分析工作区</p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild className="text-muted-foreground hover:text-foreground">
+          <Button variant="ghost" size="sm" asChild className="min-h-11 px-3 text-muted-foreground hover:text-foreground">
             <Link to="/app/trash">
               <Trash2 className="mr-2 h-4 w-4" />
               回收站
@@ -79,11 +89,11 @@ export function ProjectListPage() {
 
       {/* Filter - Segmented Control Style */}
       {groups.length > 0 && (
-        <div className="flex items-center gap-1 p-1 bg-muted/40 rounded-full w-fit border border-border/40">
+        <div className="flex w-fit max-w-full items-center gap-1 overflow-x-auto no-scrollbar p-1 bg-muted/40 rounded-full border border-border/40">
           <button
             onClick={() => setSelectedGroupId(null)}
             className={cn(
-              "px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
+              "flex-none px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
               selectedGroupId === null
                 ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
                 : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
@@ -96,7 +106,7 @@ export function ProjectListPage() {
               key={group.id}
               onClick={() => setSelectedGroupId(group.id)}
               className={cn(
-                "px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
+                "flex-none px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
                 selectedGroupId === group.id
                   ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/50"

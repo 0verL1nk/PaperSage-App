@@ -39,7 +39,7 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
     }
     await page.goto('/auth', { waitUntil: 'domcontentloaded' })
     await expect(page.getByRole('tab', { name: '账号登录' })).toBeVisible()
-    const backendToggle = page.getByRole('button', { name: /切换后端，当前：在线/ })
+    const backendToggle = page.getByRole('button', { name: /切换服务器，当前：在线/ })
     await expect(backendToggle).toBeVisible()
     expect(await backendToggle.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1), {

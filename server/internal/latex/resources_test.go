@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -165,7 +166,7 @@ func TestLoadCatalogSupportsGzipStoredCatalog(t *testing.T) {
 	require.NoError(t, writer.Close())
 	require.NoError(t, stg.Put(t.Context(), key, compressed.Bytes()))
 
-	service, err := newResourceService(stg, testResourceProfile, testResourceRepository)
+	service, err := newResourceService(stg, testResourceProfile, testResourceRepository, "")
 	require.NoError(t, err)
 	catalog, err := service.loadCatalog(t.Context())
 	require.NoError(t, err)
@@ -189,7 +190,7 @@ func TestLoadCatalogNormalizesDuplicateCaseKpathseaSuffixes(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, stg.Put(t.Context(), key, encoded))
 
-	service, err := newResourceService(stg, testResourceProfile, testResourceRepository)
+	service, err := newResourceService(stg, testResourceProfile, testResourceRepository, "")
 	require.NoError(t, err)
 	catalog, err := service.loadCatalog(t.Context())
 	require.NoError(t, err)
@@ -262,7 +263,7 @@ func newTestResourceEngine(t *testing.T, stg *memoryResourceStorage, archive []b
 	t.Cleanup(server.Close)
 	target, err := url.Parse(server.URL)
 	require.NoError(t, err)
-	service, err := newResourceService(stg, testResourceProfile, testResourceRepository)
+	service, err := newResourceService(stg, testResourceProfile, testResourceRepository, "")
 	require.NoError(t, err)
 	service.archives.client.Transport = redirectingRoundTripper{base: server.Client().Transport, target: target}
 	engine := gin.New()
@@ -614,4 +615,92 @@ func TestLiveTeXLivePackageArchive(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resource, 88826)
+}
+
+func TestExtractPackageResourcesReadsMultipleFilesInOnePass(t *testing.T) {
+	archive := makeTestArchiveFiles(t, map[string][]byte{
+		"texmf-dist/fonts/map/a.map":       []byte("a\n"),
+		"RELOC/texmf-dist/fonts/map/b.map": []byte("b\n"),
+		"texmf-dist/fonts/map/c.map":       []byte("c\n"),
+	})
+	extracted, err := extractPackageResources(archive, []string{
+		"texmf-dist/fonts/map/a.map",
+		"texmf-dist/fonts/map/b.map",
+		"texmf-dist/fonts/map/missing.map",
+	})
+	require.NoError(t, err)
+	require.Equal(t, []byte("a\n"), extracted["texmf-dist/fonts/map/a.map"])
+	require.Equal(t, []byte("b\n"), extracted["texmf-dist/fonts/map/b.map"])
+	require.Nil(t, extracted["texmf-dist/fonts/map/missing.map"])
+	require.Len(t, extracted, 2)
+}
+
+func TestMountResourcesResolvesUnknownFormatByExplicitFilename(t *testing.T) {
+	stg := newMemoryResourceStorage()
+	content := []byte("% indexed resource under an engine format the catalog does not list")
+	archive := makeTestArchiveAt(t, "tex/latex/preprint/fullpage.sty", content)
+	makeTestCatalog(t, stg, []byte("catalog seed"), makeTestArchive(t, []byte("catalog seed")))
+	archiveDigest := sha512.Sum512(archive)
+	addTestPackageIndex(t, stg, "fullpage.sty", []resourcePackageIndexRecord{{
+		SourcePath: "texmf-dist/tex/latex/preprint/fullpage.sty", Package: "preprint", PackageRevision: "12345",
+		ContainerSize: int64(len(archive)), ContainerSHA512: hex.EncodeToString(archiveDigest[:]),
+		License: "LPPL-1.3c", LicenseSource: "https://ctan.org/pkg/preprint?lang=en",
+	}})
+	engine := newTestResourceEngine(t, stg, archive)
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/41/fullpage.sty", nil))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Equal(t, content, response.Body.Bytes())
+
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/41/fullpage", nil))
+	require.Equal(t, http.StatusNotFound, response.Code)
+}
+
+func TestResourceServiceLoadsGzippedCatalogFileWithoutStorage(t *testing.T) {
+	content := []byte("% catalog file resource")
+	digest := sha256.Sum256(content)
+	entry := resourceCatalogEntry{
+		Lookup: resourceLookup{Kind: "xetex", Format: "26", Name: "amsmath.sty"},
+		SHA256: hex.EncodeToString(digest[:]),
+	}
+	archive := makeTestArchive(t, content)
+	archiveDigest := sha512.Sum512(archive)
+	document := resourceCatalogDocument{
+		SchemaVersion: resourceCatalogSchema,
+		Profile:       testResourceProfile,
+		Revision:      testResourceProfile,
+		Objects: []resourceCatalogObject{{
+			SHA256:    entry.SHA256,
+			Size:      int64(len(content)),
+			MediaType: "application/octet-stream",
+			Provenance: []resourceCatalogProvenance{{
+				SourcePath:      "texmf-dist/tex/latex/amsmath/amsmath.sty",
+				Package:         "amsmath",
+				PackageRevision: "79234",
+				ContainerSize:   int64(len(archive)),
+				ContainerSHA512: hex.EncodeToString(archiveDigest[:]),
+				License:         "LPPL-1.3c",
+				LicenseSource:   "https://ctan.org/pkg/amsmath?lang=en",
+			}},
+		}},
+		Entries: []resourceCatalogEntry{entry},
+	}
+	encoded, err := json.Marshal(document)
+	require.NoError(t, err)
+	var compressed bytes.Buffer
+	writer := gzip.NewWriter(&compressed)
+	_, err = writer.Write(encoded)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	catalogFile := filepath.Join(t.TempDir(), "catalog.json.gz")
+	require.NoError(t, os.WriteFile(catalogFile, compressed.Bytes(), 0o600))
+
+	service, err := newResourceService(nil, testResourceProfile, testResourceRepository, catalogFile)
+	require.NoError(t, err)
+	catalog, err := service.loadCatalog(context.Background())
+	require.NoError(t, err)
+	require.Contains(t, catalog.entries, resourceLookupKey(entry.Lookup))
+	require.Equal(t, testResourceProfile, catalog.revision)
 }

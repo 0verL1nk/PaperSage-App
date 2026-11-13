@@ -1,14 +1,16 @@
+import '@/lib/monaco-setup'
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import {
-  Search, Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
+  Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
-  Check, Copy, Cloud, CloudUpload, FolderPlus, AlertTriangle,
+  Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
   HardDrive, ExternalLink, X,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import Editor, { useMonaco } from '@monaco-editor/react'
@@ -27,6 +29,7 @@ import {
 } from '@/hooks/use-latex'
 import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
 import { useAutoSave } from '@/hooks/use-auto-save'
+import { useFolderSyncStatus } from '@/hooks/use-folder-sync-status'
 import type { PdfRangeSource, CompileJobStatus, CompileJobListItem, LatexFileItem } from '@/services/latex-api'
 import { cancelCompile, getCompileHistory } from '@/services/latex-api'
 import {
@@ -39,9 +42,23 @@ import { AiPanel } from './ai-panel'
 import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
+import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
 import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
 import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
-import { createBrowserCompileJob, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult } from '@/services/latex-api'
+import { createBrowserCompileJob, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
+import { base64File, getDesktopService, isDesktop, notifyWhenBackground, onDesktopFilesDropped } from '@/lib/desktop'
+import { useProject } from '@/services/projects-api'
+
+const TEXT_FILE_EXTENSIONS = new Set(['tex', 'bib', 'cls', 'sty', 'bst', 'def', 'ist', 'txt', 'md', 'lof', 'lot', 'toc', 'cfg', 'fd'])
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let binary = ''
+  const chunk = 0x8000
+  for (let offset = 0; offset < bytes.length; offset += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + chunk))
+  }
+  return btoa(binary)
+}
 
 function toPdfFile(source: PdfRangeSource | { data: Uint8Array }) {
   return source as Parameters<typeof Document>[0]['file']
@@ -126,6 +143,7 @@ type SidebarTab = 'files' | 'ai'
 
 export function WritingPage() {
   const { projectId = '' } = useParams({ strict: false })
+  const isGuest = useSessionStore((session) => session.isGuest)
   const { data: writingState } = useWritingState(projectId)
   const saveWritingState = useSaveWritingState(projectId)
   const phaseSyncStarted = useRef(false)
@@ -156,6 +174,7 @@ export function WritingPage() {
   const [isMobile, setIsMobile] = useState(false)
   const [editorContent, setEditorContent] = useState('')
   const [isLatexSetupOpen, setIsLatexSetupOpen] = useState(false)
+  const [isFolderSyncOpen, setIsFolderSyncOpen] = useState(false)
   const [isBrowserCompiling, setIsBrowserCompiling] = useState(false)
   const [isPublishingBrowserResult, setIsPublishingBrowserResult] = useState(false)
   const [isRetryingBrowserUpload, setIsRetryingBrowserUpload] = useState(false)
@@ -192,9 +211,10 @@ export function WritingPage() {
   // Data hooks
   const { data: files = [], error: filesError, refetch: refetchFiles } = useLatexFiles(projectId)
   const isEditable = activeFilePath ? isEditableFile(activeFilePath) : false
-  const { data: fileContent, isPending: isContentLoading } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
+  const { data: fileContent, isPending: isContentLoading, refetch: refetchFileContent } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
   const saveMutation = useSaveLatexFile(projectId)
   const autoSave = useAutoSave(saveMutation)
+  useFolderSyncStatus(projectId)
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
   const deleteFolderMutation = useDeleteLatexFolder(projectId)
@@ -215,6 +235,8 @@ export function WritingPage() {
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | { data: Uint8Array } | null>(null)
   const [pdfBuildId, setPdfBuildId] = useState<string | null>(null)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
+  const [isExportingProject, setIsExportingProject] = useState(false)
+  const { data: project } = useProject(projectId)
   const [isCompileHistoryOpen, setIsCompileHistoryOpen] = useState(false)
   const [isCompileHistoryLoading, setIsCompileHistoryLoading] = useState(false)
   const [compileHistory, setCompileHistory] = useState<CompileJobListItem[]>([])
@@ -241,6 +263,7 @@ export function WritingPage() {
     if (job.status === 'success' && job.build_id) {
       setCompileError(null)
       setCompileLogs(null)
+      void notifyWhenBackground('编译完成', 'PDF 已生成')
       outputPdfMutation.mutate(
         { projectId, buildId: job.build_id },
         {
@@ -251,8 +274,10 @@ export function WritingPage() {
         },
       )
     } else if (job.status === 'failed' || job.status === 'timeout') {
-      setCompileError(job.error || (job.status === 'timeout' ? '编译超时' : '编译失败'))
+      const message = job.error || (job.status === 'timeout' ? '编译超时' : '编译失败')
+      setCompileError(message)
       if (job.logs) setCompileLogs(job.logs)
+      void notifyWhenBackground('编译失败', message)
     }
 
     setCompileJobId(null)
@@ -400,19 +425,27 @@ export function WritingPage() {
   }
 
   const handleDownloadPdf = useCallback(async () => {
-    if (!pdfBuildId || isDownloadingPdf) return
+    if (isDownloadingPdf) return
+    // Guests have no persisted build; download the PDF held in memory instead.
+    const inlinePdf = pdfFileSource && 'data' in pdfFileSource ? pdfFileSource.data : null
+    if (!pdfBuildId && !inlinePdf) return
     setIsDownloadingPdf(true)
     try {
-      const blob = await downloadBlob(LATEX.outputZip(projectId, pdfBuildId))
-      const zip = await JSZip.loadAsync(blob)
-      const pdfEntry = Object.values(zip.files).find(
-        (f) => !f.dir && f.name.toLowerCase().endsWith('.pdf'),
-      )
-      if (!pdfEntry) {
-        toast.error('未找到 PDF 文件')
-        return
+      let pdfBlob: Blob
+      if (inlinePdf) {
+        pdfBlob = new Blob([inlinePdf.slice().buffer as ArrayBuffer], { type: 'application/pdf' })
+      } else {
+        const blob = await downloadBlob(LATEX.outputZip(projectId, pdfBuildId!))
+        const zip = await JSZip.loadAsync(blob)
+        const pdfEntry = Object.values(zip.files).find(
+          (f) => !f.dir && f.name.toLowerCase().endsWith('.pdf'),
+        )
+        if (!pdfEntry) {
+          toast.error('未找到 PDF 文件')
+          return
+        }
+        pdfBlob = await pdfEntry.async('blob')
       }
-      const pdfBlob = await pdfEntry.async('blob')
       const url = URL.createObjectURL(pdfBlob)
       const a = document.createElement('a')
       a.href = url
@@ -424,7 +457,64 @@ export function WritingPage() {
     } finally {
       setIsDownloadingPdf(false)
     }
-  }, [pdfBuildId, isDownloadingPdf, projectId])
+  }, [pdfBuildId, isDownloadingPdf, pdfFileSource, projectId])
+
+  const handleExportProject = async () => {
+    const service = getDesktopService()
+    if (!service || isExportingProject) return
+    setIsExportingProject(true)
+    try {
+      const zip = new JSZip()
+      for (const file of files) {
+        const extension = file.file_path.split('.').pop()?.toLowerCase() ?? ''
+        const isText = file.content_type.startsWith('text/') || TEXT_FILE_EXTENSIONS.has(extension)
+        if (isText) {
+          const content = await fetchLatexFileContent(projectId, file.file_path, { skipGlobalLoading: true })
+          zip.file(file.file_path, content.content)
+        } else {
+          zip.file(file.file_path, await fetchLatexFileBytes(projectId, file.file_path))
+        }
+      }
+      const bytes = await zip.generateAsync({ type: 'uint8array' })
+      const safeName = (project?.name ?? 'papersage').replace(/[\\/:*?"<>|]/g, '-')
+      const saved = await service.saveFileBytes(`${safeName}.zip`, bytesToBase64(bytes))
+      if (saved) {
+        toast.success('项目已导出', {
+          description: saved,
+          action: { label: '在文件夹中显示', onClick: () => void service.revealInFolder(saved) },
+        })
+      }
+    } catch (error) {
+      toast.error('导出失败', { description: error instanceof Error ? error.message : String(error) })
+    } finally {
+      setIsExportingProject(false)
+    }
+  }
+
+  const exportRef = useRef(handleExportProject)
+  exportRef.current = handleExportProject
+  useEffect(() => Events.On('menu:export-project', () => void exportRef.current()), [])
+
+  useEffect(() => onDesktopFilesDropped((paths, target) => {
+    if (target !== 'writing' || paths.length === 0) return
+    const service = getDesktopService()
+    if (!service) return
+    void (async () => {
+      const dropped = await service.readFiles(paths)
+      if (!dropped?.length) return
+      let imported = 0
+      for (const file of dropped) {
+        try {
+          await uploadLatexFile(projectId, file.name, base64File(file.name, file.data))
+          imported += 1
+        } catch {
+          // Keep importing the rest; the toast reports skipped files.
+        }
+      }
+      await refetchFiles()
+      toast.success(`已导入 ${imported}/${dropped.length} 个文件`)
+    })()
+  }), [projectId, refetchFiles])
 
   const handleCompile = async (requestedRootFile?: string) => {
     if (pendingBrowserResult) {
@@ -471,25 +561,29 @@ export function WritingPage() {
       })), controller.signal)
       if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
 
-      const browserJobRequest = createBrowserCompileJob(projectId, rootFile, compiler)
-      let job
-      try {
-        job = await waitForAbortable(browserJobRequest, controller.signal)
-      } catch (error) {
-        if (controller.signal.aborted) {
-          void browserJobRequest
-            .then((createdJob) => cancelCompile(projectId, createdJob.job_id))
-            .catch((cancelError: unknown) => {
-              toast.error('浏览器编译已停止，但服务端任务取消失败', {
-                description: cancelError instanceof Error ? cancelError.message : String(cancelError),
+      // Guest projects exist only on this device, so there is no server-side
+      // job to create or PDF to upload; the compile stays in the browser.
+      let job: { job_id: string } | null = null
+      if (!isGuest) {
+        const browserJobRequest = createBrowserCompileJob(projectId, rootFile, compiler)
+        try {
+          job = await waitForAbortable(browserJobRequest, controller.signal)
+        } catch (error) {
+          if (controller.signal.aborted) {
+            void browserJobRequest
+              .then((createdJob) => cancelCompile(projectId, createdJob.job_id))
+              .catch((cancelError: unknown) => {
+                toast.error('浏览器编译已停止，但服务端任务取消失败', {
+                  description: cancelError instanceof Error ? cancelError.message : String(cancelError),
+                })
               })
-            })
+          }
+          throw error
         }
-        throw error
+        browserJobId = job.job_id
+        browserCompileJobRef.current = job.job_id
+        setCompileJobId(job.job_id)
       }
-      browserJobId = job.job_id
-      browserCompileJobRef.current = job.job_id
-      setCompileJobId(job.job_id)
 
       const result = await compileLatexInBrowser(projectFiles, rootFile, compiler, {
         signal: controller.signal,
@@ -510,14 +604,20 @@ export function WritingPage() {
       setCompileWarning(result.log.includes('did not stabilize')
         ? '编译已达到既有多遍上限，参考文献或交叉引用可能尚未稳定；请检查 PDF 中的引用编号。'
         : null)
-      setBrowserProgressMessage('PDF 已生成，正在上传到对象存储并保存编译记录')
-      compiledArtifact = { jobId: job.job_id, pdf: result.pdf, logs: result.log }
-      setPendingBrowserResult(compiledArtifact)
-      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
-      setIsPublishingBrowserResult(true)
-      await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
-      setPendingBrowserResult(null)
-      setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
+      if (job) {
+        setBrowserProgressMessage('PDF 已生成，正在上传到对象存储并保存编译记录')
+        compiledArtifact = { jobId: job.job_id, pdf: result.pdf, logs: result.log }
+        setPendingBrowserResult(compiledArtifact)
+        if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
+        setIsPublishingBrowserResult(true)
+        await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
+        setPendingBrowserResult(null)
+        setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
+      } else {
+        setBrowserProgressMessage('PDF 已生成（游客模式，仅保留在本次会话）')
+        // Guest compiles create no server job, so the polling notification never fires.
+        void notifyWhenBackground('编译完成', 'PDF 已生成')
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : '浏览器编译失败'
       if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
@@ -529,6 +629,7 @@ export function WritingPage() {
           ? `PDF 已在浏览器生成，但上传或保存编译记录失败：${message}`
           : message)
         setCompileLogs(compiledArtifact?.logs ?? message)
+        if (!browserJobId) void notifyWhenBackground('编译失败', message)
       }
       if (browserJobId && !compiledArtifact && !controller.signal.aborted && !(err instanceof DOMException && err.name === 'AbortError')) {
         try {
@@ -590,6 +691,12 @@ export function WritingPage() {
   }
 
   const loadCompileHistory = async (limit?: number) => {
+    if (isGuest) {
+      setCompileHistory([])
+      setCompileHistoryTotal(0)
+      setCompileHistoryError('游客模式的编译记录只保留在本次会话中，登录后可查看历史编译')
+      return
+    }
     setIsCompileHistoryLoading(true)
     setCompileHistoryError(null)
     try {
@@ -765,6 +872,31 @@ export function WritingPage() {
       >
         <HardDrive size={14} />
       </Button>
+      {isDesktop() && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="导出项目"
+          title="导出项目为 ZIP"
+          className="rounded-md text-muted-foreground hover:text-foreground"
+          onClick={() => void handleExportProject()}
+          disabled={isExportingProject}
+        >
+          {isExportingProject ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+        </Button>
+      )}
+      {isDesktop() && (
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          aria-label="本地目录同步"
+          title="本地目录同步"
+          className="rounded-md text-muted-foreground hover:text-foreground"
+          onClick={() => setIsFolderSyncOpen(true)}
+        >
+          <FolderSync size={14} />
+        </Button>
+      )}
       <Button
         variant="default"
         size="sm"
@@ -798,6 +930,7 @@ export function WritingPage() {
   const sidebarBody = activeTab === 'files' ? (
     <div
       className="flex-1 flex flex-col h-full overflow-hidden relative"
+      data-file-drop-target="writing"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
@@ -807,8 +940,8 @@ export function WritingPage() {
           <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
         </div>
       )}
-      <div className="p-4 h-14 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
-        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Explorer</h3>
+      <div className="h-10 px-3 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
+        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">文件</h3>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件" onClick={() => fileTreeRef.current?.createLeaf()}><Plus size={14} /></Button>
           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件夹" onClick={() => fileTreeRef.current?.createInternal()}><FolderPlus size={14} /></Button>
@@ -853,10 +986,6 @@ export function WritingPage() {
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
         <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
         <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-        <div className="mt-auto flex flex-col gap-4">
-          <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Search size={20} /></button>
-          <button className="flex h-11 w-11 items-center justify-center rounded-xl text-muted-foreground hover:text-foreground transition-all hover:scale-110"><Monitor size={20} /></button>
-        </div>
       </aside>
 
       {isMobile && mobileSidebarOpen && (
@@ -923,16 +1052,16 @@ export function WritingPage() {
           <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[120px]">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[200px]">
                       {activeFilePath || '无文件'}
                     </span>
                     <SavingStatus isSaving={saveMutation.isPending} />
                   </div>
                 </div>
                 {!isMobile && (
-                  <div className="flex items-center gap-1">
+                  <div className="flex shrink-0 items-center gap-1">
                     {compileToolbar}
                   </div>
                 )}
@@ -963,7 +1092,7 @@ export function WritingPage() {
           <Resizable.Panel defaultSize={isMobile ? 100 : 40} minSize={20}>
             <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
-                <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Preview</span>
+                <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">预览</span>
                 <div className="flex items-center gap-1">
                   <DropdownMenu
                     open={isCompileHistoryOpen}
@@ -1030,7 +1159,7 @@ export function WritingPage() {
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
                   <div className="w-px h-3 bg-border mx-1" />
                   <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
-                  {pdfBuildId && (
+                  {(pdfBuildId || (isGuest && pdfFileSource && 'data' in pdfFileSource)) && (
                     <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" aria-label="下载 PDF" title="下载 PDF" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
                       {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     </Button>
@@ -1038,15 +1167,17 @@ export function WritingPage() {
                 </div>
               </div>
 
-              <div ref={previewContainerRef} className="flex-1 overflow-auto p-3 sm:p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+              <div ref={previewContainerRef} className="flex-1 select-text overflow-auto p-3 sm:p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+                {(compileWarning || (!compilerSupported && !compileError) || (isCompiling && browserProgressMessage) || (compileError && pendingBrowserResult)) && (
+                <div className="sticky top-0 z-10 mb-5 space-y-3">
                 {compileWarning && (
-                  <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
+                  <div role="status" className="mx-auto flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-600" />
                     <p className="text-xs text-muted-foreground">{compileWarning}</p>
                   </div>
                 )}
                 {!compilerSupported && !compileError && (
-                  <div role="status" className="sticky top-0 z-10 mx-auto mb-5 flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
+                  <div role="status" className="mx-auto flex max-w-2xl items-start gap-2 rounded-lg border border-amber-500/25 bg-background/95 p-3 text-sm shadow-sm backdrop-blur">
                     <AlertCircle size={16} className="mt-0.5 shrink-0 text-amber-600" />
                     <div>
                       <p className="font-medium">此项目指定了 LuaLaTeX</p>
@@ -1055,7 +1186,7 @@ export function WritingPage() {
                   </div>
                 )}
                 {isCompiling && browserProgressMessage && !compileError && (
-                  <div role="status" aria-live="polite" className="sticky top-0 z-10 mx-auto mb-5 max-w-2xl rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
+                  <div role="status" aria-live="polite" className="mx-auto max-w-2xl rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Loader2 size={15} className="shrink-0 animate-spin text-primary" />
                       <span>{browserProgressMessage}</span>
@@ -1092,7 +1223,7 @@ export function WritingPage() {
                   </div>
                 )}
                 {compileError && pendingBrowserResult && (
-                  <div role="alert" className="sticky top-0 z-10 mx-auto mb-5 max-w-2xl rounded-lg border border-destructive/20 bg-background/95 p-3 shadow-sm backdrop-blur">
+                  <div role="alert" className="mx-auto max-w-2xl rounded-lg border border-destructive/20 bg-background/95 p-3 shadow-sm backdrop-blur">
                     <p className="text-sm font-medium text-destructive">PDF 已生成并可在下方预览，但尚未保存到云端。</p>
                     <pre className="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{compileError}</pre>
                     <Button
@@ -1107,6 +1238,8 @@ export function WritingPage() {
                       {isRetryingBrowserUpload ? '正在重试上传' : '重试上传 PDF'}
                     </Button>
                   </div>
+                )}
+                </div>
                 )}
                 {compileError && !pendingBrowserResult ? (
                   <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6 select-text">
@@ -1189,6 +1322,18 @@ export function WritingPage() {
         </div>
       </div>
       <LatexEnvironmentSetup open={isLatexSetupOpen} onOpenChange={setIsLatexSetupOpen} disabled={isCompiling} />
+      {isFolderSyncOpen && (
+        <FolderSyncDialog
+          open
+          onOpenChange={setIsFolderSyncOpen}
+          projectId={projectId}
+          files={files}
+          onApplied={() => {
+            void refetchFiles()
+            void refetchFileContent()
+          }}
+        />
+      )}
       <DeleteConfirmDialog />
     </div>
   )
@@ -1223,7 +1368,7 @@ function EmptyPreview() {
       <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6">
         <Play className="h-6 w-6 text-primary fill-primary/10" />
       </div>
-      <h4 className="text-sm font-bold mb-2 text-muted-foreground">Ready to Compile</h4>
+      <h4 className="text-sm font-bold mb-2 text-muted-foreground">准备编译</h4>
     </div>
   )
 }
@@ -1321,7 +1466,7 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
     return (
       <div className="flex items-center gap-1 text-[10px] text-primary/60 animate-pulse">
         {isGuest ? <HardDrive size={12} /> : <CloudUpload size={12} />}
-        <span>{isGuest ? 'Saving on this device...' : 'Saving...'}</span>
+        <span>{isGuest ? '正在保存到本机…' : '正在保存…'}</span>
       </div>
     )
   }
@@ -1330,7 +1475,7 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
     return (
       <div className="flex items-center gap-1 text-[10px] text-green-600/70 animate-in fade-in zoom-in duration-300">
         <Check size={12} />
-        <span>{isGuest ? 'Saved on this device' : 'Saved'}</span>
+        <span>{isGuest ? '已保存到本机' : '已保存'}</span>
       </div>
     )
   }
@@ -1338,7 +1483,7 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
   return (
     <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40">
       {isGuest ? <HardDrive size={12} /> : <Cloud size={12} />}
-      <span>{isGuest ? 'Stored on this device' : 'Synced'}</span>
+      <span>{isGuest ? '仅保存在本机' : '已同步'}</span>
     </div>
   )
 }

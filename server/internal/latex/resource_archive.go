@@ -106,6 +106,17 @@ func (c *packageArchiveCache) packageFile(ctx context.Context, repository string
 	return extractPackageResource(archive, provenance.SourcePath)
 }
 
+// packageFiles extracts several resources from one archive in a single pass.
+// Missing paths are simply absent from the result; callers decide whether that
+// is acceptable.
+func (c *packageArchiveCache) packageFiles(ctx context.Context, repository string, provenance resourceCatalogProvenance, sourcePaths []string) (map[string][]byte, error) {
+	archive, err := c.archive(ctx, repository, provenance)
+	if err != nil {
+		return nil, err
+	}
+	return extractPackageResources(archive, sourcePaths)
+}
+
 func (c *packageArchiveCache) archive(ctx context.Context, repository string, provenance resourceCatalogProvenance) ([]byte, error) {
 	key := repository + "\x00" + provenance.Package + "\x00" + provenance.PackageRevision + "\x00" + provenance.ContainerSHA512
 	c.mu.Lock()
@@ -162,6 +173,7 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, fmt.Errorf("create TeX Live archive request: %w", err)
 	}
 	req.Header.Set("Accept", "application/x-xz, application/octet-stream")
+	req.Header.Set("User-Agent", "PaperSage/1.0 (+https://github.com/0verL1nk/GraduateProject)")
 	response, err := c.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("fetch TeX Live package archive %q: %w", provenance.Package, err)
@@ -207,17 +219,36 @@ func extractCataloguedResource(archive []byte, sourcePath string, object resourc
 }
 
 func extractPackageResource(archive []byte, sourcePath string) ([]byte, error) {
-	if !validCatalogSourcePath(sourcePath) || len(archive) == 0 {
+	extracted, err := extractPackageResources(archive, []string{sourcePath})
+	if err != nil {
+		return nil, err
+	}
+	data := extracted[sourcePath]
+	if data == nil {
+		return nil, errors.New("file is absent from its TeX Live package archive")
+	}
+	return data, nil
+}
+
+func extractPackageResources(archive []byte, sourcePaths []string) (map[string][]byte, error) {
+	if len(archive) == 0 {
 		return nil, errors.New("TeX Live resource path is invalid")
 	}
+	targets := make(map[string]string, len(sourcePaths))
+	for _, sourcePath := range sourcePaths {
+		if !validCatalogSourcePath(sourcePath) {
+			return nil, errors.New("TeX Live resource path is invalid")
+		}
+		targets[strings.TrimPrefix(sourcePath, "texmf-dist/")] = sourcePath
+	}
+	extracted := make(map[string][]byte, len(sourcePaths))
 	xzReader, err := (xz.ReaderConfig{DictCap: 32 << 20, SingleStream: true}).NewReader(bytes.NewReader(archive))
 	if err != nil {
 		return nil, fmt.Errorf("open TeX Live package archive: %w", err)
 	}
 	limited := &io.LimitedReader{R: xzReader, N: maxExpandedArchiveBytes + 1}
 	tarReader := tar.NewReader(limited)
-	target := strings.TrimPrefix(sourcePath, "texmf-dist/")
-	for {
+	for len(extracted) < len(targets) {
 		header, err := tarReader.Next()
 		if err == io.EOF {
 			if limited.N <= 0 {
@@ -232,7 +263,10 @@ func extractPackageResource(archive []byte, sourcePath string) ([]byte, error) {
 		if !safeArchiveMember(member) {
 			return nil, errors.New("TeX Live package archive contains an unsafe member path")
 		}
-		if member != target && member != "texmf-dist/"+target && member != "RELOC/"+target && member != "RELOC/texmf-dist/"+target {
+		member = strings.TrimPrefix(member, "RELOC/")
+		member = strings.TrimPrefix(member, "texmf-dist/")
+		sourcePath, wanted := targets[member]
+		if !wanted || extracted[sourcePath] != nil {
 			continue
 		}
 		if header.Typeflag != tar.TypeReg {
@@ -248,9 +282,9 @@ func extractPackageResource(archive []byte, sourcePath string) ([]byte, error) {
 		if int64(len(data)) != header.Size {
 			return nil, errors.New("extracted TeX Live resource size does not match its archive header")
 		}
-		return data, nil
+		extracted[sourcePath] = data
 	}
-	return nil, errors.New("file is absent from its TeX Live package archive")
+	return extracted, nil
 }
 
 func safeArchiveMember(name string) bool {

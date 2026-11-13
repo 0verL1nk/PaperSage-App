@@ -1,0 +1,45 @@
+version: '3'
+
+vars:
+  APP_NAME: "papersage"
+  BIN_DIR: "bin"
+  VERSION: "0.0.1"
+  VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  GOOS: '{{.GOOS | default OS}}'
+
+includes:
+  common: ./build/Taskfile.yml
+  windows: ./build/windows/Taskfile.yml
+  darwin: ./build/darwin/Taskfile.yml
+  linux: ./build/linux/Taskfile.yml
+
+tasks:
+  backend:assets:
+    summary: Stages the bundled backend resources (TeX catalog)
+    cmds:
+      - mkdir -p bin/backend
+      - cp build/backend/catalog.json.gz bin/backend/catalog.json.gz
+
+  build:
+    summary: Builds the desktop application
+    deps:
+      - backend:assets
+    cmds:
+      - task: "{{.GOOS}}:build"
+
+  package:
+    summary: Packages the desktop application
+    deps:
+      - backend:assets
+    cmds:
+      - task: "{{.GOOS}}:package"
+
+  run:
+    summary: Runs the built application
+    cmds:
+      - task: "{{.GOOS}}:run"
+
+  dev:
+    summary: Runs the desktop application in development mode
+    cmds:
+      - go tool wails3 dev -config ./build/config.yml -port {{.VITE_PORT}}

@@ -1,8 +1,6 @@
-import {
-  getCachedLatexFormat,
-  putCachedLatexFormat,
-} from '@/lib/latex-resource-cache'
-import { getRequiredApiBaseUrl } from '@/lib/env'
+import { getCachedLatexFormat, putCachedLatexFormat } from '@/lib/latex-resource-cache'
+import { isDesktop } from '@/lib/desktop'
+import { getApiTarget, getRequiredApiBaseUrl } from '@/lib/env'
 import { preprocessEpsFiles, type EpsPreprocessProgress } from '@/lib/latex/eps-preprocessor'
 import browserEngineManifest from '@/lib/latex/browser-engine-manifest.json'
 
@@ -407,6 +405,24 @@ async function ensureFormat(
   onProgress({ stage: 'format', message: `LaTeX 格式文件已生成并缓存（${format.byteLength.toLocaleString()} bytes）` })
 }
 
+async function ensureResourceCache(): Promise<void> {
+  // The desktop shell serves the SPA from an embedded custom scheme where
+  // service worker registration never settles. Engine assets are bundled, so
+  // the cache adds nothing there and awaiting it would block compiling.
+  if (isDesktop() || !('serviceWorker' in navigator)) return
+  const timeout = (promise: Promise<unknown>, ms: number) => Promise.race([
+    promise,
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error('service worker timeout')), ms)),
+  ])
+  try {
+    await timeout(navigator.serviceWorker.register('/latex-resource-sw.js', { scope: '/' }), 10_000)
+    await timeout(navigator.serviceWorker.ready, 10_000)
+    await navigator.storage?.persist?.()
+  } catch {
+    // Caching is an optimization; compile with direct asset requests.
+  }
+}
+
 export async function compileLatexInBrowser(
   files: BrowserLatexFile[],
   rootFile: string,
@@ -431,9 +447,7 @@ export async function compileLatexInBrowser(
     throw new Error('此浏览器不支持 Service Worker，无法缓存 TeX Live 资源')
   }
 
-  await navigator.serviceWorker.register('/latex-resource-sw.js', { scope: '/' })
-  await navigator.serviceWorker.ready
-  await navigator.storage?.persist?.()
+  await ensureResourceCache()
 
   const epsPreprocessing = await preprocessEpsFiles(files, {
     signal,
@@ -473,7 +487,11 @@ export async function compileLatexInBrowser(
   }
 
   const engineName = compiler === 'xelatex' ? 'xetex' : 'pdftex'
-  const resourceOrigin = getRequiredApiBaseUrl() || window.location.origin
+  // In desktop local mode the asset handler proxies /texlive on the app
+  // origin; worker XHRs to 127.0.0.1 are blocked as a private-network request.
+  const resourceOrigin = isDesktop() && getApiTarget() === 'local'
+    ? window.location.origin
+    : getRequiredApiBaseUrl() || window.location.origin
   const texLiveBaseUrl = new URL(`/texlive/${TEXLIVE_RESOURCE_PROFILE}/`, resourceOrigin).href
   const loadedPackages = new Set<string>()
   const loadedLookups = new Map<string, BrowserLatexResourceLookup>()
