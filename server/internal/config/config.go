@@ -65,14 +65,17 @@ type Settings struct {
 	AgentDocumentReadLimitBytes int           `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
 	AgentMaxIterations          int           `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
 	AgentModelTimeout           time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`            // 模型响应头超时，防止连接悬挂
-	DataDir                     string        `env:"DATA_DIR" envDefault:"./data"`
-	EmbedAPIKey                 string        `env:"EMBED_API_KEY"`
-	EmbedBaseURL                string        `env:"EMBED_BASE_URL"`
-	EmbedModel                  string        `env:"EMBED_MODEL" envDefault:"BAAI/bge-m3"`
-	SuperuserEmails             string        `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
-	EmailProvider               string        `env:"EMAIL_PROVIDER" envDefault:"resend"`
-	FromEmail                   string        `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`
-	FromName                    string        `env:"FROM_NAME" envDefault:"PaperSage"`
+	// 模型能力目录：后台刷新 models.dev 快照；置空可禁用（此时能力未知，由用户手填）。
+	ModelRegistryURL          string `env:"MODEL_REGISTRY_URL" envDefault:"https://models.dev/api.json"`
+	ModelRegistryRefreshHours int    `env:"MODEL_REGISTRY_REFRESH_HOURS" envDefault:"24"`
+	DataDir                   string `env:"DATA_DIR" envDefault:"./data"`
+	EmbedAPIKey               string `env:"EMBED_API_KEY"`
+	EmbedBaseURL              string `env:"EMBED_BASE_URL"`
+	EmbedModel                string `env:"EMBED_MODEL" envDefault:"BAAI/bge-m3"`
+	SuperuserEmails           string `env:"SUPERUSER_EMAILS" envDefault:""` // bootstrap admin（逗号分隔邮箱）
+	EmailProvider             string `env:"EMAIL_PROVIDER" envDefault:"resend"`
+	FromEmail                 string `env:"FROM_EMAIL" envDefault:"noreply@papersage.dev"`
+	FromName                  string `env:"FROM_NAME" envDefault:"PaperSage"`
 
 	ResendAPIKey string `env:"RESEND_API_KEY"`
 	ResendDomain string `env:"RESEND_DOMAIN"`

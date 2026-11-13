@@ -27,6 +27,13 @@ export interface EditorSettings {
 
 export type ProviderType = 'openai_compatible' | 'anthropic'
 
+export interface ModelMetadata {
+  context_window?: number
+  max_output_tokens?: number
+  supports_vision?: boolean
+  supports_tools?: boolean
+}
+
 export interface ProviderConfig {
   id: string
   name: string
@@ -34,6 +41,7 @@ export interface ProviderConfig {
   base_url: string
   api_key: string
   models: string[]
+  model_metadata?: Record<string, ModelMetadata>
   active_model: string
 }
 
@@ -58,6 +66,7 @@ export interface AgentTestRequest {
 export interface AgentTestResult {
   ok: boolean
   models?: string[]
+  model_metadata?: Record<string, ModelMetadata>
 }
 
 export interface ModelSelection {

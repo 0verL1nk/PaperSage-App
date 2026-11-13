@@ -10,7 +10,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Checkbox } from '@/components/ui/checkbox'
 import { Plus, Trash2, Pencil, Check, X } from 'lucide-react'
 import { testAgentConnection } from '@/services/settings-api'
-import type { ProviderConfig, ProviderType, ModelSelectionPatch } from '@/services/settings-api'
+import type { ProviderConfig, ProviderType, ModelMetadata, ModelSelectionPatch } from '@/services/settings-api'
 import { ModelSelector } from './model-selector'
 
 const TEMPERATURE_OPTIONS = [
@@ -29,6 +29,12 @@ const PROVIDER_PRESETS = [
 ] as const
 
 const CUSTOM_PRESET = 'custom'
+
+function formatContext(tokens?: number): string {
+  if (!tokens || tokens <= 0) return ''
+  if (tokens >= 1_000_000) return `${Math.round(tokens / 1_000_000)}M`
+  return `${Math.round(tokens / 1000)}k`
+}
 
 type TestState = {
   status: 'idle' | 'testing' | 'ok' | 'error'
@@ -348,6 +354,17 @@ function ProviderCard({
       })
     }
 
+    function updateModelMetadata(model: string, patch: Partial<ModelMetadata>) {
+      const next = { ...(d.model_metadata ?? {}) }
+      const entry: ModelMetadata = { ...(next[model] ?? {}), ...patch }
+      for (const key of Object.keys(entry) as (keyof ModelMetadata)[]) {
+        if (entry[key] === undefined) delete entry[key]
+      }
+      if (Object.keys(entry).length > 0) next[model] = entry
+      else delete next[model]
+      changeDraft({ ...d, model_metadata: next })
+    }
+
     async function testConnection() {
       setTestState({ status: 'testing', message: '' })
       try {
@@ -356,6 +373,16 @@ function ProviderCard({
           api_key: d.api_key,
           model: d.active_model || d.models[0] || newModel.trim(),
         })
+        // 探测到的能力只补空缺；用户手填的值优先（自定义模型通常探测不到）。
+        const probed = result.model_metadata ?? {}
+        if (Object.keys(probed).length > 0) {
+          const merged = { ...(d.model_metadata ?? {}) }
+          for (const [model, metadata] of Object.entries(probed)) {
+            if (!d.models.includes(model)) continue
+            merged[model] = { ...metadata, ...(merged[model] ?? {}) }
+          }
+          changeDraft({ ...d, model_metadata: merged })
+        }
         setTestState({
           status: 'ok',
           message: result.models?.length
@@ -426,22 +453,61 @@ function ProviderCard({
           <Label className="text-xs text-muted-foreground">{t('agent.models')}</Label>
           {d.models.length > 0 && (
             <div className="space-y-1">
-              {d.models.map((m, idx) => (
-                <div key={m} className="flex items-center gap-2">
-                  <Button
-                    variant={d.active_model === m ? 'default' : 'outline'}
-                    size="sm"
-                    className="flex-1 justify-start h-7 text-xs"
-                    onClick={() => changeDraft({ ...editDraft, active_model: m })}
-                  >
-                    {m}
-                    {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">{t('agent.active')}</span>}
-                  </Button>
-                  <Button variant="ghost" size="icon-xs" onClick={() => removeModel(idx)}>
-                    <X className="size-3" />
-                  </Button>
-                </div>
-              ))}
+              {d.models.map((m, idx) => {
+                const meta = d.model_metadata?.[m] ?? {}
+                const context = formatContext(meta.context_window)
+                return (
+                  <div key={m} className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant={d.active_model === m ? 'default' : 'outline'}
+                        size="sm"
+                        className="flex-1 justify-start h-7 text-xs"
+                        onClick={() => changeDraft({ ...editDraft, active_model: m })}
+                      >
+                        {m}
+                        {d.active_model === m && <span className="ml-auto text-[10px] opacity-70">{t('agent.active')}</span>}
+                      </Button>
+                      <Button variant="ghost" size="icon-xs" onClick={() => removeModel(idx)}>
+                        <X className="size-3" />
+                      </Button>
+                    </div>
+                    <details className="pl-1">
+                      <summary className="w-fit cursor-pointer select-none text-[10px] text-muted-foreground">
+                        {t('agent.capabilities')}：{context || t('agent.unknown')}
+                        {meta.supports_vision ? ` · ${t('agent.vision')}` : ''}
+                        {meta.supports_tools ? ` · ${t('agent.tools')}` : ''}
+                      </summary>
+                      <div className="mt-1 grid grid-cols-[1fr_auto_auto] items-center gap-2">
+                        <Input
+                          type="number"
+                          min={1}
+                          value={meta.context_window ?? ''}
+                          placeholder={t('agent.contextWindow')}
+                          className="h-7 text-xs"
+                          onChange={(e) => updateModelMetadata(m, {
+                            context_window: e.target.value ? Number(e.target.value) : undefined,
+                          })}
+                        />
+                        <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Checkbox
+                            checked={meta.supports_vision === true}
+                            onCheckedChange={(v) => updateModelMetadata(m, { supports_vision: v === true })}
+                          />
+                          {t('agent.vision')}
+                        </label>
+                        <label className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                          <Checkbox
+                            checked={meta.supports_tools === true}
+                            onCheckedChange={(v) => updateModelMetadata(m, { supports_tools: v === true })}
+                          />
+                          {t('agent.tools')}
+                        </label>
+                      </div>
+                    </details>
+                  </div>
+                )
+              })}
             </div>
           )}
           <div className="flex gap-2">

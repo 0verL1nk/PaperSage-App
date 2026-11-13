@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/adk/middlewares/summarization"
 	"github.com/cloudwego/eino/adk/prebuilt/deep"
 	"github.com/cloudwego/eino/components/model"
 	"github.com/cloudwego/eino/compose"
@@ -303,7 +304,9 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		return
 	}
 
-	history, err := s.loadHistory(ctx, rc.ConversationID)
+	// 接近上下文窗口时先压缩较早消息；失败则由 loadHistory 的确定性裁剪兜底。
+	s.maybeCompact(ctx, rc, chatModel)
+	history, err := s.loadHistory(ctx, rc.ConversationID, rc.ProjectID, rc.Model)
 	if err != nil {
 		fail("读取历史失败")
 		return
@@ -320,7 +323,8 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	var subAgents []adk.Agent
 	if s.RAG != nil {
 		if tcm, ok := chatModel.(model.ToolCallingChatModel); ok {
-			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, rc.RunID, tcm, toolFailures); serr == nil {
+			memoryEnabled := rc.Model == nil || rc.Model.MemoryEnabled
+			if sa, serr := SearchSubAgent(ctx, s.DB, s.RAG, rc.ProjectID, rc.UserID, rc.RunID, tcm, toolFailures, memoryEnabled); serr == nil {
 				subAgents = append(subAgents, sa)
 			}
 		}
@@ -329,12 +333,32 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 	// 主 agent 用 Eino prebuilt DeepAgent（ChatModelAgent + 子 agent 编排 + write_todos 规划）。
 	// 不设 Backend / Shell：不注册文件系统与命令执行工具——写作应用不需要，
 	// 多出一套 shell 也是我们不打算暴露的能力。
+	// Eino 官方 summarization 中间件负责 Run 内压缩：工具结果把上下文推过阈值时
+	// 自动生成摘要；跨 Run 的摘要由 maybeCompact 持久化。摘要失败时 contextGuard
+	// 退回确定性裁剪，避免一次摘要调用打断整轮对话。
+	var handlers []adk.TypedChatModelAgentMiddleware[*schema.Message]
+	if rc.Model != nil && rc.Model.ContextWindow != nil {
+		guard := &contextGuard{window: *rc.Model.ContextWindow}
+		summarizer, serr := summarization.New(ctx, &summarization.Config{
+			Model:           chatModel,
+			Trigger:         &summarization.TriggerCondition{ContextTokens: limitsFor(*rc.Model.ContextWindow).compact},
+			TokenCounter:    summarizationTokenCounter,
+			UserInstruction: compactionRetentionInstruction,
+		})
+		if serr != nil {
+			slog.Warn("summarization middleware unavailable; using deterministic trim", "err", serr)
+		} else {
+			guard.inner = summarizer
+		}
+		handlers = append(handlers, guard)
+	}
 	agent, err := deep.New(ctx, &deep.Config{
 		Name:        mainAgentName,
 		Description: "论文写作助手（可读写项目文件与文献、触发编译）",
 		ChatModel:   chatModel,
 		Instruction: s.systemPromptFor(ctx, rc.ProjectID, rc.UserID),
 		SubAgents:   subAgents,
+		Handlers:    handlers,
 		ToolsConfig: adk.ToolsConfig{
 			// 让子 agent 的事件（带 AgentName）一并流出来：框架已经说明事件来自哪个
 			// agent，不必再去解析 task 工具的参数猜目标（那是重复造轮子）。

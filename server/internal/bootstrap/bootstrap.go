@@ -9,10 +9,12 @@ import (
 	"log/slog"
 	"net/smtp"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
+	"github.com/0verL1nk/GraduateProject/server/internal/agent/modelregistry"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
@@ -48,6 +50,9 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	// 生成 DAO（gorm.io/gen）的全局入口；域代码可用 query.Q.Documents 等
 	query.SetDefault(db)
+
+	// 模型能力目录：后台刷新，不阻塞启动；失败时保持“未知”，由用户覆盖。
+	modelregistry.Default.Start(ctx, cfg.ModelRegistryURL, time.Duration(cfg.ModelRegistryRefreshHours)*time.Hour)
 
 	s3, err := storage.NewS3(ctx, cfg)
 	if err != nil {

@@ -362,7 +362,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 // 不再手工包 AgentTool。用户视角仍只有一个 Assistant（参考架构 §9.1）。
 func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 	projectID, ownerID, rootRunID store.UUID, chatModel model.ToolCallingChatModel,
-	tracker *toolFailureTracker) (adk.Agent, error) {
+	tracker *toolFailureTracker, memoryEnabled bool) (adk.Agent, error) {
 
 	verify := func(ctx context.Context) error {
 		var n int64
@@ -458,29 +458,35 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 		return nil, err
 	}
 
+	steps := []string{
+		"你是文献检索专家。任务：针对给定的研究问题，在项目资料库中检索并综合出带出处的答案。",
+		"流程：",
+		"1. 先 rag_search 用原始问题检索；",
+		"2. 结果不足时改写关键词（同义词/英文术语）再检索；",
+	}
+	subTools := []tool.BaseTool{ragSearch}
+	if memoryEnabled {
+		steps = append(steps,
+			"3. 相关主题若 wiki_read 已有沉淀则优先引用；",
+			"4. 综合多路结果给出结论，每条结论标注 [来源: 文件名]；",
+			"5. 结论有沉淀价值时 wiki_write 存为知识页（标题概括主题）。",
+		)
+		subTools = append(subTools, wikiRead, wikiWrite)
+	} else {
+		steps = append(steps, "3. 综合多路结果给出结论，每条结论标注 [来源: 文件名]。")
+	}
+	steps = append(steps, "回答要精炼，先给结论再给出处；找不到就明说，不编造。")
+
 	// 注意：AgentTool 对模型暴露的名字 = 子 agent 的 Name（ADK 约定），
 	// 因此这里就叫 search_references
 	subAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
 		Name:        "search_references",
 		Description: ragSearchMode(ragStore.Embed) + "：深度检索项目资料库（文献+wiki），多轮检索并综合出带出处的调研结论。任何涉及文献内容/相关工作的调研问题都应调用。",
-		Instruction: strings.Join([]string{
-			"你是文献检索专家。任务：针对给定的研究问题，在项目资料库中检索并综合出带出处的答案。",
-			"流程：",
-			"1. 先 rag_search 用原始问题检索；",
-			"2. 结果不足时改写关键词（同义词/英文术语）再检索；",
-			"3. 相关主题若 wiki_read 已有沉淀则优先引用；",
-			"4. 综合多路结果给出结论，每条结论标注 [来源: 文件名]；",
-			"5. 结论有沉淀价值时 wiki_write 存为知识页（标题概括主题）。",
-			// 压缩靠结构而非格式约定：父 agent 只收到本子 agent 的最终回答，
-			// 多轮检索过程留在子 Run 的 parts/events 里供审计，父上下文不会被撑满。
-			// 因此这里不规定固定输出模板——那等于把父 agent 的消费方式写死进
-			// 子 agent 的提示词，换个父 agent 或换个问题就得重写。
-			"回答要精炼，先给结论再给出处；找不到就明说，不编造。",
-		}, "\n"),
-		Model: chatModel,
+		Instruction: strings.Join(steps, "\n"),
+		Model:       chatModel,
 		ToolsConfig: adk.ToolsConfig{
 			ToolsNodeConfig: compose.ToolsNodeConfig{
-				Tools:               []tool.BaseTool{ragSearch, wikiRead, wikiWrite},
+				Tools:               subTools,
 				ToolCallMiddlewares: []compose.ToolMiddleware{{Invokable: tracker.middleware}},
 			},
 		},
