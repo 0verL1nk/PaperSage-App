@@ -12,6 +12,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"sort"
@@ -132,17 +133,18 @@ type resourceCatalog struct {
 }
 
 type resourceService struct {
-	storage    storage.Storage
-	profile    string
-	repository string
-	archives   *packageArchiveCache
+	storage     storage.Storage
+	catalogFile string
+	profile     string
+	repository  string
+	archives    *packageArchiveCache
 
 	mu      sync.Mutex
 	catalog *resourceCatalog
 }
 
-func newResourceService(stg storage.Storage, profile, repository string) (*resourceService, error) {
-	if stg == nil {
+func newResourceService(stg storage.Storage, profile, repository, catalogFile string) (*resourceService, error) {
+	if stg == nil && catalogFile == "" {
 		return nil, fmt.Errorf("LaTeX resource storage is not configured")
 	}
 	if !resourceProfilePattern.MatchString(profile) {
@@ -152,7 +154,7 @@ func newResourceService(stg storage.Storage, profile, repository string) (*resou
 		return nil, err
 	}
 	return &resourceService{
-		storage: stg, profile: profile, repository: repository,
+		storage: stg, catalogFile: catalogFile, profile: profile, repository: repository,
 		archives: newPackageArchiveCache(64 << 20),
 	}, nil
 }
@@ -193,10 +195,19 @@ func (s *resourceService) loadCatalog(ctx context.Context) (*resourceCatalog, er
 	if s.catalog != nil {
 		return s.catalog, nil
 	}
-	key := "latex/texlive/" + s.profile + "/catalog.json"
-	data, err := s.storage.Get(ctx, key)
-	if err != nil {
-		return nil, fmt.Errorf("load LaTeX resource catalog %q: %w", key, err)
+	var data []byte
+	var err error
+	if s.catalogFile != "" {
+		data, err = os.ReadFile(s.catalogFile)
+		if err != nil {
+			return nil, fmt.Errorf("load LaTeX resource catalog file %q: %w", s.catalogFile, err)
+		}
+	} else {
+		key := "latex/texlive/" + s.profile + "/catalog.json"
+		data, err = s.storage.Get(ctx, key)
+		if err != nil {
+			return nil, fmt.Errorf("load LaTeX resource catalog %q: %w", key, err)
+		}
 	}
 	if len(data) == 0 || len(data) > maxResourceCatalog {
 		return nil, fmt.Errorf("LaTeX resource catalog size is invalid")
@@ -558,6 +569,11 @@ func (s *resourceService) get(c *gin.Context) {
 }
 
 func (s *resourceService) serveDerivedResource(c *gin.Context, catalog *resourceCatalog, resource resourceCatalogDerived) {
+	if s.storage == nil {
+		c.Header("Cache-Control", "no-store")
+		c.String(http.StatusNotFound, "generated TeX resource is not available without object storage")
+		return
+	}
 	key := "latex/texlive/" + catalog.profile + "/" + resource.ObjectKey
 	if c.Request.Method == http.MethodHead {
 		setDerivedResourceHeaders(c, catalog, resource)
@@ -619,7 +635,14 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 		}
 	}
 	formatSuffixes := catalog.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
-	if lookup.Kind != "font" && len(formatSuffixes) == 0 {
+	// The engine's Kpathsea enum can contain formats this catalog's TeX Live
+	// build does not list. It still sends an explicit filename suffix, and the
+	// package index is keyed by filename, so resolve those by name instead of
+	// rejecting the request.
+	unknownFormat := lookup.Kind != "font" && len(formatSuffixes) == 0
+	if unknownFormat && (suffix != "" && !strings.HasPrefix(lookup.Format, "pk/")) {
+		formatSuffixes = []string{suffix}
+	} else if unknownFormat {
 		c.Header("Cache-Control", "public, max-age=300")
 		if strings.HasPrefix(lookup.Format, "pk/") {
 			c.String(http.StatusNotFound, "TeX Live generated font format %q requires local Metafont generation and is not a static package resource", lookup.Format)
@@ -634,7 +657,7 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 	}
 	var filtered []resourceCatalogProvenance
 	for _, candidateSuffix := range lookupSuffixes {
-		if lookup.Kind != "font" && suffix != "" && !containsString(formatSuffixes, suffix) && !isGraphicsResourceSuffix(lookup.Kind, suffix) {
+		if lookup.Kind != "font" && suffix != "" && !unknownFormat && !containsString(formatSuffixes, suffix) && !isGraphicsResourceSuffix(lookup.Kind, suffix) {
 			c.Header("Cache-Control", "public, max-age=300")
 			c.String(http.StatusNotFound, "TeX filename format %q does not support suffix %q", lookup.Format, suffix)
 			return
@@ -832,11 +855,43 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 	var merged bytes.Buffer
 	for _, packageName := range packages {
 		mapFiles := catalog.packageMaps[packageName]
+		if len(mapFiles) == 0 {
+			continue
+		}
+		// One archive can hold many maps; decompress it once instead of once
+		// per file (a package like `lm` ships 20 maps in a 12 MiB archive).
+		sameArchive := true
+		paths := make([]string, 0, len(mapFiles))
 		for _, provenance := range mapFiles {
-			content, fetchErr := s.archives.packageFile(c.Request.Context(), s.repository, provenance)
+			if provenance.ContainerSHA512 != mapFiles[0].ContainerSHA512 {
+				sameArchive = false
+			}
+			paths = append(paths, provenance.SourcePath)
+		}
+		contents := map[string][]byte{}
+		if sameArchive {
+			extracted, fetchErr := s.archives.packageFiles(c.Request.Context(), s.repository, mapFiles[0], paths)
 			if fetchErr != nil {
 				c.Header("Cache-Control", "no-store")
 				c.String(http.StatusBadGateway, "font maps from package %q could not be fetched: %v", packageName, fetchErr)
+				return
+			}
+			contents = extracted
+		}
+		for _, provenance := range mapFiles {
+			content := contents[provenance.SourcePath]
+			if !sameArchive {
+				var fetchErr error
+				content, fetchErr = s.archives.packageFile(c.Request.Context(), s.repository, provenance)
+				if fetchErr != nil {
+					c.Header("Cache-Control", "no-store")
+					c.String(http.StatusBadGateway, "font maps from package %q could not be fetched: %v", packageName, fetchErr)
+					return
+				}
+			}
+			if content == nil {
+				c.Header("Cache-Control", "no-store")
+				c.String(http.StatusBadGateway, "font map %q is absent from package %q", provenance.SourcePath, packageName)
 				return
 			}
 			if int64(merged.Len())+int64(len(content))+1 > 32<<20 {
@@ -871,8 +926,8 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 
 // MountResources exposes immutable TeX Live bytes through an exact catalog
 // lookup. It contains no TeX runtime and never compiles project input.
-func MountResources(engine *gin.Engine, stg storage.Storage, profile, repository string) error {
-	service, err := newResourceService(stg, profile, repository)
+func MountResources(engine *gin.Engine, stg storage.Storage, profile, repository, catalogFile string) error {
+	service, err := newResourceService(stg, profile, repository, catalogFile)
 	if err != nil {
 		return err
 	}

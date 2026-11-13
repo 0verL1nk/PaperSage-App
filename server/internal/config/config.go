@@ -40,6 +40,9 @@ type Settings struct {
 	LatexResourceProfile string `env:"LATEX_RESOURCE_PROFILE" envDefault:"tl2026-swift-ef78b612-r80534-v7"`
 	// LatexResourceRepository is the HTTPS TeX Live tlnet repository used for on-demand package archives.
 	LatexResourceRepository string `env:"LATEX_RESOURCE_REPOSITORY" envDefault:"https://mirror.ctan.org/systems/texlive/tlnet"`
+	// LatexResourceCatalogFile optionally points at a local gzip/plain catalog,
+	// used by the desktop client so it does not need object storage.
+	LatexResourceCatalogFile string `env:"LATEX_RESOURCE_CATALOG_FILE"`
 
 	MaxConcurrentCompiles int `env:"MAX_CONCURRENT_COMPILES" envDefault:"3"`
 	LatexCompileTimeout   int `env:"LATEX_COMPILE_TIMEOUT" envDefault:"120"`
