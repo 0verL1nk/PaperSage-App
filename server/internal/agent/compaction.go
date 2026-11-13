@@ -102,7 +102,10 @@ func (s *Service) maybeCompact(ctx context.Context, rc runContext, chatModel mod
 	prompt := []*schema.Message{
 		{Role: schema.System, Content: "你是论文写作助手的上下文压缩器。只根据给定对话生成摘要，不要编造。" +
 			"必须保留：研究目标与验收标准、硬约束（引用格式/禁改内容/术语）、已定决策及理由、" +
-			"当前断点（章节/文件/版本）、待办事项、被省略内容的主题。用简洁中文条目输出。"},
+			"当前断点（章节/文件/版本）、待办事项、被省略内容的主题。" +
+			// Google ADK 的实测：摘要里把具体值改写成泛称（如用“部署区域”代替具体区域）后，
+			// 下一轮再也拿不回来，召回是全有或全无，所以要求逐字保留。
+			"专有名词、数字、文件名、路径、参数值必须逐字保留，不要改写或泛化。用简洁中文条目输出。"},
 		{Role: schema.User, Content: b.String()},
 	}
 	resp, err := chatModel.Generate(ctx, prompt)
