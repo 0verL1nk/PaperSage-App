@@ -32,11 +32,13 @@ export function AppProviders() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-      <TooltipProvider delayDuration={120}>
-        <AppRouterProvider queryClient={queryClient} />
-        <TopProgressBar />
-        <Toaster />
-      </TooltipProvider>
+        <div className="h-[100dvh] overflow-hidden">
+          <TooltipProvider delayDuration={120}>
+            <AppRouterProvider queryClient={queryClient} />
+            <TopProgressBar />
+            <Toaster />
+          </TooltipProvider>
+        </div>
       </ThemeProvider>
     </QueryClientProvider>
   )

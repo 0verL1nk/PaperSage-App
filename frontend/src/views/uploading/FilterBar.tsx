@@ -24,7 +24,7 @@ export function FilterBar({
 }: FilterBarProps) {
   return (
     <div className="flex flex-col gap-3 px-5 py-3 border-b border-border/30">
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {FILE_TYPE_LABELS.map((ft) => (
           <Button
             key={ft.value}
@@ -43,12 +43,12 @@ export function FilterBar({
         ))}
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3">
         <Select
           value={folderId ?? '_all'}
           onValueChange={(v) => onFolderChange(v === '_all' ? null : v)}
         >
-          <SelectTrigger className="w-[180px] h-8 text-xs rounded-lg border-border/50">
+          <SelectTrigger className="w-[180px] h-8 shrink-0 text-xs rounded-lg border-border/50">
             <SelectValue placeholder="全部文件夹" />
           </SelectTrigger>
           <SelectContent className="rounded-lg">
@@ -59,7 +59,7 @@ export function FilterBar({
           </SelectContent>
         </Select>
 
-        <div className="relative flex-1 max-w-[260px]">
+        <div className="relative min-w-0 flex-1 max-w-[260px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
           <Input
             placeholder="搜索文档..."

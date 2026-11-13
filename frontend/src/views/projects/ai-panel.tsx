@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowDown, ChevronDown, ChevronRight, Loader2, Plus, Send, Sparkles, Square, X } from 'lucide-react'
+import { ArrowDown, Check, ChevronDown, ChevronRight, Loader2, Plus, Send, Sparkles, Square, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { useNavigate } from '@tanstack/react-router'
 
@@ -551,7 +551,7 @@ function ActivityRow({ part }: { part: ChatPart }) {
       {part.status === 'running' ? (
         <Loader2 size={11} className="animate-spin shrink-0" />
       ) : (
-        <span className="w-[11px] text-center shrink-0">✓</span>
+        <Check size={11} className="shrink-0" />
       )}
       <span>{meta.title ?? '子任务'}</span>
     </div>

@@ -1,13 +1,16 @@
 /** Uploading page — reference document management with on-demand preview. */
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useParams } from '@tanstack/react-router'
 import * as Resizable from 'react-resizable-panels'
-import { Upload, FolderPlus, X } from 'lucide-react'
+import { Upload, FolderPlus, FolderOpen, X } from 'lucide-react'
+import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { useUploadStore } from '@/store/upload-store'
-import { useDocuments, useDeleteDocument } from '@/services/files-api'
+import { Events } from '@wailsio/runtime'
+import { useDocuments, useDeleteDocument, useUploadDocument } from '@/services/files-api'
 import { useProjectFolders } from '@/services/folders-api'
+import { base64File, getDesktopService, isDesktop, onDesktopFilesDropped, type DroppedFile } from '@/lib/desktop'
 import type { ProjectDocument } from '@/types/files'
 import { PANEL_SIZES, MOBILE_BREAKPOINT } from './constants'
 import { FolderTree } from './FolderTree'
@@ -56,6 +59,70 @@ export function UploadingPage() {
   const { data: documents = [] } = useDocuments(projectId, selectedFolderId)
   const { data: folders = [] } = useProjectFolders(projectId)
   const deleteMutation = useDeleteDocument(projectId, selectedFolderId)
+  const uploadMutation = useUploadDocument(projectId, selectedFolderId)
+  const [importing, setImporting] = useState(false)
+
+  const importFiles = useCallback(async (files: DroppedFile[]) => {
+    if (files.length === 0) {
+      toast.error('未找到可导入的文件')
+      return
+    }
+    setImporting(true)
+    let imported = 0
+    let failed = 0
+    for (const file of files) {
+      try {
+        // Document names are flat; keep the basename for folder imports.
+        const name = file.name.split('/').pop() || file.name
+        await uploadMutation.mutateAsync({ file: base64File(name, file.data) })
+        imported += 1
+      } catch {
+        failed += 1
+      }
+    }
+    setImporting(false)
+    const summary = failed > 0
+      ? `已导入 ${imported} 个文件，${failed} 个失败`
+      : `已导入 ${imported} 个文件`
+    if (imported > 0) toast.success(summary)
+    else toast.error(summary)
+  }, [uploadMutation])
+
+  const handleImportFolder = useCallback(async () => {
+    const service = getDesktopService()
+    if (!service) return
+    try {
+      const root = await service.pickFolder('选择要导入的文件夹')
+      if (!root) return
+      const files = await service.readFolder(root)
+      if (!files) throw new Error('读取文件夹失败')
+      await importFiles(files)
+    } catch (error) {
+      toast.error('导入文件夹失败', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }, [importFiles])
+
+  useEffect(() => Events.On('menu:import-folder', () => void handleImportFolder()), [handleImportFolder])
+
+  const importRef = useRef(importFiles)
+  importRef.current = importFiles
+  useEffect(() => {
+    if (!isDesktop()) return
+    return onDesktopFilesDropped((paths, target) => {
+      if (target !== 'references' || paths.length === 0) return
+      const service = getDesktopService()
+      if (!service) return
+      void service.readFiles(paths)
+        .then((files) => { if (files) return importRef.current(files) })
+        .catch((error: unknown) => {
+          toast.error('读取拖入文件失败', {
+            description: error instanceof Error ? error.message : String(error),
+          })
+        })
+    })
+  }, [])
 
   const normalizedSearch = searchQuery.trim().toLowerCase()
   const filteredDocs = documents.filter((doc) => {
@@ -146,11 +213,22 @@ export function UploadingPage() {
   )
 
   const tableContent = (
-    <div className="flex flex-col h-full w-full">
+    <div className="flex flex-col h-full w-full" data-file-drop-target="references" data-drop-target="references">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 backdrop-blur-xl bg-background/80">
         <h2 className="text-sm font-semibold text-foreground/90">参考文献</h2>
         <div className="flex items-center gap-2">
+          {isDesktop() && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-7 text-xs gap-1.5"
+              onClick={() => void handleImportFolder()}
+              disabled={importing}
+            >
+              <FolderOpen size={13} /> {importing ? '导入中…' : '导入文件夹'}
+            </Button>
+          )}
           <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-amber-700 dark:text-amber-400" onClick={() => setCreateFolderOpen(true)}>
             <FolderPlus size={13} /> 文件夹
           </Button>

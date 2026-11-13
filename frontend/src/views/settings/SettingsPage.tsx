@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/store/settings-store'
 import { GeneralSettings } from './GeneralSettings'
 import { EditorSettings } from './EditorSettings'
 import { AgentSettings } from './AgentSettings'
+import { AboutSettings } from './AboutSettings'
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -25,13 +26,14 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="w-full max-w-3xl p-8 md:p-12">
       <h1 className="text-2xl font-bold mb-6">{t('settings.pageTitle')}</h1>
       <Tabs defaultValue="ui" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="ui">{t('settings.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="editor">{t('settings.tabEditor')}</TabsTrigger>
           <TabsTrigger value="agent">{t('settings.tabAgent')}</TabsTrigger>
+          <TabsTrigger value="about">{t('settings.tabAbout')}</TabsTrigger>
         </TabsList>
         <TabsContent value="ui">
           <GeneralSettings />
@@ -41,6 +43,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="agent">
           <AgentSettings />
+        </TabsContent>
+        <TabsContent value="about">
+          <AboutSettings />
         </TabsContent>
       </Tabs>
     </div>
