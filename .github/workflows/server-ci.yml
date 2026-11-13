@@ -143,14 +143,19 @@ jobs:
           go-version-file: server/go.mod
           cache: true
           cache-dependency-path: server/go.sum
+      - name: go test -race -shuffle (with coverage)
+        if: matrix.os == 'ubuntu-latest'
+        # 覆盖率与 race 在同一次执行里产出：此前 ubuntu 把整套测试跑了两遍，
+        # 单 job 约 11 分钟，是发布链路的关键路径。
+        run: go test ./internal/... -race -shuffle=on -count=1 -coverprofile=cover.out -covermode=atomic
       - name: go test -race -shuffle
+        if: matrix.os != 'ubuntu-latest'
         run: go test ./internal/... -race -shuffle=on -count=1
       # Linux 覆盖率回归门槛：保持当前 48% 基线不下降；80% 是长期目标，
       # 等新增领域测试覆盖后逐步抬高，避免未覆盖的历史包阻塞所有 CI。
       - name: coverage gate (≥ 48%)
         if: matrix.os == 'ubuntu-latest'
         run: |
-          go test ./internal/... -coverprofile=cover.out -covermode=atomic -count=1 > /dev/null
           total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "total coverage: ${total}%"
           awk -v c="$total" 'BEGIN { exit c < 48 ? 1 : 0 }'
