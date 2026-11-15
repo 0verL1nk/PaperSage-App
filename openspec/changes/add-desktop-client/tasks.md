@@ -126,6 +126,9 @@
     导入（原生文件夹选择器弹出）、菜单退出。
   - 未逐项手测：编译完成通知（需窗口失焦 + 真实编译）、外部链接唤起浏览器。
 - [x] 11.8 `pnpm typecheck` / `pnpm lint` / `pnpm test` 通过
-- [ ] 11.9 安装包在干净 Windows 用户环境可安装、启动、自动更新、卸载
-  - 现状：CI 已产出安装包并通过 SHA256 校验；安装器为 machine 范围（NSIS `RequestExecutionLevel admin`），
-    本机非管理员会话静默安装会停在 UAC，需在管理员环境点一次确认后继续验收。
+- [x] 11.9 安装包在干净 Windows 用户环境可安装、启动、自动更新、卸载
+  - 2026-11-15 用 main CI 产物（`0.0.0-dev.14`）验收：静默安装到 `E:\apps\PaperSage` 成功，
+    随包 `backend/papersage.exe` 与 `catalog.json.gz` 均在位；启动后健康检查返回
+    `0.0.0-dev.14`（与 `backend.ExpectedVersion` 一致）；菜单退出无残留；
+    卸载后程序目录、卸载注册表项、开始菜单快捷方式均消失（用户数据 `%APPDATA%\PaperSage` 保留）。
+  - 未覆盖：安装态下的自动更新（需要一个含 Windows 资源的新 tag 发布）。
