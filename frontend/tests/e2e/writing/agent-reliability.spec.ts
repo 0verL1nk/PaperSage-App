@@ -120,6 +120,11 @@ async function mockAgent(page: Page, opts: MockOptions = {}) {
     return route.fulfill(json({ code: 200, info: '', data: opts.messages?.[id] ?? [] }))
   })
 
+  // 面板进入会话时会探测进行中的 Run；默认无，避免落到真实后端。
+  await page.route('**/api/v1/agent/conversations/*/runs/active', (route) =>
+    route.fulfill(json({ code: 200, info: '', data: { runId: null } })),
+  )
+
   await page.route(PROPOSALS, (route) =>
     route.fulfill(json({ code: 200, info: '', data: opts.proposals ?? [] })),
   )
