@@ -79,6 +79,14 @@ async function mockAgentApis(
       })
       return
     }
+    if (url.includes('/runs/active')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: { runId: null }, info: '' }),
+      })
+      return
+    }
     if (url.includes('/agent/proposals')) {
       await route.fulfill({
         status: 200,
