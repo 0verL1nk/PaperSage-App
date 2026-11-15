@@ -254,7 +254,9 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
 
 !macro wails.associateCustomProtocols
     ; Create custom protocols associations
-    !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "papersage" "PaperSage Protocol" "$INSTDIR\${PRODUCT_EXECUTABLE},0" '"$INSTDIR\${PRODUCT_EXECUTABLE}" "%1"'
+    ; 命令值里必须带引号包住 exe 路径；用 NSIS 的 $\" 转义，否则嵌套引号会让
+    ; WriteRegStr 解析失败（unterminated string）。
+    !insertmacro CUSTOM_PROTOCOL_ASSOCIATE "papersage" "PaperSage Protocol" "$INSTDIR\${PRODUCT_EXECUTABLE},0" '$\"$INSTDIR\${PRODUCT_EXECUTABLE}$\" $\"%1$\"'
 !macroend
 
 !macro wails.unassociateCustomProtocols
