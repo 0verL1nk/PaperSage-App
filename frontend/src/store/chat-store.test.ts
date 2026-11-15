@@ -9,6 +9,7 @@ vi.mock('@/services/agent-api', () => ({
   createRun: vi.fn(),
   streamRun: vi.fn(),
   listMessages: vi.fn(),
+  getActiveRun: vi.fn(),
   getConversation: vi.fn(),
   listProposals: vi.fn(),
   retryRun: vi.fn(),
@@ -23,6 +24,7 @@ beforeEach(() => {
   vi.mocked(api.listMessages).mockResolvedValue([])
   vi.mocked(api.getConversation).mockResolvedValue({ id: 'c-old', title: '旧会话', threadVersion: 1 })
   vi.mocked(api.listProposals).mockResolvedValue([])
+  vi.mocked(api.getActiveRun).mockResolvedValue({ runId: null })
   vi.mocked(api.streamRun).mockResolvedValue(undefined)
 })
 
@@ -380,5 +382,24 @@ describe('send 动作', () => {
     await sending
 
     expect(useChatStore.getState().messages).toEqual([])
+  })
+})
+
+describe('open 动作', () => {
+  it('刷新后重新订阅进行中的 Run', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live' })
+    vi.mocked(api.streamRun).mockImplementation(() => new Promise(() => {}))
+    await useChatStore.getState().open('c-live', 'p')
+    expect(api.getActiveRun).toHaveBeenCalledWith('c-live')
+    expect(api.streamRun).toHaveBeenCalledWith('r-live', expect.objectContaining({ afterSeq: undefined }))
+    expect(useChatStore.getState().streaming).toBe(true)
+    expect(useChatStore.getState().activeRunId).toBe('r-live')
+  })
+
+  it('没有进行中的 Run 时保持空闲', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: null })
+    await useChatStore.getState().open('c-idle', 'p')
+    expect(api.streamRun).not.toHaveBeenCalled()
+    expect(useChatStore.getState().streaming).toBe(false)
   })
 })

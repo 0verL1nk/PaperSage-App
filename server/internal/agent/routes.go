@@ -27,6 +27,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g.GET("/projects/:project_id/agent/proposals", s.listProposals)
 	g.GET("/agent/conversations/:conversation_id", s.getConversation)
 	g.GET("/agent/conversations/:conversation_id/messages", s.listMessages)
+	g.GET("/agent/conversations/:conversation_id/runs/active", s.activeRun)
 	g.DELETE("/agent/conversations/:conversation_id", s.deleteConversation)
 
 	// 模式 B：先建 Run 再订阅（Run 独立于连接，可取消、可重试、可断线恢复）
@@ -171,6 +172,44 @@ func (s *Service) listMessages(c *gin.Context) {
 		return
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(out, ""))
+}
+
+// activeRun 返回该会话仍在执行的 Run（没有则 runId=null）。
+// 页面刷新会丢掉内存里的流状态，前端靠这个接口找回进行中的 Run 并重新订阅。
+func (s *Service) activeRun(c *gin.Context) {
+	ctx := c.Request.Context()
+	uid := auth.CurrentUser(c).ID
+	cidU, err := parseUUIDParam(c.Param("conversation_id"))
+	if err != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	cid := store.UUID{UUID: cidU}
+	var n int64
+	if err := s.DB.WithContext(ctx).Model(&store.AgentConversation{}).
+		Where("id = ? AND user_id = ?", cid, uid).Count(&n).Error; err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
+	if n == 0 {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
+		return
+	}
+	var run store.AgentRun
+	err = s.DB.WithContext(ctx).
+		Where("conversation_id = ? AND status = ?", cid, RunRunning).
+		Order("created_at DESC").First(&run).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"runId": nil}, ""))
+			return
+		}
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
+	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
+		"runId": run.ID.String(), "status": run.Status,
+	}, ""))
 }
 
 // partDTO / msgDTO：消息由 Part 组成，内容不再是一个 content 字段。

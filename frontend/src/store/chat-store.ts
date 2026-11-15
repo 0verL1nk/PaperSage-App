@@ -401,6 +401,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
         conversationVersion: detail?.threadVersion ?? 0,
         versionKnown: detail !== null,
       })
+      // 刷新会丢掉内存里的流状态。服务端还有进行中的 Run 时必须重新订阅，
+      // 否则界面看起来像“没开始”，用户会重复发送（验收 B2）。
+      const active = await api.getActiveRun(conversationId).catch(() => null)
+      if (seq !== openSeq || !active?.runId || get().streaming) return
+      set({ activeRunId: active.runId, streaming: true, reconnecting: false, cancelling: false, lastEventId: 0 })
+      void consumeStream(active.runId, 0)
     },
 
     send: async (projectId, content, clientRequestId = crypto.randomUUID()) => {

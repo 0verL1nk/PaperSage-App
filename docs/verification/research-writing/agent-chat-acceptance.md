@@ -23,14 +23,14 @@
 | A3 | 工具 | 请求“看看我的文件/读某文档” | 工具卡按 `toolCallId` 区分，状态/耗时可见 | 生产工具卡 `read_latex_file` 成功；本地真实模型下缺失文件时工具卡显示“失败”且 Run 正常完成（run `01a1babc-0e42-725e-b1b5-51b12e803283`）；截图 [ai-tool-card.png](prod-2026-11-08/ai-tool-card.png) | 通过 |
 | A4 | 建议 | 让助手修改一段 LaTeX 并应用 | 建议卡可应用/拒绝；稿件变化后转 stale，不覆盖新稿 | 生产 v0.1.9：建议卡应用成功、编辑器更新、刷新后仍保留；截图 [ai-proposal-card.png](prod-2026-11-08/ai-proposal-card.png)、[ai-proposal-applied.png](prod-2026-11-08/ai-proposal-applied.png)。此前 v0.1.8 的 409 stale 根因是 PostgreSQL CHAR(64) 补空格（PR #91 修复） | 通过 |
 | B1 | 刷新 | 流式结束后刷新页面 | 文本、工具卡、建议卡、错误状态与实时一致 | 流式结束后刷新，工具卡/文本/失败状态与实时一致（本地 v0.1.6+ 真实模型） | 通过 |
-| B2 | 刷新 | 流式进行中刷新 | 显示该 Run 未完成状态并可继续接收；不伪装完成 | 2026-11-15：刷新后前端未恢复进行中的 Run（无停止按钮、正文不增长）；服务端继续执行，稍后刷新可取回完整回答（run 01a1dd89e…） | 失败 |
+| B2 | 刷新 | 流式进行中刷新 | 显示该 Run 未完成状态并可继续接收；不伪装完成 | 2026-11-15 修复后复验：刷新后界面恢复“正在生成回答”并显示停止按钮，文本继续增长直至完成（截图 [B2-resume-after-reload.png](local-2026-11-15/B2-resume-after-reload.png)） | 通过 |
 | C1 | 切会话 | 快速连续切换两个会话 | 只显示当前会话；迟到响应不覆盖 | 2026-11-15：两会话（7365/182 字符）连续切换，内容各自正确、无串台（截图 [C1-switch-conversations.png](local-2026-11-15/C1-switch-conversations.png)） | 通过 |
 | C2 | 新对话 | 点击“新对话” | 保持空白，不自动重开第一条历史会话 | 2026-11-15：新对话仅显示引导语，无历史消息（截图 [C2-new-conversation-blank.png](local-2026-11-15/C2-new-conversation-blank.png)） | 通过 |
 | D1 | 断网 | 流式中断网再恢复 | 显示“正在重连”，按 `afterSeq` 续传；文本不重复 | SSE 首连读到 seq 2 后断开，`afterSeq=2` 重连收到 seq 3 起 37 条事件并以 finish/[DONE] 结束，无重复；断开期间 Run 继续执行（run `01a1bad9-6d5b-705f-9b33-aa58cee903da`） | 通过 |
 | D2 | 断网 | 断网期间不点取消 | Run 继续执行，恢复后可取回结果 | 同 D1：断开期间 Run 继续执行，重连后取回 seq 3 起 37 条事件（run `01a1bad9-6d5b-705f-9b33-aa58cee903da`） | 通过 |
 | E1 | 取消 | 流式中点击停止 | 进入“正在停止”，终态为取消；已生成内容保留 | 2026-11-15：run 01a1dd8321617e4a8ab2b844f8f2fea2 终态 cancelled，界面显示“已停止生成”，此前内容保留（截图 [E1-cancel-stopped.png](local-2026-11-15/E1-cancel-stopped.png)） | 通过 |
 | E2 | 取消 | 取消失败/重复取消 | 失败可见；重复取消幂等，不产生第二次副作用 | 2026-11-15：同一 run 连续两次 `POST /agent/runs/:id/cancel` 均 200 `{"cancelled":true,"status":"cancelled"}`，状态保持 cancelled | 通过 |
-| F1 | 重启 | 流式中重启服务 | 遗留 Run 收敛为失败并给出原因；订阅不悬挂 | 2026-11-15：进程被杀后 run 01a1dd91… 在重启时收敛为 failed，服务端写入 error/run.finished 事件（“服务重启，执行已中断”）；刷新后界面未展示该原因 | 受阻 |
+| F1 | 重启 | 流式中重启服务 | 遗留 Run 收敛为失败并给出原因；订阅不悬挂 | 2026-11-15 修复后复验：进程被杀后 Run 在重启时收敛为 failed，刷新后界面显示“服务重启，执行已中断”+“本次生成失败”（截图 [F1-restart-reason.png](local-2026-11-15/F1-restart-reason.png)） | 通过 |
 | G1 | 版本 | 两个标签页同时发送 | 后发者 409，更新版本后可显式重试；不静默覆盖 | 2026-11-15：两标签页同时发送，后发页面提示“会话已在其他位置更新，请基于最新版本重试”并提供“重试发送”，先发页面正常完成（run 01a1dd96…，截图 [G1-concurrent-409.png](local-2026-11-15/G1-concurrent-409.png)） | 通过 |
 | H1 | 错误 | 错误 key/限流/超时/上下文超限 | 分别显示可执行提示，不统一成“调用失败” | 2026-11-15：无效 key 已复验，界面显示“模型 API Key 无效或已过期”+“重试回答”（run 01a1dd957…，截图 [H1-invalid-key.png](local-2026-11-15/H1-invalid-key.png)）；限流/超时/上下文超限未执行 | 受阻 |
 | I1 | 可访问性 | 键盘操作 + 屏幕阅读器 | 停止/发送/重试有可读名称；流式内容可播报 | 2026-11-15：发送/删除/导航按钮均有可读名称，页面有 5 个 `aria-live=polite` 区域承接流式内容；未做屏幕阅读器实录 | 通过 |
@@ -76,5 +76,5 @@
 - 环境：本地后端 + 前端（公开仓 main），真实 provider `deepseek-v4.1-flash`，独立 SQLite 验收库。
 - 结果：A2 / C1 / C2 / E1 / E2 / G1 / I1 通过；H1、F1 受阻；B2 失败。
 - 期间发现并修复：取消/失败会留下零正文的 assistant 消息，下一轮把它发给 provider 会直接 400（`content or tool_calls must be set`）。已在 `loadHistory` 跳过空 assistant 消息，并补回归测试。
-- 未闭环：B2 需要前端进入会话时发现进行中的 Run 并订阅（当前无该查询接口）；F1 的失败原因未在界面展示。
+- 已修复并复验：B2 新增 `GET /agent/conversations/:id/runs/active`，面板进入会话时找回并重新订阅进行中的 Run；F1 收敛遗留 Run 时补建带 error part 的助手消息。两项均补了回归测试。
 - 证据截图：`local-2026-11-15/`。

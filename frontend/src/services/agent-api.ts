@@ -106,6 +106,12 @@ export function listMessages(conversationId: string, config?: ApiRequestConfig) 
   return getJson<AgentMessage[]>(AGENT.messages(conversationId), config)
 }
 
+/** 刷新/重进会话时找回仍在执行的 Run；没有则 runId=null。 */
+export function getActiveRun(conversationId: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return getJson<{ runId: string | null; status?: string }>(AGENT.activeRun(conversationId), config)
+}
+
 export function deleteConversation(conversationId: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
   return deleteFetch(AGENT.conversation(conversationId), config)

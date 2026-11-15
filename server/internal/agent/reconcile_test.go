@@ -58,6 +58,17 @@ func TestReconcileOrphanRunsFailsRunsFromPreviousProcess(t *testing.T) {
 		Where("run_id = ? AND event_type = ?", orphan.ID, evtRunFinished).Count(&finished).Error)
 	assert.EqualValues(t, 1, finished, "订阅端必须收到终止事件")
 
+	// 被杀掉的进程没有物化助手消息，收敛时要补一条带 error part 的消息，
+	// 否则刷新后用户只看到自己的提问、看不到中断原因。
+	require.NotNil(t, got.OutputMessageID)
+	var msg store.AgentMessage
+	require.NoError(t, db.First(&msg, "id = ?", *got.OutputMessageID).Error)
+	assert.Equal(t, RunFailed, msg.Status)
+	var errParts int64
+	require.NoError(t, db.Model(&store.AgentMessagePart{}).
+		Where("message_id = ? AND type = ?", msg.ID, PartError).Count(&errParts).Error)
+	assert.EqualValues(t, 1, errParts, "中断原因必须出现在转录里")
+
 	got = store.AgentRun{}
 	require.NoError(t, db.First(&got, "id = ?", live.ID).Error)
 	assert.Equal(t, RunRunning, got.Status, "本进程启动后创建的 Run 不得被误杀")
