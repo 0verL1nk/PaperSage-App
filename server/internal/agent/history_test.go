@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cloudwego/eino/schema"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -137,9 +138,9 @@ func TestCompleteConversationHistory(t *testing.T) {
 
 	history, err := svc.loadHistory(context.Background(), conv, store.UUID{}, nil)
 	require.NoError(t, err)
-	require.Len(t, history, count+2)
-	require.Empty(t, history[1].Content)
-	for pos, msg := range history[2:] {
+	// 空 assistant 消息（取消/失败遗留）不能进入模型上下文，否则部分 provider 直接 400。
+	require.Len(t, history, count+1)
+	for pos, msg := range history[1:] {
 		i := (pos + 1) % count
 		require.Equal(t, fmt.Sprintf("message-%d/end", i), msg.Content, "history at %d", pos)
 	}
@@ -228,5 +229,32 @@ func TestHistoryConcurrentConversationDeletion(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLoadHistorySkipsEmptyAssistantMessages(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(t.TempDir()+"/empty-assistant.db"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, sqlDB.Close()) })
+	require.NoError(t, db.AutoMigrate(&store.AgentMessage{}, &store.AgentMessagePart{}, &store.AgentEvent{}))
+
+	conv := store.MustNewUUID()
+	text := "问题"
+	userMsg := store.AgentMessage{ID: store.MustNewUUID(), ConversationID: conv, Role: "user", Status: "completed", CreatedAt: time.Now().UTC()}
+	// 取消的 Run 可能留下零 part 的 assistant 消息。
+	emptyAssistant := store.AgentMessage{ID: store.MustNewUUID(), ConversationID: conv, Role: "assistant", Status: "cancelled", CreatedAt: time.Now().UTC().Add(time.Second)}
+	require.NoError(t, db.Create(&[]store.AgentMessage{userMsg, emptyAssistant}).Error)
+	require.NoError(t, db.Create(&store.AgentMessagePart{
+		ID: store.MustNewUUID(), MessageID: userMsg.ID, Ordinal: 0, Type: PartText, Status: "completed", TextContent: &text,
+	}).Error)
+
+	out, err := (&Service{DB: db}).loadHistory(context.Background(), conv, store.MustNewUUID(), nil)
+	require.NoError(t, err)
+	for _, m := range out {
+		if m.Role == schema.Assistant {
+			require.NotEmpty(t, m.Content, "empty assistant messages would be rejected by the provider")
+		}
 	}
 }
