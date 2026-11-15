@@ -92,6 +92,8 @@ export const AGENT = {
   conversations: (projectId: string) => `${V1}/projects/${projectId}/agent/conversations`,
   conversation: (conversationId: string) => `${V1}/agent/conversations/${conversationId}`,
   messages: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/messages`,
+  /** 刷新后找回该会话仍在执行的 Run */
+  activeRun: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/runs/active`,
   /** 模式 B：先建 Run 再订阅事件 */
   createRun: (conversationId: string) => `${V1}/agent/conversations/${conversationId}/runs`,
   runEvents: (runId: string, afterSeq?: number) =>
