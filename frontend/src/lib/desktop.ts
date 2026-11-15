@@ -12,6 +12,7 @@
 import { setDesktopLocalApiBaseUrl } from './env'
 
 import { Call, Events } from '@wailsio/runtime'
+import { toast } from 'sonner'
 
 const DESKTOP_SERVICE_FQN =
   'github.com/0verL1nk/GraduateProject/desktop/internal/services.DesktopService'
@@ -59,6 +60,8 @@ export interface DesktopService {
   windowIsMaximised(): Promise<boolean>
   windowToggleFullscreen(): Promise<void>
   checkForUpdates(): Promise<void>
+  updateState(): Promise<string | null>
+  localBackendError(): Promise<string | null>
   quitApp(): Promise<void>
 }
 
@@ -174,6 +177,8 @@ export function getDesktopService(): DesktopService | null {  if (!isDesktop()) 
     checkForUpdates: async () => {
       await callDesktop('CheckForUpdates')
     },
+    updateState: async () => callDesktop<string>('UpdateState'),
+    localBackendError: async () => callDesktop<string>('LocalBackendError'),
     quitApp: async () => {
       await callDesktop('QuitApp')
     },
@@ -196,6 +201,14 @@ export function initDesktop(): Promise<void> {
       if (!info?.isDesktop) return
       desktopConfirmed = true
       if (info.localApiBaseUrl) setDesktopLocalApiBaseUrl(info.localApiBaseUrl)
+      const backendError = await Call.ByName(`${DESKTOP_SERVICE_FQN}.LocalBackendError`)
+      if (typeof backendError === 'string' && backendError) {
+        toast.error('本地后端不可用', { description: backendError, duration: 12_000 })
+      }
+      onDesktopUpdateError((message) => {
+        toast.error('更新失败', { description: message })
+        void notifyWhenBackground('更新失败', message)
+      })
     } catch {
       // Running in a browser: the runtime package exists but the Go bridge does not.
     }
@@ -244,6 +257,16 @@ export function onDesktopFilesDropped(handler: (files: string[], target: string)
   const off = Events.On('desktop:files-dropped', (event) => {
     const data = event.data as { files?: string[]; target?: string } | null
     handler(Array.isArray(data?.files) ? data.files : [], data?.target ?? '')
+  })
+  return typeof off === 'function' ? off : () => undefined
+}
+
+/** Subscribes to updater failures surfaced by the native side. */
+export function onDesktopUpdateError(handler: (message: string) => void): () => void {
+  if (!isDesktop()) return () => undefined
+  const off = Events.On('desktop:update-error', (event) => {
+    const data = event.data as { message?: string } | null
+    if (data?.message) handler(data.message)
   })
   return typeof off === 'function' ? off : () => undefined
 }

@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"os/exec"
@@ -30,6 +31,7 @@ type DesktopService struct {
 	seq             atomic.Uint64
 	localBackendURL atomic.Value // string
 	pendingDeepLink atomic.Value // string
+	backendError    atomic.Value // string
 }
 
 // New creates the service. Register it with application.NewService before App.Run.
@@ -59,6 +61,18 @@ func (s *DesktopService) SetLocalBackendURL(rawURL string) {
 // LocalBackendURL returns the supervised backend base URL, or "".
 func (s *DesktopService) LocalBackendURL() string {
 	v, _ := s.localBackendURL.Load().(string)
+	return v
+}
+
+// SetLocalBackendError records why the bundled backend failed to start. The
+// web layer shows it once on boot so a rejected backend is never silent.
+func (s *DesktopService) SetLocalBackendError(message string) {
+	s.backendError.Store(message)
+}
+
+// LocalBackendError reports the bundled backend's startup failure, or "".
+func (s *DesktopService) LocalBackendError() string {
+	v, _ := s.backendError.Load().(string)
 	return v
 }
 
@@ -111,9 +125,17 @@ func (s *DesktopService) WindowToggleFullscreen() {
 	}
 }
 
-// CheckForUpdates runs a foreground update check.
+// CheckForUpdates runs a foreground update check. Failures are logged and
+// surfaced to the web layer through updater.EventUpdateError.
 func (s *DesktopService) CheckForUpdates() {
-	_ = updater.CheckNow(context.Background())
+	if err := updater.CheckNow(context.Background()); err != nil {
+		log.Printf("desktop: update check: %v", err)
+	}
+}
+
+// UpdateState reports the updater's current lifecycle phase.
+func (s *DesktopService) UpdateState() string {
+	return string(updater.State())
 }
 
 // QuitApp terminates the application (bypassing close-to-tray).
