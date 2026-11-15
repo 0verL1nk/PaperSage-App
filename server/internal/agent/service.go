@@ -302,6 +302,7 @@ func firstLine(s string) string {
 
 func friendlyErr(err error) string {
 	msg := err.Error()
+	lower := strings.ToLower(msg)
 	if errors.Is(err, adk.ErrExceedMaxIterations) {
 		return "本次执行达到迭代上限；可发送“继续”让助手接着处理未完成的部分。"
 	}
@@ -310,6 +311,16 @@ func friendlyErr(err error) string {
 	}
 	if strings.Contains(msg, "429") {
 		return "模型调用达到限额，请稍后重试"
+	}
+	// 超时与上下文超限要给出可执行动作，不能和“调用失败”混在一起。
+	if errors.Is(err, context.DeadlineExceeded) ||
+		strings.Contains(lower, "timeout") || strings.Contains(lower, "deadline exceeded") {
+		return "模型响应超时，请稍后重试或换用响应更快的模型"
+	}
+	if strings.Contains(lower, "context length") || strings.Contains(lower, "maximum context") ||
+		strings.Contains(lower, "context_length_exceeded") || strings.Contains(lower, "too many tokens") ||
+		strings.Contains(lower, "prompt is too long") {
+		return "上下文超过模型上限，请新建对话或缩短问题后重试"
 	}
 	// Provider error bodies may contain credentials; do not persist them.
 	return "模型调用失败，请检查模型配置或稍后重试"
