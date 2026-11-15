@@ -6,10 +6,30 @@ import { hideGlobalLoading, showGlobalLoading } from '@/store'
 import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
 import {
   createBackendEnvelopeError,
+  FrontendApiError,
   normalizeApiError,
-  type FrontendApiError,
 } from '@/services/errors'
+import { isDesktop } from '@/lib/desktop'
 import { toast } from 'sonner'
+
+/** 无响应的传输层失败（离线 / 服务不可达 / 超时）。有响应的 HTTP 错误不在此列。 */
+function isTransportFailure(error: unknown): boolean {
+  if (!axios.isAxiosError(error) || error.response) return false
+  if (error.code === 'ERR_NETWORK' || error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+    return true
+  }
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+function unreachableDescription(): string {
+  const baseUrl =
+    getOptionalApiBaseUrl() ||
+    (typeof window !== 'undefined' ? window.location.origin : '当前地址')
+  const hint = isDesktop()
+    ? '请检查网络连接；若持续失败，请在 设置 → 关于 中确认 API 地址。'
+    : '请检查网络连接后重试。'
+  return `无法访问 ${baseUrl}，${hint}`
+}
 
 export type ApiRequestConfig<TData = unknown> = AxiosRequestConfig<TData> & {
   skipGlobalLoading?: boolean
@@ -193,7 +213,11 @@ apiClient.interceptors.response.use(
       }
     }
 
-    const normalized = normalizeApiError(error)
+    // 无响应 = 传输层失败：离线 / 服务不可达 / 超时。统一归为 network，
+    // 供 requestApi 换成可操作提示，而不是 axios 的 "Network Error"。
+    const normalized = isTransportFailure(error)
+      ? new FrontendApiError('Network request failed.', { kind: 'network', cause: error })
+      : normalizeApiError(error)
     // auth 端点的 401/403 是凭据问题，交给页面渲染错误提示；
     // 这里若再整页跳转 /auth 会清空表单与错误状态（login wrong-password
     // 用例曾因此永远看不到 alert）
@@ -239,8 +263,17 @@ export async function requestApi<TResponse, TBody = unknown>(
     const normalized = normalizeApiError(error)
     // Auto-show error toast unless suppressed
     if (!(config as ApiRequestConfig).skipGlobalLoading) {
-      const msg = normalized.info || normalized.message
-      toast.error('请求失败', { description: msg, duration: 4000 })
+      if (normalized.kind === 'network') {
+        // 固定 id：离线期间的重试共用一条 toast，sonner 按 id 更新而不堆叠。
+        toast.error('无法连接到服务器', {
+          id: 'api-unreachable',
+          description: unreachableDescription(),
+          duration: 4000,
+        })
+      } else {
+        const msg = normalized.info || normalized.message
+        toast.error('请求失败', { description: msg, duration: 4000 })
+      }
     }
     throw normalized
   }

@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestBaseURL(t *testing.T) {
@@ -87,6 +89,34 @@ func TestProbeHealth(t *testing.T) {
 
 	if probeHealth("http://127.0.0.1:1") {
 		t.Fatal("closed port reported healthy")
+	}
+}
+
+func TestWaitHealthyVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"healthy","version":"1.2.3","goVersion":"go1.26"}`))
+	}))
+	defer server.Close()
+	port := server.Listener.Addr().(*net.TCPAddr).Port
+
+	old := ExpectedVersion
+	defer func() { ExpectedVersion = old }()
+
+	s := &Supervisor{}
+	ExpectedVersion = "1.2.3"
+	if err := s.waitHealthy(context.Background(), port, nil, time.Second); err != nil {
+		t.Fatalf("matching version: %v", err)
+	}
+
+	ExpectedVersion = "2.0.0"
+	err := s.waitHealthy(context.Background(), port, nil, time.Second)
+	if err == nil || !strings.Contains(err.Error(), "2.0.0") || !strings.Contains(err.Error(), "1.2.3") {
+		t.Fatalf("mismatched version = %v, want an error naming both versions", err)
+	}
+
+	ExpectedVersion = ""
+	if err := s.waitHealthy(context.Background(), port, nil, time.Second); err != nil {
+		t.Fatalf("empty expected version: %v", err)
 	}
 }
 

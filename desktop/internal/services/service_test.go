@@ -77,3 +77,20 @@ func TestValidateAbsolutePath(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateStateWithoutApp(t *testing.T) {
+	if got := New(nil).UpdateState(); got != "unconfigured" {
+		t.Fatalf("UpdateState() = %q, want %q", got, "unconfigured")
+	}
+}
+
+func TestLocalBackendErrorRoundTrip(t *testing.T) {
+	svc := New(nil)
+	if got := svc.LocalBackendError(); got != "" {
+		t.Fatalf("LocalBackendError() = %q, want empty", got)
+	}
+	svc.SetLocalBackendError("本地后端版本不匹配：期望 1.0.0，实际 0.9.0")
+	if got := svc.LocalBackendError(); got != "本地后端版本不匹配：期望 1.0.0，实际 0.9.0" {
+		t.Fatalf("LocalBackendError() = %q", got)
+	}
+}

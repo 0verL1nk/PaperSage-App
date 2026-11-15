@@ -4,6 +4,7 @@ package updater
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -11,7 +12,11 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
 )
 
-const repository = "0verL1nk/GraduateProject"
+// Desktop releases ship from the public app repository.
+const repository = "0verL1nk/PaperSage-App"
+
+// EventUpdateError carries updater failures to the web layer.
+const EventUpdateError = "desktop:update-error"
 
 var app *application.App
 
@@ -37,8 +42,32 @@ func Setup(a *application.App, version string) error {
 	if err != nil {
 		return err
 	}
+	// Surface every failed stage to the web layer; the frontend shows a toast
+	// and falls back to a system notification when its window is inactive.
+	a.Event.On(wailsupdater.EventError, func(event *application.CustomEvent) {
+		if message := errorMessage(event.Data); message != "" {
+			a.Event.Emit(EventUpdateError, map[string]string{"message": message})
+		}
+	})
 	app = a
 	return nil
+}
+
+// errorMessage extracts the message from an updater error payload.
+func errorMessage(data any) string {
+	switch v := data.(type) {
+	case wailsupdater.ErrorInfo:
+		return v.Message
+	case *wailsupdater.ErrorInfo:
+		if v != nil {
+			return v.Message
+		}
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
+	return ""
 }
 
 // CheckNow runs a foreground check-and-install with the built-in update
