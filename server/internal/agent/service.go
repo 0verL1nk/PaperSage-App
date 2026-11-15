@@ -240,7 +240,13 @@ func (s *Service) loadHistory(ctx context.Context, convID, projectID UUID0, mode
 		if m.message.Role == "assistant" {
 			role = schema.Assistant
 		}
-		out = append(out, &schema.Message{Role: role, Content: messageText(m)})
+		text := messageText(m)
+		// 取消/失败的 Run 可能留下没有正文的 assistant 消息；部分 provider 会直接
+		// 400（content or tool_calls must be set），不要把空消息发出去。
+		if role == schema.Assistant && strings.TrimSpace(text) == "" {
+			continue
+		}
+		out = append(out, &schema.Message{Role: role, Content: text})
 	}
 	window := 0
 	if model != nil && model.ContextWindow != nil {
