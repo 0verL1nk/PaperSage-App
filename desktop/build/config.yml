@@ -10,6 +10,12 @@ info:
   comments: "AI-assisted academic writing"
   version: "0.1.0"
 
+# Deep links: papersage://project/<id>/<stage>. Wails regenerates the NSIS
+# protocol macros from this list, so it must stay declared here.
+protocols:
+  - scheme: papersage
+    description: PaperSage Protocol
+
 # `go tool wails3 dev` runs these on start and on Go changes.
 dev_mode:
   root_path: .

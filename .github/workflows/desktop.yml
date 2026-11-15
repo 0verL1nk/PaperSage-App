@@ -139,13 +139,16 @@ jobs:
           mkdir -p ../desktop/bin/backend
           out="../desktop/bin/backend/papersage"
           if [ "$RUNNER_OS" = "Windows" ]; then out="$out.exe"; fi
-          go build -trimpath -ldflags "-s -w" -o "$out" ./cmd/papersage
+          # Same version as the client, so backend.ExpectedVersion can be injected
+          # into the desktop build and a stale bundled backend is rejected.
+          go build -trimpath -ldflags "-s -w -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Version=$VERSION" -o "$out" ./cmd/papersage
 
       - name: Build (pull request)
         if: github.event_name == 'pull_request'
         working-directory: desktop
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
+          BACKEND_VERSION: ${{ env.VERSION }}
         run: go tool wails3 task build VERSION=${{ env.VERSION }}
 
       - name: Build & package
@@ -153,6 +156,7 @@ jobs:
         working-directory: desktop
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
+          BACKEND_VERSION: ${{ env.VERSION }}
         run: go tool wails3 task package VERSION=${{ env.VERSION }}
 
       - name: Stage release assets (Windows)

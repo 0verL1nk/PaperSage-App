@@ -34,6 +34,11 @@ const (
 
 var errStopped = errors.New("backend: supervisor stopped")
 
+// ExpectedVersion is the Go backend build version this client was built
+// against, injected via -X .../internal/backend.ExpectedVersion. Empty
+// disables the check.
+var ExpectedVersion = ""
+
 var healthClient = &http.Client{
 	Timeout:   healthHTTPTimeout,
 	Transport: &http.Transport{DisableKeepAlives: true},
@@ -344,7 +349,10 @@ func (s *Supervisor) waitHealthy(ctx context.Context, port int, stop <-chan stru
 	url := baseURL(port)
 	deadline := time.Now().Add(timeout)
 	for {
-		if probeHealth(url) {
+		if h, ok := fetchHealth(url); ok && h.healthy() {
+			if err := checkVersion(h.Version); err != nil {
+				return err
+			}
 			return nil
 		}
 		if !time.Now().Before(deadline) {
@@ -442,26 +450,48 @@ func probePort(port int) bool {
 	return probeHealth(baseURL(port))
 }
 
-// probeHealth identifies a PaperSage server. Loopback /health includes build
+type healthInfo struct {
+	Status    string `json:"status"`
+	Version   string `json:"version"`
+	GoVersion string `json:"goVersion"`
+}
+
+// healthy identifies a PaperSage server. Loopback /health includes build
 // metadata, so a bare status is not enough to distinguish another service.
-func probeHealth(base string) bool {
+func (h healthInfo) healthy() bool {
+	return h.Status == "healthy" && (h.Version != "" || h.GoVersion != "")
+}
+
+func fetchHealth(base string) (healthInfo, bool) {
 	resp, err := healthClient.Get(base + "/health")
 	if err != nil {
-		return false
+		return healthInfo{}, false
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return false
+		return healthInfo{}, false
 	}
-	var h struct {
-		Status    string `json:"status"`
-		Version   string `json:"version"`
-		GoVersion string `json:"goVersion"`
-	}
+	var h healthInfo
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&h); err != nil {
-		return false
+		return healthInfo{}, false
 	}
-	return h.Status == "healthy" && (h.Version != "" || h.GoVersion != "")
+	return h, true
+}
+
+func probeHealth(base string) bool {
+	h, ok := fetchHealth(base)
+	return ok && h.healthy()
+}
+
+// checkVersion rejects a bundled backend built for a different client. Empty
+// or "dev" versions mean a local build, where an exact match is not expected.
+func checkVersion(actual string) error {
+	want := strings.TrimPrefix(ExpectedVersion, "v")
+	got := strings.TrimPrefix(actual, "v")
+	if want == "" || got == "" || got == "dev" || got == want {
+		return nil
+	}
+	return fmt.Errorf("本地后端版本不匹配：客户端期望 %s，实际 %s，请重新安装或更新客户端", want, got)
 }
 
 func backendEnv(port int, dataDir, binary string) []string {

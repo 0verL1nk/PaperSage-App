@@ -125,11 +125,16 @@ func Run() error {
 	if err := updater.Setup(app, Version); err != nil {
 		log.Printf("desktop: updater setup: %v", err)
 	}
-	CheckForUpdates = func() { _ = updater.CheckNow(context.Background()) }
+	CheckForUpdates = func() {
+		if err := updater.CheckNow(context.Background()); err != nil {
+			log.Printf("desktop: update check: %v", err)
+		}
+	}
 
 	supervisor = backend.New()
 	if baseURL, err := supervisor.Start(context.Background()); err != nil {
 		log.Printf("desktop: local backend unavailable: %v", err)
+		desktopService.SetLocalBackendError(err.Error())
 	} else {
 		desktopService.SetLocalBackendURL(baseURL)
 		assets.SetBackendURL(baseURL)
