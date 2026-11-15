@@ -5,6 +5,9 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
+    # Tag builds publish the desktop assets the updater looks for; path
+    # filters are not evaluated for tag pushes.
+    tags: ['v*']
     paths:
       - 'desktop/**'
       - 'frontend/**'
