@@ -3,7 +3,10 @@
 package backend
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +41,10 @@ var errStopped = errors.New("backend: supervisor stopped")
 // against, injected via -X .../internal/backend.ExpectedVersion. Empty
 // disables the check.
 var ExpectedVersion = ""
+
+// ExpectedBackendSHA256 is the bundled backend's SHA-256, injected via ldflags.
+// Empty disables the integrity check for local builds.
+var ExpectedBackendSHA256 = ""
 
 var healthClient = &http.Client{
 	Timeout:   healthHTTPTimeout,
@@ -115,11 +122,18 @@ func (s *Supervisor) Start(ctx context.Context) (string, error) {
 		return "", err
 	}
 	if external {
+		if err := s.waitHealthy(ctx, port, nil, startupTimeout); err != nil {
+			return "", fmt.Errorf("local backend did not become healthy: %w", err)
+		}
 		s.mu.Lock()
 		s.external = true
 		s.baseURL = baseURL(port)
 		s.mu.Unlock()
 		return baseURL(port), nil
+	}
+
+	if err := verifyBackendSHA256(binary); err != nil {
+		return "", err
 	}
 
 	if err := os.MkdirAll(filepath.Join(s.dataDir, "logs"), 0o755); err != nil {
@@ -246,6 +260,10 @@ func (s *Supervisor) launch(port int) (*exec.Cmd, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if err := verifyBackendSHA256(s.binary); err != nil {
+		return nil, err
+	}
+
 	if s.logFile == nil {
 		f, err := os.OpenFile(filepath.Join(s.dataDir, "logs", "backend.log"),
 			os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -338,7 +356,11 @@ func (s *Supervisor) monitor(done chan struct{}, stop <-chan struct{}) {
 		if !restarted {
 			s.mu.Lock()
 			s.baseURL = ""
+			lastErr := s.lastErr
 			s.lastErr = fmt.Errorf("local backend exited (%v); restart limit (%d) reached", waitErr, maxRestarts)
+			if lastErr != nil {
+				s.lastErr = fmt.Errorf("%v; last restart error: %w", s.lastErr, lastErr)
+			}
 			s.mu.Unlock()
 			return
 		}
@@ -366,6 +388,30 @@ func (s *Supervisor) waitHealthy(ctx context.Context, port int, stop <-chan stru
 		case <-time.After(healthInterval):
 		}
 	}
+}
+
+func verifyBackendSHA256(path string) error {
+	if ExpectedBackendSHA256 == "" {
+		return nil
+	}
+	expected, err := hex.DecodeString(ExpectedBackendSHA256)
+	if err != nil || len(expected) != sha256.Size {
+		return errors.New("本地后端完整性校验失败：预期 SHA-256 格式无效，请重新安装客户端")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("本地后端完整性校验失败：无法读取后端程序，请重新安装客户端: %w", err)
+	}
+	defer f.Close()
+
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return fmt.Errorf("本地后端完整性校验失败：无法读取后端程序，请重新安装客户端: %w", err)
+	}
+	if !bytes.Equal(h.Sum(nil), expected) {
+		return errors.New("本地后端完整性校验失败：SHA-256 不匹配，请重新安装客户端")
+	}
+	return nil
 }
 
 // LocateBinary resolves the bundled server binary. The installer places it in
@@ -483,13 +529,19 @@ func probeHealth(base string) bool {
 	return ok && h.healthy()
 }
 
-// checkVersion rejects a bundled backend built for a different client. Empty
-// or "dev" versions mean a local build, where an exact match is not expected.
+// checkVersion rejects a backend built for a different client. An empty
+// ExpectedVersion disables the check for local builds.
 func checkVersion(actual string) error {
+	if ExpectedVersion == "" {
+		return nil
+	}
 	want := strings.TrimPrefix(ExpectedVersion, "v")
 	got := strings.TrimPrefix(actual, "v")
-	if want == "" || got == "" || got == "dev" || got == want {
+	if actual != "" && got == want {
 		return nil
+	}
+	if actual == "" {
+		got = "（空）"
 	}
 	return fmt.Errorf("本地后端版本不匹配：客户端期望 %s，实际 %s，请重新安装或更新客户端", want, got)
 }

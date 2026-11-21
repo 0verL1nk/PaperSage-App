@@ -1,15 +1,16 @@
-// Package updater wires the Wails updater to the project's GitHub releases.
+// Package updater checks GitHub for a newer desktop release, downloads the
+// complete installer over a pinned handle, and hands it to a detached helper.
 package updater
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
+	"os"
+	"path/filepath"
 	"strings"
-
-	"github.com/wailsapp/wails/v3/pkg/application"
-	wailsupdater "github.com/wailsapp/wails/v3/pkg/updater"
-	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
+	"time"
 )
 
 // Desktop releases ship from the public app repository.
@@ -18,71 +19,105 @@ const repository = "0verL1nk/PaperSage-App"
 // EventUpdateError carries updater failures to the web layer.
 const EventUpdateError = "desktop:update-error"
 
-var app *application.App
+var flow *installerFlow
 
-// Setup configures the application's updater. Call it once after
-// application.New, before app.Run. It does not start any background check.
-func Setup(a *application.App, version string) error {
-	if a == nil {
-		return errors.New("updater: application is nil")
-	}
-	provider, err := github.New(github.Config{
-		Repository:    repository,
-		ChecksumAsset: "SHA256SUMS",
-		// Prerelease false keeps the provider on /releases/latest, which
-		// excludes prereleases and drafts.
-	})
+// Setup prepares the verified installer flow. It does not start any background
+// download or check.
+func Setup(version string) error {
+	root, err := stagingRoot()
 	if err != nil {
 		return err
 	}
-	err = a.Updater.Init(wailsupdater.Config{
-		CurrentVersion: strings.TrimPrefix(strings.TrimSpace(version), "v"),
-		Providers:      []wailsupdater.Provider{provider},
-	})
+	cleanStaleStaging(root)
+	provider, err := newInstallerProvider(repository, "", nil)
 	if err != nil {
 		return err
 	}
-	// Surface every failed stage to the web layer; the frontend shows a toast
-	// and falls back to a system notification when its window is inactive.
-	a.Event.On(wailsupdater.EventError, func(event *application.CustomEvent) {
-		if message := errorMessage(event.Data); message != "" {
-			a.Event.Emit(EventUpdateError, map[string]string{"message": message})
-		}
-	})
-	app = a
+	created, err := newInstallerFlow(provider, strings.TrimPrefix(strings.TrimSpace(version), "v"), "windows", "amd64", root)
+	if err != nil {
+		return err
+	}
+	flow = created
 	return nil
 }
 
-// errorMessage extracts the message from an updater error payload.
-func errorMessage(data any) string {
-	switch v := data.(type) {
-	case wailsupdater.ErrorInfo:
-		return v.Message
-	case *wailsupdater.ErrorInfo:
-		if v != nil {
-			return v.Message
-		}
-	case nil:
-		return ""
-	default:
-		return fmt.Sprint(v)
+func stagingRoot() (string, error) {
+	cache, err := os.UserCacheDir()
+	if err != nil {
+		return "", fmt.Errorf("updater: locate staging directory: %w", err)
 	}
-	return ""
+	root := filepath.Join(cache, "PaperSage", "updates")
+	if err := os.MkdirAll(root, 0700); err != nil {
+		return "", fmt.Errorf("updater: create staging directory: %w", err)
+	}
+	return root, nil
 }
 
-// CheckNow runs a foreground check-and-install with the built-in update
-// window. The caller decides when (and on which goroutine) this runs.
-func CheckNow(ctx context.Context) error {
-	if app == nil {
+// cleanStaleStaging drops leftovers from an update that was interrupted. Very
+// recent directories are kept: a helper may still be starting against one, and
+// the app can be relaunched while an update is in flight.
+func cleanStaleStaging(root string) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-time.Hour)
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), ".papersage-update-") {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || info.ModTime().After(cutoff) {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(root, entry.Name())); err != nil {
+			log.Printf("desktop: clean stale update directory: %v", err)
+		}
+	}
+}
+
+// UpdateInfo is the read-only release summary shown before downloading.
+type UpdateInfo struct {
+	Version string `json:"version"`
+	Name    string `json:"name,omitempty"`
+	Notes   string `json:"notes,omitempty"`
+}
+
+// Check looks for a newer release and keeps it for Download. A nil result means
+// the current version is up to date.
+func Check(ctx context.Context) (*UpdateInfo, error) {
+	if flow == nil {
+		return nil, errors.New("updater: Setup has not been called")
+	}
+	release, err := flow.Check(ctx)
+	if err != nil || release == nil {
+		return nil, err
+	}
+	return &UpdateInfo{Version: release.Version, Name: release.Name, Notes: release.Notes}, nil
+}
+
+// Download fetches and verifies the installer staged by Check.
+func Download(ctx context.Context, progress func(received, total int64)) error {
+	if flow == nil {
 		return errors.New("updater: Setup has not been called")
 	}
-	return app.Updater.CheckAndInstall(ctx)
+	_, err := flow.Download(ctx, progress)
+	return err
 }
 
-// State reports the updater's current lifecycle phase.
-func State() wailsupdater.State {
-	if app == nil {
-		return wailsupdater.StateUnconfigured
+// Handoff starts the detached helper that installs the staged installer. The
+// caller quits the application; the helper restarts it after the install.
+func Handoff() error {
+	if flow == nil {
+		return errors.New("updater: Setup has not been called")
 	}
-	return app.Updater.State()
+	return flow.Handoff(spawnUpdateHelper)
+}
+
+// Discard removes a downloaded installer that will not be used.
+func Discard() error {
+	if flow == nil {
+		return errors.New("updater: Setup has not been called")
+	}
+	return flow.Discard()
 }

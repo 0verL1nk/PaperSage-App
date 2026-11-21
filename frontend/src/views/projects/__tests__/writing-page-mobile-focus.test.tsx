@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { toast } from 'sonner'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
 
@@ -98,6 +99,49 @@ vi.mock('../writing-file-tree', () => ({
 }))
 
 import { WritingPage } from '../WritingPage'
+import { prepareForUpdate } from '@/lib/update-prepare'
+
+describe('WritingPage update preparation', () => {
+  it('reports a Ctrl+S failure instead of leaving a rejected promise unhandled', async () => {
+    mocks.autoSave.saveNow.mockClear().mockRejectedValueOnce(new Error('save failed'))
+    const toastError = vi.spyOn(toast, 'error')
+    const { unmount } = render(<WritingPage />)
+    try {
+      fireEvent.keyDown(window, { key: 's', ctrlKey: true })
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('保存失败', { description: 'save failed' }))
+    } finally {
+      toastError.mockRestore()
+      unmount()
+    }
+  })
+
+  it('propagates save failures through the update bridge', async () => {
+    mocks.autoSave.saveNow.mockClear().mockRejectedValueOnce(new Error('save failed'))
+    const { unmount } = render(<WritingPage />)
+
+    await expect(prepareForUpdate()).rejects.toThrow('save failed')
+    expect(mocks.autoSave.saveNow).toHaveBeenCalledTimes(1)
+    unmount()
+    await expect(prepareForUpdate()).resolves.toBeUndefined()
+  })
+
+  it('registers its save promise while mounted and unregisters on unmount', () => {
+    const pending = new Promise<void>(() => {})
+    mocks.autoSave.saveNow.mockClear().mockReturnValueOnce(pending)
+    const { unmount } = render(<WritingPage />)
+    const waitUntil = vi.fn()
+
+    window.dispatchEvent(new CustomEvent('papersage:prepare-update', { detail: { waitUntil } }))
+
+    expect(mocks.autoSave.saveNow).toHaveBeenCalledTimes(1)
+    expect(waitUntil).toHaveBeenCalledWith(pending)
+
+    unmount()
+    window.dispatchEvent(new CustomEvent('papersage:prepare-update', { detail: { waitUntil } }))
+    expect(mocks.autoSave.saveNow).toHaveBeenCalledTimes(1)
+    expect(waitUntil).toHaveBeenCalledTimes(1)
+  })
+})
 
 describe('WritingPage mobile sidebar focus', () => {
   beforeEach(() => {

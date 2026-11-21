@@ -443,6 +443,7 @@ export async function compileLatexInBrowser(
   if (!files.some((file) => file.path === rootFile)) {
     throw new Error(`主文件 ${rootFile} 不在当前项目文件列表中`)
   }
+  const apiBaseUrl = getRequiredApiBaseUrl()
   if (!('serviceWorker' in navigator)) {
     throw new Error('此浏览器不支持 Service Worker，无法缓存 TeX Live 资源')
   }
@@ -491,7 +492,7 @@ export async function compileLatexInBrowser(
   // origin; worker XHRs to 127.0.0.1 are blocked as a private-network request.
   const resourceOrigin = isDesktop() && getApiTarget() === 'local'
     ? window.location.origin
-    : getRequiredApiBaseUrl() || window.location.origin
+    : apiBaseUrl || window.location.origin
   const texLiveBaseUrl = new URL(`/texlive/${TEXLIVE_RESOURCE_PROFILE}/`, resourceOrigin).href
   const loadedPackages = new Set<string>()
   const loadedLookups = new Map<string, BrowserLatexResourceLookup>()

@@ -21,8 +21,15 @@ const CUSTOM_API_BASE_URL_KEY = 'papersage_custom_api_base_url'
 
 // Set by the desktop bootstrap once the supervised backend reports its URL.
 let desktopLocalApiBaseUrl = ''
+let desktopLocalBackendError = ''
 
-export function setDesktopLocalApiBaseUrl(value: string) {  const candidate = value.trim()
+export function setDesktopLocalBackendError(message: string) {
+  desktopLocalApiBaseUrl = ''
+  desktopLocalBackendError = message
+}
+
+export function setDesktopLocalApiBaseUrl(value: string) {
+  const candidate = value.trim()
   if (!candidate) {
     desktopLocalApiBaseUrl = ''
     return
@@ -31,8 +38,9 @@ export function setDesktopLocalApiBaseUrl(value: string) {  const candidate = va
     const url = new URL(candidate)
     if (!['http:', 'https:'].includes(url.protocol)) return
     desktopLocalApiBaseUrl = url.href.replace(/\/+$/, '')
+    desktopLocalBackendError = ''
   } catch {
-    // Ignore malformed desktop URLs; keep the build-time local address.
+    // Ignore malformed desktop URLs; keep the current state.
   }
 }
 
@@ -51,11 +59,11 @@ export function getDesktopLocalApiBaseUrl(): string {
 
 /** 当前选中的目标；未设置或值非法时回落。桌面端首次启动默认用托管后端。 */
 export function getApiTarget(): ApiTarget {
-  if (typeof localStorage === 'undefined') return desktopLocalApiBaseUrl ? 'local' : 'online'
+  if (typeof localStorage === 'undefined') return (desktopLocalApiBaseUrl || desktopLocalBackendError) ? 'local' : 'online'
   const target = localStorage.getItem(API_TARGET_KEY)
   if (target === 'local') return 'local'
   if (target === 'custom' && getCustomApiBaseUrl()) return 'custom'
-  if (!target && desktopLocalApiBaseUrl) return 'local'
+  if (!target && (desktopLocalApiBaseUrl || desktopLocalBackendError)) return 'local'
   return 'online'
 }
 
@@ -94,7 +102,7 @@ export function setCustomApiBaseUrl(value: string) {
 
 /** 目标对应的 base URL；online 为空串表示同源。 */
 export function getApiBaseUrlFor(target: ApiTarget) {
-  if (target === 'local') return desktopLocalApiBaseUrl || rawLocalApiBaseUrl
+  if (target === 'local') return desktopLocalBackendError ? '' : desktopLocalApiBaseUrl || rawLocalApiBaseUrl
   if (target === 'custom') return getCustomApiBaseUrl()
   return rawApiBaseUrl
 }
@@ -103,7 +111,15 @@ export function getOptionalApiBaseUrl() {
   return getApiBaseUrlFor(getApiTarget())
 }
 
+export function getApiUnavailableReason() {
+  return getApiTarget() === 'local' ? desktopLocalBackendError : ''
+}
+
+export class LocalBackendUnavailableError extends Error {}
+
 export function getRequiredApiBaseUrl() {
+  const error = getApiUnavailableReason()
+  if (error) throw new LocalBackendUnavailableError(error)
   return getOptionalApiBaseUrl()
 }
 

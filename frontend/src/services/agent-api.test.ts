@@ -29,8 +29,40 @@ afterEach(() => {
 })
 
 describe('streamRun（UI Message Stream 解析）', () => {
+  it('本地后端不可用时在 fetch 前拒绝事件流', async () => {
+    env.setApiTarget('local')
+    env.setDesktopLocalBackendError('本地后端版本不匹配')
+    const fetchMock = vi.fn(async () => sseResponse(['data: [DONE]\n\n']))
+    vi.stubGlobal('fetch', fetchMock)
+
+    try {
+      await expect(streamRun('run-1', { onEvent: () => {} })).rejects.toThrow('本地后端版本不匹配')
+      expect(fetchMock).not.toHaveBeenCalled()
+    } finally {
+      env.setDesktopLocalApiBaseUrl(env.appEnv.localApiBaseUrl)
+      env.setDesktopLocalApiBaseUrl('')
+    }
+  })
+
+  it.each(['online', 'custom'] as const)('本地失败后仍可使用 %s 目标订阅事件流', async (target) => {
+    env.setDesktopLocalBackendError('本地后端版本不匹配')
+    env.setCustomApiBaseUrl('https://custom.example.test')
+    env.setApiTarget(target)
+    try {
+      await collect(['data: [DONE]\n\n'])
+      const baseUrl = target === 'custom' ? 'https://custom.example.test' : env.appEnv.apiBaseUrl
+      expect(fetch).toHaveBeenCalledWith(
+        `${baseUrl.replace(/\/$/, '')}/api/v1/agent/runs/run-1/events`,
+        expect.anything(),
+      )
+    } finally {
+      env.setDesktopLocalApiBaseUrl(env.appEnv.localApiBaseUrl)
+      env.setDesktopLocalApiBaseUrl('')
+    }
+  })
+
   it.each(['https://api.paper.overlink.top/', 'http://localhost:5478', ''])('事件流跟随当前后端地址 %s', async (baseUrl) => {
-    vi.spyOn(env, 'getOptionalApiBaseUrl').mockReturnValue(baseUrl)
+    vi.spyOn(env, 'getRequiredApiBaseUrl').mockReturnValue(baseUrl)
     await collect(['data: [DONE]\n\n'])
     expect(fetch).toHaveBeenCalledWith(
       `${baseUrl.replace(/\/$/, '')}/api/v1/agent/runs/run-1/events`,
