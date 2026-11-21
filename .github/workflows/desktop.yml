@@ -2,6 +2,10 @@ name: Desktop
 
 on:
   workflow_call:
+    inputs:
+      expected_commit:
+        required: false
+        type: string
   workflow_dispatch:
   push:
     branches: [main]
@@ -42,6 +46,13 @@ jobs:
         with:
           ref: ${{ github.sha }}
 
+      - name: Verify validated release source
+        if: inputs.expected_commit != ''
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
+
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -63,19 +74,20 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
-      # PR builds only compile the exe; NSIS is needed for packaging only.
+      # Pull requests package the installer too, so NSIS is needed on every run.
       - name: Install NSIS
-        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        if: runner.os == 'Windows'
         shell: pwsh
         run: |
           if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            choco install nsis -y --no-progress
-          }
-          # choco 只改机器级 PATH，runner 进程不会重新读取；显式写进后续步骤的 PATH。
-          if (-not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-            $found = @('C:\ProgramData\chocolatey\bin\makensis.exe', 'C:\Program Files (x86)\NSIS\makensis.exe') |
-              Where-Object { Test-Path $_ } | Select-Object -First 1
+            $candidates = @('C:\Program Files (x86)\NSIS\makensis.exe', 'C:\ProgramData\chocolatey\bin\makensis.exe')
+            $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if (-not $found) {
+              choco install nsis -y --no-progress
+              $found = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            }
             if (-not $found) { throw 'makensis not found after install' }
+            # choco 只改机器级 PATH，runner 进程不会重新读取；显式写进后续步骤的 PATH。
             Split-Path $found | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           }
 
@@ -105,6 +117,11 @@ jobs:
           $config = $config -replace 'version: "[^"]*"', "version: `"$version`""
           Set-Content desktop/build/config.yml $config -NoNewline
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # NSIS requires a numeric X.X.X for INFO_PRODUCTVERSION (the template
+          # appends the fourth part). Dev versions like 0.0.0-dev.30 are invalid.
+          $parts = @($version -split '[^0-9]+' | Where-Object { $_ -ne '' } | Select-Object -First 3)
+          while ($parts.Count -lt 3) { $parts += '0' }
+          "PRODUCT_VERSION=$($parts -join '.')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $infoPath = 'desktop/build/windows/info.json'
           $info = Get-Content $infoPath -Raw | ConvertFrom-Json
           $info.fixed.file_version = $version
@@ -151,23 +168,16 @@ jobs:
           fi
           printf 'BACKEND_SHA256=%s\n' "$digest" >> "$GITHUB_ENV"
 
-      - name: Build (pull request)
-        if: github.event_name == 'pull_request'
-        working-directory: desktop
-        env:
-          ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
-          BACKEND_VERSION: ${{ env.VERSION }}
-          BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
-        run: go tool wails3 task build VERSION=${{ env.VERSION }}
-
+      # Package on pull requests too: the NSIS compile is where version metadata
+      # and installer identity break, and a build-only check did not catch it.
       - name: Build & package
-        if: github.event_name != 'pull_request'
         working-directory: desktop
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
           BACKEND_VERSION: ${{ env.VERSION }}
           BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
-        run: go tool wails3 task package VERSION=${{ env.VERSION }}
+          PRODUCT_VERSION: ${{ env.PRODUCT_VERSION }}
+        run: go tool wails3 task package VERSION=${{ env.VERSION }} PRODUCT_VERSION=${{ env.PRODUCT_VERSION }}
 
       - name: Stage release assets (Windows)
         if: runner.os == 'Windows'
