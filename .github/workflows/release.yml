@@ -104,7 +104,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: server-linux-amd64-${{ needs.validate.outputs.commit }}
           path: |
@@ -209,7 +209,7 @@ jobs:
             echo 'created=false' >> "$GITHUB_OUTPUT"
           fi
           echo "id=$release_id" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: steps.draft.outputs.created == 'true'
         with:
           name: release-draft-${{ github.run_id }}
