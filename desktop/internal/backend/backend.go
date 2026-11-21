@@ -274,6 +274,7 @@ func (s *Supervisor) launch(port int) (*exec.Cmd, error) {
 	}
 
 	cmd := exec.Command(s.binary)
+	configureChildProcess(cmd)
 	cmd.Env = backendEnv(port, s.dataDir, s.binary)
 	cmd.Stdout = s.logFile
 	cmd.Stderr = s.logFile
