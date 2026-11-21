@@ -11,8 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -209,7 +211,7 @@ func resolveMetadata(model string, user ModelMetadata) ModelMetadata {
 // NewChatModel 用 eino-ext 的 OpenAI 兼容组件构建模型
 // （DeepSeek/OpenAI/SiliconFlow 等兼容端点通用）。
 // sessionID 用于 OpenCode 网关按会话稳定路由（官方要求，缺失时请求会被拒绝）。
-func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeout time.Duration) (model.BaseChatModel, error) {
+func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeout, idleTimeout time.Duration) (model.BaseChatModel, error) {
 	cfg := &openai.ChatModelConfig{
 		APIKey:  r.APIKey,
 		BaseURL: strings.TrimRight(r.BaseURL, "/"),
@@ -228,6 +230,71 @@ func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeo
 	if sessionID != "" && opencode.IsGateway(r.BaseURL) {
 		rt = opencode.SessionTransport(rt, sessionID)
 	}
+	if idleTimeout > 0 {
+		rt = idleTimeoutTransport(rt, idleTimeout)
+	}
 	cfg.HTTPClient = &http.Client{Transport: rt}
 	return openai.NewChatModel(ctx, cfg)
+}
+
+// idleTimeoutTransport 中断“连接还在、但长时间没有任何字节”的响应，
+// 避免流式半途悬挂。正常流每收到一段数据都会重置计时。
+func idleTimeoutTransport(base http.RoundTripper, idle time.Duration) http.RoundTripper {
+	return roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		resp, err := base.RoundTrip(req)
+		if err != nil {
+			return nil, err
+		}
+		body := &idleTimeoutBody{ReadCloser: resp.Body, idle: idle}
+		body.timer = time.AfterFunc(idle, body.expire)
+		resp.Body = body
+		return resp, nil
+	})
+}
+
+type roundTripperFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
+type idleTimeoutBody struct {
+	io.ReadCloser
+	idle    time.Duration
+	mu      sync.Mutex
+	timer   *time.Timer
+	expired bool
+}
+
+func (b *idleTimeoutBody) expire() {
+	b.mu.Lock()
+	b.expired = true
+	b.mu.Unlock()
+	_ = b.ReadCloser.Close()
+}
+
+func (b *idleTimeoutBody) Read(p []byte) (int, error) {
+	b.mu.Lock()
+	if b.timer != nil {
+		b.timer.Reset(b.idle)
+	}
+	b.mu.Unlock()
+	n, err := b.ReadCloser.Read(p)
+	b.mu.Lock()
+	expired := b.expired
+	if n > 0 && b.timer != nil {
+		b.timer.Reset(b.idle)
+	}
+	b.mu.Unlock()
+	if err != nil && expired {
+		return n, fmt.Errorf("model stream idle for %s: %w", b.idle, context.DeadlineExceeded)
+	}
+	return n, err
+}
+
+func (b *idleTimeoutBody) Close() error {
+	b.mu.Lock()
+	if b.timer != nil {
+		b.timer.Stop()
+	}
+	b.mu.Unlock()
+	return b.ReadCloser.Close()
 }

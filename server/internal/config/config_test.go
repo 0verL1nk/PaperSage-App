@@ -27,6 +27,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 0, s.AgentDocumentReadLimitBytes)
 	assert.Equal(t, 20, s.AgentMaxIterations)
 	assert.Equal(t, 2*time.Minute, s.AgentModelTimeout)
+	assert.Equal(t, 5*time.Minute, s.AgentModelIdleTimeout)
 	assert.Equal(t, []string{"localhost", "127.0.0.1"}, s.AllowedHosts)
 	assert.Equal(t, "0.0.0.0", s.Host)
 	assert.Equal(t, 5478, s.Port)
@@ -168,4 +169,13 @@ func TestAgentModelTimeoutMustBePositive(t *testing.T) {
 	t.Setenv("AGENT_MODEL_TIMEOUT", "0s")
 	_, err := Load()
 	require.Error(t, err)
+}
+
+func TestAgentModelIdleTimeoutMustNotBeNegative(t *testing.T) {
+	t.Setenv("AGENT_MODEL_IDLE_TIMEOUT", "-1s")
+	_, err := Load()
+	require.Error(t, err)
+	t.Setenv("AGENT_MODEL_IDLE_TIMEOUT", "0s")
+	_, err = Load()
+	require.NoError(t, err, "0 disables the idle timeout")
 }

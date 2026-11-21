@@ -68,6 +68,7 @@ type Settings struct {
 	AgentDocumentReadLimitBytes int           `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
 	AgentMaxIterations          int           `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
 	AgentModelTimeout           time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`            // 模型响应头超时，防止连接悬挂
+	AgentModelIdleTimeout       time.Duration `env:"AGENT_MODEL_IDLE_TIMEOUT" envDefault:"5m"`       // 流式空闲超时；0 关闭
 	// 模型能力目录：后台刷新 models.dev 快照；置空可禁用（此时能力未知，由用户手填）。
 	ModelRegistryURL          string `env:"MODEL_REGISTRY_URL" envDefault:"https://models.dev/api.json"`
 	ModelRegistryRefreshHours int    `env:"MODEL_REGISTRY_REFRESH_HOURS" envDefault:"24"`
@@ -108,6 +109,9 @@ func Load() (*Settings, error) {
 	}
 	if s.AgentModelTimeout <= 0 {
 		return nil, fmt.Errorf("AGENT_MODEL_TIMEOUT must be positive")
+	}
+	if s.AgentModelIdleTimeout < 0 {
+		return nil, fmt.Errorf("AGENT_MODEL_IDLE_TIMEOUT must not be negative")
 	}
 	// Python's parse_allowed_hosts strips whitespace and drops empty items.
 	s.AllowedHosts = normalizeHosts(s.AllowedHosts)

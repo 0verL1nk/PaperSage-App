@@ -244,6 +244,7 @@ Backend reads env vars via `server/internal/config`（变量名与旧 Python 版
 - **LaTeX**: `LATEX_CLSI_BASE_URL=http://localhost:3013`, `LATEX_CLSI_ENABLED`
 - **Agent（AI 助手）**: 优先用 per-user 设置里的 provider；服务端兜底用
   `AGENT_API_KEY` / `AGENT_BASE_URL` / `AGENT_MODEL`（OpenAI 兼容；DeepSeek 走 BaseURL）。
+  `AGENT_MODEL_TIMEOUT`（响应头超时，默认 2m）与 `AGENT_MODEL_IDLE_TIMEOUT`（流式空闲超时，默认 5m，0 关闭）。
   嵌入用 `EMBED_API_KEY` / `EMBED_BASE_URL` / `EMBED_MODEL`，未配置则退回哈希嵌入（仅保证管线可用）。
   两者都未配置时，创建 Run 的请求返回 400 + 引导文案，面板展示「去设置」入口。
 - **Email**: Resend (`RESEND_API_KEY`) or SMTP fallback
