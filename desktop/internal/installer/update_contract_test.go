@@ -3,18 +3,13 @@ package installer
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"testing"
 )
 
-// BLOCKED: the elevated NSIS update transaction is not shipped because
-// user-writable install roots cannot be proven safe against reparent/reparse
-// races. These contract tests stay skipped until a handle-relative
-// installer is implemented and validated in an isolated Windows VM.
-// These checks inspect the real installer script without executing an installer.
-// Runtime failure injection is still required to verify Windows/NSIS behavior.
+// Contract checks for the installer script that the desktop updater runs. They
+// inspect the real NSIS script without executing an installer.
 func updateScript(t *testing.T) string {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)
@@ -36,59 +31,36 @@ func updateScript(t *testing.T) string {
 	return strings.Join(lines, "\n")
 }
 
-func updateFunction(t *testing.T, script, name string) string {
-	t.Helper()
-	pattern := `(?ims)^[ \t]*Function[ \t]+` + regexp.QuoteMeta(name) + `[ \t]*\r?\n(.*?)^[ \t]*FunctionEnd[ \t]*\r?$`
-	match := regexp.MustCompile(pattern).FindStringSubmatch(script)
-	if len(match) != 2 {
-		t.Errorf("missing installer function %s", name)
-		return ""
+// The desktop auto-updater hands the verified installer to an elevated process,
+// which shows one UAC prompt. Switching the installer to per-user scope would
+// remove that prompt and must be a deliberate, reviewed change.
+func TestUpdateInstallerKeepsElevatedMachineScope(t *testing.T) {
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("locate test source")
 	}
-	return match[1]
-}
-
-func TestUpdateHandshakeBeforeFileChanges(t *testing.T) {
-	t.Skip("blocked: elevated NSIS update transaction not implemented")
-	script := updateScript(t)
-	init := updateFunction(t, script, ".onInit")
-	if !strings.Contains(init, "Call UpdateHandshake") {
-		t.Error("installer initialization must perform the update handoff")
+	root := filepath.Join(filepath.Dir(filename), "..", "..", "build", "windows", "nsis")
+	tools, err := os.ReadFile(filepath.Join(root, "wails_tools.nsh"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	handshake := updateFunction(t, script, "UpdateHandshake")
 	for _, required := range []string{
-		"/PAPERSAGE_PARENT_PID=", "/PAPERSAGE_HANDOFF=",
-		"OpenProcess", "OpenEventW", "SetEvent", "WaitForSingleObject", "CloseHandle",
-		"-ready", "-commit",
+		`!define WAILS_INSTALL_SCOPE "machine"`,
+		`!define REQUEST_EXECUTION_LEVEL "admin"`,
 	} {
-		if !strings.Contains(handshake, required) {
-			t.Errorf("handoff missing %q", required)
+		if !strings.Contains(string(tools), required) {
+			t.Errorf("wails_tools.nsh no longer defaults to %q", required)
 		}
 	}
-	ready := strings.Index(handshake, "SetEvent")
-	wait := strings.Index(handshake, "WaitForSingleObject")
-	if ready < 0 || wait <= ready || strings.Count(handshake, "WaitForSingleObject") < 2 {
-		t.Error("ready must precede bounded waits for both commit and parent exit")
+	project, err := os.ReadFile(filepath.Join(root, "project.nsi"))
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestUpdateRollbackRestoresEveryManagedFile(t *testing.T) {
-	t.Skip("blocked: elevated NSIS update transaction not implemented")
 	script := updateScript(t)
-	rollback := updateFunction(t, script, "UpdateRollback")
-	for _, path := range []string{
-		`$INSTDIR\${PRODUCT_EXECUTABLE}`,
-		`$INSTDIR\backend\papersage.exe`,
-		`$INSTDIR\backend\catalog.json.gz`,
-		`$INSTDIR\uninstall.exe`,
-	} {
-		if !strings.Contains(rollback, `"`+path+`"`) {
-			t.Errorf("rollback does not restore managed destination %s", path)
-		}
+	if strings.Contains(script, `WAILS_INSTALL_SCOPE "user"`) || strings.Contains(script, `REQUEST_EXECUTION_LEVEL "user"`) {
+		t.Error("project.nsi switched to per-user scope without revisiting the auto-update UAC contract")
 	}
-	if !strings.Contains(rollback, "RestoreManaged") {
-		t.Error("rollback must restore the old files without overwriting existing destinations")
-	}
-	if strings.Contains(strings.ToLower(rollback), "rmdir /r") {
-		t.Error("rollback must not recursively remove application or user files")
+	if !strings.Contains(string(project), `${INFO_PROJECTNAME}-${ARCH}-installer.exe`) {
+		t.Error("installer output name changed; the updater selects papersage-windows-amd64-installer.exe")
 	}
 }

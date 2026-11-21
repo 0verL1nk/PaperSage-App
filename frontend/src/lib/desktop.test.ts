@@ -6,6 +6,7 @@ import {
   isDesktop,
   isSafeExternalUrl,
   notifyWhenBackground,
+  onDesktopUpdateProgress,
   openExternalSafe,
 } from './desktop'
 
@@ -72,12 +73,58 @@ describe('desktop bridge', () => {
     expect(callByName).toHaveBeenCalledWith(`${FQN}.CheckForUpdates`)
   })
 
-  it('does not expose automatic download, installation, or cleanup methods', () => {
+  it('calls the native download, install, and discard bindings without swallowing failures', async () => {
     installWailsRuntime()
     const service = getDesktopService()!
-    expect(service).not.toHaveProperty('downloadUpdate')
-    expect(service).not.toHaveProperty('installUpdate')
-    expect(service).not.toHaveProperty('discardUpdate')
+    callByName.mockResolvedValue(undefined)
+
+    await service.downloadUpdate()
+    await service.installUpdate()
+    await service.discardUpdate()
+    expect(callByName.mock.calls).toEqual([
+      [`${FQN}.DownloadUpdate`],
+      [`${FQN}.InstallUpdate`],
+      [`${FQN}.DiscardUpdate`],
+    ])
+
+    callByName.mockRejectedValue(new Error('native failure'))
+    await expect(service.downloadUpdate()).rejects.toThrow('native failure')
+    await expect(service.installUpdate()).rejects.toThrow('native failure')
+    await expect(service.discardUpdate()).rejects.toThrow('native failure')
+  })
+
+  it('forwards valid progress events and unsubscribes', () => {
+    installWailsRuntime()
+    let listener!: (event: { data: unknown }) => void
+    const unsubscribe = vi.fn()
+    onEvent.mockImplementation((name: string, handler: typeof listener) => {
+      expect(name).toBe('desktop:update-progress')
+      listener = handler
+      return unsubscribe
+    })
+    const handler = vi.fn()
+    const off = onDesktopUpdateProgress(handler)
+
+    listener({ data: { received: 25, total: 100 } })
+    listener({ data: { received: 25, total: 0 } })
+    for (const data of [null, {}, [], { received: '1', total: 2 }, { received: 1, total: '2' },
+      { received: -1, total: 1 }, { received: 1, total: -1 },
+      { received: Infinity, total: 1 }, { received: 1, total: NaN }]) {
+      listener({ data })
+    }
+    expect(handler.mock.calls).toEqual([
+      [{ received: 25, total: 100 }],
+      [{ received: 25, total: 0 }],
+    ])
+    off()
+    expect(unsubscribe).toHaveBeenCalledOnce()
+  })
+
+  it('does not subscribe to progress in a plain browser', () => {
+    onEvent.mockClear()
+    const off = onDesktopUpdateProgress(vi.fn())
+    expect(onEvent).not.toHaveBeenCalled()
+    expect(() => off()).not.toThrow()
   })
 
   it('allows only http, https and mailto links', () => {
@@ -219,6 +266,12 @@ describe('desktop local backend startup', () => {
 
     expect(env.getRequiredApiBaseUrl()).toBe(env.appEnv.localApiBaseUrl)
     expect(env.getRequiredApiBaseUrl()).toContain('localhost:5478')
+  })
+
+  it('does not install a duplicate global update-error listener at startup', async () => {
+    await bootDesktop('', 'http://127.0.0.1:6000/')
+
+    expect(onEvent.mock.calls.some(([event]) => event === 'desktop:update-error')).toBe(false)
   })
 
   it('uses the supervised URL during a normal desktop startup', async () => {

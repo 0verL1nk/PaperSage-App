@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -78,8 +77,8 @@ func TestInstallerFlowCheckDownloadDiscard(t *testing.T) {
 	if err != nil || got == nil || got.Version != release.Version {
 		t.Fatalf("Check() = (%v, %v), want available release", got, err)
 	}
-	if _, err := flow.Check(context.Background()); err == nil {
-		t.Fatal("duplicate check replaced the pending release")
+	if again, err := flow.Check(context.Background()); err != nil || again == nil || again.Version != release.Version {
+		t.Fatalf("repeated Check() = (%v, %v), want the same release", again, err)
 	}
 	var written, total int64
 	path, err := flow.Download(context.Background(), func(w, n int64) { written, total = w, n })
@@ -584,60 +583,29 @@ func TestInstallerFlowHandoffBlocksConcurrentOperations(t *testing.T) {
 	}
 }
 
-func TestInstallerFlowHandoffPendingKeepsStageProtected(t *testing.T) {
+func TestInstallerFlowCheckClearsReleaseWhenUpToDate(t *testing.T) {
 	root := stagingRootWithSentinels(t)
 	content := []byte("installer bytes")
-	flow := newFlowFixture(t, flowFixtureProvider(stagingTestRelease(content), content), root)
-	if _, err := flow.Check(context.Background()); err != nil {
-		t.Fatal(err)
+	upToDate := false
+	provider := flowFixtureProvider(stagingTestRelease(content), content)
+	check := provider.check
+	provider.check = func(ctx context.Context, req wailsupdater.CheckRequest) (*wailsupdater.Release, error) {
+		if upToDate {
+			return nil, nil
+		}
+		return check(ctx, req)
 	}
-	path, err := flow.Download(context.Background(), nil)
-	if err != nil {
-		t.Fatal(err)
+	flow := newFlowFixture(t, provider, root)
+	if got, err := flow.Check(context.Background()); err != nil || got == nil {
+		t.Fatalf("Check() = (%v, %v), want a release", got, err)
 	}
-	pending := fmt.Errorf("could not confirm child exit: %w", ErrInstallerHandoffPending)
-	started := make(chan struct{})
-	proceed := make(chan struct{})
-	var once sync.Once
-	unblock := func() { once.Do(func() { close(proceed) }) }
-	t.Cleanup(unblock)
-	finished := make(chan error, 1)
-	go func() {
-		finished <- flow.Handoff(func(string, []byte) error {
-			close(started)
-			<-proceed
-			return pending
-		})
-	}()
-	select {
-	case <-started:
-	case err := <-finished:
-		t.Fatalf("Handoff() returned before starting launcher: %v", err)
-	case <-time.After(3 * time.Second):
-		t.Fatal("Handoff() did not start launcher")
+	upToDate = true
+	if got, err := flow.Check(context.Background()); err != nil || got != nil {
+		t.Fatalf("up-to-date Check() = (%v, %v), want nil", got, err)
 	}
-	expectFlowBusy(t, "Discard while uncertain handoff is running", flow.Discard)
-	unblock()
-	if err := <-finished; !errors.Is(err, ErrInstallerHandoffPending) {
-		t.Fatalf("Handoff() error = %v, want pending", err)
+	if _, err := flow.Download(context.Background(), nil); err == nil {
+		t.Fatal("Download() used a release cleared by the up-to-date check")
 	}
-	if _, err := flow.Check(context.Background()); !errors.Is(err, ErrInstallerHandoffPending) {
-		t.Errorf("Check() while pending error = %v", err)
-	}
-	if _, err := flow.Download(context.Background(), nil); !errors.Is(err, ErrInstallerHandoffPending) {
-		t.Errorf("Download() while pending error = %v", err)
-	}
-	if err := flow.Discard(); !errors.Is(err, ErrInstallerHandoffPending) {
-		t.Errorf("Discard() while pending error = %v", err)
-	}
-	called := false
-	if err := flow.Handoff(func(string, []byte) error { called = true; return nil }); !errors.Is(err, ErrInstallerHandoffPending) || called {
-		t.Errorf("Handoff() while pending error = %v, launcher called = %t", err, called)
-	}
-	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, content) {
-		t.Fatalf("installer after uncertain handoff = %q, %v", got, err)
-	}
-	assertStagingSentinels(t, root)
 }
 
 func TestInstallerFlowRejectsUnsafeMetadataAndInvalidRoots(t *testing.T) {

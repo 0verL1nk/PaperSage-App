@@ -12,10 +12,8 @@ import (
 )
 
 var (
-	// ErrInstallerHandoffPending means a started installer may still be active.
-	ErrInstallerHandoffPending = errors.New("updater: installer handoff remains pending")
-	errInstallerFlowBusy       = errors.New("updater: installer flow operation in progress")
-	errInstallerFlowState      = errors.New("updater: installer flow operation not allowed in current state")
+	errInstallerFlowBusy  = errors.New("updater: installer flow operation in progress")
+	errInstallerFlowState = errors.New("updater: installer flow operation not allowed in current state")
 )
 
 type installerFlowState uint8
@@ -28,7 +26,6 @@ const (
 	installerFlowStaged
 	installerFlowDiscarding
 	installerFlowHandingOff
-	installerFlowHandoffPending
 	installerFlowHandedOff
 )
 
@@ -65,9 +62,6 @@ func newInstallerFlow(provider wailsupdater.Provider, currentVersion, platform, 
 func (f *installerFlow) begin(expected, next installerFlowState) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if f.state == installerFlowHandoffPending {
-		return ErrInstallerHandoffPending
-	}
 	if f.state == installerFlowChecking || f.state == installerFlowDownloading || f.state == installerFlowDiscarding || f.state == installerFlowHandingOff {
 		return errInstallerFlowBusy
 	}
@@ -78,8 +72,25 @@ func (f *installerFlow) begin(expected, next installerFlowState) error {
 	return nil
 }
 
+// beginCheck permits a refresh after a previous check found an update.
+func (f *installerFlow) beginCheck() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch f.state {
+	case installerFlowIdle, installerFlowAvailable:
+	default:
+		if f.state == installerFlowChecking || f.state == installerFlowDownloading ||
+			f.state == installerFlowDiscarding || f.state == installerFlowHandingOff {
+			return errInstallerFlowBusy
+		}
+		return errInstallerFlowState
+	}
+	f.state = installerFlowChecking
+	return nil
+}
+
 func (f *installerFlow) Check(ctx context.Context) (*wailsupdater.Release, error) {
-	if err := f.begin(installerFlowIdle, installerFlowChecking); err != nil {
+	if err := f.beginCheck(); err != nil {
 		return nil, err
 	}
 	release, err := f.provider.Check(ctx, wailsupdater.CheckRequest{
@@ -103,6 +114,7 @@ func (f *installerFlow) Check(ctx context.Context) (*wailsupdater.Release, error
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err != nil || stored == nil {
+		f.release = nil
 		f.state = installerFlowIdle
 		return nil, err
 	}
@@ -145,11 +157,7 @@ func (f *installerFlow) Handoff(launch func(path string, digest []byte) error) e
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err != nil {
-		if errors.Is(err, ErrInstallerHandoffPending) {
-			f.state = installerFlowHandoffPending
-		} else {
-			f.state = installerFlowStaged
-		}
+		f.state = installerFlowStaged
 		return err
 	}
 	f.state = installerFlowHandedOff
@@ -161,10 +169,6 @@ func (f *installerFlow) Discard() error {
 	if f.state == installerFlowIdle {
 		f.mu.Unlock()
 		return nil
-	}
-	if f.state == installerFlowHandoffPending {
-		f.mu.Unlock()
-		return ErrInstallerHandoffPending
 	}
 	if f.state == installerFlowChecking || f.state == installerFlowDownloading || f.state == installerFlowDiscarding || f.state == installerFlowHandingOff {
 		f.mu.Unlock()

@@ -66,7 +66,9 @@ export interface DesktopService {
   windowIsMaximised(): Promise<boolean>
   windowToggleFullscreen(): Promise<void>
   checkForUpdates(): Promise<DesktopUpdate | null>
-  updateState(): Promise<string | null>
+  downloadUpdate(): Promise<void>
+  installUpdate(): Promise<void>
+  discardUpdate(): Promise<void>
   localBackendError(): Promise<string | null>
   quitApp(): Promise<void>
 }
@@ -181,7 +183,9 @@ export function getDesktopService(): DesktopService | null {  if (!isDesktop()) 
       await callDesktop('WindowToggleFullscreen')
     },
     checkForUpdates: async () => (await Call.ByName(`${DESKTOP_SERVICE_FQN}.CheckForUpdates`)) as DesktopUpdate | null,
-    updateState: async () => callDesktop<string>('UpdateState'),
+    downloadUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.DownloadUpdate`) },
+    installUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.InstallUpdate`) },
+    discardUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.DiscardUpdate`) },
     localBackendError: async () => callDesktop<string>('LocalBackendError'),
     quitApp: async () => {
       await callDesktop('QuitApp')
@@ -217,10 +221,6 @@ export function initDesktop(): Promise<void> {
         setDesktopLocalBackendError(message)
         toast.error('本地后端不可用', { description: message, duration: 12_000 })
       }
-      onDesktopUpdateError((message) => {
-        toast.error('更新失败', { description: message })
-        void notifyWhenBackground('更新失败', message)
-      })
     } catch {
       // Running in a browser: the runtime package exists but the Go bridge does not.
     }
@@ -277,6 +277,18 @@ export function onDesktopFilesDropped(handler: (files: string[], target: string)
 export function onDesktopOpenUpdate(handler: () => void): () => void {
   if (!isDesktop()) return () => undefined
   const off = Events.On('desktop:open-update', handler)
+  return typeof off === 'function' ? off : () => undefined
+}
+
+/** Subscribes to valid native updater progress events. */
+export function onDesktopUpdateProgress(handler: (progress: { received: number; total: number }) => void): () => void {
+  if (!isDesktop()) return () => undefined
+  const off = Events.On('desktop:update-progress', (event) => {
+    const data = event.data as { received?: unknown; total?: unknown } | null
+    if (!data || typeof data.received !== 'number' || !Number.isFinite(data.received) || data.received < 0 ||
+        typeof data.total !== 'number' || !Number.isFinite(data.total) || data.total < 0) return
+    handler({ received: data.received, total: data.total })
+  })
   return typeof off === 'function' ? off : () => undefined
 }
 
