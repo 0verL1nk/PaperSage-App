@@ -1,5 +1,5 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
-import { getOptionalApiBaseUrl, getRequiredApiBaseUrl } from '@/lib/env'
+import { getOptionalApiBaseUrl, getRequiredApiBaseUrl, LocalBackendUnavailableError } from '@/lib/env'
 import { AUTH } from '@/services/api-routes'
 import { clearSessionTokens, getAccessToken, getRefreshToken, mergeRefreshedTokens, setSessionTokens, useSessionStore, type SessionTokens } from '@/store'
 import { hideGlobalLoading, showGlobalLoading } from '@/store'
@@ -48,19 +48,30 @@ export const apiClient = axios.create({
 
 // Token refresh state to prevent multiple concurrent refresh requests
 let isRefreshing = false
-let refreshSubscribers: ((tokens: SessionTokens) => void)[] = []
+let refreshSubscribers: Array<{
+  resolve: (tokens: SessionTokens) => void
+  reject: (error: unknown) => void
+}> = []
 
-function subscribeTokenRefresh(callback: (tokens: SessionTokens) => void) {
-  refreshSubscribers.push(callback)
+function subscribeTokenRefresh(resolve: (tokens: SessionTokens) => void, reject: (error: unknown) => void) {
+  refreshSubscribers.push({ resolve, reject })
 }
 
 function notifyTokenRefresh(tokens: SessionTokens) {
-  refreshSubscribers.forEach((callback) => callback(tokens))
+  const subscribers = refreshSubscribers
   refreshSubscribers = []
+  subscribers.forEach(({ resolve }) => resolve(tokens))
+}
+
+function rejectTokenRefresh(error: unknown) {
+  const subscribers = refreshSubscribers
+  refreshSubscribers = []
+  subscribers.forEach(({ reject }) => reject(error))
 }
 
 // Refresh token endpoint
 async function refreshAccessToken(): Promise<SessionTokens> {
+  const baseURL = getRequiredApiBaseUrl() || undefined
   const refreshToken = getRefreshToken()
 
   if (!refreshToken) {
@@ -69,7 +80,7 @@ async function refreshAccessToken(): Promise<SessionTokens> {
 
   // Use a separate axios instance to avoid interceptor loops
   const refreshClient = axios.create({
-    baseURL: getOptionalApiBaseUrl() || undefined,
+    baseURL,
     timeout: 30_000,
   })
 
@@ -170,7 +181,7 @@ apiClient.interceptors.response.use(
       // 走 refresh 重定向会整页跳转 /auth 并清空表单状态
       // If already refreshing, wait for the refresh to complete
       if (isRefreshing) {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
           subscribeTokenRefresh((tokens) => {
             // Retry the original request with new token
             const retryConfig = {
@@ -181,7 +192,7 @@ apiClient.interceptors.response.use(
               },
             }
             resolve(apiClient.request(retryConfig))
-          })
+          }, reject)
         })
       }
 
@@ -201,13 +212,18 @@ apiClient.interceptors.response.use(
         }
         return apiClient.request(retryConfig)
       } catch (refreshError) {
+        const normalized = normalizeApiError(refreshError)
+        rejectTokenRefresh(normalized)
+        if (refreshError instanceof LocalBackendUnavailableError) {
+          return Promise.reject(normalized)
+        }
         // Refresh failed, redirect to auth
         clearSessionTokens()
         // Only redirect if we're in a browser environment
         if (typeof window !== 'undefined') {
           window.location.href = '/auth'
         }
-        return Promise.reject(normalizeApiError(refreshError))
+        return Promise.reject(normalized)
       } finally {
         isRefreshing = false
       }

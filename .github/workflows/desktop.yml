@@ -39,6 +39,8 @@ jobs:
           # Linux packaging is not part of the supported desktop targets yet.
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -88,7 +90,7 @@ jobs:
 
       - name: Unit tests (pure Go packages)
         working-directory: desktop
-        run: go test ./internal/assets/... ./internal/deeplink/... ./internal/foldersync/... ./internal/windowstate/...
+        run: go test ./internal/assets/... ./internal/deeplink/... ./internal/foldersync/... ./internal/installer/... ./internal/windowstate/...
 
       - name: Resolve version
         if: runner.os == 'Windows'
@@ -142,6 +144,12 @@ jobs:
           # Same version as the client, so backend.ExpectedVersion can be injected
           # into the desktop build and a stale bundled backend is rejected.
           go build -trimpath -ldflags "-s -w -X github.com/0verL1nk/GraduateProject/server/internal/buildinfo.Version=$VERSION" -o "$out" ./cmd/papersage
+          digest="$(sha256sum "$out" | cut -d ' ' -f1)"
+          if [[ ! "$digest" =~ ^[0-9a-f]{64}$ ]]; then
+            printf 'Invalid backend SHA-256\n' >&2
+            exit 1
+          fi
+          printf 'BACKEND_SHA256=%s\n' "$digest" >> "$GITHUB_ENV"
 
       - name: Build (pull request)
         if: github.event_name == 'pull_request'
@@ -149,6 +157,7 @@ jobs:
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
           BACKEND_VERSION: ${{ env.VERSION }}
+          BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
         run: go tool wails3 task build VERSION=${{ env.VERSION }}
 
       - name: Build & package
@@ -157,6 +166,7 @@ jobs:
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
           BACKEND_VERSION: ${{ env.VERSION }}
+          BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
         run: go tool wails3 task package VERSION=${{ env.VERSION }}
 
       - name: Stage release assets (Windows)
@@ -165,14 +175,16 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force release | Out-Null
           Copy-Item desktop/bin/papersage.exe release/papersage-windows-amd64.exe
+          $checksumFile = 'release/papersage-windows-amd64.exe'
           if ($env:GITHUB_EVENT_NAME -ne 'pull_request') {
             $installer = Get-ChildItem desktop/bin/*-installer.exe | Select-Object -First 1
             if (-not $installer) { throw "NSIS installer was not produced" }
-            Copy-Item $installer.FullName release/papersage-windows-amd64-installer.exe
+            $checksumFile = 'release/papersage-windows-amd64-installer.exe'
+            Copy-Item $installer.FullName $checksumFile
           }
-          Get-ChildItem release/* -File | Get-FileHash -Algorithm SHA256 | ForEach-Object {
-            "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)"
-          } | Set-Content release/SHA256SUMS
+          $digest = (Get-FileHash $checksumFile -Algorithm SHA256).Hash.ToLowerInvariant()
+          $checksumPath = Join-Path (Resolve-Path release) 'SHA256SUMS'
+          [IO.File]::WriteAllText($checksumPath, "$digest  $(Split-Path $checksumFile -Leaf)`n", [Text.UTF8Encoding]::new($false))
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -180,32 +192,5 @@ jobs:
           name: papersage-desktop-${{ matrix.platform }}
           path: release/*
           if-no-files-found: error
+          overwrite: true
           retention-days: 7
-
-  publish:
-    name: Publish release assets
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: write
-    steps:
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: papersage-desktop-*
-          path: dist
-          merge-multiple: true
-
-      - name: Merge platform checksums
-        run: |
-          cd dist
-          cat SHA256SUMS SHA256SUMS-darwin SHA256SUMS-linux 2>/dev/null | sort -u > SHA256SUMS.all
-          mv SHA256SUMS.all SHA256SUMS
-
-      - name: Publish release assets
-        uses: softprops/action-gh-release@v2
-        with:
-          files: dist/*
-          fail_on_unmatched_files: true

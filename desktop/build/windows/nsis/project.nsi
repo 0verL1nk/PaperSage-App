@@ -110,9 +110,10 @@ SectionEnd
 Section "uninstall" 
     !insertmacro wails.setShellContext
 
-    RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
-
-    RMDir /r $INSTDIR
+    # Keep the WebView2 profile, which can contain guest workspaces.
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    Delete "$INSTDIR\backend\papersage.exe"
+    Delete "$INSTDIR\backend\catalog.json.gz"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -121,4 +122,7 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+
+    RMDir "$INSTDIR\backend"
+    RMDir "$INSTDIR"
 SectionEnd

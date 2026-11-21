@@ -9,7 +9,7 @@
  * Every entry point degrades to null/no-op in a plain browser.
  */
 
-import { setDesktopLocalApiBaseUrl } from './env'
+import { getDesktopLocalApiBaseUrl, setDesktopLocalApiBaseUrl, setDesktopLocalBackendError } from './env'
 
 import { Call, Events } from '@wailsio/runtime'
 import { toast } from 'sonner'
@@ -41,6 +41,12 @@ export interface DroppedFile {
   data: string
 }
 
+export interface DesktopUpdate {
+  version: string
+  name?: string
+  notes?: string
+}
+
 export interface DesktopService {
   appInfo(): Promise<DesktopAppInfo | null>
   notify(title: string, body: string): Promise<void>
@@ -59,8 +65,10 @@ export interface DesktopService {
   windowClose(): Promise<void>
   windowIsMaximised(): Promise<boolean>
   windowToggleFullscreen(): Promise<void>
-  checkForUpdates(): Promise<void>
-  updateState(): Promise<string | null>
+  checkForUpdates(): Promise<DesktopUpdate | null>
+  downloadUpdate(): Promise<void>
+  installUpdate(): Promise<void>
+  discardUpdate(): Promise<void>
   localBackendError(): Promise<string | null>
   quitApp(): Promise<void>
 }
@@ -174,10 +182,10 @@ export function getDesktopService(): DesktopService | null {  if (!isDesktop()) 
     windowToggleFullscreen: async () => {
       await callDesktop('WindowToggleFullscreen')
     },
-    checkForUpdates: async () => {
-      await callDesktop('CheckForUpdates')
-    },
-    updateState: async () => callDesktop<string>('UpdateState'),
+    checkForUpdates: async () => (await Call.ByName(`${DESKTOP_SERVICE_FQN}.CheckForUpdates`)) as DesktopUpdate | null,
+    downloadUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.DownloadUpdate`) },
+    installUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.InstallUpdate`) },
+    discardUpdate: async () => { await Call.ByName(`${DESKTOP_SERVICE_FQN}.DiscardUpdate`) },
     localBackendError: async () => callDesktop<string>('LocalBackendError'),
     quitApp: async () => {
       await callDesktop('QuitApp')
@@ -200,15 +208,19 @@ export function initDesktop(): Promise<void> {
       const info = (await Call.ByName(`${DESKTOP_SERVICE_FQN}.AppInfo`)) as DesktopAppInfo
       if (!info?.isDesktop) return
       desktopConfirmed = true
-      if (info.localApiBaseUrl) setDesktopLocalApiBaseUrl(info.localApiBaseUrl)
-      const backendError = await Call.ByName(`${DESKTOP_SERVICE_FQN}.LocalBackendError`)
-      if (typeof backendError === 'string' && backendError) {
-        toast.error('本地后端不可用', { description: backendError, duration: 12_000 })
+      if (typeof info.localApiBaseUrl === 'string') setDesktopLocalApiBaseUrl(info.localApiBaseUrl)
+      let backendError: unknown
+      try {
+        backendError = await Call.ByName(`${DESKTOP_SERVICE_FQN}.LocalBackendError`)
+      } catch {
+        backendError = null
       }
-      onDesktopUpdateError((message) => {
-        toast.error('更新失败', { description: message })
-        void notifyWhenBackground('更新失败', message)
-      })
+      const message = (typeof backendError === 'string' && backendError.trim()) ||
+        (!getDesktopLocalApiBaseUrl() ? '无法确认本地后端状态，请重启桌面应用后重试。' : '')
+      if (message) {
+        setDesktopLocalBackendError(message)
+        toast.error('本地后端不可用', { description: message, duration: 12_000 })
+      }
     } catch {
       // Running in a browser: the runtime package exists but the Go bridge does not.
     }
@@ -257,6 +269,25 @@ export function onDesktopFilesDropped(handler: (files: string[], target: string)
   const off = Events.On('desktop:files-dropped', (event) => {
     const data = event.data as { files?: string[]; target?: string } | null
     handler(Array.isArray(data?.files) ? data.files : [], data?.target ?? '')
+  })
+  return typeof off === 'function' ? off : () => undefined
+}
+
+/** Native menu request to open the update dialog. */
+export function onDesktopOpenUpdate(handler: () => void): () => void {
+  if (!isDesktop()) return () => undefined
+  const off = Events.On('desktop:open-update', handler)
+  return typeof off === 'function' ? off : () => undefined
+}
+
+/** Subscribes to valid native updater progress events. */
+export function onDesktopUpdateProgress(handler: (progress: { received: number; total: number }) => void): () => void {
+  if (!isDesktop()) return () => undefined
+  const off = Events.On('desktop:update-progress', (event) => {
+    const data = event.data as { received?: unknown; total?: unknown } | null
+    if (!data || typeof data.received !== 'number' || !Number.isFinite(data.received) || data.received < 0 ||
+        typeof data.total !== 'number' || !Number.isFinite(data.total) || data.total < 0) return
+    handler({ received: data.received, total: data.total })
   })
   return typeof off === 'function' ? off : () => undefined
 }

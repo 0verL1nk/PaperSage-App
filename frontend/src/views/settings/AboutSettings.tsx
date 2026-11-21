@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { getOptionalApiBaseUrl } from '@/lib/env'
+import { getApiUnavailableReason, getOptionalApiBaseUrl } from '@/lib/env'
 import {
   getDesktopPlatform,
   getDesktopService,
@@ -37,7 +37,10 @@ export function AboutSettings() {
   const buildVersion = typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'
   const version = info?.version || buildVersion
   const platform = info?.platform || getDesktopPlatform() || navigator.platform || 'web'
-  const apiBaseUrl = getOptionalApiBaseUrl() || t('settings.aboutSameOrigin')
+  const unavailableReason = getApiUnavailableReason()
+  const apiBaseUrl = unavailableReason
+    ? `${t('settings.aboutLocalBackendUnavailable')}: ${unavailableReason}`
+    : getOptionalApiBaseUrl() || t('settings.aboutSameOrigin')
 
   return (
     <div className="space-y-4">

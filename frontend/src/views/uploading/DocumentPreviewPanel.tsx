@@ -5,7 +5,7 @@ import { FileText, ZoomIn, ZoomOut, RotateCcw, X, AlertTriangle } from 'lucide-r
 import { Document, Page, pdfjs } from 'react-pdf'
 import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import { Button } from '@/components/ui/button'
-import { getOptionalApiBaseUrl } from '@/lib/env'
+import { getApiUnavailableReason, getOptionalApiBaseUrl } from '@/lib/env'
 import { apiClient } from '@/services/client'
 import { fetchDocumentPreviewBlob } from '@/services/files-api'
 import { useSessionStore } from '@/store'
@@ -432,8 +432,8 @@ export function DocumentPreviewPanel({ document: doc, onClose }: DocumentPreview
   }, [doc.id, isGuest])
 
   const guestResult = guestPreview?.documentId === doc.id ? guestPreview : null
-  const previewUrl = isGuest ? guestResult?.url ?? '' : buildPreviewUrl(doc.id)
-  const previewError = guestResult?.error ?? ''
+  const previewError = isGuest ? guestResult?.error ?? '' : getApiUnavailableReason()
+  const previewUrl = isGuest ? guestResult?.url ?? '' : previewError ? '' : buildPreviewUrl(doc.id)
 
   return (
     <div className="flex flex-col h-full">
@@ -447,7 +447,7 @@ export function DocumentPreviewPanel({ document: doc, onClose }: DocumentPreview
         </Button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {previewError ? <ErrorState message={previewError} /> : previewUrl ? <PreviewContent doc={doc} url={previewUrl} /> : <LoadingSpinner text="读取文件中" className="p-8" />}
+        {previewError ? <ErrorState message={isGuest ? previewError : `本地后端不可用：${previewError}`} /> : previewUrl ? <PreviewContent doc={doc} url={previewUrl} /> : <LoadingSpinner text="读取文件中" className="p-8" />}
       </div>
     </div>
   )

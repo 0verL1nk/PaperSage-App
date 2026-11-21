@@ -2,10 +2,13 @@ package backend
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -117,6 +120,186 @@ func TestWaitHealthyVersion(t *testing.T) {
 	ExpectedVersion = ""
 	if err := s.waitHealthy(context.Background(), port, nil, time.Second); err != nil {
 		t.Fatalf("empty expected version: %v", err)
+	}
+}
+
+func TestStartExternalBackendVersion(t *testing.T) {
+	previous := ExpectedVersion
+	t.Cleanup(func() { ExpectedVersion = previous })
+
+	for _, tc := range []struct {
+		name, expected, actual string
+		wantError              bool
+	}{
+		{name: "matching version", expected: "v1.2.3", actual: "1.2.3"},
+		{name: "matching prefixed actual", expected: "1.2.3", actual: "v1.2.3"},
+		{name: "mismatched version", expected: "2.0.0", actual: "1.2.3", wantError: true},
+		{name: "empty expected", expected: "", actual: "1.2.3"},
+		{name: "empty actual", expected: "2.0.0", actual: "", wantError: true},
+		{name: "different development build", expected: "2.0.0", actual: "dev", wantError: true},
+		{name: "matching development build", expected: "dev", actual: "dev"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ExpectedVersion = tc.expected
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte(`{"status":"healthy","version":"` + tc.actual + `","goVersion":"go1.26"}`))
+			}))
+			defer server.Close()
+
+			s := newSupervisor(t.TempDir())
+			s.binary = "unused"
+			s.preferredPort = server.Listener.Addr().(*net.TCPAddr).Port
+			url, err := s.Start(context.Background())
+			if tc.wantError {
+				if err == nil || !strings.Contains(err.Error(), tc.expected) || !strings.Contains(err.Error(), tc.actual) {
+					t.Fatalf("Start = %q, %v; want error naming both versions", url, err)
+				}
+				if tc.actual == "" && !strings.Contains(err.Error(), "实际 （空）") {
+					t.Fatalf("Start returned unclear empty-version error: %v", err)
+				}
+				if url != "" || s.BaseURL() != "" {
+					t.Fatalf("mismatched external backend was accepted: url=%q baseURL=%q", url, s.BaseURL())
+				}
+				return
+			}
+			if err != nil || url != server.URL || s.BaseURL() != server.URL {
+				t.Fatalf("Start = %q, %v, baseURL=%q; want %q", url, err, s.BaseURL(), server.URL)
+			}
+			if err := s.Stop(); err != nil {
+				t.Fatalf("Stop: %v", err)
+			}
+			if !probeHealth(server.URL) {
+				t.Fatal("Stop affected the external backend")
+			}
+		})
+	}
+}
+
+func TestStartValidatesBackendSHA256BeforeLaunch(t *testing.T) {
+	previous := ExpectedBackendSHA256
+	t.Cleanup(func() { ExpectedBackendSHA256 = previous })
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "backend")
+	contents := []byte("this is a test fixture, not an executable")
+	if err := os.WriteFile(binary, contents, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Blocking the log directory ensures none of these cases execute the fixture.
+	dataDir := filepath.Join(dir, "not-a-directory")
+	if err := os.WriteFile(dataDir, []byte("blocker"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	foreign := httptest.NewServer(http.NotFoundHandler())
+	defer foreign.Close()
+	port := foreign.Listener.Addr().(*net.TCPAddr).Port
+	actual := sha256.Sum256(contents)
+	correct := fmt.Sprintf("%x", actual)
+
+	for _, tc := range []struct {
+		name, expected, path, wantError string
+	}{
+		{name: "matching digest", expected: correct, path: binary, wantError: "create local data directory"},
+		{name: "mismatched digest", expected: strings.Repeat("0", 64), path: binary, wantError: "SHA-256 不匹配"},
+		{name: "missing binary", expected: correct, path: filepath.Join(dir, "missing"), wantError: "无法读取"},
+		{name: "unreadable binary", expected: correct, path: dir, wantError: "无法读取"},
+		{name: "invalid digest length", expected: "1234", path: binary, wantError: "格式无效"},
+		{name: "invalid digest characters", expected: strings.Repeat("z", 64), path: binary, wantError: "格式无效"},
+		{name: "empty digest skips verification", expected: "", path: filepath.Join(dir, "missing"), wantError: "create local data directory"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ExpectedBackendSHA256 = tc.expected
+			s := newSupervisor(dataDir)
+			s.binary = tc.path
+			s.preferredPort = port
+			url, err := s.Start(context.Background())
+			if err == nil || !strings.Contains(err.Error(), tc.wantError) {
+				t.Fatalf("Start = %q, %v; want error containing %q", url, err, tc.wantError)
+			}
+			if tc.expected != "" && tc.wantError != "create local data directory" && !strings.Contains(err.Error(), "请重新安装") {
+				t.Fatalf("integrity error does not advise reinstalling: %v", err)
+			}
+			if url != "" || s.BaseURL() != "" {
+				t.Fatalf("Start exposed a backend: url=%q baseURL=%q", url, s.BaseURL())
+			}
+		})
+	}
+}
+
+func TestLaunchChecksBackendSHA256BeforeRestart(t *testing.T) {
+	previous := ExpectedBackendSHA256
+	t.Cleanup(func() { ExpectedBackendSHA256 = previous })
+	ExpectedBackendSHA256 = strings.Repeat("0", 64)
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "backend")
+	if err := os.WriteFile(binary, []byte("not an executable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// No log directory exists, so this test cannot execute the fixture.
+	s := newSupervisor(filepath.Join(dir, "missing-data-directory"))
+	s.binary = binary
+	_, err := s.launch(0)
+	if err == nil || !strings.Contains(err.Error(), "SHA-256 不匹配") || !strings.Contains(err.Error(), "请重新安装") {
+		t.Fatalf("launch = %v; want integrity error before restart", err)
+	}
+}
+
+func TestMonitorKeepsIntegrityError(t *testing.T) {
+	if os.Getenv("PAPERSAGE_TEST_MONITOR_CHILD") == "1" {
+		return
+	}
+	previous := ExpectedBackendSHA256
+	t.Cleanup(func() { ExpectedBackendSHA256 = previous })
+	ExpectedBackendSHA256 = strings.Repeat("0", 64)
+
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "backend")
+	if err := os.WriteFile(binary, []byte("not an executable"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Wait on a test process; the backend fixture itself must never execute.
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMonitorKeepsIntegrityError$")
+	cmd.Env = append(os.Environ(), "PAPERSAGE_TEST_MONITOR_CHILD=1")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	s := newSupervisor(dir)
+	s.binary, s.cmd = binary, cmd
+	s.restarts = maxRestarts - 1
+	s.baseURL = "http://127.0.0.1:1"
+	s.monitor(make(chan struct{}), make(chan struct{}))
+	if err := s.LastError(); err == nil || !strings.Contains(err.Error(), "SHA-256 不匹配") || !strings.Contains(err.Error(), "请重新安装") {
+		t.Fatalf("LastError = %v; want the integrity failure and reinstall guidance", err)
+	}
+	if s.BaseURL() != "" {
+		t.Fatalf("backend URL remained available after failed restart: %q", s.BaseURL())
+	}
+}
+
+func TestStartExternalBackendSkipsBinaryHash(t *testing.T) {
+	previousHash, previousVersion := ExpectedBackendSHA256, ExpectedVersion
+	t.Cleanup(func() {
+		ExpectedBackendSHA256, ExpectedVersion = previousHash, previousVersion
+	})
+	ExpectedBackendSHA256, ExpectedVersion = strings.Repeat("0", 64), "1.2.3"
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"status":"healthy","version":"1.2.3","goVersion":"go1.26"}`))
+	}))
+	defer server.Close()
+	s := newSupervisor(t.TempDir())
+	s.binary = filepath.Join(t.TempDir(), "missing")
+	s.preferredPort = server.Listener.Addr().(*net.TCPAddr).Port
+	url, err := s.Start(context.Background())
+	if err != nil || url != server.URL {
+		t.Fatalf("Start = %q, %v; want external backend %q", url, err, server.URL)
+	}
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if !probeHealth(server.URL) {
+		t.Fatal("Stop affected the external backend")
 	}
 }
 

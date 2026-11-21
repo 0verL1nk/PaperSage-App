@@ -125,17 +125,57 @@ func (s *DesktopService) WindowToggleFullscreen() {
 	}
 }
 
-// CheckForUpdates runs a foreground update check. Failures are logged and
-// surfaced to the web layer through updater.EventUpdateError.
-func (s *DesktopService) CheckForUpdates() {
-	if err := updater.CheckNow(context.Background()); err != nil {
+// EventUpdateProgress reports installer download progress to the web layer.
+const EventUpdateProgress = "desktop:update-progress"
+
+// CheckForUpdates looks for a newer desktop release without downloading it.
+// The web layer then downloads and installs it; a nil result means the current
+// version is up to date.
+func (s *DesktopService) CheckForUpdates() (map[string]any, error) {
+	info, err := updater.Check(context.Background())
+	if err != nil {
 		log.Printf("desktop: update check: %v", err)
+		return nil, err
 	}
+	if info == nil {
+		return nil, nil
+	}
+	out := map[string]any{"version": info.Version}
+	if info.Name != "" {
+		out["name"] = info.Name
+	}
+	if info.Notes != "" {
+		out["notes"] = info.Notes
+	}
+	return out, nil
 }
 
-// UpdateState reports the updater's current lifecycle phase.
-func (s *DesktopService) UpdateState() string {
-	return string(updater.State())
+// DownloadUpdate fetches and verifies the installer for the release found by
+// CheckForUpdates, reporting progress as desktop:update-progress.
+func (s *DesktopService) DownloadUpdate() error {
+	return updater.Download(context.Background(), func(received, total int64) {
+		s.app.Event.Emit(EventUpdateProgress, map[string]any{"received": received, "total": total})
+	})
+}
+
+// InstallUpdate starts the detached installer helper and quits so the helper
+// can replace the installed files. The helper restarts the application.
+func (s *DesktopService) InstallUpdate() error {
+	if err := updater.Handoff(); err != nil {
+		log.Printf("desktop: install update: %v", err)
+		s.app.Event.Emit(updater.EventUpdateError, map[string]string{"message": err.Error()})
+		return err
+	}
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		s.app.Quit()
+	}()
+	return nil
+}
+
+// DiscardUpdate removes a downloaded installer that will not be used.
+func (s *DesktopService) DiscardUpdate() error {
+	return updater.Discard()
 }
 
 // QuitApp terminates the application (bypassing close-to-tray).

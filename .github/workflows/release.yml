@@ -45,20 +45,20 @@ jobs:
         run: |
           # 发布不再重复跑整套 CI：tag 必须指向 main 上 CI 已完成的提交。
           # 只检查该提交实际产生的 check-runs（CI 按路径过滤，未改动的域不会跑）。
-          # 排除当前发布流程自己的 job，避免等待自身造成死锁。
+          # 排除当前 run 及其依赖 job，避免等待自身造成死锁。
           deadline=$((SECONDS + 900))
           while :; do
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100" \
-              --jq '.check_runs[]
+            gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100&filter=all" |
+              jq -r --arg run "$GITHUB_RUN_ID" '.check_runs[]
                 | select(.app.slug == "github-actions")
-                | select(.name | IN("validate", "release", "deploy", "rollback") | not)
+                | select((.details_url // "") | contains("/actions/runs/\($run)/") | not)
+                | select(.name | (IN("validate", "server-build", "desktop", "release", "deploy", "rollback") or startswith("desktop /")) | not)
                 | [.name, (.conclusion // .status), .started_at] | @tsv' \
               > checks.tsv
-            # 同名 check 取最新一次（重跑会追加记录）。
-            sort -t$'\t' -k1,1 -k3,3 checks.tsv | awk -F'\t' '{latest[$1]=$2} END {for (n in latest) print n"\t"latest[n]}' > latest.tsv
-            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral" && $2 != "queued" && $2 != "in_progress" && $2 != "waiting" && $2 != "requested" {print $1" ("$2")"}' latest.tsv)
-            pending=$(awk -F'\t' '$2 == "queued" || $2 == "in_progress" || $2 == "waiting" || $2 == "requested" {print $1}' latest.tsv)
-            success=$(awk -F'\t' '$2 == "success" {n++} END {print n+0}' latest.tsv)
+            # 同名可能是不同 job；无法可靠归并旧运行时，保留全部结果并安全失败。
+            bad=$(awk -F'\t' '$2 != "success" && $2 != "skipped" && $2 != "neutral" && $2 != "queued" && $2 != "in_progress" && $2 != "waiting" && $2 != "requested" && $2 != "pending" {print $1" ("$2")"}' checks.tsv)
+            pending=$(awk -F'\t' '$2 == "queued" || $2 == "in_progress" || $2 == "waiting" || $2 == "requested" || $2 == "pending" {print $1}' checks.tsv)
+            success=$(awk -F'\t' '$2 == "success" {n++} END {print n+0}' checks.tsv)
             if [ -n "$bad" ]; then
               echo "::error::failing checks for $SHA: $bad"
               exit 1
@@ -75,15 +75,22 @@ jobs:
             sleep 20
           done
 
-  release:
+  desktop:
+    needs: validate
+    uses: ./.github/workflows/desktop.yml
+    permissions:
+      contents: read
+
+  server-build:
     needs: validate
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ needs.validate.outputs.commit }}
           fetch-depth: 0
       - uses: actions/setup-go@v5
         with:
@@ -93,17 +100,194 @@ jobs:
         with:
           distribution: goreleaser
           version: v2.19.0
-          args: release --clean
+          args: release --clean --skip=publish
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
       - uses: actions/upload-artifact@v4
         with:
           name: server-linux-amd64-${{ needs.validate.outputs.commit }}
           path: |
             dist/papersage_*_linux_amd64.tar.gz
             dist/checksums.txt
+            dist/CHANGELOG.md
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  release:
+    needs: [validate, desktop, server-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: server-linux-amd64-${{ needs.validate.outputs.commit }}
+          path: bundle/server
+      - uses: actions/download-artifact@v4
+        with:
+          name: papersage-desktop-windows-amd64
+          path: bundle/desktop
+      - name: Verify release assets
+        shell: bash
+        run: |
+          archive="papersage_${RELEASE_TAG#v}_linux_amd64.tar.gz"
+          installer=papersage-windows-amd64-installer.exe
+          test -s "bundle/server/$archive"
+          test -s bundle/server/checksums.txt
+          test -s bundle/server/CHANGELOG.md
+          test -s "bundle/desktop/$installer"
+          test -s bundle/desktop/SHA256SUMS
+          awk -v name="$archive" '$2 == name { n++ } END { exit n != 1 }' bundle/server/checksums.txt
+          awk -v name="$installer" '$2 == name { n++ } END { exit NR != 1 || n != 1 }' bundle/desktop/SHA256SUMS
+          (cd bundle/server && sha256sum --check --strict checksums.txt)
+          (cd bundle/desktop && sha256sum --check --strict SHA256SUMS)
+      - name: Find draft receipt
+        id: receipt
+        shell: bash
+        run: |
+          count=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" |
+            jq --arg name "release-draft-${GITHUB_RUN_ID}" '[.[].artifacts[] | select(.name == $name and .expired == false)] | length')
+          case "$count" in
+            0) echo 'present=false' >> "$GITHUB_OUTPUT" ;;
+            1) echo 'present=true' >> "$GITHUB_OUTPUT" ;;
+            *) echo '::error::Multiple draft receipts found; refusing to guess.'; exit 1 ;;
+          esac
+      - uses: actions/download-artifact@v4
+        if: steps.receipt.outputs.present == 'true'
+        with:
+          name: release-draft-${{ github.run_id }}
+          path: draft-receipt
+      - name: Prepare release draft
+        id: draft
+        shell: bash
+        run: |
+          # A same-run receipt is the only authority to resume an existing release.
+          matches=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+            jq -c --arg tag "$RELEASE_TAG" '[.[][] | select(.tag_name == $tag)]')
+          count=$(jq 'length' <<<"$matches")
+          if [ "$count" -gt 1 ]; then
+            echo "::error::Multiple releases exist for $RELEASE_TAG; refusing to guess."
+            exit 1
+          fi
+          tag_commit=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha)
+          if [ "$tag_commit" != "$RELEASE_COMMIT" ]; then
+            echo "::error::Tag $RELEASE_TAG no longer points to the validated commit."
+            exit 1
+          fi
+          if [ "$count" -eq 0 ]; then
+            if [ -e draft-receipt/receipt.json ]; then
+              echo '::error::The release in this run’s receipt no longer exists; refusing to recreate it.'
+              exit 1
+            fi
+            release_id=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
+              -f tag_name="$RELEASE_TAG" -f target_commitish="$RELEASE_COMMIT" \
+              -f name="$RELEASE_TAG" -F draft=true -F body=@bundle/server/CHANGELOG.md --jq .id)
+            [[ "$release_id" =~ ^[0-9]+$ ]]
+            mkdir -p draft-receipt
+            jq -n --arg run_id "$GITHUB_RUN_ID" --arg commit "$RELEASE_COMMIT" --arg tag "$RELEASE_TAG" \
+              --argjson id "$release_id" \
+              '{run_id: $run_id, commit: $commit, tag: $tag, release_id: $id}' > draft-receipt/receipt.json
+            echo 'created=true' >> "$GITHUB_OUTPUT"
+          else
+            if [ ! -s draft-receipt/receipt.json ]; then
+              echo "::error::An existing release or draft has no receipt for this run; refusing to modify it."
+              exit 1
+            fi
+            release_id=$(jq -er --arg run_id "$GITHUB_RUN_ID" --arg commit "$RELEASE_COMMIT" --arg tag "$RELEASE_TAG" \
+              'select(.run_id == $run_id and .commit == $commit and .tag == $tag) | .release_id | numbers' draft-receipt/receipt.json)
+            [[ "$release_id" =~ ^[0-9]+$ ]]
+            jq -e --argjson id "$release_id" \
+              '.[0].id == $id and (.[0].draft == true or .[0].draft == false)' <<<"$matches" >/dev/null
+            echo 'created=false' >> "$GITHUB_OUTPUT"
+          fi
+          echo "id=$release_id" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        if: steps.draft.outputs.created == 'true'
+        with:
+          name: release-draft-${{ github.run_id }}
+          path: draft-receipt/receipt.json
           if-no-files-found: error
           retention-days: 7
+      - name: Upload and publish release
+        shell: bash
+        env:
+          RELEASE_ID: ${{ steps.draft.outputs.id }}
+        run: |
+          archive="papersage_${RELEASE_TAG#v}_linux_amd64.tar.gz"
+          files=(
+            "bundle/server/$archive"
+            bundle/server/checksums.txt
+            bundle/desktop/papersage-windows-amd64-installer.exe
+            bundle/desktop/SHA256SUMS
+          )
+          release=$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}")
+          draft=$(jq -er --arg tag "$RELEASE_TAG" --argjson id "$RELEASE_ID" \
+            'select(.id == $id and .tag_name == $tag and (.draft == true or .draft == false)) | .draft | tostring' <<<"$release")
+          assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" | jq -c 'add // []')
+          if ! jq -e --arg archive "$archive" \
+            'all(.[]; .name == $archive or .name == "checksums.txt" or .name == "papersage-windows-amd64-installer.exe" or .name == "SHA256SUMS")' <<<"$assets" >/dev/null; then
+            echo '::error::Release contains an unexpected asset; refusing to modify it.'
+            exit 1
+          fi
+          # Check all existing assets before uploading any missing ones.
+          for file in "${files[@]}"; do
+            name="${file##*/}"
+            existing=$(jq -c --arg name "$name" '[.[] | select(.name == $name)]' <<<"$assets")
+            count=$(jq 'length' <<<"$existing")
+            if [ "$count" -gt 1 ]; then
+              echo "::error::Duplicate release asset: $name"
+              exit 1
+            fi
+            if [ "$count" -eq 1 ]; then
+              digest=$(sha256sum "$file" | cut -d ' ' -f1)
+              if ! jq -e --arg digest "sha256:$digest" '.[0].state == "uploaded" and .[0].digest == $digest' <<<"$existing" >/dev/null; then
+                echo "::error::Existing release asset does not match: $name"
+                exit 1
+              fi
+            elif [ "$draft" != "true" ]; then
+              echo "::error::Published release is missing $name; refusing to modify it."
+              exit 1
+            fi
+          done
+          if [ "$draft" = "true" ]; then
+            for file in "${files[@]}"; do
+              name="${file##*/}"
+              if jq -e --arg name "$name" 'any(.[]; .name == $name)' <<<"$assets" >/dev/null; then
+                continue
+              fi
+              [ "$(gh api "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" --jq .draft)" = "true" ]
+              gh api --method POST \
+                "https://uploads.github.com/repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?name=${name}" \
+                -H 'Content-Type: application/octet-stream' -H "Content-Length: $(stat -c %s "$file")" \
+                --input "$file" --silent
+            done
+          fi
+          assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" | jq -c 'add // []')
+          jq -e 'length == 4' <<<"$assets" >/dev/null
+          for file in "${files[@]}"; do
+            digest=$(sha256sum "$file" | cut -d ' ' -f1)
+            jq -e --arg name "${file##*/}" --arg digest "sha256:$digest" \
+              '[.[] | select(.name == $name and .state == "uploaded" and .digest == $digest)] | length == 1' \
+              <<<"$assets" >/dev/null
+          done
+          tag_commit=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${RELEASE_TAG}" --jq .sha)
+          [ "$tag_commit" = "$RELEASE_COMMIT" ]
+          if [ "$draft" = "true" ]; then
+            gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
+              jq -e --arg tag "$RELEASE_TAG" --argjson id "$RELEASE_ID" \
+                '[.[][] | select(.tag_name == $tag)] | length == 1 and .[0].id == $id and .[0].draft == true' >/dev/null
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}" -F draft=false --silent
+          else
+            echo 'Previously published release verified without modification.'
+          fi
 
   deploy:
     needs: [validate, release]

@@ -29,10 +29,11 @@ const (
 	EventNewProject    = "menu:new-project"
 	EventImportFolder  = "menu:import-folder"
 	EventExportProject = "menu:export-project"
+	EventOpenUpdate    = "desktop:open-update"
 )
 
-// CheckForUpdates is invoked by Help > Check for Updates. It is a placeholder
-// until internal/updater is wired in.
+// CheckForUpdates opens the web layer's update dialog; the dialog performs the
+// version check and points the user at the official download page.
 var CheckForUpdates = func() {}
 
 // Version is injected at build time via -ldflags.
@@ -122,13 +123,11 @@ func Run() error {
 		desktopService.SetPendingDeepLink(path)
 	}
 
-	if err := updater.Setup(app, Version); err != nil {
+	if err := updater.Setup(Version); err != nil {
 		log.Printf("desktop: updater setup: %v", err)
 	}
 	CheckForUpdates = func() {
-		if err := updater.CheckNow(context.Background()); err != nil {
-			log.Printf("desktop: update check: %v", err)
-		}
+		app.Event.Emit(EventOpenUpdate)
 	}
 
 	supervisor = backend.New()
