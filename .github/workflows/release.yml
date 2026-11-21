@@ -127,11 +127,11 @@ jobs:
       RELEASE_TAG: ${{ github.ref_name }}
       RELEASE_COMMIT: ${{ needs.validate.outputs.commit }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: server-linux-amd64-${{ needs.validate.outputs.commit }}
           path: bundle/server
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: papersage-desktop-windows-amd64
           path: bundle/desktop
@@ -160,7 +160,7 @@ jobs:
             1) echo 'present=true' >> "$GITHUB_OUTPUT" ;;
             *) echo '::error::Multiple draft receipts found; refusing to guess.'; exit 1 ;;
           esac
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         if: steps.receipt.outputs.present == 'true'
         with:
           name: release-draft-${{ github.run_id }}
@@ -303,7 +303,7 @@ jobs:
       SERVER_HOST: ${{ secrets.SERVER_HOST }}
       SERVER_USER: ${{ secrets.SERVER_USER }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: server-linux-amd64-${{ needs.validate.outputs.commit }}
           path: bundle
