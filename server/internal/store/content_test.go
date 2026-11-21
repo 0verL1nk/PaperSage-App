@@ -173,7 +173,7 @@ func TestContentMigrationDialectIsolation(t *testing.T) {
 			}
 			db, err := sql.Open(tc.driver, dsn)
 			require.NoError(t, err)
-			defer db.Close()
+			defer func() { _ = db.Close() }()
 			db.SetMaxOpenConns(1)
 			name := "content_test_" + strings.ReplaceAll(store.MustNewUUID().String(), "-", "")
 			if tc.dialect == "postgres" {
