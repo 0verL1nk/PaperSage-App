@@ -25,9 +25,10 @@ func TestInstallerUsesProductMetadataDefines(t *testing.T) {
 	text := string(taskfile)
 	for _, want := range []string{
 		"-DINFO_PRODUCTNAME=PaperSage",
-		"-DINFO_PRODUCTVERSION={{.VERSION}}",
+		"-DINFO_PRODUCTVERSION={{.NSIS_VERSION}}",
 		`-DUNINST_KEY_NAME="PaperSageMy Product"`,
 		"{{.METADATA_FLAGS}}",
+		"NSIS_VERSION: '{{.PRODUCT_VERSION | default .VERSION}}'",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("Taskfile does not pass %s", want)
@@ -35,5 +36,20 @@ func TestInstallerUsesProductMetadataDefines(t *testing.T) {
 	}
 	if strings.Count(text, "{{.METADATA_FLAGS}}") != 2 {
 		t.Error("metadata flags must reach both Windows and non-Windows makensis invocations")
+	}
+
+	// NSIS rejects non-numeric versions ("0.0.0-dev.30"), so CI must derive a
+	// numeric version and pass it to the package task.
+	workflow, err := os.ReadFile(filepath.Join(root, "..", ".github", "workflows", "desktop.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"PRODUCT_VERSION=$($parts -join '.')",
+		"task package VERSION=${{ env.VERSION }} PRODUCT_VERSION=${{ env.PRODUCT_VERSION }}",
+	} {
+		if !strings.Contains(string(workflow), want) {
+			t.Errorf("desktop workflow does not provide %q", want)
+		}
 	}
 }

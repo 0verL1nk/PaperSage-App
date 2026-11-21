@@ -2,6 +2,10 @@ name: Desktop
 
 on:
   workflow_call:
+    inputs:
+      expected_commit:
+        required: false
+        type: string
   workflow_dispatch:
   push:
     branches: [main]
@@ -41,6 +45,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+
+      - name: Verify validated release source
+        if: inputs.expected_commit != ''
+        shell: bash
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_COMMIT"
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -105,6 +116,11 @@ jobs:
           $config = $config -replace 'version: "[^"]*"', "version: `"$version`""
           Set-Content desktop/build/config.yml $config -NoNewline
           "VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          # NSIS requires a numeric X.X.X for INFO_PRODUCTVERSION (the template
+          # appends the fourth part). Dev versions like 0.0.0-dev.30 are invalid.
+          $parts = @($version -split '[^0-9]+' | Where-Object { $_ -ne '' } | Select-Object -First 3)
+          while ($parts.Count -lt 3) { $parts += '0' }
+          "PRODUCT_VERSION=$($parts -join '.')" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           $infoPath = 'desktop/build/windows/info.json'
           $info = Get-Content $infoPath -Raw | ConvertFrom-Json
           $info.fixed.file_version = $version
@@ -167,7 +183,8 @@ jobs:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
           BACKEND_VERSION: ${{ env.VERSION }}
           BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
-        run: go tool wails3 task package VERSION=${{ env.VERSION }}
+          PRODUCT_VERSION: ${{ env.PRODUCT_VERSION }}
+        run: go tool wails3 task package VERSION=${{ env.VERSION }} PRODUCT_VERSION=${{ env.PRODUCT_VERSION }}
 
       - name: Stage release assets (Windows)
         if: runner.os == 'Windows'

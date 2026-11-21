@@ -145,9 +145,27 @@ func TestDesktopWorkflowCarriesBuiltBackendChecksum(t *testing.T) {
 	for _, step := range workflow.Jobs.Build.Steps {
 		steps[step.Name] = step
 	}
-	for _, tc := range []struct{ name, condition, command string }{
-		{"Build (pull request)", "github.event_name == 'pull_request'", "go tool wails3 task build VERSION=${{ env.VERSION }}"},
-		{"Build & package", "github.event_name != 'pull_request'", "go tool wails3 task package VERSION=${{ env.VERSION }}"},
+	for _, tc := range []struct {
+		name, condition, command string
+		env                      map[string]string
+	}{
+		{
+			"Build (pull request)", "github.event_name == 'pull_request'",
+			"go tool wails3 task build VERSION=${{ env.VERSION }}",
+			map[string]string{
+				"BACKEND_VERSION": "${{ env.VERSION }}",
+				"BACKEND_SHA256":  "${{ env.BACKEND_SHA256 }}",
+			},
+		},
+		{
+			"Build & package", "github.event_name != 'pull_request'",
+			"go tool wails3 task package VERSION=${{ env.VERSION }} PRODUCT_VERSION=${{ env.PRODUCT_VERSION }}",
+			map[string]string{
+				"BACKEND_VERSION": "${{ env.VERSION }}",
+				"BACKEND_SHA256":  "${{ env.BACKEND_SHA256 }}",
+				"PRODUCT_VERSION": "${{ env.PRODUCT_VERSION }}",
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			step, ok := steps[tc.name]
@@ -157,10 +175,7 @@ func TestDesktopWorkflowCarriesBuiltBackendChecksum(t *testing.T) {
 			if step.If != tc.condition || step.Dir != "desktop" || step.Run != tc.command {
 				t.Errorf("unexpected build step context: if=%q directory=%q command=%q", step.If, step.Dir, step.Run)
 			}
-			for key, want := range map[string]string{
-				"BACKEND_VERSION": "${{ env.VERSION }}",
-				"BACKEND_SHA256":  "${{ env.BACKEND_SHA256 }}",
-			} {
+			for key, want := range tc.env {
 				if step.Env[key] != want {
 					t.Errorf("%s = %q, want %q", key, step.Env[key], want)
 				}
