@@ -39,6 +39,7 @@ import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
 import { AiPanel } from './ai-panel'
+import { AdoptedResearchSummary } from '@/components/domain/AdoptedResearchSummary'
 import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
@@ -977,7 +978,10 @@ export function WritingPage() {
       )}
     </div>
   ) : (
-    <AiPanel projectId={projectId} />
+    <div className="flex h-full min-h-0 flex-col">
+      <AdoptedResearchSummary projectId={projectId} />
+      <div className="min-h-0 flex-1"><AiPanel projectId={projectId} /></div>
+    </div>
   )
 
   return (

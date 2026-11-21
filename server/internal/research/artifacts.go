@@ -137,6 +137,10 @@ type revisionRequest struct {
 	Dependencies     []dependencyInput `json:"dependencies"`
 }
 
+type CreateInput = createRequest
+type RevisionInput = revisionRequest
+type DecisionInput = decisionRequest
+
 type decisionRequest struct {
 	Revision         int `json:"revision"`
 	ExpectedRevision int `json:"expectedRevision"`
