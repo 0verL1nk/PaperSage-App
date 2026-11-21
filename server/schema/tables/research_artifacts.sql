@@ -18,6 +18,6 @@ CREATE TABLE `research_artifacts` (
   KEY `ix_research_artifacts_project_kind` (`project_id`,`kind`,`deleted_at`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   KEY `fk_artifact_creator` (`created_by`),
-  CONSTRAINT `fk_artifact_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_research_artifact_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_artifact_creator` FOREIGN KEY (`created_by`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

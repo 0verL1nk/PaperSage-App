@@ -613,6 +613,11 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 			return nil, nil, httpapi.BadRequest("摘要引用的稿件不属于该项目")
 		}
 	}
+	for _, dep := range deps {
+		if !dependencyKinds[dep.Kind] {
+			return nil, nil, httpapi.BadRequest("依赖类型不合法")
+		}
+	}
 	allDeps = append(allDeps, deps...)
 	return datatypes.JSON(raw), allDeps, nil
 }
