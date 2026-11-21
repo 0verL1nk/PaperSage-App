@@ -138,11 +138,13 @@ type Document struct {
 	Remark    *string // Text
 	ProjectID UUID    `gorm:"not null"`
 	FolderID  *UUID
-	OwnerID   UUID `gorm:"not null"`
+	OwnerID   UUID  `gorm:"not null"`
+	SourceID  *UUID `gorm:"uniqueIndex:uq_documents_source" json:"-"`
 
-	Project Project `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
-	Folder  *Folder `gorm:"foreignKey:FolderID;constraint:OnDelete:SET NULL"`
-	Owner   User    `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
+	Project Project        `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
+	Folder  *Folder        `gorm:"foreignKey:FolderID;constraint:OnDelete:SET NULL"`
+	Owner   User           `gorm:"foreignKey:OwnerID;constraint:OnDelete:CASCADE"`
+	Source  *ProjectSource `gorm:"foreignKey:SourceID,ProjectID;references:ID,ProjectID;constraint:OnDelete:RESTRICT" json:"-"`
 }
 
 type LatexFile struct {
@@ -153,11 +155,13 @@ type LatexFile struct {
 	SizeBytes   int64   `gorm:"not null;default:0"`
 	ContentHash *string `gorm:"size:64;index"`
 	S3Key       *string `gorm:"size:500"`
+	SourceID    *UUID   `gorm:"uniqueIndex:uq_latex_files_source" json:"-"`
 	LastSavedAt *time.Time
 	// 逻辑删除时由 SoftDeleteTime 写入非零值，使已删行不再占用 uq_project_file_path。
 	DeletedSeq int64 `gorm:"not null;default:0;uniqueIndex:uq_project_file_path,priority:3"`
 
-	Project Project `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
+	Project Project        `gorm:"foreignKey:ProjectID;constraint:OnDelete:CASCADE"`
+	Source  *ProjectSource `gorm:"foreignKey:SourceID,ProjectID;references:ID,ProjectID;constraint:OnDelete:RESTRICT" json:"-"`
 }
 
 type JobStatus string
@@ -266,6 +270,7 @@ func coreModels() []any {
 	return []any{
 		&User{}, &UserSettings{}, &ProjectGroup{}, &Project{},
 		&ProjectWritingState{},
+		&ProjectSource{}, &SourceVersion{}, &SourceExtraction{}, &SourceSegment{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
 		&SystemSetting{}, &VerificationToken{}, &ImportReceipt{},
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},

@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	gomysql "github.com/go-sql-driver/mysql"
@@ -40,8 +39,14 @@ func main() {
 		fatal("chdir internal/store: %v", err)
 	}
 	const outDir = "query"
-	if err := os.RemoveAll(outDir); err != nil {
-		fatal("%v", err)
+
+	files, err := filepath.Glob(filepath.Join("..", "..", tablesDir, "*.sql"))
+	if err != nil {
+		fatal("glob: %v", err)
+	}
+	files, err = orderSchemaFiles(files)
+	if err != nil {
+		fatal("order schema: %v", err)
 	}
 
 	// 1) 临时库 + 逐表执行 SQL（schema 文件即生成的唯一输入）
@@ -59,28 +64,6 @@ func main() {
 	}
 	defer func() { _, _ = admin.Exec("DROP DATABASE IF EXISTS " + snap) }()
 
-	files, err := filepath.Glob(filepath.Join("..", "..", tablesDir, "*.sql"))
-	if err != nil {
-		fatal("glob: %v", err)
-	}
-	// 依赖序建表（外键引用的表先建）；不在表中的排最后（字母序稳定）
-	order := map[string]int{
-		"users": 0, "project_groups": 1, "projects": 2,
-		"folders": 3, "documents": 4, "latex_files": 5,
-		"compile_jobs": 6, "user_settings": 7,
-	}
-	sort.Slice(files, func(i, j int) bool {
-		bi, bj := filepath.Base(files[i]), filepath.Base(files[j])
-		oi, okI := order[strings.TrimSuffix(bi, ".sql")]
-		oj, okJ := order[strings.TrimSuffix(bj, ".sql")]
-		if okI && okJ {
-			return oi < oj
-		}
-		if okI != okJ {
-			return okI
-		}
-		return bi < bj
-	})
 	for _, f := range files {
 		ddl := strings.TrimSpace(mustRead(f))
 		if ddl == "" {
@@ -100,6 +83,9 @@ func main() {
 	gdb, err := gorm.Open(gormmysql.New(gormmysql.Config{DSNConfig: &snapCfg}), &gorm.Config{})
 	if err != nil {
 		fatal("gorm open snap: %v", err)
+	}
+	if err := os.RemoveAll(outDir); err != nil {
+		fatal("%v", err)
 	}
 	g := gen.NewGenerator(gen.Config{
 		OutPath: outDir,

@@ -1,0 +1,10 @@
+ALTER TABLE latex_files DROP CONSTRAINT fk_latex_files_source;
+DROP INDEX uq_latex_files_source;
+ALTER TABLE latex_files DROP COLUMN source_id;
+ALTER TABLE documents DROP CONSTRAINT fk_documents_source;
+DROP INDEX uq_documents_source;
+ALTER TABLE documents DROP COLUMN source_id;
+DROP TABLE source_segments;
+DROP TABLE source_extractions;
+DROP TABLE source_versions;
+DROP TABLE project_sources;
