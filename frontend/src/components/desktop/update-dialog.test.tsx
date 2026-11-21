@@ -117,7 +117,7 @@ describe('desktop update dialog', () => {
     await act(async () => { download.resolve(); await download.promise })
     expect(screen.getByRole('status')).toHaveTextContent('下载完成，重启后安装。')
     fireEvent.click(screen.getByRole('button', { name: '立即重启并安装' }))
-    expect(mocks.service.installUpdate).toHaveBeenCalledOnce()
+    await waitFor(() => expect(mocks.service.installUpdate).toHaveBeenCalledOnce())
     expect(screen.getByRole('status')).toHaveTextContent('正在应用更新，应用即将重启…')
     expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument()
     fireEvent.keyDown(document, { key: 'Escape' })
@@ -140,7 +140,7 @@ describe('desktop update dialog', () => {
     await act(async () => { download.resolve(); await download.promise })
     const installButton = screen.getByRole('button', { name: '立即重启并安装' })
     act(() => { fireEvent.click(installButton); fireEvent.click(installButton) })
-    expect(mocks.service.installUpdate).toHaveBeenCalledOnce()
+    await waitFor(() => expect(mocks.service.installUpdate).toHaveBeenCalledOnce())
     await act(async () => { install.resolve(); await install.promise })
   })
 
@@ -181,8 +181,50 @@ describe('desktop update dialog', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('安装更新失败')
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(screen.getByRole('status')).toHaveTextContent('正在应用更新，应用即将重启…')
-    expect(mocks.service.installUpdate).toHaveBeenCalledTimes(2)
+    await waitFor(() => expect(mocks.service.installUpdate).toHaveBeenCalledTimes(2))
     expect(mocks.service.downloadUpdate).toHaveBeenCalledOnce()
+  })
+
+  it('flushes unsaved editor changes before starting the installer', async () => {
+    const save = deferred<void>()
+    let flushed = false
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ waitUntil: (promise: Promise<unknown>) => void }>).detail
+      detail.waitUntil(save.promise.then(() => { flushed = true }))
+    }
+    window.addEventListener('papersage:prepare-update', listener)
+    try {
+      render(<UpdateDialog />)
+      await startDownload()
+      fireEvent.click(await screen.findByRole('button', { name: '立即重启并安装' }))
+      expect(screen.getByRole('status')).toHaveTextContent('正在应用更新，应用即将重启…')
+      expect(mocks.service.installUpdate).not.toHaveBeenCalled()
+      await act(async () => { save.resolve(); await save.promise })
+      await waitFor(() => expect(mocks.service.installUpdate).toHaveBeenCalledOnce())
+      expect(flushed).toBe(true)
+    } finally {
+      window.removeEventListener('papersage:prepare-update', listener)
+    }
+  })
+
+  it('keeps the application open when unsaved changes cannot be saved', async () => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ waitUntil: (promise: Promise<unknown>) => void }>).detail
+      detail.waitUntil(Promise.reject(new Error('disk full')))
+    }
+    window.addEventListener('papersage:prepare-update', listener)
+    try {
+      render(<UpdateDialog />)
+      await startDownload()
+      fireEvent.click(await screen.findByRole('button', { name: '立即重启并安装' }))
+      expect(await screen.findByRole('alert')).toHaveTextContent('还有未能保存的修改')
+      expect(screen.getByText('disk full')).toBeInTheDocument()
+      expect(mocks.service.installUpdate).not.toHaveBeenCalled()
+      fireEvent.click(screen.getByRole('button', { name: '关闭' }))
+      expect(mocks.service.discardUpdate).toHaveBeenCalledOnce()
+    } finally {
+      window.removeEventListener('papersage:prepare-update', listener)
+    }
   })
 
   it('discards a staged download when an installation failure is closed', async () => {
