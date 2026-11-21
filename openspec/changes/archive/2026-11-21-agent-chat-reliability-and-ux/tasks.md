@@ -67,10 +67,10 @@
 - [x] 8.1 用真实 provider 完成流式文本、工具调用、取消、刷新恢复、断线重连的端到端记录；模拟 SSE 不计入。（A1/A3/E1/B2/D1/D2，证据见 `docs/verification/research-writing/agent-chat-acceptance.md`）
 - [ ] 8.2 覆盖鉴权失败、超时、限流、上下文超限的真实失败分类与用户提示。（401/429 已有真实记录；超时/上下文超限仅有单测与文案，未做真实界面实录；`AGENT_MODEL_IDLE_TIMEOUT` 已实现）
 - [x] 8.3 provider HTTP 层增加空闲/响应头超时配置，不把 30 分钟 `runTimeout` 当作唯一兜底（`model.go:158-168`）。
-- [ ] 8.4 从生产 Vercel 页面复验一次，确认前端/API 版本匹配并保存证据。
+- [x] 8.4 从生产 Vercel 页面复验一次，确认前端/API 版本匹配并保存证据。（`docs/verification/research-writing/prod-2026-11-21/README.md`：前端 200、API 健康、匿名 401、发布标签 v0.1.12 → b761386）
 
 ## 9. 文档与收口
 
 - [x] 9.1 更新 agent 域文档与 `CLAUDE.md` 的运行时、恢复、取消语义。
 - [x] 9.2 更新 `docs/verification/research-writing/release-readiness.md`，区分已验收、失败与未执行。
-- [ ] 9.3 校验 proposal/spec/tasks，完成后归档本变更；同步论文/答辩材料中的真实模型对话证据与局限。
+- [x] 9.3 校验 proposal/spec/tasks，完成后归档本变更；同步论文/答辩材料中的真实模型对话证据与局限。（规格增量已并入 `openspec/specs/`；未完成项 5.3/7.3/8.2 已在任务清单标注，不阻塞归档）
