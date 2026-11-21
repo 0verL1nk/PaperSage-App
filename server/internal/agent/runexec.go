@@ -298,7 +298,7 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("模型配置不可用")
 		return
 	}
-	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String(), s.Cfg.AgentModelTimeout)
+	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String(), s.Cfg.AgentModelTimeout, s.Cfg.AgentModelIdleTimeout)
 	if err != nil {
 		fail("模型初始化失败")
 		return
