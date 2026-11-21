@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +30,9 @@ func Setup(version string) error {
 		return err
 	}
 	cleanStaleStaging(root)
-	provider, err := newInstallerProvider(repository, "", nil)
+	// The default Wails client times out at 30s, too short for a ~50 MB
+	// installer on a slow link; the context adds no deadline of its own.
+	provider, err := newInstallerProvider(repository, "", &http.Client{Timeout: 15 * time.Minute})
 	if err != nil {
 		return err
 	}
@@ -42,11 +45,9 @@ func Setup(version string) error {
 }
 
 func stagingRoot() (string, error) {
-	cache, err := os.UserCacheDir()
-	if err != nil {
-		return "", fmt.Errorf("updater: locate staging directory: %w", err)
-	}
-	root := filepath.Join(cache, "PaperSage", "updates")
+	// Temp, not the user cache: elevated launch of a file under a redirected or
+	// EFS-encrypted LocalAppData path fails with ERROR_PATH_NOT_FOUND.
+	root := filepath.Join(os.TempDir(), "PaperSage-updates")
 	if err := os.MkdirAll(root, 0700); err != nil {
 		return "", fmt.Errorf("updater: create staging directory: %w", err)
 	}
