@@ -167,17 +167,9 @@ jobs:
           fi
           printf 'BACKEND_SHA256=%s\n' "$digest" >> "$GITHUB_ENV"
 
-      - name: Build (pull request)
-        if: github.event_name == 'pull_request'
-        working-directory: desktop
-        env:
-          ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
-          BACKEND_VERSION: ${{ env.VERSION }}
-          BACKEND_SHA256: ${{ env.BACKEND_SHA256 }}
-        run: go tool wails3 task build VERSION=${{ env.VERSION }}
-
+      # Package on pull requests too: the NSIS compile is where version metadata
+      # and installer identity break, and a build-only check did not catch it.
       - name: Build & package
-        if: github.event_name != 'pull_request'
         working-directory: desktop
         env:
           ONLINE_API_BASE_URL: ${{ vars.ONLINE_API_BASE_URL }}
