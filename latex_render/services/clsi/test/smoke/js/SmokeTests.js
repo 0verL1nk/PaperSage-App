@@ -1,4 +1,3 @@
-import request from 'request'
 import Settings from '@overleaf/settings'
 
 const buildUrl = path =>
@@ -36,11 +35,12 @@ export default {
     res.contentType('text/plain')
     res.status(code).send(body)
   },
-  _run(done) {
-    request.post(
-      {
-        url,
-        json: {
+  async _run(done) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           compile: {
             options: {
               metricsPath: 'health-check',
@@ -105,25 +105,24 @@ date
               },
             ],
           },
-        },
-      },
-      (error, response, body) => {
-        if (error) return done(error)
-        if (!body || !body.compile || !body.compile.outputFiles) {
-          return done(new Error('response payload incomplete'))
-        }
-
-        let pdfFound = false
-        let logFound = false
-        for (const file of body.compile.outputFiles) {
-          if (file.type === 'pdf') pdfFound = true
-          if (file.type === 'log') logFound = true
-        }
-
-        if (!pdfFound) return done(new Error('no pdf returned'))
-        if (!logFound) return done(new Error('no log returned'))
-        done()
+        }),
+      })
+      if (!response.ok) throw new Error(`unexpected status ${response.status}`)
+      const body = await response.json()
+      if (!body || !body.compile || !body.compile.outputFiles) {
+        throw new Error('response payload incomplete')
       }
-    )
+      let pdfFound = false
+      let logFound = false
+      for (const file of body.compile.outputFiles) {
+        if (file.type === 'pdf') pdfFound = true
+        if (file.type === 'log') logFound = true
+      }
+      if (!pdfFound) throw new Error('no pdf returned')
+      if (!logFound) throw new Error('no log returned')
+      done()
+    } catch (error) {
+      done(error)
+    }
   },
 }
