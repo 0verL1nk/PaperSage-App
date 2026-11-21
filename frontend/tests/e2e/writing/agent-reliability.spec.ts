@@ -190,6 +190,28 @@ async function mockAgent(page: Page, opts: MockOptions = {}) {
 }
 
 test.describe('AI 对话可靠性与体验', () => {
+  test('会话恢复失败时禁止发送并允许重试恢复', async ({ page }) => {
+    await page.goto('/')
+    await seedAuthTokens(page)
+    await mockWritingPageAPIs(page)
+    await mockAgent(page)
+    let attempts = 0
+    await page.route('**/api/v1/agent/conversations/*/runs/active', (route) => {
+      attempts++
+      return route.fulfill(attempts === 1
+        ? json({ code: 500, info: 'unavailable', data: null }, 500)
+        : json({ code: 200, info: '', data: { runId: null } }))
+    })
+
+    await page.goto(WRITING_URL)
+    await page.getByTestId('writing-tab-ai').click()
+    await expect(page.getByText('无法恢复会话或确认运行状态，请重试后再发送。')).toBeVisible()
+    await expect(page.getByPlaceholder('问点什么…')).toBeDisabled()
+    await page.getByRole('button', { name: '重试恢复' }).click()
+    await expect(page.getByPlaceholder('问点什么…')).toBeEnabled()
+    expect(attempts).toBe(3)
+  })
+
   test('新对话保持空白，不被自动重开第一条历史会话', async ({ page }) => {
     await page.goto('/')
     await seedAuthTokens(page)
@@ -370,15 +392,17 @@ test.describe('AI 对话可靠性与体验', () => {
         eventUrls.push(url)
         if (attempt === 1) {
           return sse([
-            { id: 1, data: { type: 'start', messageId: 'm-reconnect' } },
+            { data: { type: 'start', messageId: 'm-reconnect' } },
+            { id: 1, data: { type: 'text-start', id: 't1' } },
+            { id: 1, data: { type: 'text-delta', id: 't1', delta: '第一段' } },
             { id: 2, data: { type: 'text-start', id: 't1' } },
-            { id: 3, data: { type: 'text-delta', id: 't1', delta: '第一段' } },
           ])
         }
         return sse([
-          { id: 4, data: { type: 'text-delta', id: 't1', delta: '第二段' } },
-          { id: 5, data: { type: 'text-end', id: 't1' } },
-          { id: 6, data: { type: 'finish' } },
+          { data: { type: 'start', messageId: 'm-reconnect' } },
+          { id: 2, data: { type: 'text-start', id: 't1' } },
+          { id: 2, data: { type: 'text-delta', id: 't1', delta: '第二段' } },
+          { data: { type: 'finish' } },
           '[DONE]',
         ])
       },
@@ -391,7 +415,7 @@ test.describe('AI 对话可靠性与体验', () => {
 
     await expect(page.getByText('第一段第二段')).toBeVisible()
     await expect.poll(() => mock.streamAttempts()).toBe(2)
-    expect(eventUrls[1]).toContain('afterSeq=3')
+    expect(eventUrls[1]).toContain('afterSeq=1')
   })
 
   test('快速切会话时迟到的历史响应不覆盖当前会话', async ({ page }) => {

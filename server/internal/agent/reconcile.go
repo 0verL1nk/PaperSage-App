@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
@@ -51,37 +53,52 @@ func (s *Service) ReconcileOrphanRuns(ctx context.Context) error {
 				Update("last_sequence", maxSeq).Error; err != nil {
 				return err
 			}
-			// 被杀掉的进程往往没来得及物化助手终答；没有消息就没有 part，
-			// 转录接口会把这次失败显示成“只有用户消息”。这里补一条带 error part
-			// 的助手消息，前端刷新后才能看到中断原因。
-			reason := reconcileInterrupted
-			if run.OutputMessageID == nil {
-				msg, err := s.createAssistantMessage(ctx, tx, run.ConversationID, &run.ID,
-					[]transcriptPart{{Type: PartError, Status: "failed", Text: &reason}})
-				if err != nil {
-					return err
-				}
-				if err := tx.Model(msg).Update("status", RunFailed).Error; err != nil {
-					return err
-				}
-				if err := tx.Model(&store.AgentRun{}).Where("id = ?", run.ID).
-					Update("output_message_id", msg.ID).Error; err != nil {
-					return err
-				}
-			} else {
-				var existing int64
-				if err := tx.Model(&store.AgentMessagePart{}).
-					Where("message_id = ? AND type = ?", *run.OutputMessageID, PartError).
-					Count(&existing).Error; err != nil {
-					return err
-				}
-				if existing == 0 {
-					var maxOrdinal int
-					if err := tx.Model(&store.AgentMessagePart{}).Where("message_id = ?", *run.OutputMessageID).
-						Select("COALESCE(MAX(ordinal), -1)").Scan(&maxOrdinal).Error; err != nil {
+			if err := tx.Model(&store.AgentToolCall{}).Where("run_id = ? AND state = ?", run.ID, ToolExecuting).
+				Updates(map[string]any{"state": ToolFailed, "completed_at": time.Now().UTC()}).Error; err != nil {
+				return err
+			}
+			if run.ParentRunID == nil {
+				reason := reconcileInterrupted
+				if run.OutputMessageID == nil {
+					parts, err := (&Service{DB: tx}).buildTranscript(ctx, run.ID, "", reason)
+					if err != nil {
 						return err
 					}
-					if err := s.appendPart(ctx, tx, *run.OutputMessageID, maxOrdinal+1, PartError, "failed", &reason, nil); err != nil {
+					var children []store.AgentRun
+					if err := tx.Select("id", "status").Where("parent_run_id = ?", run.ID).Find(&children).Error; err != nil {
+						return err
+					}
+					parts = settleReconciledActivities(parts, children)
+					msg, err := s.createAssistantMessage(ctx, tx, run.ConversationID, &run.ID, splitReconciledText(parts))
+					if err != nil {
+						return err
+					}
+					if err := tx.Model(msg).Update("status", RunFailed).Error; err != nil {
+						return err
+					}
+					if err := tx.Model(&store.AgentRun{}).Where("id = ?", run.ID).
+						Update("output_message_id", msg.ID).Error; err != nil {
+						return err
+					}
+				} else {
+					var existing int64
+					if err := tx.Model(&store.AgentMessagePart{}).
+						Where("message_id = ? AND type = ?", *run.OutputMessageID, PartError).
+						Count(&existing).Error; err != nil {
+						return err
+					}
+					if existing == 0 {
+						var maxOrdinal int
+						if err := tx.Model(&store.AgentMessagePart{}).Where("message_id = ?", *run.OutputMessageID).
+							Select("COALESCE(MAX(ordinal), -1)").Scan(&maxOrdinal).Error; err != nil {
+							return err
+						}
+						if err := s.appendPart(ctx, tx, *run.OutputMessageID, maxOrdinal+1, PartError, "failed", &reason, nil); err != nil {
+							return err
+						}
+					}
+					if err := tx.Model(&store.AgentMessage{}).Where("id = ?", *run.OutputMessageID).
+						Update("status", RunFailed).Error; err != nil {
 						return err
 					}
 				}
@@ -98,4 +115,79 @@ func (s *Service) ReconcileOrphanRuns(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func settleReconciledActivities(parts []transcriptPart, children []store.AgentRun) []transcriptPart {
+	statuses := make(map[string]string, len(children))
+	for _, child := range children {
+		status := child.Status
+		if status == RunRunning {
+			status = RunFailed
+		}
+		statuses[child.ID.String()] = status
+	}
+	indices := make(map[string]int)
+	out := make([]transcriptPart, 0, len(parts))
+	for _, part := range parts {
+		if part.Type != PartActivity {
+			out = append(out, part)
+			continue
+		}
+		var content map[string]any
+		if err := json.Unmarshal(part.Content, &content); err != nil {
+			out = append(out, part)
+			continue
+		}
+		id, _ := content["runId"].(string)
+		if part.Status == RunRunning {
+			part.Status = statuses[id]
+			if part.Status == "" {
+				part.Status = RunFailed
+			}
+			content["status"] = part.Status
+			part.Content, _ = json.Marshal(content)
+		}
+		if index, ok := indices[id]; id != "" && ok {
+			out[index] = part
+			continue
+		}
+		if id != "" {
+			indices[id] = len(out)
+		}
+		out = append(out, part)
+	}
+	return out
+}
+
+// MySQL TEXT stores at most 65,535 bytes; split without changing the recovered text.
+func splitReconciledText(parts []transcriptPart) []transcriptPart {
+	const maxTextBytes = 65535
+	out := make([]transcriptPart, 0, len(parts))
+	for _, part := range parts {
+		if part.Type != PartText || part.Text == nil || len(*part.Text) <= maxTextBytes {
+			out = append(out, part)
+			continue
+		}
+		remaining := *part.Text
+		continuation := false
+		for len(remaining) > 0 {
+			end := len(remaining)
+			if end > maxTextBytes {
+				end = maxTextBytes
+				for !utf8.RuneStart(remaining[end]) {
+					end--
+				}
+			}
+			piece := remaining[:end]
+			chunk := part
+			chunk.Text = &piece
+			if continuation {
+				chunk.Content = datatypes.JSON(`{"textContinuation":true}`)
+			}
+			out = append(out, chunk)
+			remaining = remaining[end:]
+			continuation = true
+		}
+	}
+	return out
 }

@@ -197,7 +197,7 @@ func (s *Service) activeRun(c *gin.Context) {
 	}
 	var run store.AgentRun
 	err = s.DB.WithContext(ctx).
-		Where("conversation_id = ? AND status = ?", cid, RunRunning).
+		Where("conversation_id = ? AND status = ? AND parent_run_id IS NULL", cid, RunRunning).
 		Order("created_at DESC").First(&run).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -208,7 +208,7 @@ func (s *Service) activeRun(c *gin.Context) {
 		return
 	}
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
-		"runId": run.ID.String(), "status": run.Status,
+		"runId": run.ID.String(), "status": run.Status, "lastSequence": run.LastSequence,
 	}, ""))
 }
 

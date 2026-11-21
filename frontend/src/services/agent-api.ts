@@ -109,11 +109,7 @@ export function listMessages(conversationId: string, config?: ApiRequestConfig) 
 /** 刷新/重进会话时找回仍在执行的 Run；没有则 runId=null。 */
 export function getActiveRun(conversationId: string, config?: ApiRequestConfig) {
   requireSignedInForAI()
-  // 这是进入会话时的后台探测：401 只代表拿不到状态，不应触发全局登出跳转。
-  return getJson<{ runId: string | null; status?: string }>(AGENT.activeRun(conversationId), {
-    ...config,
-    skipAuthRefresh: true,
-  })
+  return getJson<{ runId: string | null; status?: string; lastSequence?: number }>(AGENT.activeRun(conversationId), config)
 }
 
 export function deleteConversation(conversationId: string, config?: ApiRequestConfig) {

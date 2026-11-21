@@ -107,7 +107,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     const latest = useSettingsStore.getState()
     const latestAgent = latest.settings?.agent
     const canUseServerFallback = Boolean(latestAgent?.server_fallback?.configured)
-    if (!content || chat.streaming || chat.cancelling || latest.pendingAgentModelChanges > 0 || (!latestAgent?.providers.length && !canUseServerFallback)) return
+    if (!content || chat.restoring || chat.restoreFailed || chat.streaming || chat.cancelling || latest.pendingAgentModelChanges > 0 || (!latestAgent?.providers.length && !canUseServerFallback)) return
     if (message === input) setInput('')
     // 第一条消息会在 store 里顺带建出会话：把会话列表拉一次，
     // 否则下拉框里看不到刚建的这个会话。
@@ -267,6 +267,12 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         </div>
       )}
 
+      {chat.restoring && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">正在恢复会话…</div>}
+      {chat.recoveredBrowserCompileRequest && (
+        <div role="status" className="px-4 py-2 text-xs text-muted-foreground">
+          恢复了编译请求（{chat.recoveredBrowserCompileRequest.rootFile}），请确认是否需要在写作页手动编译。
+        </div>
+      )}
       {chat.reconnecting && (
         <div role="status" className="px-4 py-2 flex items-center gap-2 text-xs text-amber-700 dark:text-amber-400">
           <Loader2 className="size-3 animate-spin" /> 连接中断，正在重连…
@@ -297,7 +303,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                       '我还没确定选题，想从兴趣方向开始梳理。',
                       '我有一个初步想法，帮我判断怎么形成研究问题。',
                       '我有任务书或导师要求，想一起拆解。',
-                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.restoring || chat.restoreFailed || chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
                   </div>
                 )}
                 {mode === 'review' && (
@@ -306,7 +312,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
                       '解释当前检查结果，告诉我先改哪一项。',
                       '哪些问题是因为材料不足？还需要补什么？',
                       '帮我把需要处理的问题按优先级排序。',
-                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
+                    ].map((prompt) => <Button key={prompt} variant="outline" size="sm" disabled={chat.restoring || chat.restoreFailed || chat.streaming || chat.cancelling || savingModel || !hasModel} className="h-auto min-h-9 whitespace-normal rounded-xl px-3 py-2 text-left text-[11px]" onClick={() => void send(prompt)}>{prompt}</Button>)}
                   </div>
                 )}
               </div>
@@ -321,10 +327,13 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
               <div role="alert" className="rounded-xl border border-destructive/20 bg-destructive/5 p-3 text-[11px] text-destructive space-y-2">
                 <p>{chat.error}</p>
                 <div className="flex flex-wrap gap-2">
+                  {chat.restoreFailed && chat.conversationId && (
+                    <Button size="sm" variant="outline" className="h-7" onClick={() => void chat.open(chat.conversationId!, projectId)}>重试恢复</Button>
+                  )}
                   {chat.errorAction === 'retry-send' && chat.lastFailedContent && (
                     <Button size="sm" variant="outline" className="h-7" onClick={retrySend}>重试发送</Button>
                   )}
-                  {lastAssistant?.runId && (lastAssistant.status === 'failed' || lastAssistant.status === 'cancelled') && (
+                  {!chat.restoreFailed && lastAssistant?.runId && (lastAssistant.status === 'failed' || lastAssistant.status === 'cancelled') && (
                     <Button size="sm" variant="outline" className="h-7" onClick={retryLastRun}>重试回答</Button>
                   )}
                   {chat.errorAction === 'settings' && (
@@ -358,7 +367,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         <div className="relative group">
           <textarea
             value={input}
-            disabled={!hasModel || chat.cancelling}
+            disabled={!hasModel || chat.restoring || chat.restoreFailed || chat.cancelling}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => {
               // 中文输入法确认候选词也会触发 Enter，此时不能发送。
@@ -377,7 +386,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <Button
             size="icon-xs"
             className="absolute right-3 bottom-3 rounded-xl shadow-lg shadow-primary/20"
-            disabled={chat.cancelling || (!chat.streaming && (savingModel || !hasModel || !input.trim()))}
+            disabled={chat.restoring || chat.restoreFailed || chat.cancelling || (!chat.streaming && (savingModel || !hasModel || !input.trim()))}
             onClick={() => (chat.streaming ? void chat.cancel() : void send())}
             aria-label={chat.cancelling ? '正在停止' : chat.streaming ? '停止生成' : '发送消息'}
             title={chat.cancelling ? '正在停止' : chat.streaming ? '停止' : '发送'}

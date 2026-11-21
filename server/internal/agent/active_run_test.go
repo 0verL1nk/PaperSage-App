@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -52,12 +53,19 @@ func TestActiveRunLookup(t *testing.T) {
 	running := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: convID, AgentKey: agent.AgentKeyMain,
 		Status: agent.RunRunning, ModelProvider: "p", ModelName: "m", PromptVersion: "v",
+		CreatedAt: time.Now().UTC().Add(-time.Minute), LastSequence: 7,
 	}
 	finished := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: doneConv, AgentKey: agent.AgentKeyMain,
 		Status: agent.RunCompleted, ModelProvider: "p", ModelName: "m", PromptVersion: "v",
 	}
 	require.NoError(t, db.Create(&running).Error)
+	child := store.AgentRun{
+		ID: store.MustNewUUID(), ConversationID: convID, ParentRunID: &running.ID,
+		AgentKey: "search_references", Status: agent.RunRunning,
+		ModelProvider: "p", ModelName: "m", PromptVersion: "v", CreatedAt: time.Now().UTC().Add(time.Second),
+	}
+	require.NoError(t, db.Create(&child).Error)
 	require.NoError(t, db.Create(&finished).Error)
 
 	cfg := &config.Settings{SecretKey: "t"}
@@ -69,7 +77,7 @@ func TestActiveRunLookup(t *testing.T) {
 	token, err := auth.CreateAccessToken(cfg.SecretKey, uid.String(), 30)
 	require.NoError(t, err)
 
-	get := func(conv store.UUID) (int, string) {
+	get := func(conv store.UUID) (int, string, int64) {
 		req := httptest.NewRequest(http.MethodGet,
 			"/api/v1/agent/conversations/"+conv.String()+"/runs/active", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -77,24 +85,31 @@ func TestActiveRunLookup(t *testing.T) {
 		api.ServeHTTP(rec, req)
 		var body struct {
 			Data struct {
-				RunID *string `json:"runId"`
+				RunID        *string `json:"runId"`
+				LastSequence int64   `json:"lastSequence"`
 			} `json:"data"`
 		}
 		_ = json.NewDecoder(rec.Body).Decode(&body)
 		if body.Data.RunID == nil {
-			return rec.Code, ""
+			return rec.Code, "", body.Data.LastSequence
 		}
-		return rec.Code, *body.Data.RunID
+		return rec.Code, *body.Data.RunID, body.Data.LastSequence
 	}
 
-	code, runID := get(convID)
+	code, runID, lastSequence := get(convID)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Equal(t, running.ID.String(), runID)
+	assert.EqualValues(t, 7, lastSequence)
 
-	code, runID = get(doneConv)
+	require.NoError(t, db.Model(&running).Update("status", agent.RunCompleted).Error)
+	code, runID, _ = get(convID)
+	assert.Equal(t, http.StatusOK, code)
+	assert.Empty(t, runID, "只剩子 Run 时不得恢复它")
+
+	code, runID, _ = get(doneConv)
 	assert.Equal(t, http.StatusOK, code)
 	assert.Empty(t, runID, "已结束的会话不应返回进行中的 Run")
 
-	code, _ = get(foreignConv)
+	code, _, _ = get(foreignConv)
 	assert.Equal(t, http.StatusNotFound, code, "不能读到别人的会话状态")
 }

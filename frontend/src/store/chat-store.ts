@@ -44,6 +44,8 @@ export interface ChatState {
   versionKnown: boolean
   messages: ChatMessage[]
   activeRunId: string | null
+  restoring: boolean
+  restoreFailed: boolean
   streaming: boolean
   cancelling: boolean
   reconnecting: boolean
@@ -58,6 +60,7 @@ export interface ChatState {
   proposals: Record<string, AgentChangeProposal>
   /** 助手触发了浏览器编译：把入口文件交给当前写作页启动 WASM。 */
   pendingBrowserCompileRequest: { rootFile: string } | null
+  recoveredBrowserCompileRequest: { rootFile: string } | null
 }
 
 export const emptyChatState: ChatState = {
@@ -66,6 +69,8 @@ export const emptyChatState: ChatState = {
   versionKnown: false,
   messages: [],
   activeRunId: null,
+  restoring: false,
+  restoreFailed: false,
   streaming: false,
   cancelling: false,
   reconnecting: false,
@@ -77,13 +82,35 @@ export const emptyChatState: ChatState = {
   isNewConversation: false,
   proposals: {},
   pendingBrowserCompileRequest: null,
+  recoveredBrowserCompileRequest: null,
 }
 
 /** Agent tool emits a machine-readable browser request; the page creates its own browser job. */
 const BROWSER_COMPILE_REQUEST_RE = /browser_compile_request:(\{[^\r\n]+\})/
 
+function browserCompileRequest(output: unknown): { rootFile: string } | null {
+  const match = typeof output === 'string' ? output.match(BROWSER_COMPILE_REQUEST_RE) : null
+  if (!match) return null
+  try {
+    const request: unknown = JSON.parse(match[1])
+    if (typeof request === 'object' && request !== null && 'root_file' in request &&
+      typeof request.root_file === 'string' && request.root_file.length > 0) {
+      return { rootFile: request.root_file }
+    }
+  } catch {
+    return null
+  }
+  return null
+}
+
 // 网络断流的重连预算。超过后交给用户显式重试，避免页面无限挂着“重连中”。
 const RECONNECT_DELAYS_MS = [300, 800, 1500]
+
+// 一条持久化事件可能拆成多帧，只有最后一帧到达后才能推进续传游标。
+const SEQUENCE_BOUNDARIES = new Set([
+  'text-delta', 'tool-input-available', 'tool-output-available', 'tool-output-error',
+  'tool-output-denied', 'data-activity', 'data-proposal', 'error', 'abort',
+])
 
 let sendInFlight = false
 let openSeq = 0
@@ -111,7 +138,7 @@ function findOrCreatePart(msg: ChatMessage, id: string, type: ChatPartType): Cha
 }
 
 /** 纯函数：把一个协议 part 归并进状态。同一 part id 重复到达不会产生重复内容。 */
-export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatState {
+export function reduceChatEvent(state: ChatState, event: RunStreamEvent, historical = false): ChatState {
   const type = String(event.type ?? '')
   const next: ChatState = { ...state, messages: state.messages.map((m) => ({ ...m, parts: [...m.parts] })) }
 
@@ -169,22 +196,10 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
       part.status = 'succeeded'
       // 编译联动：交接入口文件，由写作页按用户当前所选引擎创建浏览器任务。
       const toolName = (part.meta as { toolName?: string }).toolName
-      const match = typeof event.output === 'string' ? event.output.match(BROWSER_COMPILE_REQUEST_RE) : null
-      if (toolName === 'compile_project' && match) {
-        try {
-          const request: unknown = JSON.parse(match[1])
-          if (
-            typeof request === 'object'
-            && request !== null
-            && 'root_file' in request
-            && typeof request.root_file === 'string'
-            && request.root_file.length > 0
-          ) {
-            next.pendingBrowserCompileRequest = { rootFile: request.root_file }
-          }
-        } catch {
-          // Keep malformed tool output visible without starting an unintended compile.
-        }
+      const request = toolName === 'compile_project' ? browserCompileRequest(event.output) : null
+      if (request) {
+        if (historical) next.recoveredBrowserCompileRequest = request
+        else next.pendingBrowserCompileRequest = request
       }
       return next
     }
@@ -207,8 +222,9 @@ export function reduceChatEvent(state: ChatState, event: RunStreamEvent): ChatSt
       return next
     }
     case 'data-proposal': {
-      const data = (event.data ?? {}) as unknown as AgentChangeProposal
-      if (!data?.id) return next
+      const eventProposal = (event.data ?? {}) as unknown as AgentChangeProposal
+      if (!eventProposal?.id) return next
+      const data = historical ? next.proposals[eventProposal.id] ?? eventProposal : eventProposal
       next.proposals = { ...next.proposals, [data.id]: data }
       const part = findOrCreatePart(ensureAssistant(), `proposal-${data.id}`, 'proposal')
       part.meta = { proposalId: data.id, proposal: data }
@@ -256,19 +272,25 @@ export function messagesFromApi(rows: AgentMessage[]): ChatMessage[] {
     runId: m.runId,
     role: m.role,
     status: (m.status as ChatMessage['status']) || 'completed',
-    parts: m.parts.map((p) => {
+    parts: m.parts.reduce<ChatPart[]>((parts, p) => {
       const content = (p.content ?? undefined) as Record<string, unknown> | undefined
+      const previous = parts.at(-1)
+      if (p.type === 'text' && content?.textContinuation === true && previous?.type === 'text') {
+        previous.text += p.text ?? ''
+        return parts
+      }
       const proposalId = typeof content?.proposalId === 'string'
         ? content.proposalId
         : typeof content?.id === 'string' ? content.id : undefined
-      return {
+      parts.push({
         id: p.id,
         type: p.type as ChatPartType,
         text: p.text ?? '',
         status: p.status,
         meta: proposalId ? { ...content, proposalId } : content,
-      }
-    }),
+      })
+      return parts
+    }, []),
   }))
 }
 
@@ -292,7 +314,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     return detail.threadVersion
   }
 
-  async function consumeStream(runId: string, afterSeq: number): Promise<void> {
+  async function consumeStream(runId: string, afterSeq: number, replayThrough = 0): Promise<void> {
     const controller = new AbortController()
     currentStream = controller
     let seq = afterSeq
@@ -306,12 +328,13 @@ export const useChatStore = create<ChatStore>((set, get) => {
             afterSeq: seq || undefined,
             signal: controller.signal,
             onEvent: (ev, meta) => {
-              if (typeof meta.eventId === 'number') {
-                seq = meta.eventId
-                set({ lastEventId: seq })
-              }
+              if (ev.type === 'start' && seq > 0) return
+              const nextSeq = typeof meta.eventId === 'number' && SEQUENCE_BOUNDARIES.has(ev.type)
+                ? meta.eventId
+                : undefined
+              const historical = typeof meta.eventId === 'number' && meta.eventId <= replayThrough
               if (ev.type === 'finish' || ev.type === 'abort') terminal = true
-              if (!terminalNotified && get().activeRunId === runId) {
+              if (!historical && !terminalNotified && get().activeRunId === runId) {
                 if (ev.type === 'error') {
                   terminalNotified = true
                   void notifyWhenBackground('AI 回答失败', String(ev.errorText ?? '模型调用失败'))
@@ -320,7 +343,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
                   void notifyWhenBackground('AI 回答完成', '回答已完成，可回到应用查看')
                 }
               }
-              set((s) => s.activeRunId === runId ? reduceChatEvent(s, ev) : s)
+              set((s) => {
+                if (s.activeRunId !== runId) return s
+                const next = reduceChatEvent(s, ev, historical)
+                return nextSeq === undefined ? next : { ...next, lastEventId: nextSeq }
+              })
+              if (nextSeq !== undefined) seq = nextSeq
             },
           })
           // streamRun 只在终态帧或 [DONE] 时正常返回；提前关闭会在内部抛错。
@@ -361,14 +389,33 @@ export const useChatStore = create<ChatStore>((set, get) => {
       const seq = ++openSeq
       currentStream?.abort()
       currentStream = null
-      set({ ...emptyChatState, conversationId, isNewConversation: false })
-      const [detail, rows, allProposals] = await Promise.all([
+      set({ ...emptyChatState, conversationId, isNewConversation: false, restoring: true })
+      const failed = () => {
+        if (seq === openSeq) {
+          set({ restoring: false, restoreFailed: true, error: '无法恢复会话或确认运行状态，请重试后再发送。' })
+        }
+        return null
+      }
+      const activeBefore = await api.getActiveRun(conversationId).catch(failed)
+      if (seq !== openSeq || !activeBefore) return
+      let history = await Promise.all([
         api.getConversation(conversationId).catch(() => null),
         api.listMessages(conversationId),
         projectId ? api.listProposals(projectId).catch(() => []) : Promise.resolve([]),
-      ])
-      // 快速切换会话：迟到的响应不能覆盖当前会话。
-      if (seq !== openSeq) return
+      ]).catch(failed)
+      if (seq !== openSeq || !history) return
+      const activeAfter = await api.getActiveRun(conversationId).catch(failed)
+      if (seq !== openSeq || !activeAfter) return
+      if (activeAfter.runId && activeAfter.runId !== activeBefore.runId) {
+        history = await Promise.all([
+          api.getConversation(conversationId).catch(() => null),
+          api.listMessages(conversationId),
+          projectId ? api.listProposals(projectId).catch(() => []) : Promise.resolve([]),
+        ]).catch(failed)
+        if (seq !== openSeq || !history) return
+      }
+      const active = activeAfter.runId && activeAfter.runId !== activeBefore.runId ? activeAfter : activeBefore
+      const [detail, rows, allProposals] = history
       const proposalById = new Map(allProposals.map((p) => [p.id, p]))
       // 历史 part 里的建议状态是产出时快照；以建议表当前状态为准，应用/拒绝后刷新不倒退。
       const messages = messagesFromApi(rows).map((m) => ({
@@ -400,17 +447,39 @@ export const useChatStore = create<ChatStore>((set, get) => {
         proposals,
         conversationVersion: detail?.threadVersion ?? 0,
         versionKnown: detail !== null,
+        restoring: false,
       })
       // 刷新会丢掉内存里的流状态。服务端还有进行中的 Run 时必须重新订阅，
       // 否则界面看起来像“没开始”，用户会重复发送（验收 B2）。
-      const active = await api.getActiveRun(conversationId).catch(() => null)
       if (seq !== openSeq || !active?.runId || get().streaming) return
+      const completed = messages.find((message) => message.role === 'assistant' && message.runId === active.runId && message.status !== 'streaming')
+      if (completed) {
+        for (const part of completed.parts) {
+          if (part.type !== 'tool' || part.status !== 'succeeded' || part.meta?.toolName !== 'compile_project') continue
+          const request = browserCompileRequest(part.meta.output)
+          if (request) set({ recoveredBrowserCompileRequest: request })
+        }
+        return
+      }
       set({ activeRunId: active.runId, streaming: true, reconnecting: false, cancelling: false, lastEventId: 0 })
-      void consumeStream(active.runId, 0)
+      void consumeStream(active.runId, 0, active.lastSequence ?? 0).catch((error: unknown) => {
+        set((state) => {
+          if (seq !== openSeq || state.activeRunId !== active.runId) return {}
+          return {
+            streaming: false,
+            reconnecting: false,
+            cancelling: false,
+            activeRunId: null,
+            restoreFailed: true,
+            error: `${describeAgentError(error)}；后台可能仍在运行，请重试恢复，勿重复发送`,
+            errorAction: null,
+          }
+        })
+      })
     },
 
     send: async (projectId, content, clientRequestId = crypto.randomUUID()) => {
-      if (sendInFlight || get().streaming || get().cancelling) return
+      if (sendInFlight || get().restoring || get().restoreFailed || get().streaming || get().cancelling) return
       sendInFlight = true
       const localUserId = `user-${clientRequestId}`
       try {
@@ -501,7 +570,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
     },
 
     retryRun: async (runId) => {
-      if (get().streaming || get().cancelling) return
+      if (get().restoring || get().restoreFailed || get().streaming || get().cancelling) return
       set({ error: null, errorAction: null, cancelling: false })
       try {
         const clientRequestId = crypto.randomUUID()
