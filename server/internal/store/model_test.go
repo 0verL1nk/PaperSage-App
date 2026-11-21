@@ -134,19 +134,20 @@ func TestForeignKeys(t *testing.T) {
 	require.NoError(t, db.Raw("PRAGMA foreign_key_list(documents)").Scan(&fks).Error)
 	set := map[string]string{}
 	for _, f := range fks {
-		set[f.From] = f.OnDel
+		set[f.Table+"."+f.From] = f.OnDel
 	}
-	assert.Equal(t, "SET NULL", set["folder_id"], "folder_id 删除策略为 SET NULL")
-	assert.Equal(t, "CASCADE", set["project_id"])
-	assert.Equal(t, "CASCADE", set["owner_id"])
+	assert.Equal(t, "SET NULL", set["folders.folder_id"], "folder_id 删除策略为 SET NULL")
+	assert.Equal(t, "CASCADE", set["projects.project_id"])
+	assert.Equal(t, "CASCADE", set["users.owner_id"])
+	assert.Equal(t, "RESTRICT", set["project_sources.project_id"], "复合来源外键不得覆盖项目外键的级联断言")
 
 	require.NoError(t, db.Raw("PRAGMA foreign_key_list(projects)").Scan(&fks).Error)
 	set = map[string]string{}
 	for _, f := range fks {
-		set[f.From] = f.OnDel
+		set[f.Table+"."+f.From] = f.OnDel
 	}
-	assert.Equal(t, "SET NULL", set["group_id"], "group_id 删除策略为 SET NULL")
-	assert.Equal(t, "CASCADE", set["owner_id"])
+	assert.Equal(t, "SET NULL", set["project_groups.group_id"], "group_id 删除策略为 SET NULL")
+	assert.Equal(t, "CASCADE", set["users.owner_id"])
 }
 
 // 编译任务状态枚举语义（CompileJobStatus.is_terminal 的 Go 对应）

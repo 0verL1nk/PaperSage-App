@@ -107,3 +107,14 @@ export const AGENT = {
   rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
   artifact: (id: string) => `${V1}/agent/artifacts/${id}`,
 } as const
+
+// --- Research organization artifacts ---
+export const RESEARCH = {
+  list: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,
+  create: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,
+  revision: (artifactId: string, revision: number) => `${V1}/research-artifacts/${artifactId}/revisions/${revision}`,
+  addRevision: (artifactId: string) => `${V1}/research-artifacts/${artifactId}/revisions`,
+  adopt: (artifactId: string) => `${V1}/research-artifacts/${artifactId}/adopt`,
+  reject: (artifactId: string) => `${V1}/research-artifacts/${artifactId}/reject`,
+  delete: (artifactId: string) => `${V1}/research-artifacts/${artifactId}`,
+} as const

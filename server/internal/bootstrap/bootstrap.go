@@ -24,6 +24,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
+	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -115,6 +116,8 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	// 永久删除项目后清理对象存储与派生索引（软删不触发级联，必须显式处理）。
 	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
+	researchSvc := research.NewService(db)
+
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 
 	// ── HTTP ──
@@ -133,6 +136,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	syssettings.Mount(v1, adminMw, syssettings.NewService(db))
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
+	research.Mount(v1, authSvc.AuthRequired(), researchSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
