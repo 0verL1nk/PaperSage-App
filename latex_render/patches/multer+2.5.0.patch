@@ -1,9 +1,9 @@
 diff --git a/node_modules/multer/lib/make-middleware.js b/node_modules/multer/lib/make-middleware.js
-index ee50988..de77364 100644
+index 1cce8e1..cb7051b 100644
 --- a/node_modules/multer/lib/make-middleware.js
 +++ b/node_modules/multer/lib/make-middleware.js
-@@ -164,7 +164,7 @@ function makeMiddleware (setup) {
-       if (fieldname == null) return abortWithCode('MISSING_FIELD_NAME')
+@@ -339,7 +339,7 @@ function makeMiddleware (setup) {
+       fieldname = decodeFormDataName(fieldname)
  
        // don't attach to the files object, if there is no file
 -      if (!filename) return fileStream.resume()
