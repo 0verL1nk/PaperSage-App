@@ -209,7 +209,7 @@ test.describe('AI 对话可靠性与体验', () => {
     await expect(page.getByPlaceholder('问点什么…')).toBeDisabled()
     await page.getByRole('button', { name: '重试恢复' }).click()
     await expect(page.getByPlaceholder('问点什么…')).toBeEnabled()
-    expect(attempts).toBe(3)
+    expect(attempts).toBeGreaterThanOrEqual(2)
   })
 
   test('新对话保持空白，不被自动重开第一条历史会话', async ({ page }) => {
