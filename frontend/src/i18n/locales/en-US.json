@@ -159,6 +159,7 @@
     "checkError": "Could not check for updates.",
     "downloadError": "Could not download the update. Retry or open the release page.",
     "installError": "Could not install the update. Retry or open the release page.",
+    "saveError": "Unsaved changes could not be saved, so the update was cancelled. Save and retry.",
     "invalidResponse": "The update service returned invalid update information."
   },
   "common": {

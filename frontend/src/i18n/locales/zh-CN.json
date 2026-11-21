@@ -159,6 +159,7 @@
     "checkError": "检查更新失败。",
     "downloadError": "下载更新失败。请重试或打开发布页。",
     "installError": "安装更新失败。请重试或打开发布页。",
+    "saveError": "还有未能保存的修改，已取消更新。请先保存后重试。",
     "invalidResponse": "更新服务返回了无效的更新信息。"
   },
   "common": {

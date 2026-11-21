@@ -18,6 +18,7 @@ import {
   openExternalSafe,
   type DesktopUpdate,
 } from '@/lib/desktop'
+import { prepareForUpdate } from '@/lib/update-prepare'
 
 const RELEASE_URL = 'https://github.com/0verL1nk/PaperSage-App/releases/latest'
 
@@ -25,7 +26,7 @@ type UpdateDialogState =
   | { phase: 'closed' | 'checking' | 'current' | 'ready' | 'installing' }
   | { phase: 'available'; update: DesktopUpdate }
   | { phase: 'downloading'; received: number; total: number }
-  | { phase: 'error'; stage: 'check' | 'download' | 'install'; detail: string }
+  | { phase: 'error'; stage: 'check' | 'download' | 'save' | 'install'; detail: string }
 
 export function UpdateDialog() {
   const { t } = useTranslation()
@@ -109,10 +110,20 @@ export function UpdateDialog() {
 
   const install = async () => {
     const previous = stateRef.current
-    if (previous.phase !== 'ready' && !(previous.phase === 'error' && previous.stage === 'install')) return
+    if (previous.phase !== 'ready' &&
+        !(previous.phase === 'error' && (previous.stage === 'install' || previous.stage === 'save'))) return
     const service = getDesktopService()
     if (!service) return
     transition({ phase: 'installing' })
+    try {
+      // The installer quits the app, so flush unsaved editor changes first.
+      await prepareForUpdate()
+    } catch (error) {
+      if (stateRef.current.phase === 'installing') {
+        transition({ phase: 'error', stage: 'save', detail: error instanceof Error ? error.message : String(error ?? '') })
+      }
+      return
+    }
     try {
       await service.installUpdate()
     } catch {
@@ -129,7 +140,8 @@ export function UpdateDialog() {
   const close = () => {
     const current = stateRef.current
     if (current.phase === 'checking' || current.phase === 'downloading' || current.phase === 'installing') return
-    if (current.phase === 'ready' || (current.phase === 'error' && current.stage === 'install')) discard()
+    if (current.phase === 'ready' ||
+        (current.phase === 'error' && (current.stage === 'install' || current.stage === 'save'))) discard()
     generation.current += 1
     transition({ phase: 'closed' })
   }
