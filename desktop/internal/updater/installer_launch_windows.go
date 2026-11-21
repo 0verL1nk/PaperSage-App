@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -316,7 +317,11 @@ type shellExecuteInfo struct {
 }
 
 func shellExecuteElevated(path, parameters string) (windows.Handle, error) {
-	verb, err := windows.UTF16PtrFromString("runas")
+	return shellExecuteWithVerb("runas", path, parameters)
+}
+
+func shellExecuteWithVerb(verbText, path, parameters string) (windows.Handle, error) {
+	verb, err := windows.UTF16PtrFromString(verbText)
 	if err != nil {
 		return 0, err
 	}
@@ -328,12 +333,19 @@ func shellExecuteElevated(path, parameters string) (windows.Handle, error) {
 	if err != nil {
 		return 0, err
 	}
+	// ShellExecuteEx resolves a NULL directory against the process working
+	// directory, which can fail after the app exits; pin it to the installer.
+	directory, err := windows.UTF16PtrFromString(filepath.Dir(path))
+	if err != nil {
+		return 0, err
+	}
 	var info shellExecuteInfo
 	info.size = uint32(unsafe.Sizeof(info))
 	info.mask = seeMaskNoCloseProcess | seeMaskNoAsync | seeMaskNoUI
 	info.verb = verb
 	info.file = file
 	info.parameters = params
+	info.directory = directory
 	info.show = windows.SW_HIDE
 	if ok, _, callErr := procShellExecuteExW.Call(uintptr(unsafe.Pointer(&info))); ok == 0 {
 		if callErr != nil && callErr != syscall.Errno(0) {
@@ -341,6 +353,10 @@ func shellExecuteElevated(path, parameters string) (windows.Handle, error) {
 		}
 		return 0, errors.New("updater: ShellExecuteEx failed")
 	}
+	runtime.KeepAlive(verb)
+	runtime.KeepAlive(file)
+	runtime.KeepAlive(params)
+	runtime.KeepAlive(directory)
 	if info.process == 0 {
 		return 0, errors.New("updater: ShellExecuteEx returned no process")
 	}
@@ -406,7 +422,8 @@ func digestFile(path string) ([]byte, error) {
 }
 
 func writeHelperError(dir string, cause error) {
-	line := fmt.Sprintf("%s %v\n", time.Now().UTC().Format(time.RFC3339), cause)
+	cwd, _ := os.Getwd()
+	line := fmt.Sprintf("%s cwd=%q %v\n", time.Now().UTC().Format(time.RFC3339), cwd, cause)
 	_ = os.WriteFile(filepath.Join(dir, "update-error.txt"), []byte(line), 0600)
 }
 

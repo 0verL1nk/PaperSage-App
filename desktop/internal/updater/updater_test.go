@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -23,6 +24,16 @@ func TestInstallerOperationsWithoutSetup(t *testing.T) {
 	}
 	if err := Discard(); err == nil {
 		t.Fatal("Discard() without Setup was accepted")
+	}
+}
+
+func TestStagingRootStaysOutsideLocalAppData(t *testing.T) {
+	root, err := stagingRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(root, filepath.Clean(os.TempDir())+string(filepath.Separator)) {
+		t.Fatalf("staging root %q is not under the OS temp directory", root)
 	}
 }
 
