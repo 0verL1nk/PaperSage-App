@@ -45,12 +45,12 @@ export function useSaveLatexFile(projectId: string) {
   return useMutation({
     mutationFn: ({ filePath, content }: { filePath: string; content: string }) =>
       saveLatexFile(projectId, filePath, content, { skipGlobalLoading: true }),
-    onSuccess: (_, variables) => {
+    onSuccess: async (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: latexKeys.content(projectId, variables.filePath),
       })
       queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
-      void pushFileToDisk(projectId, variables.filePath, variables.content)
+      await pushFileToDisk(projectId, variables.filePath, variables.content)
     },
   })
 }

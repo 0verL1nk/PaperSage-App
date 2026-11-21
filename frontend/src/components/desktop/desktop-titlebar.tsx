@@ -1,6 +1,7 @@
 import { Check, Cloud, Copy, HardDrive, Maximize2, Menu, Minus, Power, RefreshCw, Square, X } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useTranslation } from 'react-i18next'
 import { getApiTarget, setApiTarget, type ApiTarget } from '@/lib/env'
 import { getDesktopService, hasCustomTitlebar } from '@/lib/desktop'
 import { cn } from '@/lib/utils'
@@ -55,6 +56,7 @@ export function WindowControls({ className }: { className?: string }) {
 }
 
 function DesktopAppMenuInner({ className }: { className?: string }) {
+  const { t } = useTranslation()
   const service = getDesktopService()
   const [menuOpen, setMenuOpen] = useState(false)
   const [menuPos, setMenuPos] = useState<{ left: number; top: number } | null>(null)
@@ -128,9 +130,9 @@ function DesktopAppMenuInner({ className }: { className?: string }) {
               <Maximize2 className="size-4" />
               切换全屏
             </MenuAction>
-            <MenuAction onSelect={() => closeMenu(() => void service?.checkForUpdates())}>
+            <MenuAction onSelect={() => closeMenu(() => window.dispatchEvent(new Event('papersage:open-update')))}>
               <RefreshCw className="size-4" />
-              检查更新
+              {t('desktopUpdate.check')}
             </MenuAction>
             <div className="my-1 h-px bg-border/60" />
             <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">

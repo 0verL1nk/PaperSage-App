@@ -54,6 +54,7 @@
     "aboutPlatform": "Platform",
     "aboutApiBaseUrl": "API base URL",
     "aboutSameOrigin": "Same origin (this site)",
+    "aboutLocalBackendUnavailable": "Local backend unavailable",
     "aboutWebNote": "You are using the web version. Desktop-only features (system notifications, file dialogs) are unavailable here.",
     "appearanceTitle": "Appearance",
     "navigationTitle": "Navigation",
@@ -134,6 +135,22 @@
     "explorer": "Explorer",
     "preview": "Preview",
     "readyToCompile": "Ready to compile"
+  },
+  "desktopUpdate": {
+    "check": "Check for updates",
+    "title": "Software update",
+    "description": "Check for Windows desktop app updates and visit the official download page.",
+    "checking": "Checking for updates…",
+    "upToDate": "You are up to date.",
+    "version": "Version {{version}}",
+    "available": "A new version is available",
+    "notes": "Release notes",
+    "manualInstall": "Download the full installer and install it manually. Choose your existing installation directory; your data will be preserved.",
+    "openDownloadPage": "Open download page",
+    "close": "Close",
+    "retry": "Retry",
+    "checkError": "Could not check for updates. Check your connection and retry.",
+    "invalidResponse": "The update service returned invalid update information."
   },
   "common": {
     "loadingSettings": "Loading settings…",

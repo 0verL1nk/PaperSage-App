@@ -29,6 +29,7 @@ import {
 } from '@/hooks/use-latex'
 import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
 import { useAutoSave } from '@/hooks/use-auto-save'
+import { PREPARE_UPDATE_EVENT } from '@/lib/update-prepare'
 import { useFolderSyncStatus } from '@/hooks/use-folder-sync-status'
 import type { PdfRangeSource, CompileJobStatus, CompileJobListItem, LatexFileItem } from '@/services/latex-api'
 import { cancelCompile, getCompileHistory } from '@/services/latex-api'
@@ -214,6 +215,14 @@ export function WritingPage() {
   const { data: fileContent, isPending: isContentLoading, refetch: refetchFileContent } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
   const saveMutation = useSaveLatexFile(projectId)
   const autoSave = useAutoSave(saveMutation)
+  const { saveNow: saveBeforeUpdate } = autoSave
+  useEffect(() => {
+    const prepare = (event: WindowEventMap[typeof PREPARE_UPDATE_EVENT]) => {
+      event.detail.waitUntil(saveBeforeUpdate())
+    }
+    window.addEventListener(PREPARE_UPDATE_EVENT, prepare)
+    return () => window.removeEventListener(PREPARE_UPDATE_EVENT, prepare)
+  }, [saveBeforeUpdate])
   useFolderSyncStatus(projectId)
   const createMutation = useCreateLatexFile(projectId)
   const deleteMutation = useDeleteLatexFile(projectId)
@@ -401,7 +410,9 @@ export function WritingPage() {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault()
-        autoSave.saveNow()
+        void autoSave.saveNow().catch((error: unknown) => {
+          toast.error('保存失败', { description: error instanceof Error ? error.message : String(error) })
+        })
       }
     }
     window.addEventListener('keydown', handler)
@@ -420,7 +431,7 @@ export function WritingPage() {
     autoSave.switchFile(filePath)
     activeFilePathRef.current = filePath
     setActiveFilePath(filePath)
-    setEditorContent('')
+    setEditorContent(autoSave.getContent())
     if (isMobile) setMobilePane('editor')
   }
 

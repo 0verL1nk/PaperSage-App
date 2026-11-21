@@ -9,7 +9,7 @@
  * Every entry point degrades to null/no-op in a plain browser.
  */
 
-import { setDesktopLocalApiBaseUrl } from './env'
+import { getDesktopLocalApiBaseUrl, setDesktopLocalApiBaseUrl, setDesktopLocalBackendError } from './env'
 
 import { Call, Events } from '@wailsio/runtime'
 import { toast } from 'sonner'
@@ -41,6 +41,12 @@ export interface DroppedFile {
   data: string
 }
 
+export interface DesktopUpdate {
+  version: string
+  name?: string
+  notes?: string
+}
+
 export interface DesktopService {
   appInfo(): Promise<DesktopAppInfo | null>
   notify(title: string, body: string): Promise<void>
@@ -59,7 +65,7 @@ export interface DesktopService {
   windowClose(): Promise<void>
   windowIsMaximised(): Promise<boolean>
   windowToggleFullscreen(): Promise<void>
-  checkForUpdates(): Promise<void>
+  checkForUpdates(): Promise<DesktopUpdate | null>
   updateState(): Promise<string | null>
   localBackendError(): Promise<string | null>
   quitApp(): Promise<void>
@@ -174,9 +180,7 @@ export function getDesktopService(): DesktopService | null {  if (!isDesktop()) 
     windowToggleFullscreen: async () => {
       await callDesktop('WindowToggleFullscreen')
     },
-    checkForUpdates: async () => {
-      await callDesktop('CheckForUpdates')
-    },
+    checkForUpdates: async () => (await Call.ByName(`${DESKTOP_SERVICE_FQN}.CheckForUpdates`)) as DesktopUpdate | null,
     updateState: async () => callDesktop<string>('UpdateState'),
     localBackendError: async () => callDesktop<string>('LocalBackendError'),
     quitApp: async () => {
@@ -200,10 +204,18 @@ export function initDesktop(): Promise<void> {
       const info = (await Call.ByName(`${DESKTOP_SERVICE_FQN}.AppInfo`)) as DesktopAppInfo
       if (!info?.isDesktop) return
       desktopConfirmed = true
-      if (info.localApiBaseUrl) setDesktopLocalApiBaseUrl(info.localApiBaseUrl)
-      const backendError = await Call.ByName(`${DESKTOP_SERVICE_FQN}.LocalBackendError`)
-      if (typeof backendError === 'string' && backendError) {
-        toast.error('本地后端不可用', { description: backendError, duration: 12_000 })
+      if (typeof info.localApiBaseUrl === 'string') setDesktopLocalApiBaseUrl(info.localApiBaseUrl)
+      let backendError: unknown
+      try {
+        backendError = await Call.ByName(`${DESKTOP_SERVICE_FQN}.LocalBackendError`)
+      } catch {
+        backendError = null
+      }
+      const message = (typeof backendError === 'string' && backendError.trim()) ||
+        (!getDesktopLocalApiBaseUrl() ? '无法确认本地后端状态，请重启桌面应用后重试。' : '')
+      if (message) {
+        setDesktopLocalBackendError(message)
+        toast.error('本地后端不可用', { description: message, duration: 12_000 })
       }
       onDesktopUpdateError((message) => {
         toast.error('更新失败', { description: message })
@@ -258,6 +270,13 @@ export function onDesktopFilesDropped(handler: (files: string[], target: string)
     const data = event.data as { files?: string[]; target?: string } | null
     handler(Array.isArray(data?.files) ? data.files : [], data?.target ?? '')
   })
+  return typeof off === 'function' ? off : () => undefined
+}
+
+/** Native menu request to open the update dialog. */
+export function onDesktopOpenUpdate(handler: () => void): () => void {
+  if (!isDesktop()) return () => undefined
+  const off = Events.On('desktop:open-update', handler)
   return typeof off === 'function' ? off : () => undefined
 }
 

@@ -54,6 +54,7 @@
     "aboutPlatform": "平台",
     "aboutApiBaseUrl": "API 地址",
     "aboutSameOrigin": "同源（当前站点）",
+    "aboutLocalBackendUnavailable": "本地后端不可用",
     "aboutWebNote": "当前为网页版；桌面客户端的原生能力（系统通知、文件对话框等）在此不可用。",
     "appearanceTitle": "外观",
     "navigationTitle": "导航",
@@ -134,6 +135,22 @@
     "explorer": "文件资源管理器",
     "preview": "预览",
     "readyToCompile": "准备好后即可编译"
+  },
+  "desktopUpdate": {
+    "check": "检查更新",
+    "title": "软件更新",
+    "description": "检查 Windows 桌面客户端更新并前往官方下载页。",
+    "checking": "正在检查更新…",
+    "upToDate": "当前已是最新版本。",
+    "version": "版本 {{version}}",
+    "available": "发现新版本",
+    "notes": "更新说明",
+    "manualInstall": "下载完整安装包并手动安装，选择原有安装目录后现有数据将保留。",
+    "openDownloadPage": "打开下载页",
+    "close": "关闭",
+    "retry": "重试",
+    "checkError": "检查更新失败。请检查网络后重试。",
+    "invalidResponse": "更新服务返回了无效的更新信息。"
   },
   "common": {
     "loadingSettings": "正在加载设置…",

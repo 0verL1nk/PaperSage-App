@@ -1,7 +1,7 @@
 import { getJson, postJson, deleteFetch, type ApiRequestConfig } from './client'
 import { getAccessToken, useSessionStore } from '@/store'
 import { AGENT } from './api-routes'
-import { getOptionalApiBaseUrl } from '@/lib/env'
+import { getRequiredApiBaseUrl } from '@/lib/env'
 import { GuestCapabilityError } from './guest-local-workspace'
 
 function requireSignedInForAI() {
@@ -174,7 +174,7 @@ export async function streamRun(
   },
 ): Promise<void> {
   requireSignedInForAI()
-  const baseUrl = getOptionalApiBaseUrl().replace(/\/$/, '')
+  const baseUrl = getRequiredApiBaseUrl().replace(/\/$/, '')
   const res = await fetch(`${baseUrl}${AGENT.runEvents(runId, opts.afterSeq)}`, {
     headers: {
       Accept: 'text/event-stream',
