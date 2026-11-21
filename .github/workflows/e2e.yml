@@ -28,7 +28,7 @@ permissions:
 jobs:
   e2e:
     name: Playwright E2E
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     # All env vars are explicit here. The .env file is NOT read in CI
@@ -259,7 +259,7 @@ jobs:
   clsi:
     name: E2E + real CLSI (TinyTeX)
     if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
       DATABASE_URL: sqlite:///./e2e-clsi.db
