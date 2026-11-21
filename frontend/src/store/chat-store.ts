@@ -396,25 +396,36 @@ export const useChatStore = create<ChatStore>((set, get) => {
         }
         return null
       }
-      const activeBefore = await api.getActiveRun(conversationId).catch(failed)
-      if (seq !== openSeq || !activeBefore) return
+      // 探测失败不能挡住读历史；只是不允许发送，直到重试恢复成功。
+      let probeFailed = false
+      const activeBefore = await api.getActiveRun(conversationId).catch(() => {
+        probeFailed = true
+        return null
+      })
+      if (seq !== openSeq) return
       let history = await Promise.all([
         api.getConversation(conversationId).catch(() => null),
         api.listMessages(conversationId),
         projectId ? api.listProposals(projectId).catch(() => []) : Promise.resolve([]),
       ]).catch(failed)
       if (seq !== openSeq || !history) return
-      const activeAfter = await api.getActiveRun(conversationId).catch(failed)
-      if (seq !== openSeq || !activeAfter) return
-      if (activeAfter.runId && activeAfter.runId !== activeBefore.runId) {
-        history = await Promise.all([
-          api.getConversation(conversationId).catch(() => null),
-          api.listMessages(conversationId),
-          projectId ? api.listProposals(projectId).catch(() => []) : Promise.resolve([]),
-        ]).catch(failed)
-        if (seq !== openSeq || !history) return
+      let active = activeBefore
+      if (!probeFailed && activeBefore) {
+        const activeAfter = await api.getActiveRun(conversationId).catch(() => {
+          probeFailed = true
+          return null
+        })
+        if (seq !== openSeq) return
+        if (activeAfter && activeAfter.runId !== activeBefore.runId) {
+          active = activeAfter
+          history = await Promise.all([
+            api.getConversation(conversationId).catch(() => null),
+            api.listMessages(conversationId),
+            projectId ? api.listProposals(projectId).catch(() => []) : Promise.resolve([]),
+          ]).catch(failed)
+          if (seq !== openSeq || !history) return
+        }
       }
-      const active = activeAfter.runId && activeAfter.runId !== activeBefore.runId ? activeAfter : activeBefore
       const [detail, rows, allProposals] = history
       const proposalById = new Map(allProposals.map((p) => [p.id, p]))
       // 历史 part 里的建议状态是产出时快照；以建议表当前状态为准，应用/拒绝后刷新不倒退。
@@ -448,10 +459,12 @@ export const useChatStore = create<ChatStore>((set, get) => {
         conversationVersion: detail?.threadVersion ?? 0,
         versionKnown: detail !== null,
         restoring: false,
+        restoreFailed: probeFailed,
+        error: probeFailed ? '无法恢复会话或确认运行状态，请重试后再发送。' : null,
       })
       // 刷新会丢掉内存里的流状态。服务端还有进行中的 Run 时必须重新订阅，
       // 否则界面看起来像“没开始”，用户会重复发送（验收 B2）。
-      if (seq !== openSeq || !active?.runId || get().streaming) return
+      if (probeFailed || seq !== openSeq || !active?.runId || get().streaming) return
       const completed = messages.find((message) => message.role === 'assistant' && message.runId === active.runId && message.status !== 'streaming')
       if (completed) {
         for (const part of completed.parts) {
