@@ -38,6 +38,7 @@ const settings: AllSettings = {
 }
 
 const originalSend = useChatStore.getState().send
+const originalOpen = useChatStore.getState().open
 const originalCancel = useChatStore.getState().cancel
 const originalPatch = useSettingsStore.getState().patchCategory
 const originalAdapter = apiClient.defaults.adapter
@@ -53,7 +54,7 @@ beforeEach(() => {
   void i18n.changeLanguage('zh-CN')
   useSettingsStore.getState().clear()
   useSettingsStore.setState({ settings: structuredClone(settings), error: null, patchCategory: originalPatch })
-  useChatStore.setState({ ...emptyChatState, send: originalSend, cancel: originalCancel })
+  useChatStore.setState({ ...emptyChatState, send: originalSend, open: originalOpen, cancel: originalCancel })
   vi.mocked(updateCategory).mockReset()
   vi.mocked(toast.error).mockClear()
   Element.prototype.scrollIntoView = vi.fn()
@@ -76,6 +77,32 @@ describe('AI panel server fallback', () => {
     expect(screen.queryByText('尚未配置 AI 模型')).not.toBeInTheDocument()
     expect(screen.getByText('服务端默认 · deepseek-v4.1-flash')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('问点什么…')).toBeInTheDocument()
+  })
+
+  it('disables sending while restoring a conversation', () => {
+    useChatStore.setState({ restoring: true, conversationId: 'c-live' })
+    render(<AiPanel projectId="p" />)
+
+    expect(screen.getByPlaceholderText('问点什么…')).toBeDisabled()
+    expect(screen.getByRole('status')).toHaveTextContent('正在恢复会话')
+  })
+
+  it('offers recovery retry rather than allowing a new message after lookup failure', () => {
+    const open = vi.fn().mockResolvedValue(undefined)
+    useChatStore.setState({ conversationId: 'c-live', restoreFailed: true, error: '无法恢复会话', open })
+    render(<AiPanel projectId="p" />)
+
+    expect(screen.getByPlaceholderText('问点什么…')).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: '重试恢复' }))
+    expect(open).toHaveBeenCalledWith('c-live', 'p')
+  })
+
+  it('shows a recovered compile request without starting another compile', () => {
+    useChatStore.setState({ recoveredBrowserCompileRequest: { rootFile: 'main.tex' } })
+    render(<AiPanel projectId="p" />)
+
+    expect(screen.getByText(/恢复了编译请求/)).toHaveTextContent('main.tex')
+    expect(screen.getByText(/恢复了编译请求/)).toHaveTextContent('手动编译')
   })
 
   it('ignores Enter that confirms an IME composition', () => {

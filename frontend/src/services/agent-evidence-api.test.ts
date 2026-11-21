@@ -7,7 +7,7 @@ vi.mock('@/services/client', () => ({
   deleteFetch: vi.fn(),
 }))
 
-import { listRunEvidence } from '@/services/agent-api'
+import { getActiveRun, listRunEvidence } from '@/services/agent-api'
 import { AGENT } from '@/services/api-routes'
 
 describe('listRunEvidence', () => {
@@ -19,5 +19,12 @@ describe('listRunEvidence', () => {
 
     await expect(listRunEvidence('run-1')).resolves.toEqual(rows)
     expect(client.getJson).toHaveBeenCalledWith(AGENT.runEvidence('run-1'), undefined)
+  })
+
+  it('allows the active-run lookup to refresh an expired session', async () => {
+    client.getJson.mockResolvedValue({ runId: 'run-1' })
+
+    await expect(getActiveRun('conversation-1')).resolves.toEqual({ runId: 'run-1' })
+    expect(client.getJson).toHaveBeenCalledWith(AGENT.activeRun('conversation-1'), undefined)
   })
 })

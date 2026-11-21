@@ -51,6 +51,15 @@ async function mockAgentApis(
     })
   })
 
+  // 面板进入会话时会探测进行中的 Run；默认无，避免落到真实后端。
+  await page.route('**/api/v1/agent/conversations/*/runs/active', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: { runId: null }, info: '' }),
+    }),
+  )
+
   await page.route(AGENT_BASE, async (route) => {
     const url = route.request().url()
     if (url.includes('/agent/conversations') && !url.includes('/runs')) {
@@ -76,14 +85,6 @@ async function mockAgentApis(
           data: opts.emptyConversations ? [] : [{ id: 'conv-1', title: '看看我的文件' }],
           info: '',
         }),
-      })
-      return
-    }
-    if (url.includes('/runs/active')) {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({ code: 200, data: { runId: null }, info: '' }),
       })
       return
     }

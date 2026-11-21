@@ -138,6 +138,21 @@ describe('reduceChatEvent', () => {
     expect(aborted.activeRunId).toBeNull()
   })
 
+  it('恢复被数据库文本列限制拆分的长回答时保持原文连续', () => {
+    const messages = messagesFromApi([{
+      id: 'm1', role: 'assistant', status: 'failed', createdAt: '',
+      parts: [
+        { id: 'p1', ordinal: 0, type: 'text', status: 'completed', text: '第一部分', createdAt: '' },
+        { id: 'p2', ordinal: 1, type: 'text', status: 'completed', text: '第二部分', content: { textContinuation: true }, createdAt: '' },
+        { id: 'p3', ordinal: 2, type: 'error', status: 'failed', text: '服务重启', createdAt: '' },
+      ],
+    }])
+
+    expect(messages[0].parts).toHaveLength(2)
+    expect(messages[0].parts[0].text).toBe('第一部分第二部分')
+    expect(messages[0].parts[1].type).toBe('error')
+  })
+
   it('从历史 API 消息恢复 Run ID', () => {
     const rows = messagesFromApi([{
       id: 'm-history', role: 'assistant', status: 'completed', runId: 'r-history', createdAt: '',
@@ -202,6 +217,76 @@ describe('send 动作', () => {
     })
     vi.mocked(api.streamRun).mockResolvedValue(undefined)
   }
+
+  it('工具输入的首帧断线时重新接收完整输入', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    stubRun(2)
+    let resumedAfter: number | undefined
+    vi.mocked(api.streamRun)
+      .mockImplementationOnce(async (_runId, { onEvent }) => {
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'text-delta', id: 'text-1', delta: '查询中' }, { eventId: 1 })
+        onEvent({ type: 'tool-input-start', toolCallId: 'call-1', toolName: 'read_latex_file' }, { eventId: 2 })
+        throw new TypeError('network error')
+      })
+      .mockImplementationOnce(async (_runId, { onEvent, afterSeq }) => {
+        resumedAfter = afterSeq
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'tool-input-start', toolCallId: 'call-1', toolName: 'read_latex_file' }, { eventId: 2 })
+        onEvent({ type: 'tool-input-available', toolCallId: 'call-1', toolName: 'read_latex_file', input: { path: 'main.tex' } }, { eventId: 2 })
+        onEvent({ type: 'tool-output-available', toolCallId: 'call-1', output: '内容' }, { eventId: 3 })
+        onEvent({ type: 'finish' }, {})
+      })
+
+    await useChatStore.getState().send('p1', '问题')
+    expect(resumedAfter).toBe(1)
+    const tool = useChatStore.getState().messages.at(-1)?.parts.find((part) => part.id === 'call-1')
+    expect(tool?.meta?.input).toEqual({ path: 'main.tex' })
+    expect(tool?.status).toBe('succeeded')
+  })
+
+  it('中间帧断线时不能跳过同一事件的正文', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    stubRun(2)
+    let resumedAfter: number | undefined
+    vi.mocked(api.streamRun)
+      .mockImplementationOnce(async (_runId, { onEvent }) => {
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'text-delta', id: 'text-1', delta: '前半' }, { eventId: 1 })
+        onEvent({ type: 'text-start', id: 'text-2' }, { eventId: 2 })
+        throw new TypeError('network error')
+      })
+      .mockImplementationOnce(async (_runId, { onEvent, afterSeq }) => {
+        resumedAfter = afterSeq
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'text-delta', id: 'text-2', delta: '后半' }, { eventId: 2 })
+        onEvent({ type: 'finish' }, {})
+      })
+
+    await useChatStore.getState().send('p1', '问题')
+    expect(resumedAfter).toBe(1)
+    expect(textOf(useChatStore.getState())).toBe('前半后半')
+  })
+
+  it('断线续传的 start 不能清空已收到的回答', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
+    stubRun(2)
+    vi.mocked(api.streamRun)
+      .mockImplementationOnce(async (_runId, { onEvent }) => {
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'text-delta', id: 'text-1', delta: '前半' }, { eventId: 1 })
+        throw new TypeError('network error')
+      })
+      .mockImplementationOnce(async (_runId, { onEvent, afterSeq }) => {
+        expect(afterSeq).toBe(1)
+        onEvent({ type: 'start', messageId: 'msg_r1' }, {})
+        onEvent({ type: 'text-delta', id: 'text-1', delta: '后半' }, { eventId: 2 })
+        onEvent({ type: 'finish' }, {})
+      })
+
+    await useChatStore.getState().send('p1', '问题')
+    expect(textOf(useChatStore.getState())).toBe('前半后半')
+  })
 
   it('真实 SSE 中途断流保留部分回答，解除 streaming 并提示恢复而不重跑', async () => {
     useChatStore.setState({ ...emptyChatState, conversationId: 'c-old' })
@@ -325,6 +410,7 @@ describe('send 动作', () => {
       }])
 
     const first = useChatStore.getState().open('c1')
+    await vi.waitFor(() => expect(api.listMessages).toHaveBeenCalledTimes(1))
     const second = useChatStore.getState().open('c2')
     resolveFirst([{
       id: 'm1', role: 'assistant', status: 'completed', createdAt: '',
@@ -386,6 +472,164 @@ describe('send 动作', () => {
 })
 
 describe('open 动作', () => {
+  it('会话恢复查询完成前不能发送新消息', async () => {
+    let finishLookup!: (result: { runId: string | null }) => void
+    vi.mocked(api.getActiveRun)
+      .mockImplementationOnce(() => new Promise((resolve) => { finishLookup = resolve }))
+      .mockResolvedValue({ runId: null })
+    vi.mocked(api.createRun).mockResolvedValue({
+      turnId: 't1', runId: 'r1', userMessageId: 'm1', streamUrl: '/events', threadVersion: 2,
+    })
+    const opening = useChatStore.getState().open('c-live', 'p')
+    await useChatStore.getState().send('p', '不要重复发送')
+    expect(api.createRun).not.toHaveBeenCalled()
+    finishLookup({ runId: null })
+    await opening
+  })
+
+  it('恢复时回放历史事件不重复编译或还原已处理的建议', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live', lastSequence: 5 } as Awaited<ReturnType<typeof api.getActiveRun>>)
+    const proposal = { id: 'p1', filePath: 'main.tex', oldText: '旧文', newText: '新文', status: 'applied' as const }
+    vi.mocked(api.listProposals).mockResolvedValue([proposal])
+    vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
+      onEvent({ type: 'start', messageId: 'msg_r-live' }, {})
+      onEvent({ type: 'tool-input-available', toolCallId: 'tool-1', toolName: 'compile_project' }, { eventId: 2 })
+      onEvent({ type: 'tool-output-available', toolCallId: 'tool-1', output: 'browser_compile_request:{"root_file":"main.tex"}' }, { eventId: 3 })
+      onEvent({ type: 'data-proposal', data: { ...proposal, status: 'pending' } }, { eventId: 4 })
+      onEvent({ type: 'finish' }, {})
+    })
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().pendingBrowserCompileRequest).toBeNull()
+    expect(useChatStore.getState().recoveredBrowserCompileRequest).toEqual({ rootFile: 'main.tex' })
+    expect(useChatStore.getState().proposals.p1.status).toBe('applied')
+    expect(useChatStore.getState().messages.at(-1)?.parts.find((part) => part.type === 'proposal')?.status).toBe('applied')
+  })
+
+  it('恢复后新发生的编译请求仍然生效', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live', lastSequence: 5 } as Awaited<ReturnType<typeof api.getActiveRun>>)
+    vi.mocked(api.streamRun).mockImplementation(async (_runId, { onEvent }) => {
+      onEvent({ type: 'start', messageId: 'msg_r-live' }, {})
+      onEvent({ type: 'tool-input-available', toolCallId: 'tool-1', toolName: 'compile_project' }, { eventId: 6 })
+      onEvent({ type: 'tool-output-available', toolCallId: 'tool-1', output: 'browser_compile_request:{"root_file":"main.tex"}' }, { eventId: 7 })
+      onEvent({ type: 'finish' }, {})
+    })
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().pendingBrowserCompileRequest).toEqual({ rootFile: 'main.tex' })
+  })
+
+  it('恢复失败后不能重试旧 Run 绕过发送保护', async () => {
+    useChatStore.setState({ ...emptyChatState, conversationId: 'c-live', restoreFailed: true, error: '请重试恢复' })
+    vi.mocked(api.retryRun).mockResolvedValue({ runId: 'r-new', streamUrl: '/events' })
+
+    await useChatStore.getState().retryRun('old-run')
+    expect(api.retryRun).not.toHaveBeenCalled()
+    expect(useChatStore.getState().restoreFailed).toBe(true)
+  })
+
+  it('无法查询运行状态时提示恢复失败并禁止发送', async () => {
+    vi.mocked(api.getActiveRun).mockRejectedValue(new TypeError('network error'))
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().error).toMatch(/恢复|运行状态/)
+    await useChatStore.getState().send('p', '不要重复发送')
+    expect(api.createRun).not.toHaveBeenCalled()
+  })
+
+  it('旧会话的恢复失败不能污染新会话', async () => {
+    let rejectFirst!: (error: Error) => void
+    vi.mocked(api.getActiveRun)
+      .mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject }))
+      .mockResolvedValueOnce({ runId: null })
+
+    const first = useChatStore.getState().open('c-old', 'p')
+    await useChatStore.getState().open('c-new', 'p')
+    rejectFirst(new Error('late failure'))
+    await first
+
+    expect(useChatStore.getState().conversationId).toBe('c-new')
+    expect(useChatStore.getState().restoreFailed).toBe(false)
+    expect(useChatStore.getState().error).toBeNull()
+  })
+
+  it('读取历史失败时允许用户重试恢复', async () => {
+    vi.mocked(api.listMessages).mockRejectedValue(new TypeError('network error'))
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().restoreFailed).toBe(true)
+    expect(useChatStore.getState().restoring).toBe(false)
+    expect(useChatStore.getState().error).toMatch(/恢复/)
+  })
+
+  it('恢复期间另一标签页启动任务时能够发现并订阅', async () => {
+    vi.mocked(api.getActiveRun)
+      .mockResolvedValueOnce({ runId: null })
+      .mockResolvedValueOnce({ runId: 'r-new', lastSequence: 2 })
+    vi.mocked(api.streamRun).mockImplementation(() => new Promise(() => {}))
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().activeRunId).toBe('r-new')
+    expect(api.streamRun).toHaveBeenCalledWith('r-new', expect.anything())
+  })
+
+  it('任务在恢复查询期间结束时仍显示最终回答', async () => {
+    let completed = false
+    vi.mocked(api.listMessages).mockImplementation(async () => completed ? [{
+      id: 'm-final', role: 'assistant', status: 'completed', runId: 'r-live', createdAt: '',
+      parts: [{ id: 'p-final', ordinal: 0, type: 'text', status: 'completed', text: '最终回答', createdAt: '' }],
+    }] : [])
+    vi.mocked(api.getActiveRun).mockImplementation(async () => {
+      completed = true
+      return { runId: null }
+    })
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().messages).toHaveLength(1)
+    expect(textOf(useChatStore.getState())).toBe('最终回答')
+  })
+
+  it('任务在加载历史时结束也不会静默漏掉编译请求', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live', lastSequence: 5 })
+    vi.mocked(api.listMessages).mockResolvedValue([{
+      id: 'm-final', role: 'assistant', status: 'completed', runId: 'r-live', createdAt: '',
+      parts: [{
+        id: 'tool-1', ordinal: 0, type: 'tool', status: 'succeeded', createdAt: '',
+        content: { toolName: 'compile_project', output: 'browser_compile_request:{"root_file":"main.tex"}' },
+      }],
+    }])
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(useChatStore.getState().pendingBrowserCompileRequest).toBeNull()
+    expect(useChatStore.getState().recoveredBrowserCompileRequest).toEqual({ rootFile: 'main.tex' })
+  })
+
+  it('历史已有该 Run 的终态回答时不重复回放', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live' })
+    vi.mocked(api.listMessages).mockResolvedValue([{
+      id: 'm-final', role: 'assistant', status: 'completed', runId: 'r-live', createdAt: '',
+      parts: [{ id: 'p-final', ordinal: 0, type: 'text', status: 'completed', text: '最终回答', createdAt: '' }],
+    }])
+
+    await useChatStore.getState().open('c-live', 'p')
+    expect(api.streamRun).not.toHaveBeenCalled()
+    expect(textOf(useChatStore.getState())).toBe('最终回答')
+  })
+
+  it('恢复订阅失败后解除生成状态并显示错误', async () => {
+    vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live' })
+    vi.mocked(api.streamRun).mockRejectedValue(new Error('run stream failed: 403'))
+
+    await useChatStore.getState().open('c-live', 'p')
+    await vi.waitFor(() => {
+      expect(useChatStore.getState().streaming).toBe(false)
+      expect(useChatStore.getState().error).toBeTruthy()
+      expect(useChatStore.getState().restoreFailed).toBe(true)
+    })
+    await useChatStore.getState().send('p', '不要重复发送')
+    expect(api.createRun).not.toHaveBeenCalled()
+  })
+
   it('刷新后重新订阅进行中的 Run', async () => {
     vi.mocked(api.getActiveRun).mockResolvedValue({ runId: 'r-live' })
     vi.mocked(api.streamRun).mockImplementation(() => new Promise(() => {}))
