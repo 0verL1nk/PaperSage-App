@@ -21,6 +21,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
+	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
@@ -348,9 +349,120 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 		return nil, err
 	}
 
+	// ── 科研组织产物 ──────────────────────────────────────
+	researchSvc := research.NewService(db)
+
+	listResearch, err := utils.InferTool(
+		"list_research_artifacts",
+		"列出项目已保存的科研组织产物（阅读记录/文献比较/章节计划/章节摘要）。回答前先读取已采用版本；不要把较新的候选当成用户已采用的计划。",
+		func(ctx context.Context, in struct {
+			Kind string `json:"kind,omitempty" jsonschema:"description=可选：literature_note/literature_comparison/chapter_plan/chapter_digest"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			items, err := researchSvc.List(ctx, ownerID, projectID, in.Kind)
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(items)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	readResearch, err := utils.InferTool(
+		"read_research_artifact",
+		"读取单个组织产物的当前或指定修订（含 payload、状态与生成来源）。",
+		func(ctx context.Context, in struct {
+			ArtifactID string `json:"artifact_id"`
+			Revision   int    `json:"revision,omitempty" jsonschema:"description=省略或 0 表示当前修订"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			id, err := uuid.Parse(in.ArtifactID)
+			if err != nil {
+				return "", fmt.Errorf("invalid artifact_id")
+			}
+			var out any
+			if in.Revision > 0 {
+				out, err = researchSvc.GetRevision(ctx, ownerID, projectID, store.UUID{UUID: id}, in.Revision)
+			} else {
+				out, err = researchSvc.Get(ctx, ownerID, projectID, store.UUID{UUID: id})
+			}
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(out)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	createResearch, err := utils.InferTool(
+		"create_research_artifact",
+		"保存一份组织产物候选（不会自动采用）。payload_json 必须符合对应 kind 的结构；每个已报告字段必须带原文依据（sourceVersionId/documentId），未读或未报告要如实标注，不得编造来源。",
+		func(ctx context.Context, in struct {
+			Kind        string `json:"kind" jsonschema:"description=literature_note/literature_comparison/chapter_plan/chapter_digest"`
+			PayloadJSON string `json:"payload_json" jsonschema:"description=与 kind 对应的 JSON 对象字符串"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			payload := []byte(in.PayloadJSON)
+			if len(payload) == 0 {
+				return "", fmt.Errorf("payload_json is required")
+			}
+			sum := md5.Sum(payload)
+			clientID := runID.String() + ":" + hex.EncodeToString(sum[:])
+			out, err := researchSvc.Create(ctx, ownerID, projectID, research.CreateInput{
+				Kind: in.Kind, Payload: payload, Origin: "agent", RunID: &runID, ClientRequestID: &clientID,
+			})
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(out)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	addResearchRevision, err := utils.InferTool(
+		"add_research_artifact_revision",
+		"为已有组织产物生成新的候选修订；替换已采用计划时必须先展示变化并由用户确认，expected_revision 传当前修订号。",
+		func(ctx context.Context, in struct {
+			ArtifactID       string `json:"artifact_id"`
+			ExpectedRevision int    `json:"expected_revision"`
+			PayloadJSON      string `json:"payload_json"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			id, err := uuid.Parse(in.ArtifactID)
+			if err != nil {
+				return "", fmt.Errorf("invalid artifact_id")
+			}
+			out, err := researchSvc.AddRevision(ctx, ownerID, projectID, store.UUID{UUID: id}, research.RevisionInput{
+				ExpectedRevision: in.ExpectedRevision, Payload: []byte(in.PayloadJSON), Origin: "agent", RunID: &runID,
+			})
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(out)
+			return string(encoded), err
+		})
+	if err != nil {
+		return nil, err
+	}
+
 	return []tool.BaseTool{
 		listDocuments, readDocument, listLatexFiles, readLatexFile,
 		proposeEdit, compileProject, getWritingState, saveWritingBrief,
+		listResearch, readResearch, createResearch, addResearchRevision,
 	}, nil
 }
 

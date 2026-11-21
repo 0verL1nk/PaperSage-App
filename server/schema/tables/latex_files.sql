@@ -10,6 +10,7 @@ CREATE TABLE `latex_files` (
   `size_bytes` bigint NOT NULL DEFAULT '0',
   `content_hash` varchar(64) DEFAULT NULL,
   `s3_key` varchar(500) DEFAULT NULL,
+  `source_id` char(32) DEFAULT NULL,
   `last_saved_at` datetime(6) DEFAULT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
@@ -18,8 +19,10 @@ CREATE TABLE `latex_files` (
   -- 唯一键包含它，使已删行不再永久占用 file_path（否则删除后无法重建同名文件）。
   `deleted_seq` bigint NOT NULL DEFAULT '0',
   UNIQUE KEY `uq_project_file_path` (`project_id`,`file_path`,`deleted_seq`),
+  UNIQUE KEY `uq_latex_files_source` (`source_id`),
   KEY `ix_latex_files_project_id` (`project_id`),
   KEY `ix_latex_files_content_hash` (`content_hash`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
-  CONSTRAINT `fk_lf_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE
+  CONSTRAINT `fk_lf_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_latex_files_source` FOREIGN KEY (`source_id`,`project_id`) REFERENCES `project_sources` (`id`,`project_id`) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
