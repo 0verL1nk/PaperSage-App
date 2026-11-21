@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -132,7 +133,13 @@ func (r *Registry) Refresh(ctx context.Context, url string) error {
 		return err
 	}
 	models := make(map[string]Metadata, 9000)
-	for _, p := range providers {
+	providersSorted := make([]string, 0, len(providers))
+	for name := range providers {
+		providersSorted = append(providersSorted, name)
+	}
+	sort.Strings(providersSorted) // map 遍历无序会让重复 ID 的合并结果随机
+	for _, name := range providersSorted {
+		p := providers[name]
 		for id, m := range p.Models {
 			md, ok := convert(m)
 			if !ok {
