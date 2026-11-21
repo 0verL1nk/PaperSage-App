@@ -91,6 +91,8 @@
 - **长回答**：超过 MySQL `TEXT` 65,535 字节的恢复文本按 UTF-8 边界无损拆段，前端按 `textContinuation` 合并后渲染。
 - **回放副作用**：历史事件回放不重复触发浏览器编译、不重复发送完成通知；历史上未交付的编译请求显示为“恢复了编译请求，请手动编译”，不会静默丢弃或自动重复执行。
 
-验证：`go build ./...`、`go test ./internal/agent/...`、前端 vitest（chat-store / ai-panel / agent-api）与 `tsc` 通过；隔离 Chrome（本机 Chrome、独立 config、无全局登录）跑 `agent-reliability` + `ai-panel` 共 15 条 E2E 全部通过。
+验证：`go build ./...`、`go test ./internal/agent/...`、前端 vitest（chat-store / ai-panel / agent-api）与 `tsc` 通过；隔离 Chrome（本机 Chrome、独立 config、无全局登录）跑 `agent-reliability` + `ai-panel` 共 15 条 E2E 全部通过；CI 上 E2E 84 条通过。
+
+生产复验（2026-11-21）：`v0.1.12` 已部署（`active: v0.1.12 b761386`），前端 200、API `/health` 200、匿名访问 401，见 [prod-2026-11-21/README.md](prod-2026-11-21/README.md)。
 
 已知边界：服务端没有“同一会话只允许一个活跃根 Run”的原子约束，跨标签页在同一版本窗口并发提交仍可能各自创建 Run（版本 CAS 只解决同版本冲突）；H1 仍缺真实限流/超时/上下文超限的界面实录。
