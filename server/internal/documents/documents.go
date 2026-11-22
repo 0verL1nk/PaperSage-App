@@ -24,6 +24,8 @@ type Service struct {
 	DB      *gorm.DB
 	Storage storage.Storage
 	Indexer *DocIndexer // 可选：入库后的 RAG 索引钩子（装配层注入）
+	// OnSourceVersion 在来源版本发布后触发抽取；失败只记日志，不影响上传。
+	OnSourceVersion func(projectID, documentID, versionID store.UUID, name, contentType, s3Key string)
 }
 
 // DocIndexer documents 不直接依赖 rag（保持域单向）；由装配层闭包实现。

@@ -26,6 +26,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
+	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
@@ -117,6 +118,15 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
 	researchSvc := research.NewService(db)
+	sourcesSvc := sources.NewService(db, s3)
+	// 来源版本发布后异步抽取；失败只记日志，不阻断上传。
+	docSvc.OnSourceVersion = func(projectID, _ store.UUID, versionID store.UUID, _, _, _ string) {
+		go func() {
+			if err := sourcesSvc.ExtractVersion(context.Background(), projectID, versionID); err != nil {
+				slog.Warn("sources: extract failed", "version", versionID.String(), "err", err)
+			}
+		}()
+	}
 
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 
@@ -137,6 +147,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	research.Mount(v1, authSvc.AuthRequired(), researchSvc)
+	sources.Mount(v1, authSvc.AuthRequired(), sourcesSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
