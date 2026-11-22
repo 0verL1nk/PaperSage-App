@@ -145,6 +145,15 @@ export async function mockWritingPageAPIs(page: Page) {
       body: JSON.stringify({ code: 200, data: { id: 'conv-1', title: '会话', threadVersion: 0 }, info: '' }),
     })
   })
+  // AI 面板会自行读取设置；未 mock 时假 token 会触发 401 并跳转登录。
+  await page.route(/\/api\/v1\/settings\/?$/, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: { settings: { ui: {}, editor: {}, agent: { providers: [], active_provider_id: '' } } }, info: '' }),
+    })
+  })
+
   // 准备页的资料组织卡片会读取产物；未 mock 会带假 token 打真实后端并触发 401。
   await page.route('**/api/v1/projects/*/research-artifacts**', async (route) => {
     await route.fulfill({
