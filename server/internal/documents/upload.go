@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/url"
 	"path"
@@ -19,6 +20,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
+	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -124,8 +126,9 @@ func (s *Service) upload(c *gin.Context) {
 	if v := c.PostForm("staged"); v == "true" || v == "1" {
 		status = "staged"
 	}
+	contentSum := sha256.Sum256(content)
 	if hasImportKey {
-		sum := sha256.Sum256(content)
+		sum := contentSum
 		fingerprint, err := importreceipt.Fingerprint(struct {
 			ProjectID   uuid.UUID
 			FolderID    *store.UUID
@@ -179,7 +182,11 @@ func (s *Service) upload(c *gin.Context) {
 				return err
 			}
 			objectWritten = true
-			return tx.Create(&doc).Error
+			if err := tx.Create(&doc).Error; err != nil {
+				return err
+			}
+			return sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
+				hex.EncodeToString(contentSum[:]), doc.Size)
 		})
 		if err != nil {
 			if objectWritten {
@@ -217,7 +224,15 @@ func (s *Service) upload(c *gin.Context) {
 		S3Key: s3Key, Remark: remarkPtr,
 		ProjectID: store.UUID{UUID: pid}, FolderID: folderID, OwnerID: store.UUID{UUID: uid},
 	}
-	if err := s.DB.WithContext(ctx).Create(&doc).Error; err != nil {
+	if err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(&doc).Error; err != nil {
+			return err
+		}
+		return sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
+			hex.EncodeToString(contentSum[:]), doc.Size)
+	}); err != nil {
+		slog.Error("documents: publish source version failed", "doc", doc.ID.String(), "err", err)
+		_ = s.Storage.Delete(ctx, s3Key)
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
 	}
