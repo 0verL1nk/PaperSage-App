@@ -1,5 +1,7 @@
 # 后端部署配置
 
+> 现网拓扑、发布/回滚步骤与核对方式见 `docs/ops/DEPLOYMENT-RUNBOOK.md`；本文保留交付边界与首次安装说明。
+
 ## 交付边界
 
 前端独立部署在 Vercel；Go 只交付 API，不构建、复制或 embed `frontend/dist`，未知前端路径返回 JSON 404。小服务器运行一个 Go 进程及 HTTPS 反代；数据库和对象存储继续使用云端服务。
@@ -77,7 +79,7 @@ DATA_DIR=/var/lib/papersage
 `AGENT_MAX_ITERATIONS` 默认为 20，是 Eino DeepAgent 的显式迭代上限（框架不接受 0 表示无限）；达到上限时界面会提示可发送“继续”接着处理，部署者可按模型成本调整。
 OpenCode 网关的 OpenAI 兼容 BaseURL 必须写到 `https://opencode.ai/zen/go/v1`（缺 `/v1` 会 404）；其他 OpenAI 兼容端点同理，BaseURL 应包含版本段。
 
-AI 运行时按**单实例**部署收敛遗留 Run（`ReconcileOrphanRuns`，属于 `agent-chat-reliability-and-ux`）：服务启动时把本进程启动前仍为 `running` 的记录标记为失败并写入中断原因，避免订阅端永久悬挂。该行为不适用于多实例；若未来改为多实例，必须先引入租约/心跳再启用。模型 HTTP 响应头超时由 `AGENT_MODEL_TIMEOUT` 配置（默认 2 分钟，必须为正）；30 分钟 Run 超时仍是最终兜底，流式空闲读超时尚未单独实现。
+AI 运行时按**单实例**部署收敛遗留 Run（`ReconcileOrphanRuns`，属于 `agent-chat-reliability-and-ux`）：服务启动时把本进程启动前仍为 `running` 的记录标记为失败并写入中断原因，避免订阅端永久悬挂。该行为不适用于多实例；若未来改为多实例，必须先引入租约/心跳再启用。模型 HTTP 响应头超时由 `AGENT_MODEL_TIMEOUT` 配置（默认 2 分钟，必须为正）；流式空闲读超时由 `AGENT_MODEL_IDLE_TIMEOUT` 配置（默认 5 分钟，0 关闭）；30 分钟 Run 超时仍是最终兜底。
 
 `DATABASE_MIGRATION_URL` 可使用直接数据库连接，`DATABASE_URL` 可使用池化连接。发布命令通过独立受限进程运行 `migrate`；服务启动不执行迁移。版本发布前必须审查待执行 DDL，破坏性变更应先备份并单独确认。
 
