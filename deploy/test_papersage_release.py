@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import types
 import unittest
+import urllib.error
 from unittest import mock
 
 
@@ -85,6 +86,8 @@ class ReleaseTests(unittest.TestCase):
         self.system = self.stack.enter_context(mock.patch.object(release.subprocess, "run"))
         self.system.return_value = subprocess.CompletedProcess([], 0)
         self.health = self.stack.enter_context(mock.patch.object(release, "wait_healthy"))
+        self.real_check_resources = release.check_resources
+        self.resources = self.stack.enter_context(mock.patch.object(release, "check_resources"))
         self.commit = "a" * 40
         self.version = "v1.2.3"
 
@@ -273,6 +276,39 @@ class ReleaseTests(unittest.TestCase):
                          [["stop", "papersage.service"], ["start", "papersage.service"],
                           ["stop", "papersage.service"], ["start", "papersage.service"]])
         self.assertEqual(self.health.call_args_list[-1].args[0]["version"], "v1.2.2")
+
+    def test_resource_check_names_every_unavailable_template_file(self):
+        release.ENV_FILE.write_text("LATEX_RESOURCE_PROFILE=tl-test\n")
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"x"
+        def open_url(url, timeout):
+            if url.endswith("/ok.sty"):
+                return response
+            raise urllib.error.HTTPError(url, 502, "bad gateway", None, None)
+
+        opener = mock.Mock()
+        opener.open.side_effect = open_url
+        with mock.patch.object(release.urllib.request, "build_opener", return_value=opener), \
+                mock.patch.object(release, "RESOURCE_PROBE_NAMES", ("ok.sty", "missing.sty")), \
+                mock.patch.object(release, "RESOURCE_PROBE_BUDGET_SECONDS", 0.2), \
+                mock.patch.object(release, "RESOURCE_PROBE_TIMEOUT_SECONDS", 1):
+            with self.assertRaises(release.DeployError) as error:
+                self.real_check_resources()
+        self.assertIn("missing.sty", str(error.exception))
+        self.assertNotIn("ok.sty", str(error.exception))
+
+    def test_resource_check_requires_the_profile_from_the_environment(self):
+        with self.assertRaises(release.DeployError) as error:
+            self.real_check_resources()
+        self.assertIn("LATEX_RESOURCE_PROFILE", str(error.exception))
+
+    def test_resource_failure_fails_the_release(self):
+        self.resources.side_effect = release.DeployError("resource check failed: kvoptions.sty")
+        checksum = self.upload()
+        code, output = self.cli(["activate", self.version, self.commit, checksum])
+        self.assertNotEqual(code, 0)
+        self.assertIn("no previous release", output)
 
     def test_first_release_failure_removes_current_without_claiming_recovery(self):
         self.health.side_effect = release.DeployError("health check failed")

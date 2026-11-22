@@ -378,6 +378,23 @@ func TestMountResourcesHeadAnswersFromCatalogWithoutFetching(t *testing.T) {
 	require.Zero(t, response.Body.Len())
 }
 
+func TestMountResourcesReportsPinnedAndActualArchiveSize(t *testing.T) {
+	stg := newMemoryResourceStorage()
+	content := []byte("expected bytes")
+	pinned := makeTestArchive(t, content)
+	makeTestCatalog(t, stg, content, pinned)
+	served := makeTestArchive(t, bytes.Repeat([]byte("x"), 2048))
+	require.NotEqual(t, len(pinned), len(served))
+	engine := newTestResourceEngine(t, stg, served)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil)
+	engine.ServeHTTP(response, request)
+	require.Equal(t, http.StatusBadGateway, response.Code)
+	// Pinned and actual sizes must both appear, so a drifted profile can be
+	// diagnosed without rebuilding anything.
+	require.Contains(t, response.Body.String(), fmt.Sprintf("got %d bytes, pinned %d", len(served), len(pinned)))
+}
+
 func TestMountResourcesResolvesUniquePackageFilesOnDemand(t *testing.T) {
 	stg := newMemoryResourceStorage()
 	content := []byte("% dynamically indexed fullpage package resource")
