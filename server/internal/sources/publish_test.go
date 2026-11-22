@@ -39,10 +39,14 @@ func setup(t *testing.T) (*gorm.DB, store.UUID, store.UUID, store.UUID) {
 
 func TestPublishDocumentCreatesVersionAndLink(t *testing.T) {
 	db, uid, pid, did := setup(t)
+	var versionID store.UUID
 	err := db.Transaction(func(tx *gorm.DB) error {
-		return PublishDocument(tx, pid, did, uid, "k", strings.Repeat("a", 64), 42)
+		id, err := PublishDocument(tx, pid, did, uid, "k", strings.Repeat("a", 64), 42)
+		versionID = id
+		return err
 	})
 	require.NoError(t, err)
+	assert.NotEqual(t, [16]byte{}, versionID.UUID)
 
 	var doc store.Document
 	require.NoError(t, db.First(&doc, "id = ?", did).Error)
@@ -59,9 +63,13 @@ func TestPublishDocumentCreatesVersionAndLink(t *testing.T) {
 	assert.EqualValues(t, 42, ver.SizeBytes)
 
 	// 幂等：重复发布不新建来源。
+	var again store.UUID
 	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
-		return PublishDocument(tx, pid, did, uid, "k", strings.Repeat("a", 64), 42)
+		id, err := PublishDocument(tx, pid, did, uid, "k", strings.Repeat("a", 64), 42)
+		again = id
+		return err
 	}))
+	assert.Equal(t, versionID, again, "重复发布返回同一版本")
 	var count int64
 	require.NoError(t, db.Model(&store.ProjectSource{}).Where("project_id = ?", pid).Count(&count).Error)
 	assert.EqualValues(t, 1, count)
