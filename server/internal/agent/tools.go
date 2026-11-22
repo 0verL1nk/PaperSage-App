@@ -22,6 +22,7 @@ import (
 
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
+	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
@@ -151,6 +152,33 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 				return nil, fmt.Errorf("document changed or is no longer available; read again")
 			}
 			return result, nil
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	sourcesSvc := sources.NewService(db, stg)
+	readSource, err := utils.InferTool(
+		"read_source_version",
+		"读取来源版本的抽取文本区间（UTF-8 字节偏移）。先用 list_documents 获取 source_version_id；引用依据时记录该版本与引文，未读取的部分不要声称已核查。",
+		func(ctx context.Context, in struct {
+			SourceVersionID string `json:"source_version_id"`
+			Offset          int64  `json:"offset,omitempty" jsonschema:"description=起始字节偏移，默认 0"`
+			Limit           int    `json:"limit,omitempty" jsonschema:"description=本次最多读取字节数，默认/上限由服务端控制"`
+		}) (string, error) {
+			if err := verify(ctx); err != nil {
+				return "", err
+			}
+			id, err := uuid.Parse(in.SourceVersionID)
+			if err != nil {
+				return "", fmt.Errorf("invalid source_version_id")
+			}
+			text, next, done, err := sourcesSvc.ReadText(ctx, ownerID, projectID, store.UUID{UUID: id}, in.Offset, in.Limit)
+			if err != nil {
+				return "", err
+			}
+			encoded, err := json.Marshal(map[string]any{"text": text, "next_offset": next, "done": done})
+			return string(encoded), err
 		})
 	if err != nil {
 		return nil, err
@@ -460,7 +488,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 	}
 
 	return []tool.BaseTool{
-		listDocuments, readDocument, listLatexFiles, readLatexFile,
+		listDocuments, readDocument, readSource, listLatexFiles, readLatexFile,
 		proposeEdit, compileProject, getWritingState, saveWritingBrief,
 		listResearch, readResearch, createResearch, addResearchRevision,
 	}, nil
