@@ -11,6 +11,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -335,6 +336,46 @@ func TestMountResourcesRejectsUnknownOrCorruptResources(t *testing.T) {
 		require.Equal(t, http.StatusBadGateway, response.Code)
 		require.Contains(t, response.Body.String(), "checksum")
 	})
+}
+
+func TestMountResourcesFetchFailureDoesNotAnnounceCatalogSize(t *testing.T) {
+	stg := newMemoryResourceStorage()
+	content := []byte("expected bytes")
+	archive := makeTestArchive(t, content)
+	makeTestCatalog(t, stg, content, archive)
+	corrupted := append([]byte(nil), archive...)
+	corrupted[len(corrupted)-1] ^= 0xff
+	engine := newTestResourceEngine(t, stg, corrupted)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil)
+	engine.ServeHTTP(response, request)
+	require.Equal(t, http.StatusBadGateway, response.Code)
+	require.Contains(t, response.Body.String(), "could not be fetched and verified")
+	// Announcing the catalog's Content-Length before the fetch fails truncates
+	// the error body, and edge proxies turn that into their own 502 page.
+	require.Empty(t, response.Header().Get("Content-Length"))
+	require.Empty(t, response.Header().Get("ETag"))
+	require.Empty(t, response.Header().Get("fileid"))
+	require.NotContains(t, response.Header().Get("Cache-Control"), "immutable")
+}
+
+func TestMountResourcesHeadAnswersFromCatalogWithoutFetching(t *testing.T) {
+	stg := newMemoryResourceStorage()
+	content := []byte("expected bytes")
+	archive := makeTestArchive(t, content)
+	entry := makeTestCatalog(t, stg, content, archive)
+	// Corrupt archive: a GET would fail its checksum, so a 200 proves HEAD
+	// answers from the catalog without fetching.
+	corrupted := append([]byte(nil), archive...)
+	corrupted[len(corrupted)-1] ^= 0xff
+	engine := newTestResourceEngine(t, stg, corrupted)
+	response := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodHead, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil)
+	engine.ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, fmt.Sprint(len(content)), response.Header().Get("Content-Length"))
+	require.Equal(t, `"`+entry.SHA256+`"`, response.Header().Get("ETag"))
+	require.Zero(t, response.Body.Len())
 }
 
 func TestMountResourcesResolvesUniquePackageFilesOnDemand(t *testing.T) {
