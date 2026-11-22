@@ -189,8 +189,130 @@ func planPayload() json.RawMessage {
 	raw, _ := json.Marshal(map[string]any{
 		"sections": []map[string]any{
 			{"id": "s1", "title": "引言", "responsibility": "提出问题", "order": 1},
-			{"id": "s2", "title": "方法", "responsibility": "说明方法", "order": 2, "dependencies": []string{"s1"}},
+			{"id": "s2", "title": "方法", "responsibility": "说明方法", "order": 2, "dependencies": []string{"s1"}, "filePath": "chapters/method.tex"},
 		},
 	})
 	return raw
+}
+
+func seedLatexFile(t *testing.T, db *gorm.DB, projectID store.UUID, path string) {
+	t.Helper()
+	require.NoError(t, db.Create(&store.LatexFile{ProjectID: projectID, FilePath: path, SizeBytes: 1}).Error)
+}
+
+func seedAdoptedPlan(t *testing.T, svc *Service, uid, pid store.UUID) store.UUID {
+	t.Helper()
+	ctx := context.Background()
+	created, err := svc.Create(ctx, uid, pid, createRequest{Kind: store.ResearchArtifactChapterPlan, Payload: planPayload()})
+	require.NoError(t, err)
+	_, err = svc.Adopt(ctx, uid, pid, store.UUID{UUID: created.ID}, decisionRequest{Revision: 1, ExpectedRevision: 1})
+	require.NoError(t, err)
+	return store.UUID{UUID: created.ID}
+}
+
+func reviewPayload(planID store.UUID, revision int) map[string]any {
+	return map[string]any{
+		"input": map[string]any{
+			"planArtifactId": planID.String(), "planRevision": revision, "planStatus": "adopted",
+			"normsAvailable": false, "normsNote": "学术规范库尚未接入",
+		},
+		"dimensions": []map[string]any{
+			{"key": "goal_conclusion", "status": "findings"},
+			{"key": "evidence_support", "status": "insufficient", "note": "缺少可用资料原文"},
+			{"key": "cross_section", "status": "checked"},
+			{"key": "norm_compliance", "status": "not_checked", "note": "规范库尚未接入"},
+		},
+		"findings": []map[string]any{{
+			"id": "f1", "dimension": "goal_conclusion", "severity": "high",
+			"sectionId": "s2", "sectionTitle": "方法", "filePath": "chapters/method.tex", "quote": "样本 120 份",
+			"problem": "方法写 120 份，结论写 200 份", "nextStep": "统一两处样本量",
+			"basis": []map[string]any{
+				{"kind": "text", "ref": "chapters/method.tex", "filePath": "chapters/method.tex", "quote": "样本 120 份"},
+				{"kind": "plan", "ref": "s2", "quote": "说明方法"},
+			},
+			"confidence": "high",
+		}},
+		"sourcesRead": []map[string]any{{"kind": "latex", "name": "chapters/method.tex"}},
+	}
+}
+
+func TestChapterReviewPayloadValidation(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+	raw, err := json.Marshal(reviewPayload(planID, 1))
+	require.NoError(t, err)
+
+	created, err := svc.Create(context.Background(), uid, pid, createRequest{
+		Kind: store.ResearchArtifactChapterReview, Payload: raw,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, store.ResearchArtifactChapterReview, created.Kind)
+	assert.Equal(t, 1, created.CurrentRevision)
+}
+
+func TestChapterReviewRejectsIncompleteOrFakePass(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+
+	cases := map[string]func(map[string]any){
+		"缺少维度": func(p map[string]any) {
+			p["dimensions"] = []map[string]any{{"key": "goal_conclusion", "status": "checked"}}
+		},
+		"维度状态非法": func(p map[string]any) {
+			p["dimensions"].([]map[string]any)[0]["status"] = "bogus"
+		},
+		"证据不足未写原因": func(p map[string]any) {
+			delete(p["dimensions"].([]map[string]any)[1], "note")
+		},
+		"规范库不可用却声称已检查": func(p map[string]any) {
+			p["dimensions"].([]map[string]any)[3] = map[string]any{"key": "norm_compliance", "status": "checked"}
+		},
+		"定位文件不存在": func(p map[string]any) {
+			p["findings"].([]map[string]any)[0]["filePath"] = "chapters/missing.tex"
+		},
+		"章节不在计划中": func(p map[string]any) {
+			p["findings"].([]map[string]any)[0]["sectionId"] = "s9"
+		},
+		"问题无依据": func(p map[string]any) {
+			p["findings"].([]map[string]any)[0]["basis"] = []map[string]any{}
+		},
+		"定位文件与计划不一致": func(p map[string]any) {
+			seedLatexFile(t, db, pid, "chapters/other.tex")
+			p["findings"].([]map[string]any)[0]["filePath"] = "chapters/other.tex"
+		},
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			payload := reviewPayload(planID, 1)
+			mutate(payload)
+			raw, err := json.Marshal(payload)
+			require.NoError(t, err)
+			_, err = svc.Create(context.Background(), uid, pid, createRequest{
+				Kind: store.ResearchArtifactChapterReview, Payload: raw,
+			})
+			var apiErr *httpapi.APIError
+			require.ErrorAs(t, err, &apiErr)
+			assert.Equal(t, 400, apiErr.Code)
+		})
+	}
+}
+
+func TestChapterReviewRejectsForeignPlan(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	foreignProject := store.MustNewUUID()
+	require.NoError(t, db.Create(&store.Project{Name: "Other", OwnerID: uid, BaseModel: store.BaseModel{ID: foreignProject}}).Error)
+	seedLatexFile(t, db, foreignProject, "chapters/method.tex")
+	foreignPlan := seedAdoptedPlan(t, svc, uid, foreignProject)
+
+	raw, err := json.Marshal(reviewPayload(foreignPlan, 1))
+	require.NoError(t, err)
+	_, err = svc.Create(context.Background(), uid, pid, createRequest{
+		Kind: store.ResearchArtifactChapterReview, Payload: raw,
+	})
+	var apiErr *httpapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.Code)
 }

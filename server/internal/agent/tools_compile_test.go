@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
 )
@@ -41,7 +42,7 @@ func TestCompileProjectReturnsBrowserRequestMarkerWithExplanation(t *testing.T) 
 	mem := testutil.NewMemStorage()
 	require.NoError(t, mem.Put(context.Background(), s3Key, []byte("hello")))
 
-	tools, err := agent.ProjectTools(db, mem, project, owner, store.MustNewUUID(), 0)
+	tools, err := agent.ProjectTools(db, mem, norms.Unavailable{}, project, owner, store.MustNewUUID(), 0)
 	require.NoError(t, err)
 	var compile tool.InvokableTool
 	for _, candidate := range tools {

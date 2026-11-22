@@ -18,6 +18,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -113,6 +114,75 @@ type ChapterDigest struct {
 	Status    string      `json:"status"`
 }
 
+// ── 跨章节检查报告（chapter_review）─────────────────────────────────
+//
+// 四个语义维度只能由模型基于三源上下文推理得出；本文件只校验结构、
+// 归属与诚实边界（例如规范库不可用时不得声称完成规范符合度检查）。
+
+const reviewMaxFindings = 50
+
+var (
+	reviewDimensionSet = map[string]bool{"goal_conclusion": true, "evidence_support": true, "cross_section": true, "norm_compliance": true}
+	reviewStatuses     = map[string]bool{"checked": true, "findings": true, "insufficient": true, "not_checked": true, "failed": true}
+	reviewSeverities   = map[string]bool{"high": true, "medium": true, "low": true}
+	reviewBasisKinds   = map[string]bool{"norm": true, "plan": true, "text": true, "source": true}
+	reviewSourceKinds  = map[string]bool{"latex": true, "plan": true, "document": true, "source": true, "norm": true}
+	reviewPlanStatuses = map[string]bool{"adopted": true, "candidate": true, "missing": true}
+)
+
+type ChapterReviewInput struct {
+	PlanArtifactID *store.UUID   `json:"planArtifactId,omitempty"`
+	PlanRevision   *int          `json:"planRevision,omitempty"`
+	PlanStatus     string        `json:"planStatus,omitempty"`
+	NormsAvailable bool          `json:"normsAvailable"`
+	NormsNote      string        `json:"normsNote,omitempty"`
+	Norms          []norms.Entry `json:"norms,omitempty"`
+}
+
+type ReviewDimension struct {
+	Key    string `json:"key"`
+	Status string `json:"status"`
+	Note   string `json:"note,omitempty"`
+}
+
+type ReviewBasis struct {
+	Kind      string `json:"kind"`
+	Ref       string `json:"ref"`
+	FilePath  string `json:"filePath,omitempty"`
+	Quote     string `json:"quote,omitempty"`
+	LineStart int    `json:"lineStart,omitempty"`
+	LineEnd   int    `json:"lineEnd,omitempty"`
+}
+
+type ReviewFinding struct {
+	ID             string        `json:"id"`
+	Dimension      string        `json:"dimension"`
+	Severity       string        `json:"severity"`
+	SectionID      string        `json:"sectionId,omitempty"`
+	SectionTitle   string        `json:"sectionTitle,omitempty"`
+	FilePath       string        `json:"filePath,omitempty"`
+	Quote          string        `json:"quote,omitempty"`
+	LineStart      int           `json:"lineStart,omitempty"`
+	LineEnd        int           `json:"lineEnd,omitempty"`
+	Problem        string        `json:"problem"`
+	Basis          []ReviewBasis `json:"basis"`
+	NextStep       string        `json:"nextStep"`
+	Confidence     string        `json:"confidence,omitempty"`
+	AnchorVerified bool          `json:"anchorVerified,omitempty"`
+}
+
+type ReviewSource struct {
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+type ChapterReview struct {
+	Input       ChapterReviewInput `json:"input"`
+	Dimensions  []ReviewDimension  `json:"dimensions"`
+	Findings    []ReviewFinding    `json:"findings"`
+	SourcesRead []ReviewSource     `json:"sourcesRead"`
+}
+
 // ── 请求/响应 ───────────────────────────────────────────────────────
 
 type dependencyInput struct {
@@ -175,7 +245,8 @@ type artifactResponse struct {
 func validKind(kind string) bool {
 	switch kind {
 	case store.ResearchArtifactLiteratureNote, store.ResearchArtifactLiteratureComparison,
-		store.ResearchArtifactChapterPlan, store.ResearchArtifactChapterDigest:
+		store.ResearchArtifactChapterPlan, store.ResearchArtifactChapterDigest,
+		store.ResearchArtifactChapterReview:
 		return true
 	}
 	return false
@@ -612,6 +683,14 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 		if count == 0 {
 			return nil, nil, httpapi.BadRequest("摘要引用的稿件不属于该项目")
 		}
+	case store.ResearchArtifactChapterReview:
+		var p ChapterReview
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, nil, httpapi.BadRequest("跨章节检查报告结构不合法")
+		}
+		if err := s.validateChapterReview(ctx, projectID, p); err != nil {
+			return nil, nil, err
+		}
 	}
 	for _, dep := range deps {
 		if !dependencyKinds[dep.Kind] {
@@ -620,6 +699,208 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 	}
 	allDeps = append(allDeps, deps...)
 	return datatypes.JSON(raw), allDeps, nil
+}
+
+// validateChapterReview 只校验结构与诚实边界；语义判断由模型完成。
+// 这里刻意拒绝「规范库不可用却声称已完成规范符合度检查」这类伪通过。
+func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUID, p ChapterReview) error {
+	if len(p.Dimensions) != len(reviewDimensionSet) {
+		return httpapi.BadRequest("检查报告必须覆盖四个语义维度")
+	}
+	statusByKey := map[string]string{}
+	for _, d := range p.Dimensions {
+		if !reviewDimensionSet[d.Key] {
+			return httpapi.BadRequest("检查维度不合法")
+		}
+		if statusByKey[d.Key] != "" {
+			return httpapi.BadRequest("检查维度重复")
+		}
+		if !reviewStatuses[d.Status] {
+			return httpapi.BadRequest("检查状态不合法")
+		}
+		if (d.Status == "insufficient" || d.Status == "not_checked" || d.Status == "failed") && strings.TrimSpace(d.Note) == "" {
+			return httpapi.BadRequest("未覆盖或证据不足的维度必须写明原因")
+		}
+		statusByKey[d.Key] = d.Status
+	}
+	if !p.Input.NormsAvailable && len(p.Input.Norms) > 0 {
+		return httpapi.BadRequest("规范库不可用时不能附带规范条目")
+	}
+	if p.Input.NormsAvailable && len(p.Input.Norms) == 0 && (statusByKey["norm_compliance"] == "checked" || statusByKey["norm_compliance"] == "findings") {
+		return httpapi.BadRequest("没有已采用的规范条目，规范符合度只能标记为证据不足或未检查")
+	}
+	if !p.Input.NormsAvailable && (statusByKey["norm_compliance"] == "checked" || statusByKey["norm_compliance"] == "findings") {
+		return httpapi.BadRequest("规范库不可用时规范符合度只能标记为证据不足或未检查")
+	}
+	if len(p.Input.Norms) > 100 {
+		return httpapi.BadRequest("规范条目过多")
+	}
+	for _, entry := range p.Input.Norms {
+		if strings.TrimSpace(entry.ID) == "" || strings.TrimSpace(entry.Title) == "" || strings.TrimSpace(entry.Rule) == "" {
+			return httpapi.BadRequest("规范条目必须包含 ID、标题与规则说明")
+		}
+	}
+	if p.Input.PlanStatus != "" && !reviewPlanStatuses[p.Input.PlanStatus] {
+		return httpapi.BadRequest("章节计划状态不合法")
+	}
+	if p.Input.PlanArtifactID == nil {
+		if p.Input.PlanRevision != nil || (p.Input.PlanStatus != "" && p.Input.PlanStatus != "missing") {
+			return httpapi.BadRequest("章节计划引用不完整")
+		}
+	} else if p.Input.PlanStatus == "missing" {
+		return httpapi.BadRequest("章节计划状态与引用不一致")
+	}
+	if len(p.Findings) > reviewMaxFindings {
+		return httpapi.BadRequest("检查问题数量超过上限")
+	}
+	if len(p.SourcesRead) > 200 {
+		return httpapi.BadRequest("阅读来源数量超过上限")
+	}
+	for _, src := range p.SourcesRead {
+		if !reviewSourceKinds[src.Kind] || strings.TrimSpace(src.Name) == "" {
+			return httpapi.BadRequest("阅读来源记录不合法")
+		}
+	}
+
+	var planSections map[string]ChapterSection
+	if p.Input.PlanArtifactID != nil {
+		var artifact store.ResearchArtifact
+		err := s.DB.WithContext(ctx).Where("id = ? AND project_id = ? AND kind = ?",
+			*p.Input.PlanArtifactID, projectID, store.ResearchArtifactChapterPlan).First(&artifact).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return httpapi.BadRequest("检查报告引用的章节计划不属于该项目")
+		}
+		if err != nil {
+			return err
+		}
+		revision := artifact.CurrentRevision
+		if artifact.AdoptedRevision != nil {
+			revision = *artifact.AdoptedRevision
+		}
+		if p.Input.PlanRevision != nil {
+			revision = *p.Input.PlanRevision
+		}
+		if revision <= 0 || revision > artifact.CurrentRevision {
+			return httpapi.BadRequest("章节计划修订号不存在")
+		}
+		var rev store.ResearchArtifactRevision
+		if err := s.DB.WithContext(ctx).Where("artifact_id = ? AND revision = ?", artifact.ID, revision).First(&rev).Error; err != nil {
+			return httpapi.BadRequest("章节计划修订号不存在")
+		}
+		var plan ChapterPlan
+		if err := json.Unmarshal(rev.PayloadJSON, &plan); err != nil {
+			return httpapi.BadRequest("章节计划内容不合法")
+		}
+		planSections = map[string]ChapterSection{}
+		for _, sec := range plan.Sections {
+			planSections[sec.ID] = sec
+		}
+	}
+
+	checkedFiles := map[string]bool{}
+	checkFile := func(path string) error {
+		if path == "" || checkedFiles[path] {
+			return nil
+		}
+		var count int64
+		if err := s.DB.WithContext(ctx).Model(&store.LatexFile{}).
+			Where("project_id = ? AND file_path = ?", projectID, path).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return httpapi.BadRequest("检查定位的稿件文件不存在：" + path)
+		}
+		checkedFiles[path] = true
+		return nil
+	}
+
+	findingIDs := map[string]bool{}
+	for _, f := range p.Findings {
+		if strings.TrimSpace(f.ID) == "" || findingIDs[f.ID] {
+			return httpapi.BadRequest("检查问题必须包含唯一 ID")
+		}
+		findingIDs[f.ID] = true
+		if !reviewDimensionSet[f.Dimension] {
+			return httpapi.BadRequest("检查问题维度不合法")
+		}
+		if !reviewSeverities[f.Severity] {
+			return httpapi.BadRequest("检查问题严重程度不合法")
+		}
+		if strings.TrimSpace(f.Problem) == "" || strings.TrimSpace(f.NextStep) == "" {
+			return httpapi.BadRequest("检查问题必须写清问题与下一步")
+		}
+		if f.Confidence != "" && f.Confidence != "high" && f.Confidence != "low" {
+			return httpapi.BadRequest("检查问题置信度不合法")
+		}
+		if f.SectionID == "" && f.FilePath == "" {
+			return httpapi.BadRequest("检查问题必须定位到章节或文件")
+		}
+		if f.LineStart < 0 || f.LineEnd < 0 || (f.LineEnd > 0 && f.LineEnd < f.LineStart) {
+			return httpapi.BadRequest("检查问题行号不合法")
+		}
+		if len(f.Basis) == 0 {
+			return httpapi.BadRequest("检查问题必须给出依据")
+		}
+		effectivePath := f.FilePath
+		if f.SectionID != "" {
+			if planSections == nil {
+				return httpapi.BadRequest("章节定位必须对应章节计划")
+			}
+			sec, ok := planSections[f.SectionID]
+			if !ok {
+				return httpapi.BadRequest("检查问题指向的章节不在章节计划中")
+			}
+			if sec.FilePath != nil {
+				if f.FilePath != "" && f.FilePath != *sec.FilePath {
+					return httpapi.BadRequest("检查问题定位文件与章节计划不一致")
+				}
+				effectivePath = *sec.FilePath
+			}
+		}
+		if err := checkFile(effectivePath); err != nil {
+			return err
+		}
+		for _, b := range f.Basis {
+			if !reviewBasisKinds[b.Kind] || strings.TrimSpace(b.Ref) == "" {
+				return httpapi.BadRequest("检查依据不合法")
+			}
+			if b.LineStart < 0 || b.LineEnd < 0 || (b.LineEnd > 0 && b.LineEnd < b.LineStart) {
+				return httpapi.BadRequest("检查依据行号不合法")
+			}
+			if (b.Kind == "text" || b.Kind == "plan" || b.Kind == "source") && strings.TrimSpace(b.Quote) == "" {
+				return httpapi.BadRequest("检查依据必须给出原文摘录")
+			}
+			switch b.Kind {
+			case "text":
+				path := b.FilePath
+				if path == "" {
+					path = b.Ref
+				}
+				if err := checkFile(path); err != nil {
+					return err
+				}
+			case "plan":
+				if planSections == nil {
+					return httpapi.BadRequest("章节计划依据不可用")
+				}
+				if _, ok := planSections[b.Ref]; !ok {
+					return httpapi.BadRequest("依据引用的章节不在章节计划中")
+				}
+			case "norm":
+				found := false
+				for _, entry := range p.Input.Norms {
+					if entry.ID == b.Ref || entry.Title == b.Ref {
+						found = true
+						break
+					}
+				}
+				if !found {
+					return httpapi.BadRequest("依据引用的规范条目不在已采用规范中")
+				}
+			}
+		}
+	}
+	return nil
 }
 
 func (s *Service) checkSourceVersion(ctx context.Context, projectID, versionID store.UUID) error {

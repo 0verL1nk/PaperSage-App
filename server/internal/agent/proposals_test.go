@@ -21,6 +21,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -151,7 +152,7 @@ func TestProjectToolsHasNoWriteTool(t *testing.T) {
 	})
 	uid, pid := store.MustNewUUID(), store.MustNewUUID()
 
-	tools, err := agent.ProjectTools(db, testutil.NewMemStorage(),
+	tools, err := agent.ProjectTools(db, testutil.NewMemStorage(), norms.Unavailable{},
 		pid, uid, store.MustNewUUID(), 0)
 	require.NoError(t, err)
 

@@ -14,6 +14,7 @@ const (
 	ResearchArtifactLiteratureComparison = "literature_comparison"
 	ResearchArtifactChapterPlan          = "chapter_plan"
 	ResearchArtifactChapterDigest        = "chapter_digest"
+	ResearchArtifactChapterReview        = "chapter_review"
 
 	ResearchArtifactRevisionCandidate  = "candidate"
 	ResearchArtifactRevisionAdopted    = "adopted"
