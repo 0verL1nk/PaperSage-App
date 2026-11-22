@@ -150,6 +150,7 @@ func (s *Service) upload(c *gin.Context) {
 		}
 		var duplicate bool
 		var replay bool
+		var sourceVersionID store.UUID
 		objectWritten := false
 		err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 			resourceID, replayed, err := importreceipt.Claim(tx, doc.OwnerID, importKey, "document", fingerprint, doc.ID)
@@ -185,8 +186,10 @@ func (s *Service) upload(c *gin.Context) {
 			if err := tx.Create(&doc).Error; err != nil {
 				return err
 			}
-			return sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
+			versionID, err := sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
 				hex.EncodeToString(contentSum[:]), doc.Size)
+			sourceVersionID = versionID
+			return err
 		})
 		if err != nil {
 			if objectWritten {
@@ -201,6 +204,9 @@ func (s *Service) upload(c *gin.Context) {
 		}
 		resp := toDocumentResponse(&doc)
 		resp.Duplicate = duplicate
+		if !replay && sourceVersionID.UUID != uuid.Nil && s.OnSourceVersion != nil {
+			s.OnSourceVersion(doc.ProjectID, doc.ID, sourceVersionID, doc.Name, doc.Type, doc.S3Key)
+		}
 		if status == "uploaded" && !replay {
 			s.indexUploaded(&doc)
 		}
@@ -224,12 +230,15 @@ func (s *Service) upload(c *gin.Context) {
 		S3Key: s3Key, Remark: remarkPtr,
 		ProjectID: store.UUID{UUID: pid}, FolderID: folderID, OwnerID: store.UUID{UUID: uid},
 	}
+	var sourceVersionID store.UUID
 	if err := s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(&doc).Error; err != nil {
 			return err
 		}
-		return sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
+		versionID, err := sources.PublishDocument(tx, doc.ProjectID, doc.ID, doc.OwnerID, doc.S3Key,
 			hex.EncodeToString(contentSum[:]), doc.Size)
+		sourceVersionID = versionID
+		return err
 	}); err != nil {
 		slog.Error("documents: publish source version failed", "doc", doc.ID.String(), "err", err)
 		_ = s.Storage.Delete(ctx, s3Key)
@@ -238,6 +247,9 @@ func (s *Service) upload(c *gin.Context) {
 	}
 	resp := toDocumentResponse(&doc)
 	resp.Duplicate = dupCount > 0
+	if sourceVersionID.UUID != uuid.Nil && s.OnSourceVersion != nil {
+		s.OnSourceVersion(doc.ProjectID, doc.ID, sourceVersionID, doc.Name, doc.Type, doc.S3Key)
+	}
 	if status == "uploaded" {
 		s.indexUploaded(&doc)
 	}
