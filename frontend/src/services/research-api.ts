@@ -19,9 +19,13 @@ function requireSignedIn() {
 
 const KEY = 'research-artifacts'
 
+export const researchKeys = {
+  list: (projectId: string, kind?: ResearchArtifactKind) => [KEY, projectId, kind ?? 'all'] as const,
+}
+
 export function useResearchArtifacts(projectId: string | undefined, kind?: ResearchArtifactKind) {
   return useQuery({
-    queryKey: [KEY, projectId, kind ?? 'all'],
+    queryKey: researchKeys.list(projectId ?? '', kind),
     enabled: Boolean(projectId),
     queryFn: async () => {
       requireSignedIn()

@@ -23,6 +23,10 @@ vi.mock('@/services/research-api', () => ({
   useDeleteResearchArtifact: () => ({ mutateAsync: remove, isPending: false }),
 }))
 
+vi.mock('@/hooks/use-latex', () => ({
+  useLatexFiles: () => ({ data: [{ file_path: 'main.tex' }, { file_path: 'chapters/method.tex' }] }),
+}))
+
 function planArtifact(): ResearchArtifact {
   return {
     id: 'a1', projectId: 'p1', kind: 'chapter_plan', state: 'active',
