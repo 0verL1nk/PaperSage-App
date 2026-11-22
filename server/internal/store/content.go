@@ -3,7 +3,9 @@ package store
 import (
 	"time"
 
+	"github.com/google/uuid"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // ProjectSource is the aggregate root; publishing must create the matching
@@ -69,4 +71,32 @@ type SourceSegment struct {
 	ParagraphID  *string `gorm:"size:128"`
 
 	Extraction SourceExtraction `gorm:"foreignKey:ExtractionID;constraint:OnDelete:RESTRICT"`
+}
+
+func (m *ProjectSource) BeforeCreate(*gorm.DB) error {
+	if m.ID.UUID == uuid.Nil {
+		m.ID = MustNewUUID()
+	}
+	return nil
+}
+
+func (m *SourceVersion) BeforeCreate(*gorm.DB) error {
+	if m.ID.UUID == uuid.Nil {
+		m.ID = MustNewUUID()
+	}
+	return nil
+}
+
+func (m *SourceExtraction) BeforeCreate(*gorm.DB) error {
+	if m.ID.UUID == uuid.Nil {
+		m.ID = MustNewUUID()
+	}
+	return nil
+}
+
+func (m *SourceSegment) BeforeCreate(*gorm.DB) error {
+	if m.ID.UUID == uuid.Nil {
+		m.ID = MustNewUUID()
+	}
+	return nil
 }
