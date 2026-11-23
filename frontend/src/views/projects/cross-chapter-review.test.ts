@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChapterReviewPayload, ReviewFinding } from '@/types/research'
+import { friendlyErrorMessage } from '@/services/errors'
 import {
   compareReviewReports,
   displayBasisRef,
   findingsByDimension,
-  friendlyErrorMessage,
   humanizeReviewText,
   planSectionTitles,
   reviewCoverage,

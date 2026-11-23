@@ -146,7 +146,7 @@ function CompactSelector({
           variant="ghost"
           size="sm"
           title={label}
-          className="h-7 min-w-0 max-w-[150px] gap-1 text-xs text-muted-foreground lg:max-w-none"
+          className="h-7 min-w-0 max-w-[88px] gap-1 text-xs text-muted-foreground @min-[420px]:max-w-[160px]"
         >
           <span className="min-w-0 truncate lg:hidden">{value.model || label}</span>
           <span className="hidden min-w-0 truncate lg:inline">{label}</span>

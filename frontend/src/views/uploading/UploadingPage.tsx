@@ -232,7 +232,7 @@ export function UploadingPage() {
           <Button size="sm" variant="ghost" className="h-7 text-xs gap-1.5 text-amber-700 dark:text-amber-400" onClick={() => setCreateFolderOpen(true)}>
             <FolderPlus size={13} /> 文件夹
           </Button>
-          <Button size="sm" className="h-7 text-xs gap-1.5 bg-accent hover:bg-accent/90 text-accent-foreground rounded-full" onClick={() => setUploadOpen(true)}>
+          <Button size="sm" className="h-8 text-xs gap-1.5 rounded-full" onClick={() => setUploadOpen(true)}>
             <Upload size={13} /> 上传
           </Button>
         </div>

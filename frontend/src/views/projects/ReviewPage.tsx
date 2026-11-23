@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLatexFileContent, useLatexFiles } from '@/hooks/use-latex'
+import { friendlyErrorMessage } from '@/services/errors'
 import { useResearchArtifacts } from '@/services/research-api'
 import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store/session-store'
@@ -29,7 +30,6 @@ import {
   displayBasisRef,
   findingsByDimension,
   formatReviewTime,
-  friendlyErrorMessage,
   humanizeReviewText,
   planSectionTitles,
   reviewCoverage,
@@ -179,7 +179,8 @@ export function ReviewPage() {
                 <LoaderCircle className="size-4 animate-spin" />正在检查文件…
               </div>
             ) : (
-              checks.map((check) => {
+              <div className="divide-y divide-border/40">
+              {checks.map((check) => {
                 const Icon = check.status === 'pass' ? CheckCircle2 : check.status === 'warning' ? AlertTriangle : CircleAlert
                 const tone = check.status === 'pass'
                   ? 'text-emerald-700 dark:text-emerald-400'
@@ -188,7 +189,7 @@ export function ReviewPage() {
                     : 'text-destructive'
                 const label = check.status === 'pass' ? '已通过' : check.status === 'warning' ? '建议确认' : '需要处理'
                 return (
-                  <div key={check.id} className="flex min-w-0 flex-col gap-3 rounded-xl border border-border/50 bg-card p-4 sm:flex-row sm:items-start">
+                  <div key={check.id} className="flex min-w-0 flex-col gap-3 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-start">
                     <Icon className={`mt-0.5 size-4 shrink-0 ${tone}`} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
@@ -204,7 +205,8 @@ export function ReviewPage() {
                     )}
                   </div>
                 )
-              })
+              })}
+              </div>
             )}
           </CardContent>
         </Card>

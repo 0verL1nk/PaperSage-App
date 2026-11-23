@@ -11,6 +11,7 @@ export {
   downloadBlob,
   getJson as get,
   getJson,
+  PAGE_QUERY_TIMEOUT_MS,
   postJson as post,
   postJson,
   postMultipart,

@@ -33,6 +33,7 @@ vi.mock('@/services/projects-api', () => ({
 vi.mock('lucide-react', () => ({
   FolderOpen: () => <span>FolderOpen</span>,
   FolderGit2: () => <span>FolderGit2</span>,
+  MoreHorizontal: () => <span>MoreHorizontal</span>,
   Plus: () => <span>Plus</span>,
   Trash2: () => <span>Trash2</span>,
   FileText: () => <span>FileText</span>,
@@ -201,7 +202,7 @@ describe('ProjectListPage', () => {
     })
 
     // Click on the project card
-    const card = screen.getByRole('button', { name: /test project/i })
+    const card = screen.getByRole('button', { name: 'Test Project' })
     card.click()
 
     expect(mockNavigate).toHaveBeenCalledWith({

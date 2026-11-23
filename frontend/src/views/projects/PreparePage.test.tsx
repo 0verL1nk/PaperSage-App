@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
@@ -32,13 +32,21 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string; [key: string]: unknown }) => <a href={to} {...props}>{children}</a>,
 }))
 vi.mock('@/services/files-api', () => ({ useDocuments: () => ({ data: [] }) }))
+const writingStateResult: { data: typeof state | undefined; isLoading: boolean; error: Error | null; refetch: () => void } = {
+  data: state, isLoading: false, error: null, refetch: vi.fn(),
+}
+
 vi.mock('@/services/writing-state-api', () => ({
-  useWritingState: () => ({ data: state, isLoading: false, error: null }),
+  useWritingState: () => writingStateResult,
   useSaveWritingState: () => ({ mutate, isPending: false }),
   getConflictState: (error: unknown) => error instanceof Error && 'details' in error ? (error as Error & { details: { data: typeof state } }).details.data : null,
 }))
 vi.mock('./ai-panel', () => ({
   AiPanel: ({ mode }: { mode: string }) => <div data-testid="research-agent" data-mode={mode} />,
+}))
+// 研究产物面板会经 use-latex 拉入 react-pdf，jsdom 没有 DOMMatrix；本文件只验证准备页本身。
+vi.mock('@/components/domain/ResearchArtifactsPanel', () => ({
+  ResearchArtifactsPanel: () => <div data-testid="research-artifacts" />,
 }))
 
 import { PreparePage } from './PreparePage'
@@ -65,6 +73,21 @@ describe('PreparePage', () => {
     expect(screen.getByText('校园阅读习惯研究')).toBeInTheDocument()
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     state.brief.topic = ''
+  })
+
+  it('shows an actionable error with retry when preparation data cannot load', () => {
+    writingStateResult.data = undefined
+    writingStateResult.error = new Error('Network request failed.')
+    render(<Wrapper><PreparePage /></Wrapper>)
+
+    const alert = screen.getByRole('alert')
+    expect(alert).toHaveTextContent('暂时打不开这个项目的准备内容')
+    expect(alert).toHaveTextContent('网络连接失败，请检查网络后重试。')
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+    expect(writingStateResult.refetch).toHaveBeenCalled()
+
+    writingStateResult.data = state
+    writingStateResult.error = null
   })
 
   it('does not pretend the local guest workspace has an AI agent', () => {

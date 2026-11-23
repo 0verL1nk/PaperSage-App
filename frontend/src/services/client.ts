@@ -46,6 +46,13 @@ export const apiClient = axios.create({
   timeout: 60_000,
 })
 
+/**
+ * 页面首屏数据查询的超时：离线或服务不可达时浏览器可能长时间不返回错误，
+ * 60s 的全局超时会让页面一直停在「正在加载」。页面级查询统一用更短的上限，
+ * 让错误态和重试入口及时出现。
+ */
+export const PAGE_QUERY_TIMEOUT_MS = 15_000
+
 // Token refresh state to prevent multiple concurrent refresh requests
 let isRefreshing = false
 let refreshSubscribers: Array<{

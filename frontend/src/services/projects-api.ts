@@ -1,7 +1,7 @@
 /** Projects API hooks. */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { deleteFetch, get, post, put } from '@/services'
+import { deleteFetch, get, PAGE_QUERY_TIMEOUT_MS, post, put } from '@/services'
 import { useSessionStore } from '@/store'
 import type { Project, ProjectGroup, ProjectScenario } from '@/types/projects'
 import { PROJECTS } from './api-routes'
@@ -20,7 +20,7 @@ export function useProjects(groupId?: string, includeDeleted = false) {
 
       const qs = params.toString()
       const url = qs ? `${PROJECTS.list}?${qs}` : PROJECTS.list
-      const data = await get<Project[]>(url)
+      const data = await get<Project[]>(url, { timeout: PAGE_QUERY_TIMEOUT_MS })
       return data ?? []
     },
   })
@@ -29,7 +29,7 @@ export function useProjects(groupId?: string, includeDeleted = false) {
 export function useProject(projectId: string) {
   return useQuery({
     queryKey: ['project', projectId],
-    queryFn: () => useSessionStore.getState().isGuest ? getGuestProject(projectId) : get<Project>(PROJECTS.detail(projectId)),
+    queryFn: () => useSessionStore.getState().isGuest ? getGuestProject(projectId) : get<Project>(PROJECTS.detail(projectId), { timeout: PAGE_QUERY_TIMEOUT_MS }),
   })
 }
 

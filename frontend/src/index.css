@@ -503,3 +503,12 @@ html.desktop-client body {
     display: none;
   }
 }
+
+/* 独立滚动的窄栏需要让用户看见「下面还有内容」（如写作准备页左栏）。 */
+@utility scroll-visible {
+  scrollbar-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) transparent;
+
+  &::-webkit-scrollbar-thumb {
+    background-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  }
+}
