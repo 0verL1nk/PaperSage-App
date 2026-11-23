@@ -26,11 +26,16 @@ import {
   REVIEW_STATUS_LABEL,
   compareReviewReports,
   dimensionOf,
+  displayBasisRef,
   findingsByDimension,
   formatReviewTime,
+  friendlyErrorMessage,
+  humanizeReviewText,
+  planSectionTitles,
   reviewCoverage,
   reviewLocation,
   reviewReportProblems,
+  sortReportsByUpdatedAt,
 } from './cross-chapter-review'
 import { AiPanel } from './ai-panel'
 
@@ -78,8 +83,7 @@ export function ReviewPage() {
   const reportsQuery = useResearchArtifacts(isGuest ? undefined : projectId, 'chapter_review')
   const refetchReports = reportsQuery.refetch
   const parsedReports = useMemo(
-    () => [...(reportsQuery.data ?? [])]
-      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+    () => sortReportsByUpdatedAt(reportsQuery.data ?? [])
       .map((report) => {
         const payload = reviewPayload(report)
         // 修复前的历史报告可能是「维度标 findings 却没有问题」；隔离而不是改写用户数据。
@@ -104,6 +108,10 @@ export function ReviewPage() {
   const previousPayload = reviewPayload(previous)
   const coverage = payload ? reviewCoverage(payload) : null
   const comparison = payload && previousPayload ? compareReviewReports(previousPayload, payload) : null
+  const sectionTitles = useMemo(
+    () => (payload ? planSectionTitles(payload) : new Map<string, string>()),
+    [payload],
+  )
 
   const wasStreaming = useRef(false)
   useEffect(() => {
@@ -156,7 +164,13 @@ export function ReviewPage() {
               <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-2 text-sm text-destructive">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <span className="break-words">{error.message}</span>
+                  <div className="min-w-0">
+                    <span className="break-words">{friendlyErrorMessage(error)}</span>
+                    <details className="mt-1 text-xs text-muted-foreground">
+                      <summary className="flex min-h-9 cursor-pointer items-center">技术细节</summary>
+                      <p className="break-all">{error.message}</p>
+                    </details>
+                  </div>
                 </div>
                 <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={() => void refetch()}>
                   <RefreshCw className="mr-2 size-4" />重试读取
@@ -260,7 +274,7 @@ export function ReviewPage() {
               <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-2">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <span className="break-words">检查未完成：{chat.error}</span>
+                  <span className="break-words">检查未完成：{friendlyErrorMessage(chat.error)}</span>
                 </div>
                 <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={runReview} disabled={runDisabled}>
                   <RefreshCw className="mr-2 size-4" />重新运行检查
@@ -276,7 +290,13 @@ export function ReviewPage() {
               <div role="alert" className="flex flex-col gap-3 rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-start gap-2">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
-                  <span className="break-words">历史报告加载失败：{reportsQuery.error.message}</span>
+                  <div className="min-w-0">
+                    <span className="break-words">历史报告加载失败：{friendlyErrorMessage(reportsQuery.error)}</span>
+                    <details className="mt-1 text-xs text-muted-foreground">
+                      <summary className="flex min-h-9 cursor-pointer items-center">技术细节</summary>
+                      <p className="break-all">{reportsQuery.error.message}</p>
+                    </details>
+                  </div>
                 </div>
                 <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={() => void refetchReports()}>
                   <RefreshCw className="mr-2 size-4" />重试读取
@@ -285,7 +305,7 @@ export function ReviewPage() {
             ) : !isGuest && reports.length === 0 && !chat.streaming ? (
               <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-5 text-sm text-muted-foreground">
                 <p className="font-medium text-foreground">{isolatedReports.length > 0 ? '还没有有效的跨章节检查报告' : '还没有跨章节检查报告'}</p>
-                <p className="mt-1">先准备好已采用的章节计划与各章正文，再点上方「运行跨章节检查」。报告会保存下来，方便对比和回看。</p>
+                <p className="mt-1">{modelReady ? '先准备好已采用的章节计划与各章正文，再点上方「运行跨章节检查」。报告会保存下来，方便对比和回看。' : '先点上方「去设置模型」完成配置，再回来运行跨章节检查。'}</p>
               </div>
             ) : null}
 
@@ -298,7 +318,7 @@ export function ReviewPage() {
                   这些记录的维度状态与问题列表不一致，不会作为审查结果展示，也不能在历史中选择。修复后的新报告不受影响。
                 </p>
                 <details className="mt-2 text-xs text-muted-foreground">
-                  <summary className="cursor-pointer">查看被隔离记录</summary>
+                  <summary className="flex min-h-11 cursor-pointer items-center">查看被隔离记录</summary>
                   <ul className="mt-1 list-disc space-y-1 pl-5">
                     {isolatedReports.map(({ report, problems }) => (
                       <li key={report.id}>{formatReviewTime(report.updatedAt)}：{problems[0]}</li>
@@ -316,7 +336,7 @@ export function ReviewPage() {
                     <label htmlFor="review-history" className="font-medium">查看历史报告</label>
                     <select
                       id="review-history"
-                      className="min-h-9 rounded-lg border border-border/60 bg-background px-2 text-xs"
+                      className="min-h-11 rounded-lg border border-border/60 bg-background px-2 text-xs"
                       value={selected.id}
                       onChange={(event) => setSelectedId(event.target.value)}
                     >
@@ -342,7 +362,7 @@ export function ReviewPage() {
                         章节计划：{payload.input?.planStatus === 'adopted' ? '已采用' : payload.input?.planStatus === 'candidate' ? '候选（尚未采用）' : '缺失'}
                       </span>
                       <span>
-                        学术规范：{payload.input?.normsAvailable ? `已采用 ${payload.input.norms?.length ?? 0} 条` : (payload.input?.normsNote || '尚未接入')}
+                        学术规范：{payload.input?.normsAvailable ? `已采用 ${payload.input.norms?.length ?? 0} 条` : humanizeReviewText(payload.input?.normsNote || '尚未接入', sectionTitles)}
                       </span>
                     </div>
 
@@ -357,7 +377,7 @@ export function ReviewPage() {
                                 {dimension ? REVIEW_STATUS_LABEL[dimension.status] : '未返回'}
                               </span>
                             </div>
-                            {dimension?.note ? <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{dimension.note}</p> : null}
+                            {dimension?.note ? <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{humanizeReviewText(dimension.note, sectionTitles)}</p> : null}
                             <p className="mt-1 text-[11px] leading-5 text-muted-foreground">{REVIEW_DIMENSION_HINT[key]}</p>
                           </div>
                         )
@@ -370,7 +390,7 @@ export function ReviewPage() {
                           <ShieldAlert className="size-4" />本次覆盖不完整（{coverage.covered}/{REVIEW_DIMENSION_ORDER.length} 个维度完成）
                         </p>
                         <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
-                          {coverage.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+                          {coverage.reasons.map((reason) => <li key={reason}>{humanizeReviewText(reason, sectionTitles)}</li>)}
                         </ul>
                         <p className="mt-2 text-xs text-muted-foreground">未覆盖的维度不能当作「没有问题」；补齐材料后可重新运行。</p>
                       </div>
@@ -404,7 +424,7 @@ export function ReviewPage() {
                                 <Badge variant={finding.severity === 'high' ? 'destructive' : 'secondary'} className="font-normal">
                                   {REVIEW_SEVERITY_LABEL[finding.severity] ?? finding.severity}
                                 </Badge>
-                                <span className="text-xs text-muted-foreground">{reviewLocation(finding)}</span>
+                                <span className="text-xs text-muted-foreground">{reviewLocation(finding, sectionTitles)}</span>
                                 {finding.anchorVerified ? <Badge variant="outline" className="font-normal">引文已核对</Badge> : null}
                                 {finding.confidence === 'low' ? <Badge variant="outline" className="font-normal">置信度低</Badge> : null}
                               </div>
@@ -413,15 +433,15 @@ export function ReviewPage() {
                                   {finding.quote}
                                 </blockquote>
                               ) : null}
-                              <p className="mt-2 break-words text-sm leading-6">{finding.problem}</p>
+                              <p className="mt-2 break-words text-sm leading-6">{humanizeReviewText(finding.problem, sectionTitles)}</p>
                               <details className="mt-2">
-                                <summary className="cursor-pointer text-xs font-medium text-primary">查看依据（{finding.basis.length}）</summary>
+                                <summary className="flex min-h-11 cursor-pointer items-center text-xs font-medium text-primary">查看依据（{finding.basis.length}）</summary>
                                 <ul className="mt-1 space-y-1">
                                   {finding.basis.map((basis, index) => (
                                     <li key={`${finding.id}-basis-${index}`} className="rounded-lg bg-muted/30 p-2 text-xs">
                                       <span className="font-medium">{REVIEW_BASIS_LABEL[basis.kind] ?? basis.kind}</span>
                                       <span className="text-muted-foreground">
-                                        {' · '}{basis.ref}
+                                        {' · '}{displayBasisRef(basis, sectionTitles)}
                                         {basis.lineStart ? `（第 ${basis.lineStart}${basis.lineEnd && basis.lineEnd !== basis.lineStart ? `–${basis.lineEnd}` : ''} 行）` : ''}
                                       </span>
                                       {basis.quote ? <p className="mt-1 whitespace-pre-wrap leading-5 text-muted-foreground">{basis.quote}</p> : null}
@@ -429,7 +449,7 @@ export function ReviewPage() {
                                   ))}
                                 </ul>
                               </details>
-                              <p className="mt-2 break-words text-xs leading-5"><span className="font-medium">下一步：</span>{finding.nextStep}</p>
+                              <p className="mt-2 break-words text-xs leading-5"><span className="font-medium">下一步：</span>{humanizeReviewText(finding.nextStep, sectionTitles)}</p>
                             </article>
                           ))}
                         </section>
@@ -438,7 +458,7 @@ export function ReviewPage() {
 
                     {payload.sourcesRead?.length ? (
                       <details className="rounded-xl border border-border/50 bg-muted/20 p-3 text-xs">
-                        <summary className="cursor-pointer font-medium">本次读取的材料（{payload.sourcesRead.length}）</summary>
+                        <summary className="flex min-h-11 cursor-pointer items-center font-medium">本次读取的材料（{payload.sourcesRead.length}）</summary>
                         <ul className="mt-2 space-y-1 text-muted-foreground">
                           {payload.sourcesRead.map((source, index) => (
                             <li key={`${source.kind}-${source.name}-${index}`}>{REVIEW_SOURCE_LABEL[source.kind] ?? source.kind}：{source.name}</li>

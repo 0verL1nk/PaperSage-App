@@ -90,6 +90,7 @@ type reviewContextState struct {
 	planArtifactID *store.UUID
 	planRevision   *int
 	planStatus     string
+	planSections   []research.ReviewPlanSection
 	normsAvailable bool
 	normsNote      string
 	norms          []norms.Entry
@@ -227,6 +228,9 @@ func buildChapterReviewContext(ctx context.Context, db *gorm.DB, stg storage.Sto
 	} else {
 		reviewState.plan = plan.plan
 		reviewState.planStatus = plan.status
+		for _, sec := range plan.plan.Sections {
+			reviewState.planSections = append(reviewState.planSections, research.ReviewPlanSection{ID: sec.ID, Title: sec.Title})
+		}
 		artifactID := plan.artifactID
 		revision := plan.revision
 		reviewState.planArtifactID = &artifactID
@@ -363,6 +367,7 @@ func verifyChapterReviewPayload(ctx context.Context, db *gorm.DB, stg storage.St
 	report.Input.PlanArtifactID = state.planArtifactID
 	report.Input.PlanRevision = state.planRevision
 	report.Input.PlanStatus = state.planStatus
+	report.Input.PlanSections = state.planSections
 	report.Input.NormsAvailable = state.normsAvailable
 	report.Input.NormsNote = state.normsNote
 	report.Input.Norms = state.norms

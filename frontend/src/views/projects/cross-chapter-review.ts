@@ -4,6 +4,7 @@
  */
 import type {
   ChapterReviewPayload,
+  ReviewBasis,
   ReviewBasisKind,
   ReviewDimension,
   ReviewDimensionKey,
@@ -168,8 +169,90 @@ export function formatReviewTime(value: string | undefined): string {
   return date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
-export function reviewLocation(finding: ReviewFinding): string {
-  const section = finding.sectionTitle || finding.sectionId || '未标注章节'
+/**
+ * 历史排序必须按解析后的时间比较。ISO 字符串带不同时区偏移时，
+ * 直接 localeCompare 会把 +08:00 的旧记录误判为“最新”。
+ */
+export function sortReportsByUpdatedAt<T extends { updatedAt: string }>(reports: T[]): T[] {
+  return [...reports].sort((a, b) => timeValue(b.updatedAt) - timeValue(a.updatedAt))
+}
+
+function timeValue(value: string | undefined): number {
+  if (!value) return 0
+  const time = Date.parse(value)
+  return Number.isNaN(time) ? 0 : time
+}
+
+/** 章节 id → 标题映射，来源是工具写入的 planSections 与问题自身的章节标题。 */
+export function planSectionTitles(report: ChapterReviewPayload): Map<string, string> {
+  const titles = new Map<string, string>()
+  for (const section of report.input?.planSections ?? []) {
+    if (section.id && section.title) titles.set(section.id, section.title)
+  }
+  for (const finding of report.findings ?? []) {
+    if (finding.sectionId && finding.sectionTitle) titles.set(finding.sectionId, finding.sectionTitle)
+  }
+  return titles
+}
+
+const REVIEW_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/norms\.available\s*=\s*false/gi, '学术规范库尚未接入'],
+  [/norms\.available\s*=\s*true/gi, '学术规范库已接入'],
+  [/norms\.entries/gi, '已采用的规范'],
+  [/get_chapter_review_context/gi, '检查上下文'],
+  [/\bwarnings\b/gi, '材料提示'],
+  [/status\s*=\s*adopted/gi, '章节计划已采用'],
+  [/\brevision\s*[=:]?\s*(\d+)/gi, '第 $1 版'],
+  [/\bnot_read\b/gi, '尚未核对'],
+  [/\bnot_reported\b/gi, '未报告'],
+  [/\bnot_checked\b/gi, '未检查'],
+  [/\binsufficient\b/gi, '材料不足'],
+  [/\breported\b/gi, '已报告'],
+  [/\bchecked\b/gi, '已检查'],
+  [/\bfailed\b/gi, '检查失败'],
+  [/\bfindings\b/gi, '问题'],
+  [/\bpayload\b/gi, '报告内容'],
+  [/\bfinding\b/gi, '问题'],
+  [/\bbasis\b/gi, '依据'],
+  [/\bplan\b/gi, '章节计划'],
+  [/\br(\d+)\b/gi, '课题要求'],
+]
+
+/**
+ * 把模型 notes 里残留的内部字段/枚举/章节 id 换成学生能懂的中文。
+ * 只用于展示；逐字引文（quote）不经过这里。
+ */
+export function humanizeReviewText(text: string, titles: Map<string, string>): string {
+  if (!text) return text
+  let out = text
+  for (const [pattern, replacement] of REVIEW_TEXT_REPLACEMENTS) {
+    out = out.replace(pattern, replacement)
+  }
+  out = out.replace(/\bs(\d+)\b/gi, (_match, digits: string) => {
+    const title = titles.get(`s${digits}`)
+    return title ? `「${title}」` : '对应章节'
+  })
+  return out
+}
+
+export function displayBasisRef(basis: ReviewBasis, titles: Map<string, string>): string {
+  if (basis.kind === 'plan') return titles.get(basis.ref) ?? '章节计划'
+  if (basis.kind === 'text') return basis.filePath || basis.ref
+  return basis.ref || '未命名依据'
+}
+
+/** 面向学生的错误文案；英文库信息统一折叠到“技术细节”。 */
+export function friendlyErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? '')
+  if (/[一-鿿]/.test(raw)) return raw
+  if (/network|fetch|timeout|econn|socket/i.test(raw)) return '网络连接失败，请检查网络后重试。'
+  return '暂时无法读取检查数据，请稍后重试。'
+}
+
+export function reviewLocation(finding: ReviewFinding, titles?: Map<string, string>): string {
+  const section = finding.sectionTitle
+    || (finding.sectionId ? titles?.get(finding.sectionId) : undefined)
+    || '未标注章节'
   const file = finding.filePath ? ` · ${finding.filePath}` : ''
   const lines = finding.lineStart
     ? ` · 第 ${finding.lineStart}${finding.lineEnd && finding.lineEnd !== finding.lineStart ? `–${finding.lineEnd}` : ''} 行`

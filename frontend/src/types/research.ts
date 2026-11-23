@@ -142,6 +142,7 @@ export interface ChapterReviewPayload {
     planArtifactId?: string
     planRevision?: number
     planStatus?: 'adopted' | 'candidate' | 'missing'
+    planSections?: Array<{ id: string; title: string }>
     normsAvailable: boolean
     normsNote?: string
     norms?: ReviewNormEntry[]

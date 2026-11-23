@@ -1,7 +1,18 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChapterReviewPayload, ReviewFinding } from '@/types/research'
-import { compareReviewReports, findingsByDimension, reviewCoverage, reviewLocation, reviewReportProblems } from './cross-chapter-review'
+import {
+  compareReviewReports,
+  displayBasisRef,
+  findingsByDimension,
+  friendlyErrorMessage,
+  humanizeReviewText,
+  planSectionTitles,
+  reviewCoverage,
+  reviewLocation,
+  reviewReportProblems,
+  sortReportsByUpdatedAt,
+} from './cross-chapter-review'
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -89,6 +100,62 @@ describe('findingsByDimension', () => {
 describe('reviewLocation', () => {
   it('renders section, file and line range without bare ids', () => {
     expect(reviewLocation(finding({ lineStart: 2, lineEnd: 3 }))).toBe('方法 · chapters/method.tex · 第 2–3 行')
+  })
+
+  it('falls back to the plan title when sectionTitle is absent', () => {
+    expect(reviewLocation(finding({ sectionTitle: undefined }), new Map([['s1', '方法']]))).toBe('方法 · chapters/method.tex')
+  })
+})
+
+describe('sortReportsByUpdatedAt', () => {
+  it('orders by parsed time when ISO offsets differ', () => {
+    const reports = [
+      { id: 'old', updatedAt: '2026-11-23T05:00:00+08:00' },
+      { id: 'new', updatedAt: '2026-11-23T03:30:00+00:00' },
+    ]
+    expect(sortReportsByUpdatedAt(reports).map((item) => item.id)).toEqual(['new', 'old'])
+  })
+})
+
+describe('humanizeReviewText', () => {
+  it('replaces internal enums, ids and plan section ids with student-facing Chinese', () => {
+    const text = humanizeReviewText(
+      'norms.available=false；status=adopted，revision=1；计划 s3 的 not_read 论断；项目要求 r1',
+      new Map([['s3', '实验结果']]),
+    )
+    expect(text).toContain('学术规范库尚未接入')
+    expect(text).toContain('章节计划已采用')
+    expect(text).toContain('第 1 版')
+    expect(text).toContain('「实验结果」')
+    expect(text).toContain('尚未核对')
+    expect(text).toContain('课题要求')
+    expect(text).not.toMatch(/norms\.available|not_read|status=adopted|\bs3\b|\br1\b/)
+  })
+
+  it('falls back to a generic chapter label when the id is unknown', () => {
+    expect(humanizeReviewText('计划 s9', new Map())).toContain('对应章节')
+  })
+})
+
+describe('planSectionTitles and displayBasisRef', () => {
+  const payload = report({
+    input: { normsAvailable: false, planSections: [{ id: 's3', title: '实验结果' }] },
+  })
+
+  it('maps plan section ids to titles', () => {
+    expect(planSectionTitles(payload).get('s3')).toBe('实验结果')
+  })
+
+  it('shows the title instead of the raw plan id in basis refs', () => {
+    expect(displayBasisRef({ kind: 'plan', ref: 's3' }, planSectionTitles(payload))).toBe('实验结果')
+    expect(displayBasisRef({ kind: 'text', ref: 'chapters/method.tex', filePath: 'chapters/method.tex' }, new Map())).toBe('chapters/method.tex')
+  })
+})
+
+describe('friendlyErrorMessage', () => {
+  it('translates network library errors and preserves Chinese backend messages', () => {
+    expect(friendlyErrorMessage(new Error('Network request failed.'))).toBe('网络连接失败，请检查网络后重试。')
+    expect(friendlyErrorMessage(new Error('还没有跨章节检查报告'))).toBe('还没有跨章节检查报告')
   })
 })
 

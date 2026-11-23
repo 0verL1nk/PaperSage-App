@@ -24,6 +24,8 @@ export const CROSS_CHAPTER_REVIEW_PROMPT = `请对当前项目做一次跨章节
 - not_checked：未检查（必须写 note 说明原因）；
 - failed：读取或检查失败（必须写 note）。
 
+面向用户的文字（dimension.note、problem、nextStep）必须用本科生能懂的中文：章节写标题（如「研究方法」）而不是 s1；不提工具名、字段名、内部 id、英文枚举；状态用中文（如「尚未核对」「材料不足」）；引用原文保持逐字不变。
+
 问题条目要求：
 - id 唯一；dimension、severity（high/medium/low）、problem、nextStep 必填。
 - sectionId 必须来自章节计划；filePath 若给出必须与计划的 filePath 一致。定位不到原文时不要编造行号。

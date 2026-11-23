@@ -196,11 +196,70 @@ describe('ReviewPage', () => {
     expect(screen.getByText(/新增 1 条，已消失 1 条，仍存在 0 条/)).toBeInTheDocument()
   })
 
+  it('sorts history by parsed time across mixed ISO offsets', () => {
+    mocks.reportsState.data = [
+      reviewArtifact({
+        id: 'tz-old', updatedAt: '2026-11-23T05:00:00+08:00',
+        findings: [{
+          id: 'old-f', dimension: 'goal_conclusion', severity: 'high', sectionTitle: '方法',
+          problem: '旧报告的独有问题', nextStep: '旧下一步',
+          basis: [{ kind: 'text', ref: 'chapters/method.tex', quote: '旧依据' }],
+        }],
+      }),
+      reviewArtifact({
+        id: 'tz-new', updatedAt: '2026-11-23T03:30:00+00:00',
+        dimensions: [
+          { key: 'goal_conclusion', status: 'checked' },
+          { key: 'evidence_support', status: 'insufficient', note: '缺少资料原文' },
+          { key: 'cross_section', status: 'findings' },
+          { key: 'norm_compliance', status: 'not_checked', note: '规范库尚未接入' },
+        ],
+        findings: [{
+          id: 'new-f', dimension: 'cross_section', severity: 'medium', sectionTitle: '结论',
+          problem: '新报告的独有问题', nextStep: '新下一步',
+          basis: [{ kind: 'text', ref: 'chapters/conclusion.tex', quote: '新依据' }],
+        }],
+      }),
+    ]
+    render(<ReviewPage />)
+    expect(screen.getByText('新报告的独有问题')).toBeInTheDocument()
+    expect(screen.queryByText('旧报告的独有问题')).not.toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '查看历史报告' })).toHaveValue('tz-new')
+    expect(screen.getByText(/新增 1 条，已消失 1 条，仍存在 0 条/)).toBeInTheDocument()
+  })
+
+  it('renders model notes and plan references in student-facing Chinese', () => {
+    const artifact = reviewArtifact()
+    artifact.current!.payload = {
+      input: { planStatus: 'adopted', planSections: [{ id: 's3', title: '实验结果' }], normsAvailable: false },
+      dimensions: [
+        { key: 'goal_conclusion', status: 'findings' },
+        { key: 'evidence_support', status: 'insufficient', note: 'norms.available=false；status=adopted，revision=1；请核对计划 s3 的 not_read 论断' },
+        { key: 'cross_section', status: 'checked' },
+        { key: 'norm_compliance', status: 'not_checked', note: '规范库未接入' },
+      ],
+      findings: [{
+        id: 'f1', dimension: 'goal_conclusion', severity: 'high', sectionId: 's3', sectionTitle: '实验结果',
+        problem: '计划 s3 的结论缺少依据', nextStep: '补齐 s3 的证据',
+        basis: [{ kind: 'plan', ref: 's3', quote: '结果是否支持结论？' }],
+      }],
+      sourcesRead: [],
+    } as ChapterReviewPayload
+    mocks.reportsState.data = [artifact]
+    render(<ReviewPage />)
+    expect(screen.getAllByText(/学术规范库尚未接入/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/norms\.available/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/not_read/)).not.toBeInTheDocument()
+    expect(screen.getAllByText(/「实验结果」/).length).toBeGreaterThan(0)
+    expect(screen.queryByText(/计划 s3/)).not.toBeInTheDocument()
+  })
+
   it('points to settings when no model is configured, without pretending the check can run', () => {
     mocks.settingsState.settings = { agent: { providers: [] } }
     render(<ReviewPage />)
     expect(screen.getByText(/尚未配置 AI 模型/)).toBeInTheDocument()
     expect(screen.getByText('去设置模型')).toBeInTheDocument()
+    expect(screen.getByText(/先点上方「去设置模型」/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /运行跨章节检查/ })).toBeDisabled()
   })
 
@@ -211,10 +270,11 @@ describe('ReviewPage', () => {
     expect(screen.queryByRole('button', { name: /运行跨章节检查/ })).not.toBeInTheDocument()
   })
 
-  it('surfaces report loading errors and retries the query', () => {
+  it('surfaces report loading errors in Chinese with technical details collapsed', () => {
     mocks.reportsState.error = new Error('offline')
     render(<ReviewPage />)
-    expect(screen.getByText(/历史报告加载失败：offline/)).toBeInTheDocument()
+    expect(screen.getByText(/历史报告加载失败：暂时无法读取检查数据/)).toBeInTheDocument()
+    expect(screen.getByText('offline')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
     expect(mocks.reportsRefetch).toHaveBeenCalledOnce()
   })
@@ -251,7 +311,8 @@ describe('ReviewPage', () => {
   it('surfaces file-list errors and retries the query', () => {
     mocks.useLatexFiles.mockReturnValue({ data: undefined, isPending: false, error: new Error('IndexedDB index missing'), refetch: mocks.refetch })
     render(<ReviewPage />)
-    expect(screen.getByRole('alert')).toHaveTextContent('IndexedDB index missing')
+    expect(screen.getByText(/暂时无法读取检查数据/)).toBeInTheDocument()
+    expect(screen.getByText('IndexedDB index missing')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
     expect(mocks.refetch).toHaveBeenCalledOnce()
   })

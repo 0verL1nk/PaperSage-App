@@ -175,6 +175,8 @@ func TestVerifyChapterReviewPayloadAnchorsQuotes(t *testing.T) {
 	assert.Equal(t, 2, report.Findings[0].LineStart, "行号应由服务端按原文计算")
 	assert.Equal(t, 2, report.Findings[0].LineEnd)
 	assert.Equal(t, "adopted", report.Input.PlanStatus)
+	require.Len(t, report.Input.PlanSections, 2)
+	assert.Equal(t, "方法", report.Input.PlanSections[0].Title)
 	require.NotNil(t, report.Input.PlanArtifactID)
 	assert.False(t, report.Input.NormsAvailable)
 	assert.NotEmpty(t, report.SourcesRead)

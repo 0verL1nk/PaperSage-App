@@ -130,13 +130,19 @@ var (
 	reviewPlanStatuses = map[string]bool{"adopted": true, "candidate": true, "missing": true}
 )
 
+type ReviewPlanSection struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
+}
+
 type ChapterReviewInput struct {
-	PlanArtifactID *store.UUID   `json:"planArtifactId,omitempty"`
-	PlanRevision   *int          `json:"planRevision,omitempty"`
-	PlanStatus     string        `json:"planStatus,omitempty"`
-	NormsAvailable bool          `json:"normsAvailable"`
-	NormsNote      string        `json:"normsNote,omitempty"`
-	Norms          []norms.Entry `json:"norms,omitempty"`
+	PlanArtifactID *store.UUID         `json:"planArtifactId,omitempty"`
+	PlanRevision   *int                `json:"planRevision,omitempty"`
+	PlanStatus     string              `json:"planStatus,omitempty"`
+	PlanSections   []ReviewPlanSection `json:"planSections,omitempty"`
+	NormsAvailable bool                `json:"normsAvailable"`
+	NormsNote      string              `json:"normsNote,omitempty"`
+	Norms          []norms.Entry       `json:"norms,omitempty"`
 }
 
 type ReviewDimension struct {
