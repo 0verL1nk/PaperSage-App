@@ -277,14 +277,21 @@ class ReleaseTests(unittest.TestCase):
                           ["stop", "papersage.service"], ["start", "papersage.service"]])
         self.assertEqual(self.health.call_args_list[-1].args[0]["version"], "v1.2.2")
 
-    def test_resource_check_names_every_unavailable_template_file(self):
-        release.ENV_FILE.write_text("LATEX_RESOURCE_PROFILE=tl-test\n")
+    def health_response(self, body: bytes):
         response = mock.MagicMock()
         response.__enter__.return_value = response
-        response.read.return_value = b"x"
+        response.read.return_value = body
+        return response
+
+    def test_resource_check_names_every_unavailable_template_file(self):
+        health = self.health_response(b'{"latexResourceProfile":"tl-test"}')
+        ok = self.health_response(b"x")
+
         def open_url(url, timeout):
+            if url.endswith("/health"):
+                return health
             if url.endswith("/ok.sty"):
-                return response
+                return ok
             raise urllib.error.HTTPError(url, 502, "bad gateway", None, None)
 
         opener = mock.Mock()
@@ -298,10 +305,13 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn("missing.sty", str(error.exception))
         self.assertNotIn("ok.sty", str(error.exception))
 
-    def test_resource_check_requires_the_profile_from_the_environment(self):
-        with self.assertRaises(release.DeployError) as error:
-            self.real_check_resources()
-        self.assertIn("LATEX_RESOURCE_PROFILE", str(error.exception))
+    def test_resource_check_requires_the_profile_from_health(self):
+        opener = mock.Mock()
+        opener.open.return_value = self.health_response(b'{"status":"healthy"}')
+        with mock.patch.object(release.urllib.request, "build_opener", return_value=opener):
+            with self.assertRaises(release.DeployError) as error:
+                self.real_check_resources()
+        self.assertIn("latexResourceProfile", str(error.exception))
 
     def test_resource_failure_fails_the_release(self):
         self.resources.side_effect = release.DeployError("resource check failed: kvoptions.sty")

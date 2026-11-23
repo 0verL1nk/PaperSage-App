@@ -92,41 +92,9 @@ jobs:
             > ../build/ambiguous.txt
           head -1 ../build/ambiguous.txt
 
-      - name: Generate derived resources
-        run: |
-          set -euo pipefail
-          mkdir -p build/derived
-          # hyphen.cfg is generated at install time from language.dat; no package
-          # archive contains the real one, so it must ship as a derived resource.
-          sudo "$(command -v tlmgr)" generate language
-          hyphen_cfg=$(sudo find /opt/texlive/texmf-var -name hyphen.cfg -type f | head -1)
-          if [ -z "$hyphen_cfg" ]; then
-            echo "tlmgr generate language produced no hyphen.cfg; texmf-var contains:" >&2
-            sudo find /opt/texlive/texmf-var -type f | head -50 >&2
-            exit 1
-          fi
-          sudo cp "$hyphen_cfg" build/derived/hyphen.cfg
-          sudo chown "$(id -u):$(id -g)" build/derived/hyphen.cfg
-          python3 - "$(command -v tlmgr)" <<'PY'
-          import hashlib, json, pathlib, sys
-          executable = pathlib.Path(sys.argv[1]).resolve()
-          document = {
-              "generator": {
-                  "name": "tlmgr",
-                  "version": "TeX Live 2026 (snapshot)",
-                  "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
-              },
-              "resources": [{
-                  "lookup": {"kind": "xetex", "format": "26", "name": "hyphen.cfg"},
-                  "artifact": "hyphen.cfg",
-                  "inputs": [
-                      "texmf-dist/tex/generic/config/language.dat",
-                      "texmf-dist/tex/generic/config/language.def",
-                  ],
-              }],
-          }
-          pathlib.Path("build/derived.json").write_text(json.dumps(document, indent=2) + "\n")
-          PY
+      # TeX Live 2026 generates no hyphen.cfg at install time; kpathsea resolves
+      # it to babel's copy, which the ambiguous-name override step records. No
+      # derived resources are needed for the school template.
 
       - name: Build the profile
         run: |
@@ -140,9 +108,7 @@ jobs:
             --fc-scan "$(command -v fc-scan)" \
             --texmf-dist /opt/texlive/texmf-dist \
             --ambiguous build/ambiguous.txt \
-            --license-overrides scripts/latex_resources/license-overrides.json \
-            --derived-manifest build/derived.json \
-            --derived-root build/derived
+            --license-overrides scripts/latex_resources/license-overrides.json
 
       - name: Verify the profile offline
         working-directory: server

@@ -1,4 +1,4 @@
-package latex
+package texlive
 
 import (
 	"bufio"

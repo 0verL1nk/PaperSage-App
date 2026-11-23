@@ -22,6 +22,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/extract"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	latexprofile "github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
@@ -132,9 +133,21 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)
-	if err := latex.MountResources(engine.Engine, s3, cfg.LatexResourceProfile, cfg.LatexResourceRepository, cfg.LatexResourceCatalogFile); err != nil {
+	bundle, err := latexprofile.Embedded()
+	if err != nil {
+		return nil, fmt.Errorf("load embedded LaTeX resource profile: %w", err)
+	}
+	if err := latex.ValidateCacheDir(cfg.LatexResourceCacheDir); err != nil {
+		return nil, err
+	}
+	resourceCache, err := latex.NewDiskCache(cfg.LatexResourceCacheDir, cfg.LatexResourceCacheMaxBytes)
+	if err != nil {
+		return nil, fmt.Errorf("latex resource cache init: %w", err)
+	}
+	if err := latex.MountResources(engine.Engine, bundle, resourceCache); err != nil {
 		return nil, fmt.Errorf("latex resource resolver init: %w", err)
 	}
+	engine.SetLatexResourceProfile(bundle.Profile.Profile)
 	v1 := engine.Group(httpapi.APIVersion)
 	adminMw := authSvc.ChainMiddleware(auth.AdminRequired())
 

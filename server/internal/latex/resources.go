@@ -2,38 +2,26 @@ package latex
 
 import (
 	"bytes"
-	"compress/gzip"
-	"context"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
-	"os"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/storage"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
-const (
-	resourceCatalogSchema   = 3
-	maxResourceCatalog      = 64 * 1024 * 1024
-	maxResourcePackageIndex = 128 * 1024 * 1024
-	maxResourceBytes        = 128 * 1024 * 1024
-)
+const maxResourceBytes = 128 * 1024 * 1024
 
 var resourceProfilePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,96}$`)
-var resourceHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
-var resourceGeneratorPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 var resourceFormatPattern = regexp.MustCompile(`^[A-Za-z0-9._+-]+(?:/[A-Za-z0-9._+-]+)*$`)
 var fontVariantPattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
@@ -43,124 +31,43 @@ type resourceLookup struct {
 	Name   string `json:"name"`
 }
 
-type resourceCatalogEntry struct {
-	Lookup resourceLookup `json:"lookup"`
-	SHA256 string         `json:"sha256"`
-}
-
-type resourceCatalogDerivedGenerator struct {
-	Name             string `json:"name"`
-	Version          string `json:"version"`
-	ExecutableSHA256 string `json:"executable_sha256"`
-}
-
-type resourceCatalogDerivedInput struct {
-	SourcePath      string `json:"source_path"`
-	SHA256          string `json:"sha256"`
-	Package         string `json:"package"`
-	PackageRevision string `json:"package_revision"`
-	ContainerSize   int64  `json:"container_size"`
-	ContainerSHA512 string `json:"container_checksum"`
-	License         string `json:"license"`
-	LicenseSource   string `json:"license_source"`
-}
-
-type resourceCatalogDerived struct {
-	Lookup    resourceLookup                  `json:"lookup"`
-	SHA256    string                          `json:"sha256"`
-	Size      int64                           `json:"size"`
-	MediaType string                          `json:"media_type"`
-	ObjectKey string                          `json:"object_key"`
-	Generator resourceCatalogDerivedGenerator `json:"generator"`
-	Inputs    []resourceCatalogDerivedInput   `json:"inputs"`
-}
-
-type resourceCatalogProvenance struct {
-	SourcePath      string `json:"source_path"`
-	Package         string `json:"package"`
-	PackageRevision string `json:"package_revision"`
-	ContainerSize   int64  `json:"container_size"`
-	ContainerSHA512 string `json:"container_checksum"`
-	License         string `json:"license"`
-	LicenseSource   string `json:"license_source"`
-}
-
-type resourceCatalogObject struct {
-	SHA256     string                      `json:"sha256"`
-	Size       int64                       `json:"size"`
-	MediaType  string                      `json:"media_type"`
-	Provenance []resourceCatalogProvenance `json:"provenance"`
-}
-
-type resourceCatalogDocument struct {
-	SchemaVersion       int                      `json:"schema_version"`
-	Profile             string                   `json:"profile"`
-	Revision            string                   `json:"revision"`
-	Objects             []resourceCatalogObject  `json:"objects"`
-	Entries             []resourceCatalogEntry   `json:"entries"`
-	DerivedResources    []resourceCatalogDerived `json:"derived_resources"`
-	FormatSuffixes      []resourceCatalogFormat  `json:"format_suffixes"`
-	PackageIndexGzip    string                   `json:"package_index_gzip"`
-	PackageIndexSHA256  string                   `json:"package_index_sha256"`
-	PackageIndexEntries int                      `json:"package_index_entries"`
-}
-
-type resourceCatalogFormat struct {
-	Kind     string   `json:"kind"`
-	Format   string   `json:"format"`
-	Suffixes []string `json:"suffixes"`
-}
-
-type resourcePackageIndexRecord struct {
-	SourcePath      string `json:"p"`
-	Package         string `json:"n"`
-	PackageRevision string `json:"r"`
-	ContainerSize   int64  `json:"s"`
-	ContainerSHA512 string `json:"h"`
-	License         string `json:"l"`
-	LicenseSource   string `json:"u"`
-}
-
-type resourceCatalog struct {
-	profile        string
-	revision       string
-	entries        map[string]resourceCatalogEntry
-	derived        map[string]resourceCatalogDerived
-	objects        map[string]resourceCatalogObject
-	packageIndex   map[string][]resourceCatalogProvenance
-	packageMaps    map[string][]resourceCatalogProvenance
-	formatSuffixes map[string][]string
-}
-
+// resourceService serves immutable TeX Live bytes from the embedded profile:
+// exact lookups first, then the filename index, with verified bytes persisted in
+// a local disk cache. It has no object-storage dependency.
 type resourceService struct {
-	storage     storage.Storage
-	catalogFile string
-	profile     string
-	repository  string
-	archives    *packageArchiveCache
+	bundle     *profile.Bundle
+	cache      *DiskCache
+	archives   *packageArchiveCache
+	repository string
+	profileID  string
 
-	mu      sync.Mutex
-	catalog *resourceCatalog
+	formatSuffixes map[string][]string
+	packageMaps    map[string][]texlive.TexliveProvenance
 }
 
-func newResourceService(stg storage.Storage, profile, repository, catalogFile string) (*resourceService, error) {
-	if stg == nil && catalogFile == "" {
-		return nil, fmt.Errorf("LaTeX resource storage is not configured")
+func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceService, error) {
+	if bundle == nil {
+		return nil, fmt.Errorf("LaTeX resource profile is not configured")
 	}
-	if !resourceProfilePattern.MatchString(profile) {
+	if cache == nil {
+		return nil, fmt.Errorf("LaTeX resource cache is not configured")
+	}
+	if !resourceProfilePattern.MatchString(bundle.Profile.Profile) {
 		return nil, fmt.Errorf("invalid LaTeX resource profile")
 	}
-	if err := validateResourceRepository(repository); err != nil {
+	if err := validateResourceRepository(bundle.Profile.Repository); err != nil {
 		return nil, err
 	}
-	return &resourceService{
-		storage: stg, catalogFile: catalogFile, profile: profile, repository: repository,
-		archives: newPackageArchiveCache(64 << 20),
-	}, nil
-}
-
-func resourceLookupKey(lookup resourceLookup) string {
-	return lookup.Kind + "\x00" + lookup.Format + "\x00" + lookup.Name
+	service := &resourceService{
+		bundle: bundle, cache: cache, repository: bundle.Profile.Repository,
+		profileID: bundle.Profile.Profile, archives: newPackageArchiveCache(64 << 20),
+		formatSuffixes: make(map[string][]string),
+	}
+	for _, format := range bundle.Profile.FormatSuffixes {
+		service.formatSuffixes[format.Kind+"\x00"+format.Format] = format.Suffixes
+	}
+	service.packageMaps = buildResourcePackageMaps(bundle)
+	return service, nil
 }
 
 func validResourceLookup(lookup resourceLookup) bool {
@@ -189,318 +96,10 @@ func validResourceFormat(value string) bool {
 	return true
 }
 
-func (s *resourceService) loadCatalog(ctx context.Context) (*resourceCatalog, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.catalog != nil {
-		return s.catalog, nil
-	}
-	var data []byte
-	var err error
-	if s.catalogFile != "" {
-		data, err = os.ReadFile(s.catalogFile)
-		if err != nil {
-			return nil, fmt.Errorf("load LaTeX resource catalog file %q: %w", s.catalogFile, err)
-		}
-	} else {
-		key := "latex/texlive/" + s.profile + "/catalog.json"
-		data, err = s.storage.Get(ctx, key)
-		if err != nil {
-			return nil, fmt.Errorf("load LaTeX resource catalog %q: %w", key, err)
-		}
-	}
-	if len(data) == 0 || len(data) > maxResourceCatalog {
-		return nil, fmt.Errorf("LaTeX resource catalog size is invalid")
-	}
-	decoded, err := decodeStoredResourceCatalog(data)
-	if err != nil {
-		return nil, fmt.Errorf("decode LaTeX resource catalog storage: %w", err)
-	}
-	var document resourceCatalogDocument
-	if err := json.Unmarshal(decoded, &document); err != nil {
-		return nil, fmt.Errorf("decode LaTeX resource catalog: %w", err)
-	}
-	if document.SchemaVersion != resourceCatalogSchema || document.Profile != s.profile || document.Revision != s.profile || len(document.Entries) == 0 || len(document.Objects) == 0 {
-		return nil, fmt.Errorf("LaTeX resource catalog profile or schema does not match the requested profile")
-	}
-	entries := make(map[string]resourceCatalogEntry, len(document.Entries))
-	derived := make(map[string]resourceCatalogDerived, len(document.DerivedResources))
-	objects := make(map[string]resourceCatalogObject, len(document.Objects))
-	for _, object := range document.Objects {
-		_, _, mediaTypeErr := mime.ParseMediaType(object.MediaType)
-		if !resourceHashPattern.MatchString(object.SHA256) || object.Size <= 0 || object.Size > maxResourceBytes || mediaTypeErr != nil || len(object.Provenance) == 0 {
-			return nil, fmt.Errorf("LaTeX resource catalog contains an invalid object")
-		}
-		for _, provenance := range object.Provenance {
-			if !validCatalogSourcePath(provenance.SourcePath) || !validResourcePackage(provenance.Package) || provenance.PackageRevision == "" || provenance.ContainerSize <= 0 || provenance.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(provenance.ContainerSHA512) || strings.TrimSpace(provenance.License) == "" {
-				return nil, fmt.Errorf("LaTeX resource catalog contains invalid object provenance")
-			}
-		}
-		if _, exists := objects[object.SHA256]; exists {
-			return nil, fmt.Errorf("LaTeX resource catalog contains a duplicate object")
-		}
-		objects[object.SHA256] = object
-	}
-	for _, entry := range document.Entries {
-		if !validResourceLookup(entry.Lookup) || !resourceHashPattern.MatchString(entry.SHA256) {
-			return nil, fmt.Errorf("LaTeX resource catalog contains an invalid entry")
-		}
-		if _, exists := objects[entry.SHA256]; !exists {
-			return nil, fmt.Errorf("LaTeX resource catalog entry references an unknown object")
-		}
-		key := resourceLookupKey(entry.Lookup)
-		if _, exists := entries[key]; exists {
-			return nil, fmt.Errorf("LaTeX resource catalog contains a duplicate lookup")
-		}
-		entries[key] = entry
-	}
-	for _, resource := range document.DerivedResources {
-		_, _, mediaTypeErr := mime.ParseMediaType(resource.MediaType)
-		if !validResourceLookup(resource.Lookup) || !resourceHashPattern.MatchString(resource.SHA256) || resource.Size <= 0 || resource.Size > maxResourceBytes || mediaTypeErr != nil || resource.ObjectKey != "derived/"+resource.SHA256 {
-			return nil, fmt.Errorf("LaTeX resource catalog contains an invalid derived resource")
-		}
-		generator := resource.Generator
-		if !resourceGeneratorPattern.MatchString(generator.Name) || strings.TrimSpace(generator.Version) == "" || len(generator.Version) > 256 || !resourceHashPattern.MatchString(generator.ExecutableSHA256) || len(resource.Inputs) == 0 {
-			return nil, fmt.Errorf("LaTeX resource catalog contains invalid derived resource provenance")
-		}
-		for _, input := range resource.Inputs {
-			if !validCatalogSourcePath(input.SourcePath) || !resourceHashPattern.MatchString(input.SHA256) || !validResourcePackage(input.Package) || input.PackageRevision == "" || input.ContainerSize <= 0 || input.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(input.ContainerSHA512) || strings.TrimSpace(input.License) == "" || !strings.HasPrefix(input.LicenseSource, "https://") {
-				return nil, fmt.Errorf("LaTeX resource catalog contains invalid derived input provenance")
-			}
-		}
-		key := resourceLookupKey(resource.Lookup)
-		if _, exists := entries[key]; exists {
-			return nil, fmt.Errorf("LaTeX resource catalog has conflicting package and derived lookups")
-		}
-		if _, exists := derived[key]; exists {
-			return nil, fmt.Errorf("LaTeX resource catalog contains a duplicate derived lookup")
-		}
-		derived[key] = resource
-	}
-	formatSuffixes := make(map[string][]string)
-	for _, format := range document.FormatSuffixes {
-		if (format.Kind != "xetex" && format.Kind != "pdftex" && format.Kind != "dvipdfmx") || !resourceFormatPattern.MatchString(format.Format) || len(format.Suffixes) == 0 {
-			return nil, fmt.Errorf("LaTeX resource catalog contains invalid Kpathsea format metadata")
-		}
-		key := format.Kind + "\x00" + format.Format
-		if _, exists := formatSuffixes[key]; exists {
-			return nil, fmt.Errorf("LaTeX resource catalog contains duplicate Kpathsea format metadata")
-		}
-		seen := make(map[string]struct{}, len(format.Suffixes))
-		for _, suffix := range format.Suffixes {
-			if len(suffix) < 2 || len(suffix) > 32 || suffix[0] != '.' || strings.ContainsAny(suffix, `/\\`) {
-				return nil, fmt.Errorf("LaTeX resource catalog contains invalid Kpathsea suffix")
-			}
-			suffix = strings.ToLower(suffix)
-			if _, exists := seen[suffix]; exists {
-				continue
-			}
-			seen[suffix] = struct{}{}
-			formatSuffixes[key] = append(formatSuffixes[key], suffix)
-		}
-	}
-	if len(document.FormatSuffixes) == 0 {
-		for formatID, suffixes := range legacyKpathseaSuffixes {
-			for _, kind := range []string{"xetex", "pdftex", "dvipdfmx"} {
-				key := kind + "\x00" + formatID
-				for _, suffix := range suffixes {
-					formatSuffixes[key] = append(formatSuffixes[key], strings.ToLower(suffix))
-				}
-			}
-		}
-	}
-	for _, entry := range document.Entries {
-		if entry.Lookup.Kind == "font" {
-			continue
-		}
-		suffix := strings.ToLower(path.Ext(entry.Lookup.Name))
-		if suffix == "" {
-			continue
-		}
-		key := entry.Lookup.Kind + "\x00" + entry.Lookup.Format
-		if _, exists := formatSuffixes[key]; !exists {
-			formatSuffixes[key] = append(formatSuffixes[key], suffix)
-		} else if len(document.FormatSuffixes) == 0 {
-			if !containsString(formatSuffixes[key], suffix) {
-				formatSuffixes[key] = append(formatSuffixes[key], suffix)
-			}
-		}
-	}
-	if len(document.FormatSuffixes) == 0 {
-		for key := range formatSuffixes {
-			formatID := strings.SplitN(key, "\x00", 2)[1]
-			if _, hasKpathseaOrder := legacyKpathseaSuffixes[formatID]; !hasKpathseaOrder {
-				sort.Strings(formatSuffixes[key])
-			}
-		}
-	}
-	packageIndex, packageMaps, err := decodeResourcePackageIndex(document)
-	if err != nil {
-		return nil, err
-	}
-	loaded := &resourceCatalog{
-		profile: document.Profile, revision: document.Revision, entries: entries, objects: objects,
-		derived: derived, packageIndex: packageIndex, packageMaps: packageMaps, formatSuffixes: formatSuffixes,
-	}
-	s.catalog = loaded
-	return loaded, nil
-}
-
-func decodeStoredResourceCatalog(data []byte) ([]byte, error) {
-	if len(data) < 2 || data[0] != 0x1f || data[1] != 0x8b {
-		return data, nil
-	}
-	reader, err := gzip.NewReader(bytes.NewReader(data))
-	if err != nil {
-		return nil, err
-	}
-	decoded, err := io.ReadAll(io.LimitReader(reader, maxResourceCatalog+1))
-	if err != nil {
-		_ = reader.Close()
-		return nil, err
-	}
-	if err := reader.Close(); err != nil {
-		return nil, fmt.Errorf("close compressed LaTeX resource catalog: %w", err)
-	}
-	if len(decoded) == 0 || len(decoded) > maxResourceCatalog {
-		return nil, fmt.Errorf("compressed catalog exceeds supported size")
-	}
-	return decoded, nil
-}
-
-func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
-}
-
-func decodeResourcePackageIndex(document resourceCatalogDocument) (map[string][]resourceCatalogProvenance, map[string][]resourceCatalogProvenance, error) {
-	if document.PackageIndexGzip == "" {
-		if document.PackageIndexSHA256 != "" || document.PackageIndexEntries != 0 {
-			return nil, nil, fmt.Errorf("LaTeX resource package index metadata is incomplete")
-		}
-		return nil, nil, nil
-	}
-	compressed, err := base64.StdEncoding.DecodeString(document.PackageIndexGzip)
-	if err != nil || len(compressed) == 0 || len(compressed) > 8<<20 {
-		return nil, nil, fmt.Errorf("LaTeX resource package index encoding is invalid")
-	}
-	digest := sha256.Sum256(compressed)
-	if hex.EncodeToString(digest[:]) != document.PackageIndexSHA256 {
-		return nil, nil, fmt.Errorf("LaTeX resource package index checksum is invalid")
-	}
-	reader, err := gzip.NewReader(bytes.NewReader(compressed))
-	if err != nil {
-		return nil, nil, fmt.Errorf("open LaTeX resource package index: %w", err)
-	}
-	defer func() { _ = reader.Close() }()
-	limited := &io.LimitedReader{R: reader, N: maxResourcePackageIndex + 1}
-	decoder := json.NewDecoder(limited)
-	decodeError := func(err error) error {
-		if limited.N <= 0 {
-			return fmt.Errorf("LaTeX resource package index size is invalid")
-		}
-		return fmt.Errorf("decode LaTeX resource package index: %w", err)
-	}
-	index := make(map[string][]resourceCatalogProvenance)
-	first, err := decoder.Token()
-	if err != nil {
-		return nil, nil, decodeError(err)
-	}
-	if first != nil && first != json.Delim('{') {
-		return nil, nil, fmt.Errorf("decode LaTeX resource package index: expected an object")
-	}
-	if first != nil {
-		for decoder.More() {
-			token, err := decoder.Token()
-			if err != nil {
-				return nil, nil, decodeError(err)
-			}
-			name, ok := token.(string)
-			if !ok {
-				return nil, nil, fmt.Errorf("decode LaTeX resource package index: expected a filename")
-			}
-			var records []resourcePackageIndexRecord
-			if err := decoder.Decode(&records); err != nil {
-				return nil, nil, decodeError(err)
-			}
-			values := make([]resourceCatalogProvenance, len(records))
-			for i, record := range records {
-				values[i] = resourceCatalogProvenance(record)
-			}
-			index[name] = values
-		}
-		if _, err := decoder.Token(); err != nil {
-			return nil, nil, decodeError(err)
-		}
-	}
-	// Consume all trailing whitespace to check the size, gzip trailer and EOF.
-	trailing := io.MultiReader(decoder.Buffered(), limited)
-	var buffer [32 * 1024]byte
-	for {
-		n, readErr := trailing.Read(buffer[:])
-		if limited.N <= 0 {
-			return nil, nil, fmt.Errorf("LaTeX resource package index size is invalid")
-		}
-		for _, ch := range buffer[:n] {
-			if ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n' {
-				return nil, nil, fmt.Errorf("decode LaTeX resource package index: unexpected trailing data")
-			}
-		}
-		if readErr == io.EOF {
-			break
-		}
-		if readErr != nil {
-			return nil, nil, fmt.Errorf("read compressed LaTeX resource package index: %w", readErr)
-		}
-	}
-	if err := reader.Close(); err != nil {
-		return nil, nil, fmt.Errorf("close compressed LaTeX resource package index: %w", err)
-	}
-	packageMaps := make(map[string][]resourceCatalogProvenance)
-	seenMaps := make(map[string]struct{})
-	count := 0
-	for name, records := range index {
-		if name == "" || len(name) > 255 || strings.ContainsAny(name, `/\\`) || len(records) == 0 {
-			return nil, nil, fmt.Errorf("LaTeX resource package index contains an invalid filename")
-		}
-		for _, provenance := range records {
-			if !validCatalogSourcePath(provenance.SourcePath) || !validResourcePackage(provenance.Package) || provenance.PackageRevision == "" || provenance.ContainerSize <= 0 || provenance.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(provenance.ContainerSHA512) || strings.TrimSpace(provenance.License) == "" || !strings.HasPrefix(provenance.LicenseSource, "https://") {
-				return nil, nil, fmt.Errorf("LaTeX resource package index contains invalid provenance for %q", name)
-			}
-			if strings.EqualFold(path.Ext(provenance.SourcePath), ".map") {
-				mapKey := provenance.Package + "\x00" + provenance.SourcePath
-				if _, exists := seenMaps[mapKey]; !exists {
-					seenMaps[mapKey] = struct{}{}
-					packageMaps[provenance.Package] = append(packageMaps[provenance.Package], provenance)
-				}
-			}
-			count++
-		}
-	}
-	if document.PackageIndexEntries != count {
-		return nil, nil, fmt.Errorf("LaTeX resource package index entry count does not match its contents")
-	}
-	for _, maps := range packageMaps {
-		sort.Slice(maps, func(i, j int) bool { return maps[i].SourcePath < maps[j].SourcePath })
-	}
-	return index, packageMaps, nil
-}
-
-func validCatalogSourcePath(sourcePath string) bool {
-	return sourcePath != "" && len(sourcePath) <= 1024 && !path.IsAbs(sourcePath) && path.Clean(sourcePath) == sourcePath && !strings.Contains(sourcePath, `\`) && sourcePath != "." && !strings.HasPrefix(sourcePath, "../")
-}
-
 func (s *resourceService) get(c *gin.Context) {
-	// TeX resources are public immutable bytes. Keep CORS independent of the
-	// request Origin so CDN cache entries populated by HEAD/health probes remain
-	// readable by browsers on every PaperSage frontend origin.
 	c.Header("Access-Control-Allow-Origin", "*")
-	c.Header("Access-Control-Expose-Headers", "fileid, fontid, X-PaperSage-Package, X-PaperSage-Generated-Resource, X-PaperSage-Resource-Revision, ETag, Content-Length")
-	if c.Param("profile") != s.profile {
+	c.Header("Access-Control-Expose-Headers", "fileid, fontid, X-PaperSage-Package, X-PaperSage-Resource-Revision, ETag, Content-Length")
+	if c.Param("profile") != s.profileID {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -517,140 +116,57 @@ func (s *resourceService) get(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	catalog, err := s.loadCatalog(c.Request.Context())
-	if err != nil {
-		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusServiceUnavailable, "LaTeX resource catalog is unavailable: %v", err)
-		return
-	}
-	entry, ok := catalog.entries[resourceLookupKey(lookup)]
-	if !ok {
-		if resource, generated := catalog.derived[resourceLookupKey(lookup)]; generated {
-			s.serveDerivedResource(c, catalog, resource)
+	if entry, ok := s.bundle.Lookup(lookup.Kind, lookup.Format, lookup.Name); ok {
+		if entry.Derived != nil {
+			s.serveDerived(c, lookup, entry.Derived)
 			return
 		}
-		s.serveIndexedPackageResource(c, catalog, lookup)
-		return
-	}
-	object := catalog.objects[entry.SHA256]
-	contentType := object.MediaType
-	if c.Request.Method == http.MethodHead {
-		setCatalogResourceHeaders(c, catalog, lookup, object, contentType)
-		c.Status(http.StatusOK)
-		return
-	}
-	var data []byte
-	var fetchErr error
-	for _, provenance := range object.Provenance {
-		data, fetchErr = s.archives.resource(c.Request.Context(), s.repository, provenance, object)
-		if fetchErr == nil {
-			break
+		if entry.Source != "" {
+			provenance, found := s.provenanceForSource(entry.Source)
+			if !found {
+				c.Header("Cache-Control", "no-store")
+				c.String(http.StatusBadGateway, "LaTeX resource %q points at %q, which this profile does not index", lookup.Name, entry.Source)
+				return
+			}
+			s.serveProvenance(c, lookup, provenance)
+			return
 		}
 	}
-	if fetchErr != nil {
-		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusBadGateway, "LaTeX resource could not be fetched and verified: %v", fetchErr)
-		return
-	}
-	setCatalogResourceHeaders(c, catalog, lookup, object, contentType)
-	c.Header("Content-Length", fmt.Sprint(len(data)))
-	c.Data(http.StatusOK, contentType, data)
+	s.serveIndexed(c, lookup)
 }
 
-// setCatalogResourceHeaders is only called once the body is known to be
-// writable: a Content-Length announced before a failed fetch truncates the
-// 502 body, which edge proxies report as a broken upstream response.
-func setCatalogResourceHeaders(c *gin.Context, catalog *resourceCatalog, lookup resourceLookup, object resourceCatalogObject, contentType string) {
-	c.Header("Content-Type", contentType)
-	c.Header("Content-Length", fmt.Sprint(object.Size))
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Header("ETag", `"`+object.SHA256+`"`)
-	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
-	if lookup.Kind == "font" {
-		c.Header("fontid", object.SHA256)
-	} else {
-		c.Header("fileid", object.SHA256)
-	}
-	if len(object.Provenance) > 0 {
-		c.Header("X-PaperSage-Package", object.Provenance[0].Package)
-	}
+// getProfile lets clients discover the served profile, so a profile upgrade
+// only ships a new backend binary instead of a coordinated frontend release.
+func (s *resourceService) getProfile(c *gin.Context) {
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"profile": s.profileID})
 }
 
-func (s *resourceService) serveDerivedResource(c *gin.Context, catalog *resourceCatalog, resource resourceCatalogDerived) {
-	if s.storage == nil {
+func (s *resourceService) serveDerived(c *gin.Context, lookup resourceLookup, derived *profile.Derived) {
+	data, err := s.bundle.ReadDerived(derived.SHA256)
+	if err != nil {
 		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusNotFound, "generated TeX resource is not available without object storage")
-		return
-	}
-	key := "latex/texlive/" + catalog.profile + "/" + resource.ObjectKey
-	if c.Request.Method == http.MethodHead {
-		setDerivedResourceHeaders(c, catalog, resource)
-		c.Status(http.StatusOK)
-		return
-	}
-	data, err := s.storage.Get(c.Request.Context(), key)
-	if err != nil || int64(len(data)) != resource.Size {
-		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusBadGateway, "generated TeX resource is unavailable or has an invalid size")
+		c.String(http.StatusBadGateway, "generated TeX resource %q is unavailable", lookup.Name)
 		return
 	}
 	digest := sha256.Sum256(data)
-	if hex.EncodeToString(digest[:]) != resource.SHA256 {
+	if int64(len(data)) != derived.Size || hex.EncodeToString(digest[:]) != derived.SHA256 {
 		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusBadGateway, "generated TeX resource failed its content hash check")
+		c.String(http.StatusBadGateway, "generated TeX resource %q failed its content check", lookup.Name)
 		return
 	}
-	setDerivedResourceHeaders(c, catalog, resource)
-	c.Data(http.StatusOK, resource.MediaType, data)
+	s.writeResource(c, lookup, derived.MediaType, "", derived.SHA256, data)
 }
 
-func setDerivedResourceHeaders(c *gin.Context, catalog *resourceCatalog, resource resourceCatalogDerived) {
-	c.Header("Content-Type", resource.MediaType)
-	c.Header("Content-Length", fmt.Sprint(resource.Size))
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Header("ETag", `"`+resource.SHA256+`"`)
-	if resource.Lookup.Kind == "font" {
-		c.Header("fontid", resource.SHA256)
-	} else {
-		c.Header("fileid", resource.SHA256)
-	}
-	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
-	c.Header("X-PaperSage-Generated-Resource", "true")
-}
-
-func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *resourceCatalog, lookup resourceLookup) {
-	if catalog.packageIndex == nil {
-		c.Header("Cache-Control", "public, max-age=300")
-		c.String(http.StatusNotFound, "TeX Live package filename index is unavailable for profile %q", catalog.profile)
-		return
-	}
+func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 	suffix := strings.ToLower(path.Ext(lookup.Name))
-	if lookup.Kind == "font" {
-		switch lookup.Format {
-		case "OT":
-			suffix = ".otf"
-		case "TT":
-			suffix = path.Ext(lookup.Name)
-			if suffix != ".ttf" && suffix != ".ttc" && suffix != ".dfont" {
-				c.Header("Cache-Control", "public, max-age=300")
-				c.String(http.StatusNotFound, "font resource %q is not indexed for font format %q", lookup.Name, lookup.Format)
-				return
-			}
-		default:
-			c.Header("Cache-Control", "public, max-age=300")
-			c.String(http.StatusNotFound, "font format %q is unsupported", lookup.Format)
-			return
-		}
-	}
-	formatSuffixes := catalog.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
-	// The engine's Kpathsea enum can contain formats this catalog's TeX Live
-	// build does not list. It still sends an explicit filename suffix, and the
-	// package index is keyed by filename, so resolve those by name instead of
-	// rejecting the request.
+	formatSuffixes := s.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
+	// The engine's Kpathsea enum can contain formats this profile does not
+	// list. It still sends an explicit filename suffix, and the index is keyed
+	// by filename, so resolve those by name instead of rejecting the request.
 	unknownFormat := lookup.Kind != "font" && len(formatSuffixes) == 0
-	if unknownFormat && (suffix != "" && !strings.HasPrefix(lookup.Format, "pk/")) {
-		formatSuffixes = []string{suffix}
-	} else if unknownFormat {
+	if unknownFormat && (suffix == "" || strings.HasPrefix(lookup.Format, "pk/")) {
 		c.Header("Cache-Control", "public, max-age=300")
 		if strings.HasPrefix(lookup.Format, "pk/") {
 			c.String(http.StatusNotFound, "TeX Live generated font format %q requires local Metafont generation and is not a static package resource", lookup.Format)
@@ -659,11 +175,14 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 		}
 		return
 	}
+	if unknownFormat {
+		formatSuffixes = []string{suffix}
+	}
 	lookupSuffixes := []string{suffix}
 	if lookup.Kind != "font" && suffix == "" {
 		lookupSuffixes = formatSuffixes
 	}
-	var filtered []resourceCatalogProvenance
+	var filtered []texlive.TexliveProvenance
 	for _, candidateSuffix := range lookupSuffixes {
 		if lookup.Kind != "font" && suffix != "" && !unknownFormat && !containsString(formatSuffixes, suffix) && !isGraphicsResourceSuffix(lookup.Kind, suffix) {
 			c.Header("Cache-Control", "public, max-age=300")
@@ -676,10 +195,9 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 		} else if suffix == "" {
 			indexName += candidateSuffix
 		}
-		provenance := catalog.packageIndex[indexName]
-		for _, candidate := range provenance {
-			if isKpathseaPackageSourcePath(candidate.SourcePath) && strings.EqualFold(path.Ext(candidate.SourcePath), candidateSuffix) {
-				filtered = append(filtered, candidate)
+		for _, provenance := range s.bundle.Index[indexName] {
+			if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), candidateSuffix) {
+				filtered = append(filtered, provenance)
 			}
 		}
 		if len(filtered) > 0 {
@@ -700,28 +218,53 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 		c.String(http.StatusConflict, "ambiguous TeX Live filename %q matches multiple packages: %s", lookup.Name, strings.Join(packages, ", "))
 		return
 	}
-	data, err := s.archives.packageFile(c.Request.Context(), s.repository, filtered[0])
+	s.serveProvenance(c, lookup, filtered[0])
+}
+
+func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
+	key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
+	entry, err := s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
+		data, fetchErr := s.archives.packageFile(c.Request.Context(), s.repository, provenance)
+		if fetchErr != nil {
+			return DiskCacheEntry{}, fetchErr
+		}
+		digest := sha256.Sum256(data)
+		mediaType := mime.TypeByExtension(strings.ToLower(path.Ext(lookup.Name)))
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		return DiskCacheEntry{
+			Meta: DiskCacheMeta{
+				Profile: s.profileID, SourcePath: provenance.SourcePath, Package: provenance.Package,
+				SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data)), MediaType: mediaType,
+			},
+			Data: data,
+		}, nil
+	})
 	if err != nil {
 		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusBadGateway, "TeX Live resource %q could not be fetched from package %q: %v", lookup.Name, filtered[0].Package, err)
+		c.String(http.StatusBadGateway, "TeX Live resource %q could not be fetched from package %q: %v", lookup.Name, provenance.Package, err)
 		return
 	}
-	digest := sha256.Sum256(data)
-	hash := hex.EncodeToString(digest[:])
-	mediaType := mime.TypeByExtension(suffix)
+	s.writeResource(c, lookup, entry.Meta.MediaType, entry.Meta.Package, entry.Meta.SHA256, entry.Data)
+}
+
+func (s *resourceService) writeResource(c *gin.Context, lookup resourceLookup, mediaType, packageName, digest string, data []byte) {
 	if mediaType == "" {
 		mediaType = "application/octet-stream"
 	}
 	c.Header("Content-Type", mediaType)
 	c.Header("Content-Length", fmt.Sprint(len(data)))
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Header("ETag", `"`+hash+`"`)
-	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
-	c.Header("X-PaperSage-Package", filtered[0].Package)
+	c.Header("ETag", `"`+digest+`"`)
+	c.Header("X-PaperSage-Resource-Revision", s.profileID)
+	if packageName != "" {
+		c.Header("X-PaperSage-Package", packageName)
+	}
 	if lookup.Kind == "font" {
-		c.Header("fontid", hash)
+		c.Header("fontid", digest)
 	} else {
-		c.Header("fileid", hash)
+		c.Header("fileid", digest)
 	}
 	if c.Request.Method == http.MethodHead {
 		c.Status(http.StatusOK)
@@ -730,11 +273,24 @@ func (s *resourceService) serveIndexedPackageResource(c *gin.Context, catalog *r
 	c.Data(http.StatusOK, mediaType, data)
 }
 
+func (s *resourceService) provenanceForSource(source string) (texlive.TexliveProvenance, bool) {
+	base := source
+	if index := strings.LastIndex(source, "/"); index >= 0 {
+		base = source[index+1:]
+	}
+	for _, record := range s.bundle.Index[base] {
+		if record.SourcePath == source {
+			return record, true
+		}
+	}
+	return texlive.TexliveProvenance{}, false
+}
+
 // Graphics files are discovered through TeX's generic input search path, so
 // their extensions do not belong to the Kpathsea format suffix list for the
 // request (often format 26, whose native suffixes are .tex/.sty/.cls). Keep a
 // small engine-level allowlist for image formats that the browser compiler can
-// actually consume; package provenance still has to match the exact filename.
+// actually consume; provenance still has to match the exact filename.
 func isGraphicsResourceSuffix(kind, suffix string) bool {
 	if kind != "pdftex" && kind != "xetex" && kind != "dvipdfmx" {
 		return false
@@ -755,6 +311,39 @@ func isKpathseaPackageSourcePath(sourcePath string) bool {
 	return strings.HasPrefix(clean, "texmf-dist/") && !strings.HasPrefix(clean, "texmf-dist/tlpkg/")
 }
 
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// buildResourcePackageMaps groups the profile's font map files by package. One
+// archive can hold many maps; callers decompress it once instead of once per
+// file (a package like `lm` ships 20 maps in a 12 MiB archive).
+func buildResourcePackageMaps(bundle *profile.Bundle) map[string][]texlive.TexliveProvenance {
+	maps := make(map[string][]texlive.TexliveProvenance)
+	seen := make(map[string]bool)
+	for _, records := range bundle.Index {
+		for _, record := range records {
+			if seen[record.SourcePath] || !strings.HasSuffix(record.SourcePath, ".map") {
+				continue
+			}
+			if !strings.Contains(record.SourcePath, "/fonts/map/") {
+				continue
+			}
+			seen[record.SourcePath] = true
+			maps[record.Package] = append(maps[record.Package], record)
+		}
+	}
+	for _, records := range maps {
+		sort.Slice(records, func(i, j int) bool { return records[i].SourcePath < records[j].SourcePath })
+	}
+	return maps
+}
+
 type resourcePackageMapRequest struct {
 	Packages []string         `json:"packages"`
 	Lookups  []resourceLookup `json:"lookups"`
@@ -763,7 +352,7 @@ type resourcePackageMapRequest struct {
 func (s *resourceService) getPackageMaps(c *gin.Context) {
 	c.Header("Access-Control-Allow-Origin", "*")
 	c.Header("Access-Control-Expose-Headers", "fileid, X-PaperSage-Resource-Revision, ETag, Content-Length")
-	if c.Param("profile") != s.profile {
+	if c.Param("profile") != s.profileID {
 		c.Status(http.StatusNotFound)
 		return
 	}
@@ -810,38 +399,35 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 			return
 		}
 	}
-	catalog, err := s.loadCatalog(c.Request.Context())
-	if err != nil {
-		c.Header("Cache-Control", "no-store")
-		c.String(http.StatusServiceUnavailable, "LaTeX resource catalog is unavailable: %v", err)
-		return
-	}
 	for _, lookup := range request.Lookups {
 		if !validResourceLookup(lookup) || lookup.Kind == "font" {
 			c.String(http.StatusBadRequest, "invalid TeX resource lookup in font map request")
 			return
 		}
-		if entry, exists := catalog.entries[resourceLookupKey(lookup)]; exists {
-			for _, provenance := range catalog.objects[entry.SHA256].Provenance {
-				if !addPackage(provenance.Package) {
-					c.String(http.StatusInternalServerError, "catalog contains an invalid font map package reference")
-					return
-				}
+		if entry, exists := s.bundle.Lookup(lookup.Kind, lookup.Format, lookup.Name); exists && entry.Source != "" {
+			provenance, found := s.provenanceForSource(entry.Source)
+			if !found {
+				c.String(http.StatusInternalServerError, "profile lookup points at an unindexed source")
+				return
+			}
+			if !addPackage(provenance.Package) {
+				c.String(http.StatusInternalServerError, "profile contains an invalid font map package reference")
+				return
 			}
 			continue
 		}
 		suffix := strings.ToLower(path.Ext(lookup.Name))
 		suffixes := []string{suffix}
 		if suffix == "" {
-			suffixes = catalog.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
+			suffixes = s.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
 		}
 		for _, candidateSuffix := range suffixes {
 			indexName := lookup.Name
 			if suffix == "" {
 				indexName += candidateSuffix
 			}
-			var matched []resourceCatalogProvenance
-			for _, provenance := range catalog.packageIndex[indexName] {
+			var matched []texlive.TexliveProvenance
+			for _, provenance := range s.bundle.Index[indexName] {
 				if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), candidateSuffix) {
 					matched = append(matched, provenance)
 				}
@@ -853,7 +439,7 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 			}
 			if len(matched) == 1 {
 				if !addPackage(matched[0].Package) {
-					c.String(http.StatusInternalServerError, "catalog contains an invalid font map package reference")
+					c.String(http.StatusInternalServerError, "profile contains an invalid font map package reference")
 					return
 				}
 				break
@@ -862,12 +448,10 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 	}
 	var merged bytes.Buffer
 	for _, packageName := range packages {
-		mapFiles := catalog.packageMaps[packageName]
+		mapFiles := s.packageMaps[packageName]
 		if len(mapFiles) == 0 {
 			continue
 		}
-		// One archive can hold many maps; decompress it once instead of once
-		// per file (a package like `lm` ships 20 maps in a 12 MiB archive).
 		sameArchive := true
 		paths := make([]string, 0, len(mapFiles))
 		for _, provenance := range mapFiles {
@@ -928,17 +512,20 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 	c.Header("Cache-Control", "public, max-age=31536000, immutable")
 	c.Header("ETag", `"`+hash+`"`)
 	c.Header("fileid", hash)
-	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
+	c.Header("X-PaperSage-Resource-Revision", s.profileID)
 	c.Data(http.StatusOK, "text/plain; charset=utf-8", merged.Bytes())
 }
 
-// MountResources exposes immutable TeX Live bytes through an exact catalog
-// lookup. It contains no TeX runtime and never compiles project input.
-func MountResources(engine *gin.Engine, stg storage.Storage, profile, repository, catalogFile string) error {
-	service, err := newResourceService(stg, profile, repository, catalogFile)
+// MountResources exposes the profile's TeX Live bytes through exact lookups and
+// the filename index. It contains no TeX runtime and never compiles input.
+func MountResources(engine *gin.Engine, bundle *profile.Bundle, cache *DiskCache) error {
+	service, err := newResourceService(bundle, cache)
 	if err != nil {
 		return err
 	}
+	// Static sibling of /texlive/:profile/...: clients discover the served
+	// profile instead of baking it into a frontend build.
+	engine.GET("/texlive/profile", service.getProfile)
 	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.HEAD("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.GET("/texlive/:profile/resolve/:kind", service.get)

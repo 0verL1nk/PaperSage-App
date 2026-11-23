@@ -13,12 +13,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
 const (
@@ -45,17 +46,20 @@ var RequiredResources = []QualifiedResource{
 	{Kind: "xetex", Format: "26", Name: "ccaption.sty"},
 	{Kind: "xetex", Format: "26", Name: "layouts.sty"},
 	{Kind: "xetex", Format: "26", Name: "gbt7714.sty"},
-	{Kind: "xetex", Format: "26", Name: "hyphen.cfg", Derived: true},
+	// TeX Live 2026 generates no hyphen.cfg at install time; kpathsea resolves
+	// it to babel's copy, so it is served through a lookup override rather than
+	// a derived blob.
+	{Kind: "xetex", Format: "26", Name: "hyphen.cfg"},
 }
 
 type Profile struct {
-	SchemaVersion    int                              `json:"schema_version"`
-	Profile          string                           `json:"profile"`
-	Repository       string                           `json:"repository"`
-	Tlpdb            TlpdbArtifact                    `json:"tlpdb"`
-	Lookups          LookupsArtifact                  `json:"lookups"`
-	FormatSuffixes   []FormatSuffix                   `json:"format_suffixes"`
-	LicenseOverrides map[string]latex.LicenseOverride `json:"license_overrides"`
+	SchemaVersion    int                                `json:"schema_version"`
+	Profile          string                             `json:"profile"`
+	Repository       string                             `json:"repository"`
+	Tlpdb            TlpdbArtifact                      `json:"tlpdb"`
+	Lookups          LookupsArtifact                    `json:"lookups"`
+	FormatSuffixes   []FormatSuffix                     `json:"format_suffixes"`
+	LicenseOverrides map[string]texlive.LicenseOverride `json:"license_overrides"`
 }
 
 type TlpdbArtifact struct {
@@ -95,15 +99,21 @@ type Derived struct {
 type Bundle struct {
 	Profile Profile
 	Lookups map[string]Lookup
-	Index   map[string][]latex.TexliveProvenance
-	Root    string
+	Index   map[string][]texlive.TexliveProvenance
+	files   fs.FS
 }
 
-// Load reads and structurally validates one profile directory. Failures that
-// make verification impossible are returned as an error; content mismatches are
-// reported by Verify so an operator sees every problem at once.
+// Load reads and structurally validates one profile directory.
 func Load(root string) (*Bundle, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "profile.json"))
+	return LoadFS(os.DirFS(root))
+}
+
+// LoadFS reads and structurally validates a profile from any filesystem, such as
+// the copy embedded in the server binary. Failures that make verification
+// impossible are returned as an error; content mismatches are reported by Verify
+// so an operator sees every problem at once.
+func LoadFS(fsys fs.FS) (*Bundle, error) {
+	raw, err := fs.ReadFile(fsys, "profile.json")
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +127,10 @@ func Load(root string) (*Bundle, error) {
 	if profile.Profile == "" || profile.Repository == "" {
 		return nil, errors.New("profile.json is missing profile or repository")
 	}
-	tlpdb, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(profile.Tlpdb.Path)))
+	if !fs.ValidPath(profile.Tlpdb.Path) {
+		return nil, errors.New("profile.json tlpdb path is not a relative path")
+	}
+	tlpdb, err := fs.ReadFile(fsys, profile.Tlpdb.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -125,20 +138,20 @@ func Load(root string) (*Bundle, error) {
 	if hex.EncodeToString(digest[:]) != profile.Tlpdb.SHA512 || int64(len(tlpdb)) != profile.Tlpdb.Size {
 		return nil, errors.New("tlpdb bytes do not match profile.json")
 	}
-	database, err := latex.ParseTlpdbXZ(tlpdb)
+	database, err := texlive.ParseTlpdbXZ(tlpdb)
 	if err != nil {
 		return nil, err
 	}
-	index, _ := latex.BuildTexliveIndex(database, profile.LicenseOverrides)
-	lookups, err := loadLookups(filepath.Join(root, "lookups.json.gz"), profile.Lookups.SHA256)
+	index, _ := texlive.BuildTexliveIndex(database, profile.LicenseOverrides)
+	lookups, err := loadLookups(fsys, "lookups.json.gz", profile.Lookups.SHA256)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{Profile: profile, Lookups: lookups, Index: index, Root: root}, nil
+	return &Bundle{Profile: profile, Lookups: lookups, Index: index, files: fsys}, nil
 }
 
-func loadLookups(path, expectedSHA256 string) (map[string]Lookup, error) {
-	compressed, err := os.ReadFile(path)
+func loadLookups(fsys fs.FS, name, expectedSHA256 string) (map[string]Lookup, error) {
+	compressed, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
@@ -170,6 +183,18 @@ func lookupKey(entry Lookup) string {
 	return entry.Kind + "\x00" + entry.Format + "\x00" + entry.Name
 }
 
+// Lookup returns the exact resolution recorded for one request.
+func (b *Bundle) Lookup(kind, format, name string) (Lookup, bool) {
+	entry, ok := b.Lookups[lookupKey(Lookup{Kind: kind, Format: format, Name: name})]
+	return entry, ok
+}
+
+// ReadDerived returns one generated blob by its content hash; the caller
+// verifies the bytes before serving them.
+func (b *Bundle) ReadDerived(sha256Hex string) ([]byte, error) {
+	return fs.ReadFile(b.files, path.Join("derived", sha256Hex))
+}
+
 // Verify reports every problem that would keep this profile from serving the
 // required resources. An empty result means the profile is publishable.
 func (b *Bundle) Verify() []string {
@@ -198,7 +223,7 @@ func (b *Bundle) Verify() []string {
 }
 
 func (b *Bundle) verifyDerived(entry Lookup) string {
-	data, err := os.ReadFile(filepath.Join(b.Root, "derived", entry.Derived.SHA256))
+	data, err := fs.ReadFile(b.files, path.Join("derived", entry.Derived.SHA256))
 	if err != nil {
 		return fmt.Sprintf("%s/%s/%s: derived blob is unreadable", entry.Kind, entry.Format, entry.Name)
 	}
@@ -221,26 +246,27 @@ func (b *Bundle) verifyRequired(required QualifiedResource) string {
 	if hasLookup && lookup.Derived != nil {
 		return ""
 	}
-	if len(b.Index[required.Name]) == 0 {
-		return label + ": not present in the tlpdb index"
+	// Ambiguous basenames need the lookup override; the runtime 409s otherwise.
+	if _, ok := b.Resolve(required); !ok {
+		return label + ": does not resolve to a single source in this profile"
 	}
 	return ""
 }
 
 // Resolve returns the provenance a lookup resolves to, mirroring the runtime
 // order: an explicit source path first, then the unique filename index entry.
-func (b *Bundle) Resolve(entry QualifiedResource) (latex.TexliveProvenance, bool) {
+func (b *Bundle) Resolve(entry QualifiedResource) (texlive.TexliveProvenance, bool) {
 	if lookup, ok := b.Lookups[lookupKey(Lookup{Kind: entry.Kind, Format: entry.Format, Name: entry.Name})]; ok && lookup.Source != "" {
 		for _, record := range b.Index[baseName(lookup.Source)] {
 			if record.SourcePath == lookup.Source {
 				return record, true
 			}
 		}
-		return latex.TexliveProvenance{}, false
+		return texlive.TexliveProvenance{}, false
 	}
 	records := b.Index[entry.Name]
 	if len(records) != 1 {
-		return latex.TexliveProvenance{}, false
+		return texlive.TexliveProvenance{}, false
 	}
 	return records[0], true
 }

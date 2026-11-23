@@ -121,12 +121,17 @@ class BuildProfileTests(unittest.TestCase):
         self.assertEqual(manifest_document["derived"][0]["generator"]["name"], "tlmgr")
         self.assertIn("built_at", manifest_document)
 
-    def test_unresolved_ambiguous_name_fails_the_build(self) -> None:
+    def test_unresolved_ambiguous_names_are_skipped(self) -> None:
+        # Names no TeX format can reach (e.g. LICENSE.md) get no override; the
+        # offline verify still fails if a required resource ends up here.
         ambiguous = self.root / "ambiguous.txt"
         ambiguous.write_text("missing.sty\n")
         result = self.run_build("--ambiguous", str(ambiguous))
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("could not resolve ambiguous names", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        lookups = json.loads(gzip.decompress((self.root / "out" / "lookups.json.gz").read_bytes()))
+        self.assertFalse([entry for entry in lookups if entry["n"] == "missing.sty"])
+        manifest = json.loads((self.root / "out" / "profile-manifest.json").read_text())
+        self.assertEqual(manifest["lookups"]["unresolved"], 1)
 
     def test_derived_manifest_requires_generator_identity(self) -> None:
         derived_root = self.root / "derived-src"

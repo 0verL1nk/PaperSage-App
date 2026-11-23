@@ -414,37 +414,23 @@ func listenerPort(t *testing.T) int {
 	return port
 }
 
-func TestBackendEnvBundlesCatalogAndMirror(t *testing.T) {
-	t.Setenv("LATEX_RESOURCE_REPOSITORY", "")
-
+func TestBackendEnvPointsTheCacheAtTheDataDirectory(t *testing.T) {
 	dir := t.TempDir()
-	binary := filepath.Join(dir, "papersage")
-	if err := os.WriteFile(filepath.Join(dir, "catalog.json.gz"), []byte("catalog"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	values := map[string]string{}
-	for _, kv := range backendEnv(6000, filepath.Join(dir, "data"), binary) {
+	for _, kv := range backendEnv(6000, filepath.Join(dir, "data"), filepath.Join(dir, "papersage")) {
 		k, v, ok := strings.Cut(kv, "=")
 		if ok {
 			values[k] = v
 		}
 	}
-	if got := values["LATEX_RESOURCE_CATALOG_FILE"]; got != filepath.Join(dir, "catalog.json.gz") {
-		t.Errorf("LATEX_RESOURCE_CATALOG_FILE = %q", got)
+	want := filepath.ToSlash(filepath.Join(dir, "data", "latex-resources"))
+	if got := values["LATEX_RESOURCE_CACHE_DIR"]; got != want {
+		t.Errorf("LATEX_RESOURCE_CACHE_DIR = %q, want %q", got, want)
 	}
-	if got := values["LATEX_RESOURCE_REPOSITORY"]; !strings.Contains(got, "tsinghua.edu.cn") {
-		t.Errorf("LATEX_RESOURCE_REPOSITORY = %q, want the default mirror", got)
+	if _, ok := values["LATEX_RESOURCE_CATALOG_FILE"]; ok {
+		t.Error("the catalog file is no longer a supported setting")
 	}
-
-	t.Setenv("LATEX_RESOURCE_REPOSITORY", "https://example.org/tlnet")
-	values = map[string]string{}
-	for _, kv := range backendEnv(6000, filepath.Join(dir, "data"), binary) {
-		k, v, ok := strings.Cut(kv, "=")
-		if ok {
-			values[k] = v
-		}
-	}
-	if got := values["LATEX_RESOURCE_REPOSITORY"]; got != "https://example.org/tlnet" {
-		t.Errorf("explicit LATEX_RESOURCE_REPOSITORY was overridden: %q", got)
+	if _, ok := values["LATEX_RESOURCE_REPOSITORY"]; ok {
+		t.Error("the repository is pinned in the embedded profile, not the environment")
 	}
 }

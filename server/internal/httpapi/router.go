@@ -21,6 +21,13 @@ const APIVersion = "/api/v1"
 // 领域路由在后续任务组通过 api.Group(APIVersion) 挂载。
 type API struct {
 	*gin.Engine
+	latexResourceProfile string
+}
+
+// SetLatexResourceProfile publishes the embedded profile id on /health so the
+// release probe can check resources without parsing the environment file.
+func (a *API) SetLatexResourceProfile(id string) {
+	a.latexResourceProfile = id
 }
 
 // New builds the API engine.
@@ -81,7 +88,7 @@ func newEngine(logger *slog.Logger) *API {
 		writeDetail(c, http.StatusMethodNotAllowed, "Method Not Allowed")
 	})
 
-	e.GET("/health", healthHandler)
+	e.GET("/health", api.healthHandler)
 	_ = e.Group(APIVersion) // 领域路由挂载点
 
 	return api
@@ -98,15 +105,16 @@ func writeDetail(c *gin.Context, status int, msg string) {
 }
 
 type healthResponse struct {
-	Status    string `json:"status"`
-	Version   string `json:"version,omitempty"`
-	Commit    string `json:"commit,omitempty"`
-	BuildTime string `json:"buildTime,omitempty"`
-	GoVersion string `json:"goVersion,omitempty"`
+	Status               string `json:"status"`
+	Version              string `json:"version,omitempty"`
+	Commit               string `json:"commit,omitempty"`
+	BuildTime            string `json:"buildTime,omitempty"`
+	GoVersion            string `json:"goVersion,omitempty"`
+	LatexResourceProfile string `json:"latexResourceProfile,omitempty"`
 }
 
-func healthHandler(c *gin.Context) {
-	resp := healthResponse{Status: "healthy"}
+func (a *API) healthHandler(c *gin.Context) {
+	resp := healthResponse{Status: "healthy", LatexResourceProfile: a.latexResourceProfile}
 	// 构建元数据只给本机直连的发布校验；经 Caddy 暴露到公网时不返回。
 	if !isProxiedRequest(c) {
 		resp.Version = buildinfo.Version
