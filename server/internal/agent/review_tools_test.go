@@ -207,7 +207,7 @@ func TestLocateQuoteNormalizesWhitespace(t *testing.T) {
 	start, end, ok := locateQuote("第一行\n样本 120 份，\n第三行", "样本   120\n份")
 	require.True(t, ok)
 	assert.Equal(t, 2, start)
-	assert.Equal(t, 3, end)
+	assert.Equal(t, 2, end)
 	_, _, ok = locateQuote("只有这句话", "不存在的引文")
 	assert.False(t, ok)
 }

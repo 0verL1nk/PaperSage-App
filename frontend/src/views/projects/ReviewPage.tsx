@@ -91,15 +91,14 @@ export function ReviewPage() {
 
   const wasStreaming = useRef(false)
   useEffect(() => {
-    if (wasStreaming.current && !chat.streaming) {
-      void refetchReports()
-      setSelectedId(null)
-    }
+    if (wasStreaming.current && !chat.streaming) void refetchReports()
     wasStreaming.current = chat.streaming
   }, [chat.streaming, refetchReports])
 
   const runReview = () => {
     if (isGuest || !modelReady || chat.streaming || chat.cancelling || chat.restoring || chat.restoreFailed) return
+    // 新一轮检查完成后默认展示最新报告，不把用户留在旧的历史选择上。
+    setSelectedId(null)
     // 失败原因由 chat store 写入 chat.error，下方与 AI 面板统一呈现。
     void chat.send(projectId, CROSS_CHAPTER_REVIEW_PROMPT).catch(() => {})
   }
