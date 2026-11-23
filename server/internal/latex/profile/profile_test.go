@@ -186,6 +186,13 @@ func TestVerifyReportsCorruptDerivedBlob(t *testing.T) {
 	require.Contains(t, strings.Join(bundle.Verify(), "\n"), "derived blob does not match its recorded hash")
 }
 
+func TestEmbeddedProfileVerifiesAllRequiredResources(t *testing.T) {
+	bundle, err := Embedded()
+	require.NoError(t, err)
+	require.Equal(t, "tl2026-tlnet-20261122", bundle.Profile.Profile)
+	require.Empty(t, bundle.Verify(), "the committed profile must keep all seven template resources resolvable")
+}
+
 func TestLoadRejectsTamperedArtifacts(t *testing.T) {
 	root := writeProfile(t)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "tlpdb.xz"), []byte("not the pinned bytes"), 0o600))

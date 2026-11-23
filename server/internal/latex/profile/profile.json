@@ -1,0 +1,1155 @@
+{
+  "format_suffixes": [
+    {
+      "format": "0",
+      "kind": "xetex",
+      "suffixes": [
+        ".gf"
+      ]
+    },
+    {
+      "format": "1",
+      "kind": "xetex",
+      "suffixes": [
+        ".pk"
+      ]
+    },
+    {
+      "format": "3",
+      "kind": "xetex",
+      "suffixes": [
+        ".tfm"
+      ]
+    },
+    {
+      "format": "4",
+      "kind": "xetex",
+      "suffixes": [
+        ".afm"
+      ]
+    },
+    {
+      "format": "5",
+      "kind": "xetex",
+      "suffixes": [
+        ".base"
+      ]
+    },
+    {
+      "format": "6",
+      "kind": "xetex",
+      "suffixes": [
+        ".bib"
+      ]
+    },
+    {
+      "format": "7",
+      "kind": "xetex",
+      "suffixes": [
+        ".bst"
+      ]
+    },
+    {
+      "format": "8",
+      "kind": "xetex",
+      "suffixes": [
+        ".cnf"
+      ]
+    },
+    {
+      "format": "9",
+      "kind": "xetex",
+      "suffixes": [
+        ".ls-r"
+      ]
+    },
+    {
+      "format": "10",
+      "kind": "xetex",
+      "suffixes": [
+        ".fmt"
+      ]
+    },
+    {
+      "format": "11",
+      "kind": "xetex",
+      "suffixes": [
+        ".map"
+      ]
+    },
+    {
+      "format": "12",
+      "kind": "xetex",
+      "suffixes": [
+        ".mem"
+      ]
+    },
+    {
+      "format": "13",
+      "kind": "xetex",
+      "suffixes": [
+        ".mf"
+      ]
+    },
+    {
+      "format": "14",
+      "kind": "xetex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "15",
+      "kind": "xetex",
+      "suffixes": [
+        ".mft"
+      ]
+    },
+    {
+      "format": "16",
+      "kind": "xetex",
+      "suffixes": [
+        ".mp"
+      ]
+    },
+    {
+      "format": "17",
+      "kind": "xetex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "19",
+      "kind": "xetex",
+      "suffixes": [
+        ".ocp"
+      ]
+    },
+    {
+      "format": "20",
+      "kind": "xetex",
+      "suffixes": [
+        ".ofm",
+        ".tfm"
+      ]
+    },
+    {
+      "format": "21",
+      "kind": "xetex",
+      "suffixes": [
+        ".opl",
+        ".pl"
+      ]
+    },
+    {
+      "format": "22",
+      "kind": "xetex",
+      "suffixes": [
+        ".otp"
+      ]
+    },
+    {
+      "format": "23",
+      "kind": "xetex",
+      "suffixes": [
+        ".ovf",
+        ".vf"
+      ]
+    },
+    {
+      "format": "24",
+      "kind": "xetex",
+      "suffixes": [
+        ".ovp",
+        ".vpl"
+      ]
+    },
+    {
+      "format": "25",
+      "kind": "xetex",
+      "suffixes": [
+        ".eps",
+        ".epsi"
+      ]
+    },
+    {
+      "format": "26",
+      "kind": "xetex",
+      "suffixes": [
+        ".tex",
+        ".sty",
+        ".cls",
+        ".fd",
+        ".aux",
+        ".bbl",
+        ".def",
+        ".clo",
+        ".ldf"
+      ]
+    },
+    {
+      "format": "28",
+      "kind": "xetex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "29",
+      "kind": "xetex",
+      "suffixes": [
+        ".dtx",
+        ".ins"
+      ]
+    },
+    {
+      "format": "30",
+      "kind": "xetex",
+      "suffixes": [
+        ".pro"
+      ]
+    },
+    {
+      "format": "32",
+      "kind": "xetex",
+      "suffixes": [
+        ".pfa",
+        ".pfb"
+      ]
+    },
+    {
+      "format": "33",
+      "kind": "xetex",
+      "suffixes": [
+        ".vf"
+      ]
+    },
+    {
+      "format": "35",
+      "kind": "xetex",
+      "suffixes": [
+        ".ist"
+      ]
+    },
+    {
+      "format": "36",
+      "kind": "xetex",
+      "suffixes": [
+        ".ttf",
+        ".ttc",
+        ".dfont"
+      ]
+    },
+    {
+      "format": "37",
+      "kind": "xetex",
+      "suffixes": [
+        ".t42"
+      ]
+    },
+    {
+      "format": "42",
+      "kind": "xetex",
+      "suffixes": [
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "43",
+      "kind": "xetex",
+      "suffixes": [
+        ".w",
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "44",
+      "kind": "xetex",
+      "suffixes": [
+        ".enc"
+      ]
+    },
+    {
+      "format": "46",
+      "kind": "xetex",
+      "suffixes": [
+        ".sfd"
+      ]
+    },
+    {
+      "format": "47",
+      "kind": "xetex",
+      "suffixes": [
+        ".otf"
+      ]
+    },
+    {
+      "format": "49",
+      "kind": "xetex",
+      "suffixes": [
+        ".lig"
+      ]
+    },
+    {
+      "format": "51",
+      "kind": "xetex",
+      "suffixes": [
+        ".lua",
+        ".luatex",
+        ".luc",
+        ".luctex",
+        ".texlua",
+        ".texluc",
+        ".tlu"
+      ]
+    },
+    {
+      "format": "52",
+      "kind": "xetex",
+      "suffixes": [
+        ".fea"
+      ]
+    },
+    {
+      "format": "53",
+      "kind": "xetex",
+      "suffixes": [
+        ".cid",
+        ".cidmap"
+      ]
+    },
+    {
+      "format": "54",
+      "kind": "xetex",
+      "suffixes": [
+        ".mlbib",
+        ".bib"
+      ]
+    },
+    {
+      "format": "55",
+      "kind": "xetex",
+      "suffixes": [
+        ".mlbst",
+        ".bst"
+      ]
+    },
+    {
+      "format": "56",
+      "kind": "xetex",
+      "suffixes": [
+        ".dll",
+        ".so"
+      ]
+    },
+    {
+      "format": "57",
+      "kind": "xetex",
+      "suffixes": [
+        ".ris"
+      ]
+    },
+    {
+      "format": "58",
+      "kind": "xetex",
+      "suffixes": [
+        ".bltxml"
+      ]
+    },
+    {
+      "format": "0",
+      "kind": "pdftex",
+      "suffixes": [
+        ".gf"
+      ]
+    },
+    {
+      "format": "1",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pk"
+      ]
+    },
+    {
+      "format": "3",
+      "kind": "pdftex",
+      "suffixes": [
+        ".tfm"
+      ]
+    },
+    {
+      "format": "4",
+      "kind": "pdftex",
+      "suffixes": [
+        ".afm"
+      ]
+    },
+    {
+      "format": "5",
+      "kind": "pdftex",
+      "suffixes": [
+        ".base"
+      ]
+    },
+    {
+      "format": "6",
+      "kind": "pdftex",
+      "suffixes": [
+        ".bib"
+      ]
+    },
+    {
+      "format": "7",
+      "kind": "pdftex",
+      "suffixes": [
+        ".bst"
+      ]
+    },
+    {
+      "format": "8",
+      "kind": "pdftex",
+      "suffixes": [
+        ".cnf"
+      ]
+    },
+    {
+      "format": "9",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ls-r"
+      ]
+    },
+    {
+      "format": "10",
+      "kind": "pdftex",
+      "suffixes": [
+        ".fmt"
+      ]
+    },
+    {
+      "format": "11",
+      "kind": "pdftex",
+      "suffixes": [
+        ".map"
+      ]
+    },
+    {
+      "format": "12",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mem"
+      ]
+    },
+    {
+      "format": "13",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mf"
+      ]
+    },
+    {
+      "format": "14",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "15",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mft"
+      ]
+    },
+    {
+      "format": "16",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mp"
+      ]
+    },
+    {
+      "format": "17",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "19",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ocp"
+      ]
+    },
+    {
+      "format": "20",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ofm",
+        ".tfm"
+      ]
+    },
+    {
+      "format": "21",
+      "kind": "pdftex",
+      "suffixes": [
+        ".opl",
+        ".pl"
+      ]
+    },
+    {
+      "format": "22",
+      "kind": "pdftex",
+      "suffixes": [
+        ".otp"
+      ]
+    },
+    {
+      "format": "23",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ovf",
+        ".vf"
+      ]
+    },
+    {
+      "format": "24",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ovp",
+        ".vpl"
+      ]
+    },
+    {
+      "format": "25",
+      "kind": "pdftex",
+      "suffixes": [
+        ".eps",
+        ".epsi"
+      ]
+    },
+    {
+      "format": "26",
+      "kind": "pdftex",
+      "suffixes": [
+        ".tex",
+        ".sty",
+        ".cls",
+        ".fd",
+        ".aux",
+        ".bbl",
+        ".def",
+        ".clo",
+        ".ldf"
+      ]
+    },
+    {
+      "format": "28",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "29",
+      "kind": "pdftex",
+      "suffixes": [
+        ".dtx",
+        ".ins"
+      ]
+    },
+    {
+      "format": "30",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pro"
+      ]
+    },
+    {
+      "format": "32",
+      "kind": "pdftex",
+      "suffixes": [
+        ".pfa",
+        ".pfb"
+      ]
+    },
+    {
+      "format": "33",
+      "kind": "pdftex",
+      "suffixes": [
+        ".vf"
+      ]
+    },
+    {
+      "format": "35",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ist"
+      ]
+    },
+    {
+      "format": "36",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ttf",
+        ".ttc",
+        ".dfont"
+      ]
+    },
+    {
+      "format": "37",
+      "kind": "pdftex",
+      "suffixes": [
+        ".t42"
+      ]
+    },
+    {
+      "format": "42",
+      "kind": "pdftex",
+      "suffixes": [
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "43",
+      "kind": "pdftex",
+      "suffixes": [
+        ".w",
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "44",
+      "kind": "pdftex",
+      "suffixes": [
+        ".enc"
+      ]
+    },
+    {
+      "format": "46",
+      "kind": "pdftex",
+      "suffixes": [
+        ".sfd"
+      ]
+    },
+    {
+      "format": "47",
+      "kind": "pdftex",
+      "suffixes": [
+        ".otf"
+      ]
+    },
+    {
+      "format": "49",
+      "kind": "pdftex",
+      "suffixes": [
+        ".lig"
+      ]
+    },
+    {
+      "format": "51",
+      "kind": "pdftex",
+      "suffixes": [
+        ".lua",
+        ".luatex",
+        ".luc",
+        ".luctex",
+        ".texlua",
+        ".texluc",
+        ".tlu"
+      ]
+    },
+    {
+      "format": "52",
+      "kind": "pdftex",
+      "suffixes": [
+        ".fea"
+      ]
+    },
+    {
+      "format": "53",
+      "kind": "pdftex",
+      "suffixes": [
+        ".cid",
+        ".cidmap"
+      ]
+    },
+    {
+      "format": "54",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mlbib",
+        ".bib"
+      ]
+    },
+    {
+      "format": "55",
+      "kind": "pdftex",
+      "suffixes": [
+        ".mlbst",
+        ".bst"
+      ]
+    },
+    {
+      "format": "56",
+      "kind": "pdftex",
+      "suffixes": [
+        ".dll",
+        ".so"
+      ]
+    },
+    {
+      "format": "57",
+      "kind": "pdftex",
+      "suffixes": [
+        ".ris"
+      ]
+    },
+    {
+      "format": "58",
+      "kind": "pdftex",
+      "suffixes": [
+        ".bltxml"
+      ]
+    },
+    {
+      "format": "0",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".gf"
+      ]
+    },
+    {
+      "format": "1",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pk"
+      ]
+    },
+    {
+      "format": "3",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".tfm"
+      ]
+    },
+    {
+      "format": "4",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".afm"
+      ]
+    },
+    {
+      "format": "5",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".base"
+      ]
+    },
+    {
+      "format": "6",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".bib"
+      ]
+    },
+    {
+      "format": "7",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".bst"
+      ]
+    },
+    {
+      "format": "8",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".cnf"
+      ]
+    },
+    {
+      "format": "9",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ls-r"
+      ]
+    },
+    {
+      "format": "10",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".fmt"
+      ]
+    },
+    {
+      "format": "11",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".map"
+      ]
+    },
+    {
+      "format": "12",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mem"
+      ]
+    },
+    {
+      "format": "13",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mf"
+      ]
+    },
+    {
+      "format": "14",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "15",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mft"
+      ]
+    },
+    {
+      "format": "16",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mp"
+      ]
+    },
+    {
+      "format": "17",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "19",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ocp"
+      ]
+    },
+    {
+      "format": "20",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ofm",
+        ".tfm"
+      ]
+    },
+    {
+      "format": "21",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".opl",
+        ".pl"
+      ]
+    },
+    {
+      "format": "22",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".otp"
+      ]
+    },
+    {
+      "format": "23",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ovf",
+        ".vf"
+      ]
+    },
+    {
+      "format": "24",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ovp",
+        ".vpl"
+      ]
+    },
+    {
+      "format": "25",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".eps",
+        ".epsi"
+      ]
+    },
+    {
+      "format": "26",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".tex",
+        ".sty",
+        ".cls",
+        ".fd",
+        ".aux",
+        ".bbl",
+        ".def",
+        ".clo",
+        ".ldf"
+      ]
+    },
+    {
+      "format": "28",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pool"
+      ]
+    },
+    {
+      "format": "29",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".dtx",
+        ".ins"
+      ]
+    },
+    {
+      "format": "30",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pro"
+      ]
+    },
+    {
+      "format": "32",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".pfa",
+        ".pfb"
+      ]
+    },
+    {
+      "format": "33",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".vf"
+      ]
+    },
+    {
+      "format": "35",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ist"
+      ]
+    },
+    {
+      "format": "36",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ttf",
+        ".ttc",
+        ".dfont"
+      ]
+    },
+    {
+      "format": "37",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".t42"
+      ]
+    },
+    {
+      "format": "42",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "43",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".w",
+        ".web",
+        ".ch"
+      ]
+    },
+    {
+      "format": "44",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".enc"
+      ]
+    },
+    {
+      "format": "46",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".sfd"
+      ]
+    },
+    {
+      "format": "47",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".otf"
+      ]
+    },
+    {
+      "format": "49",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".lig"
+      ]
+    },
+    {
+      "format": "51",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".lua",
+        ".luatex",
+        ".luc",
+        ".luctex",
+        ".texlua",
+        ".texluc",
+        ".tlu"
+      ]
+    },
+    {
+      "format": "52",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".fea"
+      ]
+    },
+    {
+      "format": "53",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".cid",
+        ".cidmap"
+      ]
+    },
+    {
+      "format": "54",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mlbib",
+        ".bib"
+      ]
+    },
+    {
+      "format": "55",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".mlbst",
+        ".bst"
+      ]
+    },
+    {
+      "format": "56",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".dll",
+        ".so"
+      ]
+    },
+    {
+      "format": "57",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".ris"
+      ]
+    },
+    {
+      "format": "58",
+      "kind": "dvipdfmx",
+      "suffixes": [
+        ".bltxml"
+      ]
+    }
+  ],
+  "license_overrides": {
+    "garuda-c90": {
+      "license": "GNU GPL version 2",
+      "source": "https://ctan.org/pkg/cjk?lang=en"
+    },
+    "hyphen-base": {
+      "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+      "source": "https://www.tug.org/texlive/copying.html"
+    },
+    "hyphen-czech": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-english": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-french": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-german": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-norwegian": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-portuguese": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "hyphen-swedish": {
+      "license": "MIT License",
+      "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+    },
+    "latexconfig": {
+      "license": "Public domain (per-file notices)",
+      "source": "https://www.tug.org/texlive/copying.html"
+    },
+    "norasi-c90": {
+      "license": "GNU GPL version 2",
+      "source": "https://ctan.org/pkg/cjk?lang=en"
+    },
+    "texlive-scripts": {
+      "license": "Mixed file-level terms, including GPL-2 and public domain",
+      "source": "https://www.tug.org/texlive/copying.html"
+    },
+    "texlive.infra": {
+      "license": "Public domain (per-file notices)",
+      "source": "https://www.tug.org/texlive/copying.html"
+    },
+    "ttfutils": {
+      "license": "The LaTeX Project Public License 1.3c",
+      "source": "https://packages.fedoraproject.org/pkgs/texlive-extension/texlive-ttfutils/"
+    },
+    "xetexconfig": {
+      "license": "Public domain (per-file notices)",
+      "source": "https://www.tug.org/texlive/copying.html"
+    }
+  },
+  "lookups": {
+    "entries": 1539,
+    "sha256": "fa88e934383a6ca698e58e9723be2bd781c8bede4d30bcd219b303bcb17ea45b"
+  },
+  "profile": "tl2026-tlnet-20261122",
+  "repository": "https://texlive.info/tlnet-archive/2026/11/22/tlnet",
+  "schema_version": 1,
+  "tlpdb": {
+    "path": "tlpdb.xz",
+    "sha512": "1b69a62f8e133950e8dbfbb2378a372b6483138cf64a8a0da88c164842624822538846e1fd161f2c48413ae16f26d63f1932dfd77eb7551b54888f57e7e0f5b3",
+    "size": 2832116
+  }
+}

@@ -13,8 +13,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strings"
 
@@ -99,14 +100,20 @@ type Bundle struct {
 	Profile Profile
 	Lookups map[string]Lookup
 	Index   map[string][]latex.TexliveProvenance
-	Root    string
+	files   fs.FS
 }
 
-// Load reads and structurally validates one profile directory. Failures that
-// make verification impossible are returned as an error; content mismatches are
-// reported by Verify so an operator sees every problem at once.
+// Load reads and structurally validates one profile directory.
 func Load(root string) (*Bundle, error) {
-	raw, err := os.ReadFile(filepath.Join(root, "profile.json"))
+	return LoadFS(os.DirFS(root))
+}
+
+// LoadFS reads and structurally validates a profile from any filesystem, such as
+// the copy embedded in the server binary. Failures that make verification
+// impossible are returned as an error; content mismatches are reported by Verify
+// so an operator sees every problem at once.
+func LoadFS(fsys fs.FS) (*Bundle, error) {
+	raw, err := fs.ReadFile(fsys, "profile.json")
 	if err != nil {
 		return nil, err
 	}
@@ -120,7 +127,10 @@ func Load(root string) (*Bundle, error) {
 	if profile.Profile == "" || profile.Repository == "" {
 		return nil, errors.New("profile.json is missing profile or repository")
 	}
-	tlpdb, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(profile.Tlpdb.Path)))
+	if !fs.ValidPath(profile.Tlpdb.Path) {
+		return nil, errors.New("profile.json tlpdb path is not a relative path")
+	}
+	tlpdb, err := fs.ReadFile(fsys, profile.Tlpdb.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -133,15 +143,15 @@ func Load(root string) (*Bundle, error) {
 		return nil, err
 	}
 	index, _ := latex.BuildTexliveIndex(database, profile.LicenseOverrides)
-	lookups, err := loadLookups(filepath.Join(root, "lookups.json.gz"), profile.Lookups.SHA256)
+	lookups, err := loadLookups(fsys, "lookups.json.gz", profile.Lookups.SHA256)
 	if err != nil {
 		return nil, err
 	}
-	return &Bundle{Profile: profile, Lookups: lookups, Index: index, Root: root}, nil
+	return &Bundle{Profile: profile, Lookups: lookups, Index: index, files: fsys}, nil
 }
 
-func loadLookups(path, expectedSHA256 string) (map[string]Lookup, error) {
-	compressed, err := os.ReadFile(path)
+func loadLookups(fsys fs.FS, name, expectedSHA256 string) (map[string]Lookup, error) {
+	compressed, err := fs.ReadFile(fsys, name)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +211,7 @@ func (b *Bundle) Verify() []string {
 }
 
 func (b *Bundle) verifyDerived(entry Lookup) string {
-	data, err := os.ReadFile(filepath.Join(b.Root, "derived", entry.Derived.SHA256))
+	data, err := fs.ReadFile(b.files, path.Join("derived", entry.Derived.SHA256))
 	if err != nil {
 		return fmt.Sprintf("%s/%s/%s: derived blob is unreadable", entry.Kind, entry.Format, entry.Name)
 	}
