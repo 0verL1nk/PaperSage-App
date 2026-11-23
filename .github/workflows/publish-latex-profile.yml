@@ -98,11 +98,19 @@ jobs:
           mkdir -p build/derived
           # hyphen.cfg is generated at install time from language.dat; no package
           # archive contains the real one, so it must ship as a derived resource.
+          # tlmgr only writes language.dat/.def/.lua; it points at fmtutil for the
+          # files that consume them. Only generated copies count here — a
+          # package's same-named file is not the kernel hyphenation config.
           sudo "$(command -v tlmgr)" generate language
-          hyphen_cfg=$(sudo find /opt/texlive/texmf-var -name hyphen.cfg -type f | head -1)
+          sudo "$(command -v fmtutil-sys)" --byhyphen /opt/texlive/texmf-var/tex/generic/config/language.dat || true
+          echo "=== kpsewhich (xetex) hyphen.cfg ==="
+          kpsewhich -progname=xetex -format=tex hyphen.cfg || true
+          echo "=== generated hyphen.cfg files ==="
+          sudo find /opt/texlive/texmf-var /opt/texlive/texmf-config -name 'hyphen.cfg' -type f 2>/dev/null || true
+          hyphen_cfg=$(sudo find /opt/texlive/texmf-var /opt/texlive/texmf-config -name 'hyphen.cfg' -type f 2>/dev/null | head -1)
           if [ -z "$hyphen_cfg" ]; then
-            echo "tlmgr generate language produced no hyphen.cfg; texmf-var contains:" >&2
-            sudo find /opt/texlive/texmf-var -type f | head -50 >&2
+            echo "the snapshot generates no hyphen.cfg; every hyphen.cfg on disk:" >&2
+            sudo find /opt/texlive -name 'hyphen.cfg' -type f 2>/dev/null >&2 || true
             exit 1
           fi
           sudo cp "$hyphen_cfg" build/derived/hyphen.cfg
