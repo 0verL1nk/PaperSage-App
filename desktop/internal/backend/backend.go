@@ -556,17 +556,10 @@ func backendEnv(port int, dataDir, binary string) []string {
 		"LATEX_CLSI_ENABLED": "false",
 		"RUN_DB_MIGRATIONS":  "true",
 	}
-	// The desktop build ships a catalog next to the backend so TeX resources
-	// resolve without object storage.
-	catalog := filepath.Join(filepath.Dir(binary), "catalog.json.gz")
-	if info, err := os.Stat(catalog); err == nil && !info.IsDir() {
-		overrides["LATEX_RESOURCE_CATALOG_FILE"] = catalog
-	}
-	// mirror.ctan.org round-robins across mirrors that rate-limit archive
-	// downloads; a stable mirror keeps on-demand package fetches reliable.
-	if os.Getenv("LATEX_RESOURCE_REPOSITORY") == "" {
-		overrides["LATEX_RESOURCE_REPOSITORY"] = "https://mirrors.tuna.tsinghua.edu.cn/CTAN/systems/texlive/tlnet"
-	}
+	// The profile is embedded in the backend, so only its disk cache is
+	// configured. It must live under the user's data directory — the install
+	// directory is read-only.
+	overrides["LATEX_RESOURCE_CACHE_DIR"] = filepath.ToSlash(filepath.Join(dataDir, "latex-resources"))
 	return withEnv(overrides)
 }
 

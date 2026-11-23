@@ -18,7 +18,6 @@ tasks:
     summary: Stages the bundled backend resources (TeX catalog)
     cmds:
       - mkdir -p bin/backend
-      - cp build/backend/catalog.json.gz bin/backend/catalog.json.gz
 
   build:
     summary: Builds the desktop application

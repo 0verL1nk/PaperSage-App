@@ -2,13 +2,9 @@
   "schemaVersion": 1,
   "engineVersion": "papersage-swiftlatex-2026-10-2",
   "resourceCatalog": {
-    "profileId": "tl2026-swift-ef78b612-r80534-v7",
     "texLiveYear": 2026,
     "texLiveRevision": "r80534",
     "texLiveSourceCommit": "ef78b612ce99951b9f133e389d2ea84f80d7f2cc",
-    "localCatalogSha256": "9bdc2adfbc11a74cc0a8b70651da2d5074e3ac41e33f927893d3176f194c635e",
-    "catalogObjectCount": 22601,
-    "catalogLookupCount": 196668,
     "licensePolicy": "Each package archive and extracted file is checksum-verified. Entries without license provenance are excluded."
   },
   "formatPolicy": {
@@ -48,7 +44,7 @@
   "resources": [
     {
       "id": "papersage-swift-worker",
-      "name": "SwiftLaTeX 资源适配器",
+      "name": "SwiftLaTeX \u8d44\u6e90\u9002\u914d\u5668",
       "url": "/latex-engines/papersage-swift-worker.js?v=a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
       "version": "papersage-swiftlatex-2026-10-10-2",
       "size": 21989,
@@ -128,7 +124,7 @@
     },
     {
       "id": "texlive2026-dvipdfmx-evidence",
-      "name": "Dvipdfmx 资源校验模块",
+      "name": "Dvipdfmx \u8d44\u6e90\u6821\u9a8c\u6a21\u5757",
       "url": "/latex-engines/wasmtex-dvipdfmx-2026/wasmtex-xetex-resolver-evidence.js?v=8808915d5b171257e161673a489c75850ae15bad523ea374120f7d42deb86dea",
       "version": "wasmtex-engine-2026-9147f5703951082b-papersage-1",
       "size": 604,
@@ -138,7 +134,7 @@
     },
     {
       "id": "wasmtex-bibtex-entry",
-      "name": "BibTeX 资源适配器",
+      "name": "BibTeX \u8d44\u6e90\u9002\u914d\u5668",
       "url": "/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/papersage-bibtex-worker.js?v=679fdfc5a16690c9ae5152a546e3502285b30d83b47e2236560c2c2de825d4f1",
       "version": "wasmtex-bibtex-2026-9147f5703951082b",
       "size": 246,
@@ -181,7 +177,7 @@
     {
       "id": "pdflatex",
       "name": "pdfLaTeX",
-      "description": "适合常见英文论文模板",
+      "description": "\u9002\u5408\u5e38\u89c1\u82f1\u6587\u8bba\u6587\u6a21\u677f",
       "resourceIds": [
         "papersage-swift-worker",
         "swiftlatex-pdftex-js",
@@ -195,7 +191,7 @@
     {
       "id": "xelatex",
       "name": "XeLaTeX",
-      "description": "支持 Unicode、中文和 OpenType 字体",
+      "description": "\u652f\u6301 Unicode\u3001\u4e2d\u6587\u548c OpenType \u5b57\u4f53",
       "resourceIds": [
         "papersage-swift-worker",
         "swiftlatex-xetex-js",

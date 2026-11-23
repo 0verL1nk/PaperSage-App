@@ -244,14 +244,14 @@ def wait_healthy(manifest):
 
 
 def resource_profile():
-    """Read only the profile key; the environment file must never be printed."""
-    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
-        key, separator, value = line.partition("=")
-        if separator and key.strip() == "LATEX_RESOURCE_PROFILE":
-            profile = value.strip().strip("'\"")
-            if profile:
-                return profile
-    raise DeployError("LATEX_RESOURCE_PROFILE is missing from the environment file")
+    """The served profile comes from /health; the binary embeds it."""
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    with opener.open(HEALTH_URL, timeout=5) as response:
+        payload = json.loads(response.read(65536))
+    profile = payload.get("latexResourceProfile") if isinstance(payload, dict) else None
+    if not isinstance(profile, str) or not profile:
+        raise DeployError("release health response is missing latexResourceProfile")
+    return profile
 
 
 def check_resources():

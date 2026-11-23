@@ -36,13 +36,11 @@ type Settings struct {
 	LatexCLSIEnabled        bool   `env:"LATEX_CLSI_ENABLED" envDefault:"false"`
 	LatexCLSIBaseURL        string `env:"LATEX_CLSI_BASE_URL" envDefault:"http://localhost:3013"`
 	LatexCLSITimeoutSeconds int    `env:"LATEX_CLSI_TIMEOUT_SECONDS" envDefault:"120"`
-	// LatexResourceProfile identifies one immutable, catalog-backed TeX Live tree.
-	LatexResourceProfile string `env:"LATEX_RESOURCE_PROFILE" envDefault:"tl2026-swift-ef78b612-r80534-v7"`
-	// LatexResourceRepository is the HTTPS TeX Live tlnet repository used for on-demand package archives.
-	LatexResourceRepository string `env:"LATEX_RESOURCE_REPOSITORY" envDefault:"https://mirror.ctan.org/systems/texlive/tlnet"`
-	// LatexResourceCatalogFile optionally points at a local gzip/plain catalog,
-	// used by the desktop client so it does not need object storage.
-	LatexResourceCatalogFile string `env:"LATEX_RESOURCE_CATALOG_FILE"`
+	// The TeX Live profile is embedded in the binary; only its on-disk cache is
+	// configurable. The directory must survive releases, so it lives under the
+	// writable state directory rather than next to the binary.
+	LatexResourceCacheDir      string `env:"LATEX_RESOURCE_CACHE_DIR" envDefault:"./data/latex-resources"`
+	LatexResourceCacheMaxBytes int64  `env:"LATEX_RESOURCE_CACHE_MAX_BYTES" envDefault:"2147483648"`
 
 	MaxConcurrentCompiles int `env:"MAX_CONCURRENT_COMPILES" envDefault:"3"`
 	LatexCompileTimeout   int `env:"LATEX_COMPILE_TIMEOUT" envDefault:"120"`
@@ -112,6 +110,9 @@ func Load() (*Settings, error) {
 	}
 	if s.AgentModelIdleTimeout < 0 {
 		return nil, fmt.Errorf("AGENT_MODEL_IDLE_TIMEOUT must not be negative")
+	}
+	if s.LatexResourceCacheMaxBytes <= 0 {
+		return nil, fmt.Errorf("LATEX_RESOURCE_CACHE_MAX_BYTES must be positive")
 	}
 	// Python's parse_allowed_hosts strips whitespace and drops empty items.
 	s.AllowedHosts = normalizeHosts(s.AllowedHosts)

@@ -27,7 +27,6 @@ func TestUninstallPreservesUnmanagedFiles(t *testing.T) {
 	files := map[string]bool{
 		`$INSTDIR\${PRODUCT_EXECUTABLE}`:      false,
 		`$INSTDIR\backend\papersage.exe`:      false,
-		`$INSTDIR\backend\catalog.json.gz`:    false,
 		`$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk`: false,
 		`$DESKTOP\${INFO_PRODUCTNAME}.lnk`:    false,
 	}

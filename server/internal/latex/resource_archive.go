@@ -4,7 +4,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
 	"errors"
@@ -20,6 +19,8 @@ import (
 	"time"
 
 	"github.com/ulikunitz/xz"
+
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
 const (
@@ -90,15 +91,7 @@ func validResourcePackage(name string) bool {
 	return resourcePackagePattern.MatchString(name) && name != "." && name != ".."
 }
 
-func (c *packageArchiveCache) resource(ctx context.Context, repository string, provenance resourceCatalogProvenance, object resourceCatalogObject) ([]byte, error) {
-	archive, err := c.archive(ctx, repository, provenance)
-	if err != nil {
-		return nil, err
-	}
-	return extractCataloguedResource(archive, provenance.SourcePath, object)
-}
-
-func (c *packageArchiveCache) packageFile(ctx context.Context, repository string, provenance resourceCatalogProvenance) ([]byte, error) {
+func (c *packageArchiveCache) packageFile(ctx context.Context, repository string, provenance texlive.TexliveProvenance) ([]byte, error) {
 	archive, err := c.archive(ctx, repository, provenance)
 	if err != nil {
 		return nil, err
@@ -109,7 +102,7 @@ func (c *packageArchiveCache) packageFile(ctx context.Context, repository string
 // packageFiles extracts several resources from one archive in a single pass.
 // Missing paths are simply absent from the result; callers decide whether that
 // is acceptable.
-func (c *packageArchiveCache) packageFiles(ctx context.Context, repository string, provenance resourceCatalogProvenance, sourcePaths []string) (map[string][]byte, error) {
+func (c *packageArchiveCache) packageFiles(ctx context.Context, repository string, provenance texlive.TexliveProvenance, sourcePaths []string) (map[string][]byte, error) {
 	archive, err := c.archive(ctx, repository, provenance)
 	if err != nil {
 		return nil, err
@@ -117,7 +110,7 @@ func (c *packageArchiveCache) packageFiles(ctx context.Context, repository strin
 	return extractPackageResources(archive, sourcePaths)
 }
 
-func (c *packageArchiveCache) archive(ctx context.Context, repository string, provenance resourceCatalogProvenance) ([]byte, error) {
+func (c *packageArchiveCache) archive(ctx context.Context, repository string, provenance texlive.TexliveProvenance) ([]byte, error) {
 	key := repository + "\x00" + provenance.Package + "\x00" + provenance.PackageRevision + "\x00" + provenance.ContainerSHA512
 	c.mu.Lock()
 	if archive, ok := c.archives[key]; ok {
@@ -157,7 +150,7 @@ func (c *packageArchiveCache) archive(ctx context.Context, repository string, pr
 	return archive, err
 }
 
-func (c *packageArchiveCache) fetch(ctx context.Context, repository string, provenance resourceCatalogProvenance) ([]byte, error) {
+func (c *packageArchiveCache) fetch(ctx context.Context, repository string, provenance texlive.TexliveProvenance) ([]byte, error) {
 	if !validResourcePackage(provenance.Package) || provenance.ContainerSize <= 0 || provenance.ContainerSize > maxResourceArchiveBytes || !resourceArchiveHashPattern.MatchString(provenance.ContainerSHA512) {
 		return nil, errors.New("catalogued TeX Live package archive metadata is invalid")
 	}
@@ -201,21 +194,6 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, fmt.Errorf("TeX Live package archive %q checksum does not match its pinned revision: got %s, pinned %s", provenance.Package, hex.EncodeToString(digest[:])[:16], provenance.ContainerSHA512[:16])
 	}
 	return archive, nil
-}
-
-func extractCataloguedResource(archive []byte, sourcePath string, object resourceCatalogObject) ([]byte, error) {
-	data, err := extractPackageResource(archive, sourcePath)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) != object.Size {
-		return nil, errors.New("extracted TeX Live resource size does not match its catalog")
-	}
-	digest := sha256.Sum256(data)
-	if hex.EncodeToString(digest[:]) != object.SHA256 {
-		return nil, errors.New("extracted TeX Live resource checksum does not match its catalog")
-	}
-	return data, nil
 }
 
 func extractPackageResource(archive []byte, sourcePath string) ([]byte, error) {
@@ -289,4 +267,14 @@ func extractPackageResources(archive []byte, sourcePaths []string) (map[string][
 
 func safeArchiveMember(name string) bool {
 	return name != "" && !path.IsAbs(name) && path.Clean(name) == name && name != "." && !strings.HasPrefix(name, "../") && !strings.Contains(name, `\`)
+}
+
+// validCatalogSourcePath restricts provenance to a normalized texmf-dist path;
+// anything else could escape the archive member namespace.
+func validCatalogSourcePath(sourcePath string) bool {
+	if sourcePath == "" || strings.Contains(sourcePath, "\\") {
+		return false
+	}
+	clean := path.Clean(sourcePath)
+	return clean == sourcePath && strings.HasPrefix(clean, "texmf-dist/")
 }

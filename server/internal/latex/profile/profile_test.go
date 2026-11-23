@@ -34,6 +34,24 @@ func tlpdbStanza(name string, files ...string) string {
 	return strings.Join(lines, "\n") + "\n\n"
 }
 
+func sha512Hex(data []byte) string {
+	digest := sha512.Sum512(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func sha256Hex(data []byte) string {
+	digest := sha256.Sum256(data)
+	return hex.EncodeToString(digest[:])
+}
+
+func lookupsFor(derivedSHA string, derivedSize int64) []Lookup {
+	return []Lookup{
+		{Kind: "xetex", Format: "26", Name: "hyphen.cfg", Source: "texmf-dist/tex/generic/babel/hyphen.cfg"},
+		{Kind: "xetex", Format: "26", Name: "kanjix.map",
+			Derived: &Derived{SHA256: derivedSHA, Size: derivedSize, MediaType: "text/plain"}},
+	}
+}
+
 func writeProfile(t *testing.T) string {
 	t.Helper()
 	root := t.TempDir()
@@ -45,21 +63,21 @@ func writeProfile(t *testing.T) string {
 		document += tlpdbStanza(name, "tex/latex/"+name+"/"+name+".sty")
 	}
 	document += tlpdbStanza("iftex", "tex/latex/iftex/iftex.sty", "tex/latex/iftex/ifxetex.sty")
+	// Two packages ship a hyphen.cfg, so the basename is ambiguous and needs a
+	// kpsewhich override, exactly like the real snapshot.
+	document += tlpdbStanza("babel", "tex/generic/babel/hyphen.cfg")
+	document += tlpdbStanza("cslatex", "tex/cslatex/base/hyphen.cfg")
 	_, err = writer.Write([]byte(document))
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "tlpdb.xz"), compressed.Bytes(), 0o600))
 
-	derived := []byte("% generated hyphen.cfg")
-	derivedDigest := sha256.Sum256(derived)
-	derivedSHA := hex.EncodeToString(derivedDigest[:])
+	derived := []byte("% generated kanjix.map")
+	derivedSHA := sha256Hex(derived)
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "derived"), 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "derived", derivedSHA), derived, 0o600))
 
-	lookups := []Lookup{{
-		Kind: "xetex", Format: "26", Name: "hyphen.cfg",
-		Derived: &Derived{SHA256: derivedSHA, Size: int64(len(derived)), MediaType: "text/plain"},
-	}}
+	lookups := lookupsFor(derivedSHA, int64(len(derived)))
 	encoded, err := json.Marshal(lookups)
 	require.NoError(t, err)
 	var lookupsGzip bytes.Buffer
@@ -69,19 +87,17 @@ func writeProfile(t *testing.T) string {
 	require.NoError(t, gzipWriter.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "lookups.json.gz"), lookupsGzip.Bytes(), 0o600))
 
-	tlpdbDigest := sha512.Sum512(compressed.Bytes())
-	lookupsDigest := sha256.Sum256(lookupsGzip.Bytes())
-	manifest := Profile{
+	profile := Profile{
 		SchemaVersion: schemaVersion,
 		Profile:       "tl2026-test",
 		Repository:    "https://example.test/tlnet",
-		Tlpdb:         TlpdbArtifact{Path: "tlpdb.xz", SHA512: hex.EncodeToString(tlpdbDigest[:]), Size: int64(compressed.Len())},
-		Lookups:       LookupsArtifact{SHA256: hex.EncodeToString(lookupsDigest[:]), Entries: len(lookups)},
+		Tlpdb:         TlpdbArtifact{Path: "tlpdb.xz", SHA512: sha512Hex(compressed.Bytes()), Size: int64(compressed.Len())},
+		Lookups:       LookupsArtifact{SHA256: sha256Hex(lookupsGzip.Bytes()), Entries: len(lookups)},
 		FormatSuffixes: []FormatSuffix{
 			{Kind: "xetex", Format: "26", Suffixes: []string{".tex", ".sty"}},
 		},
 	}
-	raw, err := json.Marshal(manifest)
+	raw, err := json.Marshal(profile)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "profile.json"), raw, 0o600))
 	return root
@@ -96,14 +112,18 @@ func TestVerifyAcceptsACompleteProfile(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "iftex", provenance.Package)
 	require.Equal(t, "texmf-dist/tex/latex/iftex/ifxetex.sty", provenance.SourcePath)
+
+	hyphen, ok := bundle.Resolve(QualifiedResource{Kind: "xetex", Format: "26", Name: "hyphen.cfg"})
+	require.True(t, ok)
+	require.Equal(t, "texmf-dist/tex/generic/babel/hyphen.cfg", hyphen.SourcePath)
 }
 
 func TestVerifyReportsMissingRequiredResources(t *testing.T) {
 	root := writeProfile(t)
-	var document Profile
+	var profile Profile
 	raw, err := os.ReadFile(filepath.Join(root, "profile.json"))
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(raw, &document))
+	require.NoError(t, json.Unmarshal(raw, &profile))
 
 	var compressed bytes.Buffer
 	writer, err := xz.NewWriter(&compressed)
@@ -112,41 +132,46 @@ func TestVerifyReportsMissingRequiredResources(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "tlpdb.xz"), compressed.Bytes(), 0o600))
-	digest := sha512.Sum512(compressed.Bytes())
-	document.Tlpdb = TlpdbArtifact{Path: "tlpdb.xz", SHA512: hex.EncodeToString(digest[:]), Size: int64(compressed.Len())}
-	raw, err = json.Marshal(document)
+	profile.Tlpdb = TlpdbArtifact{Path: "tlpdb.xz", SHA512: sha512Hex(compressed.Bytes()), Size: int64(compressed.Len())}
+	raw, err = json.Marshal(profile)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "profile.json"), raw, 0o600))
 
 	bundle, err := Load(root)
 	require.NoError(t, err)
 	findings := bundle.Verify()
-	require.Len(t, findings, 5, strings.Join(findings, "\n"))
-	require.Contains(t, strings.Join(findings, "\n"), "geometry.sty: not present in the tlpdb index")
+	require.Len(t, findings, 6, strings.Join(findings, "\n"))
+	joined := strings.Join(findings, "\n")
+	require.Contains(t, joined, "geometry.sty: does not resolve to a single source")
+	require.Contains(t, joined, "hyphen.cfg: does not resolve to a single source")
 }
 
-func TestVerifyRequiresHyphenCfgToBeDerived(t *testing.T) {
+func TestVerifyRequiresAnOverrideForAmbiguousHyphenCfg(t *testing.T) {
 	root := writeProfile(t)
+	entries, err := json.Marshal([]Lookup{{
+		Kind: "xetex", Format: "26", Name: "kanjix.map",
+		Derived: &Derived{SHA256: strings.Repeat("b", 64), Size: 1, MediaType: "text/plain"},
+	}})
+	require.NoError(t, err)
 	var lookupsGzip bytes.Buffer
 	writer := gzip.NewWriter(&lookupsGzip)
-	_, err := writer.Write([]byte("[]"))
+	_, err = writer.Write(entries)
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
 	require.NoError(t, os.WriteFile(filepath.Join(root, "lookups.json.gz"), lookupsGzip.Bytes(), 0o600))
 
-	var document Profile
+	var profile Profile
 	raw, err := os.ReadFile(filepath.Join(root, "profile.json"))
 	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(raw, &document))
-	digest := sha256.Sum256(lookupsGzip.Bytes())
-	document.Lookups = LookupsArtifact{SHA256: hex.EncodeToString(digest[:]), Entries: 0}
-	raw, err = json.Marshal(document)
+	require.NoError(t, json.Unmarshal(raw, &profile))
+	profile.Lookups = LookupsArtifact{SHA256: sha256Hex(lookupsGzip.Bytes()), Entries: 1}
+	raw, err = json.Marshal(profile)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "profile.json"), raw, 0o600))
 
 	bundle, err := Load(root)
 	require.NoError(t, err)
-	require.Contains(t, strings.Join(bundle.Verify(), "\n"), "hyphen.cfg: must be published as a derived resource")
+	require.Contains(t, strings.Join(bundle.Verify(), "\n"), "hyphen.cfg: does not resolve to a single source")
 }
 
 func TestVerifyReportsCorruptDerivedBlob(t *testing.T) {
@@ -159,6 +184,13 @@ func TestVerifyReportsCorruptDerivedBlob(t *testing.T) {
 	bundle, err := Load(root)
 	require.NoError(t, err)
 	require.Contains(t, strings.Join(bundle.Verify(), "\n"), "derived blob does not match its recorded hash")
+}
+
+func TestEmbeddedProfileVerifiesAllRequiredResources(t *testing.T) {
+	bundle, err := Embedded()
+	require.NoError(t, err)
+	require.Equal(t, "tl2026-tlnet-20261122", bundle.Profile.Profile)
+	require.Empty(t, bundle.Verify(), "the committed profile must keep all seven template resources resolvable")
 }
 
 func TestLoadRejectsTamperedArtifacts(t *testing.T) {

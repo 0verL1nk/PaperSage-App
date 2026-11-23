@@ -1,0 +1,17 @@
+{
+  "built_at": "2026-11-23T13:01:17+00:00",
+  "derived": [],
+  "lookups": {
+    "ambiguous": 625,
+    "entries": 1539,
+    "sha256": "fa88e934383a6ca698e58e9723be2bd781c8bede4d30bcd219b303bcb17ea45b",
+    "unresolved": 271
+  },
+  "profile": "tl2026-tlnet-20261122",
+  "snapshot": "https://texlive.info/tlnet-archive/2026/11/22/tlnet",
+  "tlpdb": {
+    "path": "tlpdb.xz",
+    "sha512": "1b69a62f8e133950e8dbfbb2378a372b6483138cf64a8a0da88c164842624822538846e1fd161f2c48413ae16f26d63f1932dfd77eb7551b54888f57e7e0f5b3",
+    "size": 2832116
+  }
+}

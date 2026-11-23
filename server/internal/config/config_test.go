@@ -35,7 +35,8 @@ func TestLoadDefaults(t *testing.T) {
 	assert.False(t, s.LatexCLSIEnabled)
 	assert.Equal(t, "http://localhost:3013", s.LatexCLSIBaseURL)
 	assert.Equal(t, 120, s.LatexCLSITimeoutSeconds)
-	assert.Equal(t, "tl2026-swift-ef78b612-r80534-v7", s.LatexResourceProfile)
+	assert.Equal(t, "./data/latex-resources", s.LatexResourceCacheDir)
+	assert.Equal(t, int64(2<<30), s.LatexResourceCacheMaxBytes)
 
 	assert.Equal(t, 3, s.MaxConcurrentCompiles)
 	assert.Equal(t, 120, s.LatexCompileTimeout)
