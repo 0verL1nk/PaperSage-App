@@ -4,6 +4,17 @@ import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { useSessionStore } from '@/store'
 
+// react-pdf pulls in pdfjs, which needs DOMMatrix that jsdom does not provide.
+// Same mock as the other suites that render through the PDF layer.
+vi.mock('react-pdf', () => ({
+  pdfjs: {
+    getDocument: vi.fn(),
+    GlobalWorkerOptions: {},
+    PDFDataRangeTransport: class PDFDataRangeTransport {},
+    version: '5.4.296',
+  },
+}))
+
 const mutate = vi.fn()
 const state = {
   project_id: 'project-1', scenario: 'undergraduate_thesis' as const,
