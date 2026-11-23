@@ -34,10 +34,17 @@ export const REFRESH_TOKEN_KEY = 'papersage_refresh_token'
  * Seed fake JWTs before the app initializes its Zustand session store.
  * Route mocks should be installed after this call and before the first
  * navigation to a protected route.
+ *
+ * When the context already starts from `storageState` (global-setup logs
+ * in for real) that session wins: overwriting it with fake tokens makes
+ * every unmocked request answer 401, and the axios interceptor then
+ * refreshes, fails, clears the session and redirects to /auth — the page
+ * under test disappears mid-assertion.
  */
 export async function seedAuthTokens(page: Page) {
   await page.addInitScript(
     ([access, refresh]) => {
+      if (window.localStorage.getItem(access)) return
       window.localStorage.setItem(access, 'fake-access-token')
       window.localStorage.setItem(refresh, 'fake-refresh-token')
     },
