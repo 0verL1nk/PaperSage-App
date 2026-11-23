@@ -215,7 +215,6 @@ const REVIEW_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bfinding\b/gi, '问题'],
   [/\bbasis\b/gi, '依据'],
   [/\bplan\b/gi, '章节计划'],
-  [/\br(\d+)\b/gi, '课题要求'],
 ]
 
 /**
@@ -225,13 +224,23 @@ const REVIEW_TEXT_REPLACEMENTS: Array<[RegExp, string]> = [
 export function humanizeReviewText(text: string, titles: Map<string, string>): string {
   if (!text) return text
   let out = text
+  // 先处理带上下文的组合，避免替换后重复（项目要求 r1 → 课题要求 1；
+  // s5「讨论」保持一份标题；上下文提示语顺成人话）。
+  out = out.replace(/项目要求\s*r(\d+)/gi, '课题要求 $1')
+  out = out.replace(/检查上下文\s*返回\s*/g, '')
+  out = out.replace(/材料提示\s*亦?提示/g, '材料提示也说明')
   for (const [pattern, replacement] of REVIEW_TEXT_REPLACEMENTS) {
     out = out.replace(pattern, replacement)
   }
+  out = out.replace(/s(\d+)\s*「([^」]+)」/gi, (_match, digits: string, title: string) => {
+    return `「${titles.get(`s${digits}`) ?? title}」`
+  })
   out = out.replace(/\bs(\d+)\b/gi, (_match, digits: string) => {
     const title = titles.get(`s${digits}`)
     return title ? `「${title}」` : '对应章节'
   })
+  // 保留要求编号，方便多条要求时区分。
+  out = out.replace(/\br(\d+)\b/gi, '要求 $1')
   // 去掉替换后残留的中文/引号之间空格，保留英文与数字之间的正常间隔。
   return out.replace(/([一-鿿「」])\s+(?=[一-鿿「」])/g, '$1')
 }

@@ -404,10 +404,10 @@ export function ReviewPage() {
                         <p className="font-medium text-foreground">与上一次报告对比</p>
                         <p className="mt-1">新增 {comparison.added.length} 条，已消失 {comparison.resolved.length} 条，仍存在 {comparison.persisting.length} 条。</p>
                         {comparison.added.length > 0 ? (
-                          <p className="mt-1">新增：{comparison.added.map((finding) => finding.problem).join('；')}</p>
+                          <p className="mt-1">新增：{comparison.added.map((finding) => humanizeReviewText(finding.problem, sectionTitles)).join('；')}</p>
                         ) : null}
                         {comparison.resolved.length > 0 ? (
-                          <p className="mt-1">已消失：{comparison.resolved.map((finding) => finding.problem).join('；')}</p>
+                          <p className="mt-1">已消失：{comparison.resolved.map((finding) => humanizeReviewText(finding.problem, sectionTitles)).join('；')}</p>
                         ) : null}
                       </div>
                     ) : null}

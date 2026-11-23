@@ -228,6 +228,39 @@ describe('ReviewPage', () => {
     expect(screen.getByText(/新增 1 条，已消失 1 条，仍存在 0 条/)).toBeInTheDocument()
   })
 
+  it('humanizes the comparison block as well as the report cards', () => {
+    mocks.reportsState.data = [
+      reviewArtifact({
+        id: 'cmp-new', updatedAt: '2026-11-23T03:30:00+00:00',
+        dimensions: [
+          { key: 'goal_conclusion', status: 'checked' },
+          { key: 'evidence_support', status: 'insufficient', note: '缺少资料原文' },
+          { key: 'cross_section', status: 'findings' },
+          { key: 'norm_compliance', status: 'not_checked', note: '规范库尚未接入' },
+        ],
+        findings: [{
+          id: 'cmp-new-f', dimension: 'cross_section', severity: 'high', sectionTitle: '结论',
+          problem: '新问题：计划 s2 的 not_read 论断', nextStep: '补齐 s2 的证据',
+          basis: [{ kind: 'text', ref: 'chapters/conclusion.tex', quote: '新依据' }],
+        }],
+      }),
+      reviewArtifact({
+        id: 'cmp-old', updatedAt: '2026-11-23T05:00:00+08:00',
+        findings: [{
+          id: 'cmp-old-f', dimension: 'goal_conclusion', severity: 'medium', sectionTitle: '方法',
+          problem: '旧问题：计划 s4 的 not_read 论断', nextStep: '补齐 s4 的证据',
+          basis: [{ kind: 'text', ref: 'chapters/method.tex', quote: '旧依据' }],
+        }],
+      }),
+    ]
+    render(<ReviewPage />)
+    expect(screen.getByText(/新增：/, { selector: 'p' })).toHaveTextContent(/对应章节/)
+    expect(screen.getByText(/已消失：/, { selector: 'p' })).toHaveTextContent(/对应章节/)
+    expect(screen.queryByText(/not_read/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/计划 s2/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/计划 s4/)).not.toBeInTheDocument()
+  })
+
   it('renders model notes and plan references in student-facing Chinese', () => {
     const artifact = reviewArtifact()
     artifact.current!.payload = {

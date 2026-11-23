@@ -135,6 +135,19 @@ describe('humanizeReviewText', () => {
   it('falls back to a generic chapter label when the id is unknown', () => {
     expect(humanizeReviewText('计划 s9', new Map())).toContain('对应章节')
   })
+
+  it('does not duplicate a title already written after the id, and keeps requirement numbers', () => {
+    const text = humanizeReviewText(
+      '章节计划设有 s5「讨论」；项目要求 r1「参考文献按 GB/T 7714」；检查上下文返回 norms.available=false，材料提示亦提示规范库未接入',
+      new Map([['s5', '讨论']]),
+    )
+    expect(text).toContain('「讨论」')
+    expect(text).not.toContain('「讨论」「讨论」')
+    expect(text).toContain('课题要求 1')
+    expect(text).not.toContain('项目要求课题要求')
+    expect(text).toContain('材料提示也说明')
+    expect(text).not.toContain('检查上下文返回')
+  })
 })
 
 describe('planSectionTitles and displayBasisRef', () => {
