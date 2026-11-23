@@ -232,7 +232,8 @@ export function humanizeReviewText(text: string, titles: Map<string, string>): s
     const title = titles.get(`s${digits}`)
     return title ? `「${title}」` : '对应章节'
   })
-  return out
+  // 去掉替换后残留的中文/引号之间空格，保留英文与数字之间的正常间隔。
+  return out.replace(/([一-鿿「」])\s+(?=[一-鿿「」])/g, '$1')
 }
 
 export function displayBasisRef(basis: ReviewBasis, titles: Map<string, string>): string {

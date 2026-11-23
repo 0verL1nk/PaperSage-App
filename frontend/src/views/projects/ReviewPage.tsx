@@ -142,7 +142,7 @@ export function ReviewPage() {
               先用本地规则检查文件结构，再由 AI 结合项目背景、章节计划、各章正文与资料做跨章节论证审阅。
             </p>
           </div>
-          <Button asChild className="min-h-11 w-full shrink-0 sm:w-auto">
+          <Button asChild className="min-h-[44px] w-full shrink-0 sm:w-auto">
             <Link to="/project/$projectId/writing" params={{ projectId }}>
               打开论文撰写 <ArrowRight className="ml-2 size-4" />
             </Link>
@@ -167,12 +167,12 @@ export function ReviewPage() {
                   <div className="min-w-0">
                     <span className="break-words">{friendlyErrorMessage(error)}</span>
                     <details className="mt-1 text-xs text-muted-foreground">
-                      <summary className="flex min-h-9 cursor-pointer items-center">技术细节</summary>
+                      <summary className="flex min-h-[44px] cursor-pointer items-center">技术细节</summary>
                       <p className="break-all">{error.message}</p>
                     </details>
                   </div>
                 </div>
-                <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={() => void refetch()}>
+                <Button type="button" variant="outline" className="min-h-[44px] shrink-0" onClick={() => void refetch()}>
                   <RefreshCw className="mr-2 size-4" />重试读取
                 </Button>
               </div>
@@ -200,7 +200,7 @@ export function ReviewPage() {
                       <p className="mt-1 break-words text-xs leading-5 text-muted-foreground">{check.detail}</p>
                     </div>
                     {check.status !== 'pass' && (
-                      <Button asChild variant="ghost" className="min-h-10 shrink-0 justify-start px-2 sm:justify-center">
+                      <Button asChild variant="ghost" className="min-h-[44px] shrink-0 justify-start px-2 sm:justify-center">
                         <Link to="/project/$projectId/writing" params={{ projectId }}>去修改 <ArrowRight className="ml-1 size-3.5" /></Link>
                       </Button>
                     )}
@@ -237,7 +237,7 @@ export function ReviewPage() {
             ) : (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="min-w-0">
-                  <Button type="button" className="min-h-11" onClick={runReview} disabled={runDisabled}>
+                  <Button type="button" className="min-h-[44px]" onClick={runReview} disabled={runDisabled}>
                     {chat.streaming ? <LoaderCircle className="mr-2 size-4 animate-spin" /> : <Play className="mr-2 size-4" />}
                     {chat.streaming ? '正在检查…' : '运行跨章节检查'}
                   </Button>
@@ -247,12 +247,12 @@ export function ReviewPage() {
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                   {!settingsPending && !modelReady ? (
-                    <Button asChild variant="outline" className="min-h-11">
+                    <Button asChild variant="outline" className="min-h-[44px]">
                       <Link to="/app/settings">去设置模型</Link>
                     </Button>
                   ) : null}
                   {chat.streaming ? (
-                    <Button type="button" variant="outline" className="min-h-11" onClick={() => void chat.cancel()} disabled={chat.cancelling}>
+                    <Button type="button" variant="outline" className="min-h-[44px]" onClick={() => void chat.cancel()} disabled={chat.cancelling}>
                       <Square className="mr-2 size-4" />{chat.cancelling ? '正在取消…' : '取消检查'}
                     </Button>
                   ) : null}
@@ -276,7 +276,7 @@ export function ReviewPage() {
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
                   <span className="break-words">检查未完成：{friendlyErrorMessage(chat.error)}</span>
                 </div>
-                <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={runReview} disabled={runDisabled}>
+                <Button type="button" variant="outline" className="min-h-[44px] shrink-0" onClick={runReview} disabled={runDisabled}>
                   <RefreshCw className="mr-2 size-4" />重新运行检查
                 </Button>
               </div>
@@ -293,12 +293,12 @@ export function ReviewPage() {
                   <div className="min-w-0">
                     <span className="break-words">历史报告加载失败：{friendlyErrorMessage(reportsQuery.error)}</span>
                     <details className="mt-1 text-xs text-muted-foreground">
-                      <summary className="flex min-h-9 cursor-pointer items-center">技术细节</summary>
+                      <summary className="flex min-h-[44px] cursor-pointer items-center">技术细节</summary>
                       <p className="break-all">{reportsQuery.error.message}</p>
                     </details>
                   </div>
                 </div>
-                <Button type="button" variant="outline" className="min-h-11 shrink-0" onClick={() => void refetchReports()}>
+                <Button type="button" variant="outline" className="min-h-[44px] shrink-0" onClick={() => void refetchReports()}>
                   <RefreshCw className="mr-2 size-4" />重试读取
                 </Button>
               </div>
@@ -318,7 +318,7 @@ export function ReviewPage() {
                   这些记录的维度状态与问题列表不一致，不会作为审查结果展示，也不能在历史中选择。修复后的新报告不受影响。
                 </p>
                 <details className="mt-2 text-xs text-muted-foreground">
-                  <summary className="flex min-h-11 cursor-pointer items-center">查看被隔离记录</summary>
+                  <summary className="flex min-h-[44px] cursor-pointer items-center">查看被隔离记录</summary>
                   <ul className="mt-1 list-disc space-y-1 pl-5">
                     {isolatedReports.map(({ report, problems }) => (
                       <li key={report.id}>{formatReviewTime(report.updatedAt)}：{problems[0]}</li>
@@ -336,7 +336,7 @@ export function ReviewPage() {
                     <label htmlFor="review-history" className="font-medium">查看历史报告</label>
                     <select
                       id="review-history"
-                      className="min-h-11 rounded-lg border border-border/60 bg-background px-2 text-xs"
+                      className="min-h-[44px] rounded-lg border border-border/60 bg-background px-2 text-xs"
                       value={selected.id}
                       onChange={(event) => setSelectedId(event.target.value)}
                     >
@@ -435,7 +435,7 @@ export function ReviewPage() {
                               ) : null}
                               <p className="mt-2 break-words text-sm leading-6">{humanizeReviewText(finding.problem, sectionTitles)}</p>
                               <details className="mt-2">
-                                <summary className="flex min-h-11 cursor-pointer items-center text-xs font-medium text-primary">查看依据（{finding.basis.length}）</summary>
+                                <summary className="flex min-h-[44px] cursor-pointer items-center text-xs font-medium text-primary">查看依据（{finding.basis.length}）</summary>
                                 <ul className="mt-1 space-y-1">
                                   {finding.basis.map((basis, index) => (
                                     <li key={`${finding.id}-basis-${index}`} className="rounded-lg bg-muted/30 p-2 text-xs">
@@ -458,7 +458,7 @@ export function ReviewPage() {
 
                     {payload.sourcesRead?.length ? (
                       <details className="rounded-xl border border-border/50 bg-muted/20 p-3 text-xs">
-                        <summary className="flex min-h-11 cursor-pointer items-center font-medium">本次读取的材料（{payload.sourcesRead.length}）</summary>
+                        <summary className="flex min-h-[44px] cursor-pointer items-center font-medium">本次读取的材料（{payload.sourcesRead.length}）</summary>
                         <ul className="mt-2 space-y-1 text-muted-foreground">
                           {payload.sourcesRead.map((source, index) => (
                             <li key={`${source.kind}-${source.name}-${index}`}>{REVIEW_SOURCE_LABEL[source.kind] ?? source.kind}：{source.name}</li>
