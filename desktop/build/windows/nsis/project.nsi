@@ -95,7 +95,6 @@ Section
 
     SetOutPath "$INSTDIR\backend"
     File "..\..\..\bin\backend\papersage.exe"
-    File "..\..\..\bin\backend\catalog.json.gz"
     SetOutPath $INSTDIR
 
     CreateShortcut "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk" "$INSTDIR\${PRODUCT_EXECUTABLE}"
@@ -113,7 +112,6 @@ Section "uninstall"
     # Keep the WebView2 profile, which can contain guest workspaces.
     Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
     Delete "$INSTDIR\backend\papersage.exe"
-    Delete "$INSTDIR\backend\catalog.json.gz"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"

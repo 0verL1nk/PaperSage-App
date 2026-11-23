@@ -59,8 +59,10 @@ function fail(message) {
 }
 
 if (manifest.schemaVersion !== 1) fail(`unsupported schema version: ${manifest.schemaVersion}`)
-if (!/^[a-f0-9]{64}$/.test(manifest.resourceCatalog?.localCatalogSha256 ?? '')) {
-  fail('resource catalog SHA-256 is missing or invalid')
+// The profile id is no longer baked into the manifest; clients discover it from
+// GET /texlive/profile, so a profile upgrade ships only a new backend binary.
+if (!Number.isSafeInteger(manifest.resourceCatalog?.texLiveYear)) {
+  fail('resource catalog TeX Live year is missing or invalid')
 }
 const executionLimits = manifest.executionLimits
 if (!Number.isSafeInteger(executionLimits?.swiftLatexWasmMaximumMemoryBytes)

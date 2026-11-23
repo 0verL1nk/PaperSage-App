@@ -21,8 +21,6 @@ contents:
     dst: "/usr/local/bin/papersage"
   - src: "./bin/backend/papersage"
     dst: "/usr/local/bin/backend/papersage"
-  - src: "./bin/backend/catalog.json.gz"
-    dst: "/usr/local/bin/backend/catalog.json.gz"
   - src: "./build/appicon.png"
     dst: "/usr/share/icons/hicolor/128x128/apps/papersage.png"
   - src: "./build/linux/papersage.desktop"

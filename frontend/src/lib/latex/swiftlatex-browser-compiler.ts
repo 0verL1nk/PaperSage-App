@@ -89,7 +89,28 @@ const engineResourceUrl = (id: string): string => {
   return resource.url
 }
 const ENGINE_VERSION = browserEngineManifest.engineVersion
-const TEXLIVE_RESOURCE_PROFILE = import.meta.env.VITE_LATEX_RESOURCE_PROFILE || browserEngineManifest.resourceCatalog.profileId
+
+/**
+ * The backend embeds the profile, so clients ask for it instead of baking it
+ * into a build and having to redeploy the frontend on every profile upgrade.
+ */
+async function discoverResourceProfile(origin: string): Promise<string> {
+  let response: Response
+  try {
+    response = await fetch(new URL('/texlive/profile', origin).href, { headers: { Accept: 'application/json' } })
+  } catch {
+    throw new Error('无法获取 LaTeX 资源目录版本：网络不可用，请检查连接后重试')
+  }
+  if (!response.ok) {
+    throw new Error(`无法获取 LaTeX 资源目录版本：服务返回 ${response.status}`)
+  }
+  const payload: unknown = await response.json().catch(() => null)
+  const profile = payload && typeof payload === 'object' ? (payload as { profile?: unknown }).profile : undefined
+  if (typeof profile !== 'string' || profile === '') {
+    throw new Error('无法获取 LaTeX 资源目录版本：服务响应缺少 profile')
+  }
+  return profile
+}
 const ENGINE_URL = engineResourceUrl('papersage-swift-worker')
 const BIBTEX_WORKER_ENTRY_URL = engineResourceUrl('wasmtex-bibtex-entry')
 const DVIPDFMX_WORKER_URL = engineResourceUrl('texlive2026-dvipdfmx-worker')
@@ -493,7 +514,7 @@ export async function compileLatexInBrowser(
   const resourceOrigin = isDesktop() && getApiTarget() === 'local'
     ? window.location.origin
     : apiBaseUrl || window.location.origin
-  const texLiveBaseUrl = new URL(`/texlive/${TEXLIVE_RESOURCE_PROFILE}/`, resourceOrigin).href
+  const texLiveBaseUrl = new URL(`/texlive/${await discoverResourceProfile(resourceOrigin)}/`, resourceOrigin).href
   const loadedPackages = new Set<string>()
   const loadedLookups = new Map<string, BrowserLatexResourceLookup>()
   const failedResources = new Map<string, BrowserLatexResourceEvent>()

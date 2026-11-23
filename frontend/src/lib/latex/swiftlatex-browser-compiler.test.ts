@@ -37,6 +37,12 @@ describe('browser compiler resource origin', () => {
     messages.length = 0
     startWorker.mockClear()
     vi.stubGlobal('Worker', TestWorker)
+    // Compilation starts by discovering the served profile from the backend.
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ profile: 'tl-test-profile' }),
+    }))
     vi.stubGlobal('navigator', {
       serviceWorker: { register: vi.fn().mockResolvedValue(undefined), ready: Promise.resolve() },
     })
