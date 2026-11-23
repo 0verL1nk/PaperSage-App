@@ -1,0 +1,253 @@
+// Package profile loads and verifies a published TeX Live profile before it is
+// embedded in the server binary. Everything here is offline: it reads a profile
+// directory and reports every problem it finds instead of stopping at the first.
+package profile
+
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+)
+
+const (
+	schemaVersion = 1
+	maxLookups    = 64 << 20
+)
+
+// QualifiedResource is a lookup the school template cannot compile without.
+type QualifiedResource struct {
+	Kind   string
+	Format string
+	Name   string
+	// Derived marks resources TeX Live generates at install time; they must be
+	// published as derived blobs because no package archive contains them.
+	Derived bool
+}
+
+// RequiredResources is the offline counterpart of the deploy probe: the same
+// seven files, checked before a profile is allowed into a build.
+var RequiredResources = []QualifiedResource{
+	{Kind: "xetex", Format: "26", Name: "kvoptions.sty"},
+	{Kind: "xetex", Format: "26", Name: "geometry.sty"},
+	{Kind: "xetex", Format: "26", Name: "ifxetex.sty"},
+	{Kind: "xetex", Format: "26", Name: "ccaption.sty"},
+	{Kind: "xetex", Format: "26", Name: "layouts.sty"},
+	{Kind: "xetex", Format: "26", Name: "gbt7714.sty"},
+	{Kind: "xetex", Format: "26", Name: "hyphen.cfg", Derived: true},
+}
+
+type Profile struct {
+	SchemaVersion    int                              `json:"schema_version"`
+	Profile          string                           `json:"profile"`
+	Repository       string                           `json:"repository"`
+	Tlpdb            TlpdbArtifact                    `json:"tlpdb"`
+	Lookups          LookupsArtifact                  `json:"lookups"`
+	FormatSuffixes   []FormatSuffix                   `json:"format_suffixes"`
+	LicenseOverrides map[string]latex.LicenseOverride `json:"license_overrides"`
+}
+
+type TlpdbArtifact struct {
+	Path   string `json:"path"`
+	SHA512 string `json:"sha512"`
+	Size   int64  `json:"size"`
+}
+
+type LookupsArtifact struct {
+	SHA256  string `json:"sha256"`
+	Entries int    `json:"entries"`
+}
+
+type FormatSuffix struct {
+	Kind     string   `json:"kind"`
+	Format   string   `json:"format"`
+	Suffixes []string `json:"suffixes"`
+}
+
+// Lookup is one exact resolution the filename index cannot express: a font
+// alias, an ambiguous basename override, or a generated file.
+type Lookup struct {
+	Kind    string   `json:"k"`
+	Format  string   `json:"f"`
+	Name    string   `json:"n"`
+	Source  string   `json:"p,omitempty"`
+	Derived *Derived `json:"d,omitempty"`
+}
+
+type Derived struct {
+	SHA256    string `json:"sha256"`
+	Size      int64  `json:"size"`
+	MediaType string `json:"media_type"`
+}
+
+// Bundle is a loaded profile plus everything verification needs in memory.
+type Bundle struct {
+	Profile Profile
+	Lookups map[string]Lookup
+	Index   map[string][]latex.TexliveProvenance
+	Root    string
+}
+
+// Load reads and structurally validates one profile directory. Failures that
+// make verification impossible are returned as an error; content mismatches are
+// reported by Verify so an operator sees every problem at once.
+func Load(root string) (*Bundle, error) {
+	raw, err := os.ReadFile(filepath.Join(root, "profile.json"))
+	if err != nil {
+		return nil, err
+	}
+	var profile Profile
+	if err := json.Unmarshal(raw, &profile); err != nil {
+		return nil, fmt.Errorf("decode profile.json: %w", err)
+	}
+	if profile.SchemaVersion != schemaVersion {
+		return nil, fmt.Errorf("profile.json schema_version %d is not %d", profile.SchemaVersion, schemaVersion)
+	}
+	if profile.Profile == "" || profile.Repository == "" {
+		return nil, errors.New("profile.json is missing profile or repository")
+	}
+	tlpdb, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(profile.Tlpdb.Path)))
+	if err != nil {
+		return nil, err
+	}
+	digest := sha512.Sum512(tlpdb)
+	if hex.EncodeToString(digest[:]) != profile.Tlpdb.SHA512 || int64(len(tlpdb)) != profile.Tlpdb.Size {
+		return nil, errors.New("tlpdb bytes do not match profile.json")
+	}
+	database, err := latex.ParseTlpdbXZ(tlpdb)
+	if err != nil {
+		return nil, err
+	}
+	index, _ := latex.BuildTexliveIndex(database, profile.LicenseOverrides)
+	lookups, err := loadLookups(filepath.Join(root, "lookups.json.gz"), profile.Lookups.SHA256)
+	if err != nil {
+		return nil, err
+	}
+	return &Bundle{Profile: profile, Lookups: lookups, Index: index, Root: root}, nil
+}
+
+func loadLookups(path, expectedSHA256 string) (map[string]Lookup, error) {
+	compressed, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(compressed)
+	if hex.EncodeToString(digest[:]) != expectedSHA256 {
+		return nil, errors.New("lookups.json.gz does not match profile.json")
+	}
+	reader, err := gzip.NewReader(bytes.NewReader(compressed))
+	if err != nil {
+		return nil, fmt.Errorf("open lookups.json.gz: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+	var entries []Lookup
+	if err := json.NewDecoder(io.LimitReader(reader, maxLookups)).Decode(&entries); err != nil {
+		return nil, fmt.Errorf("decode lookups.json.gz: %w", err)
+	}
+	lookups := make(map[string]Lookup, len(entries))
+	for _, entry := range entries {
+		key := lookupKey(entry)
+		if _, exists := lookups[key]; exists {
+			return nil, fmt.Errorf("duplicate lookup %s/%s/%s", entry.Kind, entry.Format, entry.Name)
+		}
+		lookups[key] = entry
+	}
+	return lookups, nil
+}
+
+func lookupKey(entry Lookup) string {
+	return entry.Kind + "\x00" + entry.Format + "\x00" + entry.Name
+}
+
+// Verify reports every problem that would keep this profile from serving the
+// required resources. An empty result means the profile is publishable.
+func (b *Bundle) Verify() []string {
+	var findings []string
+	if len(b.Profile.FormatSuffixes) == 0 {
+		findings = append(findings, "profile.json has no format_suffixes")
+	}
+	if b.Profile.Lookups.Entries != len(b.Lookups) {
+		findings = append(findings, fmt.Sprintf("lookups.json.gz has %d entries, profile.json declares %d", len(b.Lookups), b.Profile.Lookups.Entries))
+	}
+	for _, entry := range b.Lookups {
+		if entry.Derived == nil {
+			continue
+		}
+		if finding := b.verifyDerived(entry); finding != "" {
+			findings = append(findings, finding)
+		}
+	}
+	for _, required := range RequiredResources {
+		if finding := b.verifyRequired(required); finding != "" {
+			findings = append(findings, finding)
+		}
+	}
+	sort.Strings(findings)
+	return findings
+}
+
+func (b *Bundle) verifyDerived(entry Lookup) string {
+	data, err := os.ReadFile(filepath.Join(b.Root, "derived", entry.Derived.SHA256))
+	if err != nil {
+		return fmt.Sprintf("%s/%s/%s: derived blob is unreadable", entry.Kind, entry.Format, entry.Name)
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != entry.Derived.SHA256 || int64(len(data)) != entry.Derived.Size {
+		return fmt.Sprintf("%s/%s/%s: derived blob does not match its recorded hash", entry.Kind, entry.Format, entry.Name)
+	}
+	return ""
+}
+
+func (b *Bundle) verifyRequired(required QualifiedResource) string {
+	label := required.Kind + "/" + required.Format + "/" + required.Name
+	lookup, hasLookup := b.Lookups[lookupKey(Lookup{Kind: required.Kind, Format: required.Format, Name: required.Name})]
+	if required.Derived {
+		if !hasLookup || lookup.Derived == nil {
+			return label + ": must be published as a derived resource"
+		}
+		return ""
+	}
+	if hasLookup && lookup.Derived != nil {
+		return ""
+	}
+	if len(b.Index[required.Name]) == 0 {
+		return label + ": not present in the tlpdb index"
+	}
+	return ""
+}
+
+// Resolve returns the provenance a lookup resolves to, mirroring the runtime
+// order: an explicit source path first, then the unique filename index entry.
+func (b *Bundle) Resolve(entry QualifiedResource) (latex.TexliveProvenance, bool) {
+	if lookup, ok := b.Lookups[lookupKey(Lookup{Kind: entry.Kind, Format: entry.Format, Name: entry.Name})]; ok && lookup.Source != "" {
+		for _, record := range b.Index[baseName(lookup.Source)] {
+			if record.SourcePath == lookup.Source {
+				return record, true
+			}
+		}
+		return latex.TexliveProvenance{}, false
+	}
+	records := b.Index[entry.Name]
+	if len(records) != 1 {
+		return latex.TexliveProvenance{}, false
+	}
+	return records[0], true
+}
+
+func baseName(path string) string {
+	if index := strings.LastIndex(path, "/"); index >= 0 {
+		return path[index+1:]
+	}
+	return path
+}
