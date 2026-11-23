@@ -88,6 +88,43 @@ export function dimensionOf(report: ChapterReviewPayload, key: ReviewDimensionKe
   return report.dimensions?.find((item) => item.key === key)
 }
 
+/**
+ * 旧报告一致性检查：修复前可能存下「维度标 findings 却没有问题条目」的记录。
+ * 返回非空表示这份历史报告不可作为审查结果展示（前端隔离，不改写既有数据）。
+ */
+export function reviewReportProblems(report: ChapterReviewPayload): string[] {
+  const problems: string[] = []
+  const dimensions = report.dimensions ?? []
+  const keys = new Set<string>()
+  for (const dimension of dimensions) {
+    if (keys.has(dimension.key)) {
+      problems.push(`${REVIEW_DIMENSION_LABEL[dimension.key] ?? dimension.key}：维度重复`)
+    }
+    keys.add(dimension.key)
+  }
+  for (const key of REVIEW_DIMENSION_ORDER) {
+    if (!keys.has(key)) problems.push(`${REVIEW_DIMENSION_LABEL[key]}：缺少维度结果`)
+  }
+  const counts = new Map<string, number>()
+  for (const finding of report.findings ?? []) {
+    counts.set(finding.dimension, (counts.get(finding.dimension) ?? 0) + 1)
+    if (!keys.has(finding.dimension)) {
+      problems.push(`问题 ${finding.id} 的维度不在四维结果中`)
+    }
+  }
+  for (const dimension of dimensions) {
+    const count = counts.get(dimension.key) ?? 0
+    const label = REVIEW_DIMENSION_LABEL[dimension.key] ?? dimension.key
+    if (dimension.status === 'findings' && count === 0) {
+      problems.push(`${label}：标记为发现问题，但没有问题条目`)
+    }
+    if (dimension.status === 'checked' && count > 0) {
+      problems.push(`${label}：标记为已检查，但包含问题条目`)
+    }
+  }
+  return problems
+}
+
 /** 问题按固定维度顺序分组；未知维度也保留，避免报告字段漂移时静默丢问题。 */
 export function findingsByDimension(report: ChapterReviewPayload): Array<{ key: ReviewDimensionKey; label: string; findings: ReviewFinding[] }> {
   const groups = new Map<ReviewDimensionKey, ReviewFinding[]>()

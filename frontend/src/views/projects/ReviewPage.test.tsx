@@ -175,11 +175,20 @@ describe('ReviewPage', () => {
 
   it('compares the selected report with the previous one', () => {
     mocks.reportsState.data = [
-      reviewArtifact({ id: 'new', updatedAt: '2026-11-23T02:00:00Z', findings: [{
-        id: 'f-new', dimension: 'cross_section', severity: 'medium', sectionTitle: '结论',
-        problem: '结论与结果重复表述', nextStep: '合并重复段落',
-        basis: [{ kind: 'text', ref: 'chapters/conclusion.tex', quote: '重复表述' }],
-      }] }),
+      reviewArtifact({
+        id: 'new', updatedAt: '2026-11-23T02:00:00Z',
+        dimensions: [
+          { key: 'goal_conclusion', status: 'checked' },
+          { key: 'evidence_support', status: 'insufficient', note: '缺少资料原文' },
+          { key: 'cross_section', status: 'findings' },
+          { key: 'norm_compliance', status: 'not_checked', note: '规范库尚未接入' },
+        ],
+        findings: [{
+          id: 'f-new', dimension: 'cross_section', severity: 'medium', sectionTitle: '结论',
+          problem: '结论与结果重复表述', nextStep: '合并重复段落',
+          basis: [{ kind: 'text', ref: 'chapters/conclusion.tex', quote: '重复表述' }],
+        }],
+      }),
       reviewArtifact({ id: 'old', updatedAt: '2026-11-23T01:00:00Z' }),
     ]
     render(<ReviewPage />)
@@ -208,6 +217,27 @@ describe('ReviewPage', () => {
     expect(screen.getByText(/历史报告加载失败：offline/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
     expect(mocks.reportsRefetch).toHaveBeenCalledOnce()
+  })
+
+  it('isolates legacy reports whose dimension status does not match the findings', () => {
+    mocks.reportsState.data = [
+      reviewArtifact({ id: 'valid', updatedAt: '2026-11-23T10:13:00Z' }),
+      reviewArtifact({ id: 'legacy', updatedAt: '2026-11-23T09:58:00Z', findings: [] }),
+    ]
+    render(<ReviewPage />)
+    expect(screen.getByText(/已隔离 1 份修复前的无效报告/)).toBeInTheDocument()
+    expect(screen.getByText(/修复后的新报告不受影响/)).toBeInTheDocument()
+    expect(screen.getByText('方法与结论的样本量不一致')).toBeInTheDocument()
+    expect(screen.queryByLabelText('查看历史报告')).not.toBeInTheDocument()
+  })
+
+  it('never presents a legacy invalid report as a valid result when it is the only one', () => {
+    mocks.reportsState.data = [reviewArtifact({ id: 'legacy', findings: [] })]
+    render(<ReviewPage />)
+    expect(screen.getByText(/已隔离 1 份修复前的无效报告/)).toBeInTheDocument()
+    expect(screen.getByText('还没有有效的跨章节检查报告')).toBeInTheDocument()
+    expect(screen.queryByText('查看历史报告')).not.toBeInTheDocument()
+    expect(screen.queryByText(/本次覆盖不完整/)).not.toBeInTheDocument()
   })
 
   it('offers a fix path when the project has no main file', () => {

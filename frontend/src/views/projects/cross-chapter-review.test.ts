@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { ChapterReviewPayload, ReviewFinding } from '@/types/research'
-import { compareReviewReports, findingsByDimension, reviewCoverage, reviewLocation } from './cross-chapter-review'
+import { compareReviewReports, findingsByDimension, reviewCoverage, reviewLocation, reviewReportProblems } from './cross-chapter-review'
 
 function finding(overrides: Partial<ReviewFinding> = {}): ReviewFinding {
   return {
@@ -89,5 +89,34 @@ describe('findingsByDimension', () => {
 describe('reviewLocation', () => {
   it('renders section, file and line range without bare ids', () => {
     expect(reviewLocation(finding({ lineStart: 2, lineEnd: 3 }))).toBe('方法 · chapters/method.tex · 第 2–3 行')
+  })
+})
+
+describe('reviewReportProblems', () => {
+  it('accepts a consistent report', () => {
+    expect(reviewReportProblems(report())).toEqual([])
+  })
+
+  it('flags a dimension marked findings with no finding (the pre-fix legacy record)', () => {
+    const problems = reviewReportProblems(report({ findings: [] }))
+    expect(problems.join('')).toContain('目标与结论')
+    expect(problems.join('')).toContain('标记为发现问题，但没有问题条目')
+  })
+
+  it('flags a checked dimension that contains findings', () => {
+    const problems = reviewReportProblems(report({
+      dimensions: [
+        { key: 'goal_conclusion', status: 'checked' },
+        { key: 'evidence_support', status: 'insufficient', note: '缺少资料原文' },
+        { key: 'cross_section', status: 'checked' },
+        { key: 'norm_compliance', status: 'not_checked', note: '规范库尚未接入' },
+      ],
+    }))
+    expect(problems.join('')).toContain('标记为已检查，但包含问题条目')
+  })
+
+  it('flags missing dimensions instead of treating them as passed', () => {
+    const problems = reviewReportProblems(report({ dimensions: [{ key: 'goal_conclusion', status: 'findings' }] }))
+    expect(problems.filter((problem) => problem.includes('缺少维度结果'))).toHaveLength(3)
   })
 })

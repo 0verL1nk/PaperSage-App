@@ -30,6 +30,7 @@ import {
   formatReviewTime,
   reviewCoverage,
   reviewLocation,
+  reviewReportProblems,
 } from './cross-chapter-review'
 import { AiPanel } from './ai-panel'
 
@@ -76,9 +77,24 @@ export function ReviewPage() {
 
   const reportsQuery = useResearchArtifacts(isGuest ? undefined : projectId, 'chapter_review')
   const refetchReports = reportsQuery.refetch
-  const reports = useMemo(
-    () => [...(reportsQuery.data ?? [])].sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')),
+  const parsedReports = useMemo(
+    () => [...(reportsQuery.data ?? [])]
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))
+      .map((report) => {
+        const payload = reviewPayload(report)
+        // 修复前的历史报告可能是「维度标 findings 却没有问题」；隔离而不是改写用户数据。
+        const problems = payload ? reviewReportProblems(payload) : ['报告内容无法读取']
+        return { report, problems }
+      }),
     [reportsQuery.data],
+  )
+  const reports = useMemo(
+    () => parsedReports.filter((item) => item.problems.length === 0).map((item) => item.report),
+    [parsedReports],
+  )
+  const isolatedReports = useMemo(
+    () => parsedReports.filter((item) => item.problems.length > 0),
+    [parsedReports],
   )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const selectedIndex = Math.max(0, reports.findIndex((report) => report.id === selectedId))
@@ -268,8 +284,27 @@ export function ReviewPage() {
               </div>
             ) : !isGuest && reports.length === 0 && !chat.streaming ? (
               <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-5 text-sm text-muted-foreground">
-                <p className="font-medium text-foreground">还没有跨章节检查报告</p>
+                <p className="font-medium text-foreground">{isolatedReports.length > 0 ? '还没有有效的跨章节检查报告' : '还没有跨章节检查报告'}</p>
                 <p className="mt-1">先准备好已采用的章节计划与各章正文，再点上方「运行跨章节检查」。报告会保存下来，方便对比和回看。</p>
+              </div>
+            ) : null}
+
+            {!isGuest && isolatedReports.length > 0 ? (
+              <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-sm">
+                <p className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                  <ShieldAlert className="size-4" />已隔离 {isolatedReports.length} 份修复前的无效报告
+                </p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  这些记录的维度状态与问题列表不一致，不会作为审查结果展示，也不能在历史中选择。修复后的新报告不受影响。
+                </p>
+                <details className="mt-2 text-xs text-muted-foreground">
+                  <summary className="cursor-pointer">查看被隔离记录</summary>
+                  <ul className="mt-1 list-disc space-y-1 pl-5">
+                    {isolatedReports.map(({ report, problems }) => (
+                      <li key={report.id}>{formatReviewTime(report.updatedAt)}：{problems[0]}</li>
+                    ))}
+                  </ul>
+                </details>
               </div>
             ) : null}
 
