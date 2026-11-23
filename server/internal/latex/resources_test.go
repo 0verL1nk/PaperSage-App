@@ -269,3 +269,64 @@ func TestResourceServiceServesProfileDiscovery(t *testing.T) {
 	require.JSONEq(t, `{"profile":"`+testResourceProfile+`"}`, response.Body.String())
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 }
+
+func TestResourceServiceFallsBackWhenTheSnapshotIsBotGated(t *testing.T) {
+	content := []byte("% amsmath resource")
+	archive := makeTestArchive(t, content)
+	bundle := writeTestProfile(t, archive, nil, nil)
+	bundle.Profile.Repository = "https://snapshot.example/tlnet"
+	bundle.Profile.Mirror = testResourceRepository
+
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = w.Write([]byte("<html>challenge</html>"))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+	target, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	cache, err := NewDiskCache(t.TempDir(), 1<<20)
+	require.NoError(t, err)
+	service, err := newResourceService(bundle, cache)
+	require.NoError(t, err)
+	service.archives.client.Transport = redirectingRoundTripper{base: server.Client().Transport, target: target}
+	engine := gin.New()
+	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Equal(t, content, response.Body.Bytes())
+	require.Equal(t, 2, requests, "the bot-gated primary must be followed by the mirror")
+}
+
+func TestResourceServiceReportsAnHTMLChallengeClearly(t *testing.T) {
+	content := []byte("% amsmath resource")
+	archive := makeTestArchive(t, content)
+	bundle := writeTestProfile(t, archive, nil, nil)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write([]byte("<html>challenge</html>"))
+	}))
+	t.Cleanup(server.Close)
+	target, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	cache, err := NewDiskCache(t.TempDir(), 1<<20)
+	require.NoError(t, err)
+	service, err := newResourceService(bundle, cache)
+	require.NoError(t, err)
+	service.archives.client.Transport = redirectingRoundTripper{base: server.Client().Transport, target: target}
+	engine := gin.New()
+	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil))
+	require.Equal(t, http.StatusBadGateway, response.Code)
+	require.Contains(t, response.Body.String(), "HTML page")
+}

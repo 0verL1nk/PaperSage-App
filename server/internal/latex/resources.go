@@ -2,9 +2,11 @@ package latex
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -35,11 +37,11 @@ type resourceLookup struct {
 // exact lookups first, then the filename index, with verified bytes persisted in
 // a local disk cache. It has no object-storage dependency.
 type resourceService struct {
-	bundle     *profile.Bundle
-	cache      *DiskCache
-	archives   *packageArchiveCache
-	repository string
-	profileID  string
+	bundle       *profile.Bundle
+	cache        *DiskCache
+	archives     *packageArchiveCache
+	repositories []string
+	profileID    string
 
 	formatSuffixes map[string][]string
 	packageMaps    map[string][]texlive.TexliveProvenance
@@ -55,11 +57,17 @@ func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceServ
 	if !resourceProfilePattern.MatchString(bundle.Profile.Profile) {
 		return nil, fmt.Errorf("invalid LaTeX resource profile")
 	}
-	if err := validateResourceRepository(bundle.Profile.Repository); err != nil {
-		return nil, err
+	repositories := []string{bundle.Profile.Repository}
+	if bundle.Profile.Mirror != "" {
+		repositories = append(repositories, bundle.Profile.Mirror)
+	}
+	for _, repository := range repositories {
+		if err := validateResourceRepository(repository); err != nil {
+			return nil, err
+		}
 	}
 	service := &resourceService{
-		bundle: bundle, cache: cache, repository: bundle.Profile.Repository,
+		bundle: bundle, cache: cache, repositories: repositories,
 		profileID: bundle.Profile.Profile, archives: newPackageArchiveCache(64 << 20),
 		formatSuffixes: make(map[string][]string),
 	}
@@ -224,7 +232,7 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
 	key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
 	entry, err := s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
-		data, fetchErr := s.archives.packageFile(c.Request.Context(), s.repository, provenance)
+		data, fetchErr := s.packageFile(c.Request.Context(), provenance)
 		if fetchErr != nil {
 			return DiskCacheEntry{}, fetchErr
 		}
@@ -247,6 +255,32 @@ func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup,
 		return
 	}
 	s.writeResource(c, lookup, entry.Meta.MediaType, entry.Meta.Package, entry.Meta.SHA256, entry.Data)
+}
+
+// packageFile tries every trusted source in order. All sources serve the same
+// pinned bytes, so a fallback never weakens the checksum guarantee.
+func (s *resourceService) packageFile(ctx context.Context, provenance texlive.TexliveProvenance) ([]byte, error) {
+	var failures []string
+	for _, repository := range s.repositories {
+		data, err := s.archives.packageFile(ctx, repository, provenance)
+		if err == nil {
+			return data, nil
+		}
+		failures = append(failures, fmt.Sprintf("%s: %v", repository, err))
+	}
+	return nil, errors.New(strings.Join(failures, "; "))
+}
+
+func (s *resourceService) packageFiles(ctx context.Context, provenance texlive.TexliveProvenance, paths []string) (map[string][]byte, error) {
+	var failures []string
+	for _, repository := range s.repositories {
+		content, err := s.archives.packageFiles(ctx, repository, provenance, paths)
+		if err == nil {
+			return content, nil
+		}
+		failures = append(failures, fmt.Sprintf("%s: %v", repository, err))
+	}
+	return nil, errors.New(strings.Join(failures, "; "))
 }
 
 func (s *resourceService) writeResource(c *gin.Context, lookup resourceLookup, mediaType, packageName, digest string, data []byte) {
@@ -462,7 +496,7 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 		}
 		contents := map[string][]byte{}
 		if sameArchive {
-			extracted, fetchErr := s.archives.packageFiles(c.Request.Context(), s.repository, mapFiles[0], paths)
+			extracted, fetchErr := s.packageFiles(c.Request.Context(), mapFiles[0], paths)
 			if fetchErr != nil {
 				c.Header("Cache-Control", "no-store")
 				c.String(http.StatusBadGateway, "font maps from package %q could not be fetched: %v", packageName, fetchErr)
@@ -474,7 +508,7 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 			content := contents[provenance.SourcePath]
 			if !sameArchive {
 				var fetchErr error
-				content, fetchErr = s.archives.packageFile(c.Request.Context(), s.repository, provenance)
+				content, fetchErr = s.packageFile(c.Request.Context(), provenance)
 				if fetchErr != nil {
 					c.Header("Cache-Control", "no-store")
 					c.String(http.StatusBadGateway, "font maps from package %q could not be fetched: %v", packageName, fetchErr)

@@ -1144,6 +1144,7 @@
     "entries": 1539,
     "sha256": "fa88e934383a6ca698e58e9723be2bd781c8bede4d30bcd219b303bcb17ea45b"
   },
+  "mirror": "https://mirror.ctan.org/systems/texlive/tlnet",
   "profile": "tl2026-tlnet-20261122",
   "repository": "https://texlive.info/tlnet-archive/2026/11/22/tlnet",
   "schema_version": 1,
