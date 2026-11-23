@@ -1,0 +1,149 @@
+# Builds a TeX Live profile from one immutable tlnet snapshot and verifies it
+# offline. The produced directory is committed to
+# server/internal/latex/profile/ by a human (or a follow-up PR); this workflow
+# never writes to the repository and needs no secrets.
+name: Publish LaTeX profile
+
+on:
+  workflow_dispatch:
+    inputs:
+      profile_id:
+        description: Profile identifier (becomes the profile id served to clients)
+        required: true
+        default: tl2026-tlnet-20261122
+      snapshot_url:
+        description: Immutable tlnet snapshot URL (install-tl repository)
+        required: true
+        default: https://texlive.info/tlnet-archive/2026/11/22/tlnet
+
+concurrency:
+  group: publish-latex-profile
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      # Dispatch inputs are user-controlled, so they are validated once and then
+      # read from the environment; they are never interpolated into a script.
+      - name: Validate inputs
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          SNAPSHOT_URL: ${{ inputs.snapshot_url }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$PROFILE_ID" =~ ^[A-Za-z0-9._-]{1,96}$ ]]; then
+            echo "invalid profile_id" >&2; exit 1
+          fi
+          if [[ ! "$SNAPSHOT_URL" =~ ^https://[A-Za-z0-9._~:/?#@!\$\&\(\\)*+,;=%-]+$ ]]; then
+            echo "invalid snapshot_url" >&2; exit 1
+          fi
+          echo "PROFILE_ID=$PROFILE_ID" >> "$GITHUB_ENV"
+          echo "SNAPSHOT_URL=$SNAPSHOT_URL" >> "$GITHUB_ENV"
+
+      - name: Install TeX Live from the pinned snapshot
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tlnet"
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/tlnet/install-tl-unx.tar.gz" \
+            "$SNAPSHOT_URL/install-tl-unx.tar.gz"
+          tar -xzf "$RUNNER_TEMP/tlnet/install-tl-unx.tar.gz" -C "$RUNNER_TEMP/tlnet"
+          cat > "$RUNNER_TEMP/tlnet/texlive.profile" <<'PROFILE'
+          selected_scheme scheme-small
+          TEXDIR /opt/texlive
+          TEXMFLOCAL /opt/texlive/texmf-local
+          TEXMFSYSCONFIG /opt/texlive/texmf-config
+          TEXMFSYSVAR /opt/texlive/texmf-var
+          TEXMFVAR /opt/texlive/texmf-var
+          TEXMFCONFIG /opt/texlive/texmf-config
+          TEXMFHOME /opt/texlive/texmf-home
+          option_doc 0
+          option_src 0
+          option_sys_bin 0
+          option_sys_info 0
+          option_sys_man 0
+          PROFILE
+          installer=$(find "$RUNNER_TEMP/tlnet" -maxdepth 1 -type d -name 'install-tl-*' | head -1)
+          sudo "$installer/install-tl" -profile "$RUNNER_TEMP/tlnet/texlive.profile" \
+            -repository "$SNAPSHOT_URL"
+          echo "/opt/texlive/bin/x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Fetch the snapshot tlpdb
+        run: |
+          set -euo pipefail
+          mkdir -p build
+          curl -fsSL --retry 3 -o build/texlive.tlpdb.xz "$SNAPSHOT_URL/tlpkg/texlive.tlpdb.xz"
+
+      - name: List ambiguous basenames
+        working-directory: server
+        run: |
+          set -euo pipefail
+          go run ./cmd/latexprofile list-ambiguous \
+            -tlpdb ../build/texlive.tlpdb.xz \
+            -license-overrides ../scripts/latex_resources/license-overrides.json \
+            > ../build/ambiguous.txt
+          head -1 ../build/ambiguous.txt
+
+      - name: Generate derived resources
+        run: |
+          set -euo pipefail
+          mkdir -p build/derived
+          # hyphen.cfg is generated at install time from language.dat; no package
+          # archive contains the real one, so it must ship as a derived resource.
+          tlmgr generate language
+          cp /opt/texlive/texmf-var/tex/generic/config/hyphen.cfg build/derived/hyphen.cfg
+          python3 - "$(command -v tlmgr)" <<'PY'
+          import hashlib, json, pathlib, sys
+          executable = pathlib.Path(sys.argv[1]).resolve()
+          document = {
+              "generator": {
+                  "name": "tlmgr",
+                  "version": "TeX Live 2026 (snapshot)",
+                  "executable_sha256": hashlib.sha256(executable.read_bytes()).hexdigest(),
+              },
+              "resources": [{
+                  "lookup": {"kind": "xetex", "format": "26", "name": "hyphen.cfg"},
+                  "artifact": "hyphen.cfg",
+                  "inputs": [
+                      "texmf-dist/tex/generic/config/language.dat",
+                      "texmf-dist/tex/generic/config/language.def",
+                  ],
+              }],
+          }
+          pathlib.Path("build/derived.json").write_text(json.dumps(document, indent=2) + "\n")
+          PY
+
+      - name: Build the profile
+        run: |
+          set -euo pipefail
+          python3 scripts/latex_resources/build_profile.py \
+            --snapshot-url "$SNAPSHOT_URL" \
+            --profile "$PROFILE_ID" \
+            --output build/profile \
+            --tlpdb build/texlive.tlpdb.xz \
+            --kpsewhich "$(command -v kpsewhich)" \
+            --fc-scan "$(command -v fc-scan)" \
+            --texmf-dist /opt/texlive/texmf-dist \
+            --ambiguous build/ambiguous.txt \
+            --license-overrides scripts/latex_resources/license-overrides.json \
+            --derived-manifest build/derived.json \
+            --derived-root build/derived
+
+      - name: Verify the profile offline
+        working-directory: server
+        run: go run ./cmd/latexprofile verify -dir ../build/profile
+
+      - name: Upload the profile artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: latex-profile-${{ env.PROFILE_ID }}
+          path: build/profile
+          retention-days: 14
