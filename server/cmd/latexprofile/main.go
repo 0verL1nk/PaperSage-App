@@ -10,8 +10,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
 func main() {
