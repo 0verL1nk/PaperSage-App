@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { useLatexFiles } from '@/hooks/use-latex'
 import {
   useAddResearchRevision,
   useAdoptResearchRevision,
@@ -23,6 +24,7 @@ import type {
 } from '@/types/research'
 import { RESEARCH_KIND_LABEL, RESEARCH_STATUS_LABEL } from '@/types/research'
 
+// chapter_review 是检查报告，归「检查完善」页所有；不混进资料组织列表。
 const KINDS: Array<ResearchArtifactKind | 'all'> = [
   'all', 'literature_note', 'literature_comparison', 'chapter_plan', 'chapter_digest',
 ]
@@ -116,14 +118,17 @@ function PayloadView({ payload, kind }: { payload: ResearchPayload; kind: Resear
 }
 
 function PlanEditor({
-  artifact, busy, onSave,
+  artifact, projectId, busy, onSave,
 }: {
   artifact: ResearchArtifact
+  projectId: string
   busy: boolean
   onSave: (payload: ChapterPlanPayload, expectedRevision: number) => void
 }) {
   const current = artifact.current?.payload as unknown as ChapterPlanPayload | undefined
   const [sections, setSections] = useState<ChapterSection[]>(current?.sections ?? [])
+  const { data: files = [] } = useLatexFiles(projectId)
+  const texFiles = files.filter((file) => file.file_path.toLowerCase().endsWith('.tex'))
   const update = (index: number, patch: Partial<ChapterSection>) =>
     setSections((prev) => prev.map((section, i) => (i === index ? { ...section, ...patch } : section)))
   const add = () => setSections((prev) => [...prev, {
@@ -132,10 +137,24 @@ function PlanEditor({
   return (
     <div className="mt-2 space-y-2 rounded-lg border border-dashed border-border/60 p-2">
       {sections.map((section, index) => (
-        <div key={index} className="grid gap-1 sm:grid-cols-[4rem_1fr_1fr]">
-          <input aria-label={`章节 ${index + 1} ID`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" value={section.id} onChange={(e) => update(index, { id: e.target.value })} />
-          <input aria-label={`章节 ${index + 1} 标题`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" placeholder="标题" value={section.title} onChange={(e) => update(index, { title: e.target.value })} />
-          <input aria-label={`章节 ${index + 1} 职责`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" placeholder="职责" value={section.responsibility} onChange={(e) => update(index, { responsibility: e.target.value })} />
+        <div key={index} className="space-y-1">
+          <div className="grid gap-1 sm:grid-cols-[4rem_1fr_1fr]">
+            <input aria-label={`章节 ${index + 1} ID`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" value={section.id} onChange={(e) => update(index, { id: e.target.value })} />
+            <input aria-label={`章节 ${index + 1} 标题`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" placeholder="标题" value={section.title} onChange={(e) => update(index, { title: e.target.value })} />
+            <input aria-label={`章节 ${index + 1} 职责`} className="rounded border border-border/60 bg-background px-2 py-1 text-xs" placeholder="职责" value={section.responsibility} onChange={(e) => update(index, { responsibility: e.target.value })} />
+          </div>
+          <select
+            aria-label={`章节 ${index + 1} 对应稿件文件`}
+            className="w-full rounded border border-border/60 bg-background px-2 py-1 text-xs"
+            value={section.filePath ?? ''}
+            onChange={(e) => update(index, { filePath: e.target.value || undefined })}
+          >
+            <option value="">未关联稿件文件</option>
+            {section.filePath && !texFiles.some((file) => file.file_path === section.filePath) ? (
+              <option value={section.filePath}>{section.filePath}（当前项目中找不到）</option>
+            ) : null}
+            {texFiles.map((file) => <option key={file.file_path} value={file.file_path}>{file.file_path}</option>)}
+          </select>
         </div>
       ))}
       <div className="flex justify-end gap-2">
@@ -157,10 +176,10 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
   const reject = useRejectResearchRevision(projectId)
   const remove = useDeleteResearchArtifact(projectId)
 
-  const filtered = useMemo(
-    () => (kind === 'all' ? artifacts : artifacts.filter((artifact) => artifact.kind === kind)),
-    [artifacts, kind],
-  )
+  const filtered = useMemo(() => {
+    const visible = artifacts.filter((artifact) => artifact.kind !== 'chapter_review')
+    return kind === 'all' ? visible : visible.filter((artifact) => artifact.kind === kind)
+  }, [artifacts, kind])
 
   const onCreatePlan = async () => {
     const payload: ChapterPlanPayload = { sections: [{ id: 's1', title: '引言', responsibility: '提出研究问题', order: 1 }] }
@@ -238,6 +257,7 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
                   {editing === artifact.id && artifact.kind === 'chapter_plan' ? (
                     <PlanEditor
                       artifact={artifact}
+                      projectId={projectId}
                       busy={addRevision.isPending}
                       onSave={(payload, expectedRevision) => {
                         addRevision.mutateAsync({ artifactId: artifact.id, input: { expectedRevision, payload, origin: 'user' } })

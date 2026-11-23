@@ -5,6 +5,7 @@ export type ResearchArtifactKind =
   | 'literature_comparison'
   | 'chapter_plan'
   | 'chapter_digest'
+  | 'chapter_review'
 
 export type ResearchFieldStatus = 'reported' | 'not_read' | 'not_reported' | 'insufficient'
 
@@ -83,11 +84,80 @@ export interface ChapterDigestPayload {
   status: string
 }
 
+/** 跨章节检查：语义结论只来自真实模型，页面只负责如实呈现覆盖与依据。 */
+export type ReviewDimensionKey = 'goal_conclusion' | 'evidence_support' | 'cross_section' | 'norm_compliance'
+export type ReviewDimensionStatus = 'checked' | 'findings' | 'insufficient' | 'not_checked' | 'failed'
+export type ReviewSeverity = 'high' | 'medium' | 'low'
+export type ReviewBasisKind = 'norm' | 'plan' | 'text' | 'source'
+export type ReviewSourceKind = 'latex' | 'plan' | 'document' | 'source' | 'norm'
+
+export interface ReviewDimension {
+  key: ReviewDimensionKey
+  status: ReviewDimensionStatus
+  note?: string
+}
+
+export interface ReviewBasis {
+  kind: ReviewBasisKind
+  ref: string
+  filePath?: string
+  quote?: string
+  lineStart?: number
+  lineEnd?: number
+}
+
+export interface ReviewFinding {
+  id: string
+  dimension: ReviewDimensionKey
+  severity: ReviewSeverity
+  sectionId?: string
+  sectionTitle?: string
+  filePath?: string
+  quote?: string
+  lineStart?: number
+  lineEnd?: number
+  problem: string
+  basis: ReviewBasis[]
+  nextStep: string
+  confidence?: 'high' | 'low'
+  anchorVerified?: boolean
+}
+
+export interface ReviewSource {
+  kind: ReviewSourceKind
+  name: string
+}
+
+export interface ReviewNormEntry {
+  id: string
+  title: string
+  rule: string
+  category?: string
+  source?: string
+  scope?: string
+}
+
+export interface ChapterReviewPayload {
+  input: {
+    planArtifactId?: string
+    planRevision?: number
+    planStatus?: 'adopted' | 'candidate' | 'missing'
+    planSections?: Array<{ id: string; title: string }>
+    normsAvailable: boolean
+    normsNote?: string
+    norms?: ReviewNormEntry[]
+  }
+  dimensions: ReviewDimension[]
+  findings: ReviewFinding[]
+  sourcesRead: ReviewSource[]
+}
+
 export type ResearchPayload =
   | LiteratureNotePayload
   | LiteratureComparisonPayload
   | ChapterPlanPayload
   | ChapterDigestPayload
+  | ChapterReviewPayload
 
 export type ResearchRevisionStatus = 'candidate' | 'adopted' | 'rejected' | 'superseded'
 
@@ -142,6 +212,7 @@ export const RESEARCH_KIND_LABEL: Record<ResearchArtifactKind, string> = {
   literature_comparison: '文献比较',
   chapter_plan: '章节计划',
   chapter_digest: '章节摘要',
+  chapter_review: '跨章节检查',
 }
 
 export const RESEARCH_STATUS_LABEL: Record<ResearchRevisionStatus, string> = {
