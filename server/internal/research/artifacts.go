@@ -1020,18 +1020,28 @@ func conflict(info string) error { return &httpapi.APIError{Code: http.StatusCon
 
 // ── HTTP ────────────────────────────────────────────────────────────
 
-func parseIDs(c *gin.Context) (store.UUID, store.UUID, bool) {
-	pid, err := uuid.Parse(c.Param("project_id"))
-	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
-		return store.UUID{}, store.UUID{}, false
-	}
+// 产物路由的 URL 只带 artifact_id（前端契约），project_id 由产物反查并校验归属。
+func (s *Service) parseIDs(c *gin.Context) (store.UUID, store.UUID, bool) {
 	aid, err := uuid.Parse(c.Param("artifact_id"))
 	if err != nil {
 		httpapi.WriteError(c.Writer, httpapi.NotFound("产物"))
 		return store.UUID{}, store.UUID{}, false
 	}
-	return store.UUID{UUID: pid}, store.UUID{UUID: aid}, true
+	artifactID := store.UUID{UUID: aid}
+	var artifact store.ResearchArtifact
+	err = s.DB.WithContext(c.Request.Context()).
+		Joins("JOIN projects ON projects.id = research_artifacts.project_id").
+		Where("research_artifacts.id = ? AND projects.owner_id = ?", artifactID, auth.CurrentUser(c).ID).
+		First(&artifact).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		httpapi.WriteError(c.Writer, httpapi.NotFound("产物"))
+		return store.UUID{}, store.UUID{}, false
+	}
+	if err != nil {
+		httpapi.WriteError(c.Writer, err)
+		return store.UUID{}, store.UUID{}, false
+	}
+	return artifact.ProjectID, artifactID, true
 }
 
 func (s *Service) list(c *gin.Context) {
@@ -1068,7 +1078,7 @@ func (s *Service) create(c *gin.Context) {
 }
 
 func (s *Service) addRevision(c *gin.Context) {
-	pid, aid, ok := parseIDs(c)
+	pid, aid, ok := s.parseIDs(c)
 	if !ok {
 		return
 	}
@@ -1086,7 +1096,7 @@ func (s *Service) addRevision(c *gin.Context) {
 }
 
 func (s *Service) adopt(c *gin.Context) {
-	pid, aid, ok := parseIDs(c)
+	pid, aid, ok := s.parseIDs(c)
 	if !ok {
 		return
 	}
@@ -1104,7 +1114,7 @@ func (s *Service) adopt(c *gin.Context) {
 }
 
 func (s *Service) reject(c *gin.Context) {
-	pid, aid, ok := parseIDs(c)
+	pid, aid, ok := s.parseIDs(c)
 	if !ok {
 		return
 	}
@@ -1122,7 +1132,7 @@ func (s *Service) reject(c *gin.Context) {
 }
 
 func (s *Service) getRevision(c *gin.Context) {
-	pid, aid, ok := parseIDs(c)
+	pid, aid, ok := s.parseIDs(c)
 	if !ok {
 		return
 	}
@@ -1140,7 +1150,7 @@ func (s *Service) getRevision(c *gin.Context) {
 }
 
 func (s *Service) deleteArtifact(c *gin.Context) {
-	pid, aid, ok := parseIDs(c)
+	pid, aid, ok := s.parseIDs(c)
 	if !ok {
 		return
 	}

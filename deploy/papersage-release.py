@@ -26,6 +26,14 @@ LOCK_FILE = UPLOADS.parent / "release.lock"
 ENV_FILE = Path("/etc/papersage/papersage.env")
 WORK_DIR = Path("/var/lib/papersage")
 HEALTH_URL = "http://127.0.0.1:5478/health"
+# The school template cannot compile unless these resolve; a profile whose
+# pinned archives drifted upstream answers 502 for every one of them.
+RESOURCE_PROBE_NAMES = (
+    "kvoptions.sty", "geometry.sty", "ifxetex.sty", "ccaption.sty",
+    "layouts.sty", "gbt7714.sty", "hyphen.cfg",
+)
+RESOURCE_PROBE_TIMEOUT_SECONDS = 30
+RESOURCE_PROBE_BUDGET_SECONDS = 180
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 MAX_RELEASE_BYTES = 512 * 1024 * 1024
 COMMAND_TIMEOUT_SECONDS = 120
@@ -235,6 +243,38 @@ def wait_healthy(manifest):
     raise DeployError("release health check failed")
 
 
+def resource_profile():
+    """Read only the profile key; the environment file must never be printed."""
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip() == "LATEX_RESOURCE_PROFILE":
+            profile = value.strip().strip("'\"")
+            if profile:
+                return profile
+    raise DeployError("LATEX_RESOURCE_PROFILE is missing from the environment file")
+
+
+def check_resources():
+    profile = resource_profile()
+    origin = HEALTH_URL.removesuffix("/health")
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+    deadline = time.monotonic() + RESOURCE_PROBE_BUDGET_SECONDS
+    pending = list(RESOURCE_PROBE_NAMES)
+    while pending and time.monotonic() < deadline:
+        for name in list(pending):
+            url = f"{origin}/texlive/{profile}/resolve/xetex/26/{name}"
+            try:
+                with opener.open(url, timeout=RESOURCE_PROBE_TIMEOUT_SECONDS) as response:
+                    response.read(1)
+            except OSError:
+                continue
+            pending.remove(name)
+        if pending:
+            time.sleep(1)
+    if pending:
+        raise DeployError(f"resource check failed: {', '.join(sorted(pending))}")
+
+
 def transition(target, previous, with_migration):
     try:
         service("stop")
@@ -243,6 +283,7 @@ def transition(target, previous, with_migration):
         switch_current(target)
         service("start")
         wait_healthy(target)
+        check_resources()
     except (Exception, KeyboardInterrupt):
         try:
             service("stop")

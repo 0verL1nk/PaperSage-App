@@ -186,7 +186,7 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, errors.New("TeX Live package archive resolved to an invalid address")
 	}
 	if response.ContentLength >= 0 && response.ContentLength != provenance.ContainerSize {
-		return nil, fmt.Errorf("TeX Live package archive %q has an unexpected size", provenance.Package)
+		return nil, fmt.Errorf("TeX Live package archive %q has an unexpected size: got %d bytes, pinned %d", provenance.Package, response.ContentLength, provenance.ContainerSize)
 	}
 	limited := io.LimitReader(response.Body, maxResourceArchiveBytes+1)
 	archive, err := io.ReadAll(limited)
@@ -194,11 +194,11 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, fmt.Errorf("read TeX Live package archive %q: %w", provenance.Package, err)
 	}
 	if int64(len(archive)) != provenance.ContainerSize {
-		return nil, fmt.Errorf("TeX Live package archive %q size does not match its pinned revision", provenance.Package)
+		return nil, fmt.Errorf("TeX Live package archive %q size does not match its pinned revision: got %d bytes, pinned %d", provenance.Package, len(archive), provenance.ContainerSize)
 	}
 	digest := sha512.Sum512(archive)
 	if hex.EncodeToString(digest[:]) != provenance.ContainerSHA512 {
-		return nil, fmt.Errorf("TeX Live package archive %q checksum does not match its pinned revision", provenance.Package)
+		return nil, fmt.Errorf("TeX Live package archive %q checksum does not match its pinned revision: got %s, pinned %s", provenance.Package, hex.EncodeToString(digest[:])[:16], provenance.ContainerSHA512[:16])
 	}
 	return archive, nil
 }
