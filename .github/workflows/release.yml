@@ -46,13 +46,15 @@ jobs:
           # 发布不再重复跑整套 CI：tag 必须指向 main 上 CI 已完成的提交。
           # 只检查该提交实际产生的 check-runs（CI 按路径过滤，未改动的域不会跑）。
           # 排除当前 run 及其依赖 job，避免等待自身造成死锁。
+          # 排除 Dependabot：它是依赖更新 bot 的运行（同一提交上可能同时存在成功与
+          # 失败的重复 check-run，且动态运行不允许重跑），不校验该提交的代码。
           deadline=$((SECONDS + 900))
           while :; do
             gh api --paginate "repos/${GITHUB_REPOSITORY}/commits/${SHA}/check-runs?per_page=100&filter=all" |
               jq -r --arg run "$GITHUB_RUN_ID" '.check_runs[]
                 | select(.app.slug == "github-actions")
                 | select((.details_url // "") | contains("/actions/runs/\($run)/") | not)
-                | select(.name | (IN("validate", "server-build", "desktop", "release", "deploy", "rollback") or startswith("desktop /")) | not)
+                | select(.name | (IN("validate", "server-build", "desktop", "release", "deploy", "rollback", "Dependabot") or startswith("desktop /")) | not)
                 | [.name, (.conclusion // .status), .started_at] | @tsv' \
               > checks.tsv
             # 同名可能是不同 job；无法可靠归并旧运行时，保留全部结果并安全失败。
