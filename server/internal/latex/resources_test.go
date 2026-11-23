@@ -268,12 +268,27 @@ func newTestResourceEngine(t *testing.T, stg *memoryResourceStorage, archive []b
 	require.NoError(t, err)
 	service.archives.client.Transport = redirectingRoundTripper{base: server.Client().Transport, target: target}
 	engine := gin.New()
+	engine.GET("/texlive/profile", service.getProfile)
 	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.HEAD("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.GET("/texlive/:profile/resolve/:kind", service.get)
 	engine.HEAD("/texlive/:profile/resolve/:kind", service.get)
 	engine.GET("/texlive/:profile/package-maps", service.getPackageMaps)
 	return engine
+}
+
+func TestMountResourcesServesProfileDiscovery(t *testing.T) {
+	stg := newMemoryResourceStorage()
+	content := []byte("% amsmath resource")
+	archive := makeTestArchive(t, content)
+	makeTestCatalog(t, stg, content, archive)
+	engine := newTestResourceEngine(t, stg, archive)
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/profile", nil))
+	require.Equal(t, http.StatusOK, response.Code)
+	require.JSONEq(t, `{"profile":"`+testResourceProfile+`"}`, response.Body.String())
+	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
+	require.Equal(t, "*", response.Header().Get("Access-Control-Allow-Origin"))
 }
 
 func TestMountResourcesFetchesExactFileFromVerifiedPackageArchive(t *testing.T) {

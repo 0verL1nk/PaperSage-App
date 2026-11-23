@@ -576,6 +576,14 @@ func setCatalogResourceHeaders(c *gin.Context, catalog *resourceCatalog, lookup 
 	}
 }
 
+// getProfile lets clients discover the served profile, so a profile upgrade
+// only ships a new backend binary instead of a coordinated frontend release.
+func (s *resourceService) getProfile(c *gin.Context) {
+	c.Header("Access-Control-Allow-Origin", "*")
+	c.Header("Cache-Control", "no-store")
+	c.JSON(http.StatusOK, gin.H{"profile": s.profile})
+}
+
 func (s *resourceService) serveDerivedResource(c *gin.Context, catalog *resourceCatalog, resource resourceCatalogDerived) {
 	if s.storage == nil {
 		c.Header("Cache-Control", "no-store")
@@ -939,6 +947,9 @@ func MountResources(engine *gin.Engine, stg storage.Storage, profile, repository
 	if err != nil {
 		return err
 	}
+	// Static sibling of /texlive/:profile/...: clients discover the served
+	// profile instead of baking it into a frontend build.
+	engine.GET("/texlive/profile", service.getProfile)
 	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.HEAD("/texlive/:profile/resolve/:kind/:format/*name", service.get)
 	engine.GET("/texlive/:profile/resolve/:kind", service.get)
