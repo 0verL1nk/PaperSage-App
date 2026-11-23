@@ -160,6 +160,11 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--snapshot-url", required=True)
     parser.add_argument("--profile", required=True)
+    parser.add_argument(
+        "--mirror",
+        default="https://mirror.ctan.org/systems/texlive/tlnet",
+        help="equally-trusted fallback repository; every archive still has to match the pinned checksum",
+    )
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--tlpdb", type=Path, required=True)
     parser.add_argument("--kpsewhich", type=Path, required=True)
@@ -222,6 +227,7 @@ def main() -> int:
         "schema_version": 1,
         "profile": args.profile,
         "repository": args.snapshot_url.rstrip("/"),
+        "mirror": args.mirror.rstrip("/"),
         "tlpdb": {"path": "tlpdb.xz", "sha512": tlpdb_sha512, "size": len(tlpdb_bytes)},
         "lookups": {"sha256": lookups_sha256, "entries": len(lookups)},
         "format_suffixes": format_suffixes,

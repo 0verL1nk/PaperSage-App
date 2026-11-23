@@ -175,6 +175,11 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("TeX Live package archive %q returned HTTP %d", provenance.Package, response.StatusCode)
 	}
+	// Bot-protection gateways answer 200 with an HTML challenge; report that
+	// instead of a misleading size mismatch.
+	if strings.HasPrefix(strings.ToLower(response.Header.Get("Content-Type")), "text/html") {
+		return nil, fmt.Errorf("TeX Live package archive %q was served an HTML page instead of an archive", provenance.Package)
+	}
 	if !safeExternalHTTPS(response.Request.URL) {
 		return nil, errors.New("TeX Live package archive resolved to an invalid address")
 	}

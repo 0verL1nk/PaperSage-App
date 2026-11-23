@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"net/url"
 	"os"
 	"path"
 	"sort"
@@ -53,9 +54,13 @@ var RequiredResources = []QualifiedResource{
 }
 
 type Profile struct {
-	SchemaVersion    int                                `json:"schema_version"`
-	Profile          string                             `json:"profile"`
-	Repository       string                             `json:"repository"`
+	SchemaVersion int    `json:"schema_version"`
+	Profile       string `json:"profile"`
+	Repository    string `json:"repository"`
+	// Mirror is an equally-trusted source for the same pinned bytes. It exists
+	// because the snapshot host gates automated clients; every archive still
+	// has to match the profile's checksum.
+	Mirror           string                             `json:"mirror,omitempty"`
 	Tlpdb            TlpdbArtifact                      `json:"tlpdb"`
 	Lookups          LookupsArtifact                    `json:"lookups"`
 	FormatSuffixes   []FormatSuffix                     `json:"format_suffixes"`
@@ -126,6 +131,12 @@ func LoadFS(fsys fs.FS) (*Bundle, error) {
 	}
 	if profile.Profile == "" || profile.Repository == "" {
 		return nil, errors.New("profile.json is missing profile or repository")
+	}
+	if profile.Mirror != "" {
+		parsed, parseErr := url.Parse(profile.Mirror)
+		if parseErr != nil || parsed.Scheme != "https" || parsed.Host == "" {
+			return nil, errors.New("profile.json mirror must be an HTTPS URL")
+		}
 	}
 	if !fs.ValidPath(profile.Tlpdb.Path) {
 		return nil, errors.New("profile.json tlpdb path is not a relative path")
