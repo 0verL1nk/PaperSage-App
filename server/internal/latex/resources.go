@@ -70,10 +70,6 @@ func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceServ
 	return service, nil
 }
 
-func resourceLookupKey(lookup resourceLookup) string {
-	return lookup.Kind + "\x00" + lookup.Format + "\x00" + lookup.Name
-}
-
 func validResourceLookup(lookup resourceLookup) bool {
 	if lookup.Kind == "font" {
 		if !fontVariantPattern.MatchString(lookup.Format) {
