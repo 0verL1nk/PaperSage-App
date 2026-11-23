@@ -76,6 +76,10 @@ def ambiguous_lookups(kpsewhich: Path, texmf_dist: Path, formats: list[dict], na
         if not LOOKUP_NAME.fullmatch(name):
             raise ValueError(f"invalid ambiguous lookup name: {name}")
         candidates = by_suffix.get(Path(name).suffix.lower(), [])
+        if not candidates:
+            # Files like hyphen.cfg are reached through the plain TeX input
+            # format; kpsewhich knows it even when no suffix list claims it.
+            candidates = [fmt for fmt in formats if fmt["name"] == "tex"]
         resolved_any = False
         for fmt in candidates:
             for kind in ENGINES:

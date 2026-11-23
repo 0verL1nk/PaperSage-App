@@ -45,7 +45,10 @@ var RequiredResources = []QualifiedResource{
 	{Kind: "xetex", Format: "26", Name: "ccaption.sty"},
 	{Kind: "xetex", Format: "26", Name: "layouts.sty"},
 	{Kind: "xetex", Format: "26", Name: "gbt7714.sty"},
-	{Kind: "xetex", Format: "26", Name: "hyphen.cfg", Derived: true},
+	// TeX Live 2026 generates no hyphen.cfg at install time; kpathsea resolves
+	// it to babel's copy, so it is served through a lookup override rather than
+	// a derived blob.
+	{Kind: "xetex", Format: "26", Name: "hyphen.cfg"},
 }
 
 type Profile struct {
@@ -221,8 +224,9 @@ func (b *Bundle) verifyRequired(required QualifiedResource) string {
 	if hasLookup && lookup.Derived != nil {
 		return ""
 	}
-	if len(b.Index[required.Name]) == 0 {
-		return label + ": not present in the tlpdb index"
+	// Ambiguous basenames need the lookup override; the runtime 409s otherwise.
+	if _, ok := b.Resolve(required); !ok {
+		return label + ": does not resolve to a single source in this profile"
 	}
 	return ""
 }
