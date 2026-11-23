@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
 )
 
@@ -64,9 +64,9 @@ func listAmbiguous(args []string) {
 	if *tlpdbPath == "" {
 		usage()
 	}
-	overrides := map[string]latex.LicenseOverride{}
+	overrides := map[string]texlive.LicenseOverride{}
 	if *overridesPath != "" {
-		loaded, err := latex.LoadLicenseOverrides(*overridesPath)
+		loaded, err := texlive.LoadLicenseOverrides(*overridesPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "latexprofile: %v\n", err)
 			os.Exit(1)
@@ -78,18 +78,18 @@ func listAmbiguous(args []string) {
 		fmt.Fprintf(os.Stderr, "latexprofile: %v\n", err)
 		os.Exit(1)
 	}
-	var database *latex.TexliveDatabase
+	var database *texlive.TexliveDatabase
 	if strings.HasSuffix(*tlpdbPath, ".xz") {
-		database, err = latex.ParseTlpdbXZ(data)
+		database, err = texlive.ParseTlpdbXZ(data)
 	} else {
-		database, err = latex.ParseTlpdb(bytes.NewReader(data))
+		database, err = texlive.ParseTlpdb(bytes.NewReader(data))
 	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "latexprofile: %v\n", err)
 		os.Exit(1)
 	}
-	index, excluded := latex.BuildTexliveIndex(database, overrides)
-	ambiguous := latex.AmbiguousBasenames(index)
+	index, excluded := texlive.BuildTexliveIndex(database, overrides)
+	ambiguous := texlive.AmbiguousBasenames(index)
 	fmt.Printf("packages=%d files=%d index_keys=%d ambiguous=%d excluded_packages=%d\n",
 		len(database.Packages), len(database.Files), len(index), len(ambiguous), len(excluded))
 	for _, name := range ambiguous {

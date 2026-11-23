@@ -19,7 +19,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
 const (
@@ -53,13 +53,13 @@ var RequiredResources = []QualifiedResource{
 }
 
 type Profile struct {
-	SchemaVersion    int                              `json:"schema_version"`
-	Profile          string                           `json:"profile"`
-	Repository       string                           `json:"repository"`
-	Tlpdb            TlpdbArtifact                    `json:"tlpdb"`
-	Lookups          LookupsArtifact                  `json:"lookups"`
-	FormatSuffixes   []FormatSuffix                   `json:"format_suffixes"`
-	LicenseOverrides map[string]latex.LicenseOverride `json:"license_overrides"`
+	SchemaVersion    int                                `json:"schema_version"`
+	Profile          string                             `json:"profile"`
+	Repository       string                             `json:"repository"`
+	Tlpdb            TlpdbArtifact                      `json:"tlpdb"`
+	Lookups          LookupsArtifact                    `json:"lookups"`
+	FormatSuffixes   []FormatSuffix                     `json:"format_suffixes"`
+	LicenseOverrides map[string]texlive.LicenseOverride `json:"license_overrides"`
 }
 
 type TlpdbArtifact struct {
@@ -99,7 +99,7 @@ type Derived struct {
 type Bundle struct {
 	Profile Profile
 	Lookups map[string]Lookup
-	Index   map[string][]latex.TexliveProvenance
+	Index   map[string][]texlive.TexliveProvenance
 	files   fs.FS
 }
 
@@ -138,11 +138,11 @@ func LoadFS(fsys fs.FS) (*Bundle, error) {
 	if hex.EncodeToString(digest[:]) != profile.Tlpdb.SHA512 || int64(len(tlpdb)) != profile.Tlpdb.Size {
 		return nil, errors.New("tlpdb bytes do not match profile.json")
 	}
-	database, err := latex.ParseTlpdbXZ(tlpdb)
+	database, err := texlive.ParseTlpdbXZ(tlpdb)
 	if err != nil {
 		return nil, err
 	}
-	index, _ := latex.BuildTexliveIndex(database, profile.LicenseOverrides)
+	index, _ := texlive.BuildTexliveIndex(database, profile.LicenseOverrides)
 	lookups, err := loadLookups(fsys, "lookups.json.gz", profile.Lookups.SHA256)
 	if err != nil {
 		return nil, err
@@ -181,6 +181,18 @@ func loadLookups(fsys fs.FS, name, expectedSHA256 string) (map[string]Lookup, er
 
 func lookupKey(entry Lookup) string {
 	return entry.Kind + "\x00" + entry.Format + "\x00" + entry.Name
+}
+
+// Lookup returns the exact resolution recorded for one request.
+func (b *Bundle) Lookup(kind, format, name string) (Lookup, bool) {
+	entry, ok := b.Lookups[lookupKey(Lookup{Kind: kind, Format: format, Name: name})]
+	return entry, ok
+}
+
+// ReadDerived returns one generated blob by its content hash; the caller
+// verifies the bytes before serving them.
+func (b *Bundle) ReadDerived(sha256Hex string) ([]byte, error) {
+	return fs.ReadFile(b.files, path.Join("derived", sha256Hex))
 }
 
 // Verify reports every problem that would keep this profile from serving the
@@ -243,18 +255,18 @@ func (b *Bundle) verifyRequired(required QualifiedResource) string {
 
 // Resolve returns the provenance a lookup resolves to, mirroring the runtime
 // order: an explicit source path first, then the unique filename index entry.
-func (b *Bundle) Resolve(entry QualifiedResource) (latex.TexliveProvenance, bool) {
+func (b *Bundle) Resolve(entry QualifiedResource) (texlive.TexliveProvenance, bool) {
 	if lookup, ok := b.Lookups[lookupKey(Lookup{Kind: entry.Kind, Format: entry.Format, Name: entry.Name})]; ok && lookup.Source != "" {
 		for _, record := range b.Index[baseName(lookup.Source)] {
 			if record.SourcePath == lookup.Source {
 				return record, true
 			}
 		}
-		return latex.TexliveProvenance{}, false
+		return texlive.TexliveProvenance{}, false
 	}
 	records := b.Index[entry.Name]
 	if len(records) != 1 {
-		return latex.TexliveProvenance{}, false
+		return texlive.TexliveProvenance{}, false
 	}
 	return records[0], true
 }
