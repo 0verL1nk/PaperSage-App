@@ -20,6 +20,7 @@ import (
 	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -311,7 +312,8 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("读取历史失败")
 		return
 	}
-	tools, err := ProjectTools(s.DB, s.Storage, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
+	// 规范库由 HELE-25 落地；在此之前显式注入「未接入」，检查报告必须如实标注。
+	tools, err := ProjectTools(s.DB, s.Storage, norms.Unavailable{}, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
 	if err != nil {
 		fail("构建工具失败")
 		return

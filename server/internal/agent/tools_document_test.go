@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/testutil"
@@ -64,7 +65,7 @@ func newDocumentReadFixture(t *testing.T, text string) documentReadFixture {
 
 func findDocumentReader(t *testing.T, db *gorm.DB, objectStorage storage.Storage, project, owner store.UUID) tool.InvokableTool {
 	t.Helper()
-	tools, err := agent.ProjectTools(db, objectStorage, project, owner, store.MustNewUUID(), 0)
+	tools, err := agent.ProjectTools(db, objectStorage, norms.Unavailable{}, project, owner, store.MustNewUUID(), 0)
 	require.NoError(t, err)
 	for _, candidate := range tools {
 		info, err := candidate.Info(context.Background())
@@ -196,7 +197,7 @@ func TestReadDocumentDefaultHasNoSegmentLimit(t *testing.T) {
 func TestReadDocumentRejectsOversizedSegmentWithoutTruncatingSource(t *testing.T) {
 	text := strings.Repeat("中文x", 2000)
 	fixture := newDocumentReadFixture(t, text)
-	tools, err := agent.ProjectTools(fixture.db, fixture.storage, fixture.project, fixture.owner, store.MustNewUUID(), 8192)
+	tools, err := agent.ProjectTools(fixture.db, fixture.storage, norms.Unavailable{}, fixture.project, fixture.owner, store.MustNewUUID(), 8192)
 	require.NoError(t, err)
 	for _, candidate := range tools {
 		info, infoErr := candidate.Info(context.Background())
@@ -290,7 +291,7 @@ func TestListDocumentsReportsEveryUploadedSource(t *testing.T) {
 	}
 	require.NoError(t, fixture.db.Create(&rows).Error)
 
-	tools, err := agent.ProjectTools(fixture.db, fixture.storage, fixture.project, fixture.owner, store.MustNewUUID(), 0)
+	tools, err := agent.ProjectTools(fixture.db, fixture.storage, norms.Unavailable{}, fixture.project, fixture.owner, store.MustNewUUID(), 0)
 	require.NoError(t, err)
 	var list tool.InvokableTool
 	for _, candidate := range tools {

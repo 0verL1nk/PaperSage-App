@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/sources"
@@ -64,7 +65,7 @@ func (t *toolFailureTracker) middleware(next compose.InvokableToolEndpoint) comp
 
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
-func ProjectTools(db *gorm.DB, stg storage.Storage,
+func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider,
 	projectID, ownerID, runID store.UUID, documentReadLimitBytes int) ([]tool.BaseTool, error) {
 
 	verify := func(ctx context.Context) error {
@@ -76,6 +77,8 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 		}
 		return nil
 	}
+	// 跨章节检查用：记录本轮实际读过的材料，报告落库时以此覆盖模型自报的来源。
+	reviewReads := newReviewReads()
 
 	// ── 读侧 ──────────────────────────────────────────────
 
@@ -151,6 +154,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 				First(&current).Error; err != nil || current.S3Key != doc.S3Key || !current.UpdatedAt.Equal(doc.UpdatedAt) {
 				return nil, fmt.Errorf("document changed or is no longer available; read again")
 			}
+			reviewReads.record("document", doc.Name)
 			return result, nil
 		})
 	if err != nil {
@@ -177,6 +181,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 			if err != nil {
 				return "", err
 			}
+			reviewReads.record("source", in.SourceVersionID)
 			encoded, err := json.Marshal(map[string]any{"text": text, "next_offset": next, "done": done})
 			return string(encoded), err
 		})
@@ -221,6 +226,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 				return "", err
 			}
 			_ = f
+			reviewReads.record("latex", in.Path)
 			return content, nil
 		})
 	if err != nil {
@@ -382,9 +388,9 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 
 	listResearch, err := utils.InferTool(
 		"list_research_artifacts",
-		"列出项目已保存的科研组织产物（阅读记录/文献比较/章节计划/章节摘要）。回答前先读取已采用版本；不要把较新的候选当成用户已采用的计划。",
+		"列出项目已保存的科研组织产物（阅读记录/文献比较/章节计划/章节摘要/跨章节检查报告）。回答前先读取已采用版本；不要把较新的候选当成用户已采用的计划。",
 		func(ctx context.Context, in struct {
-			Kind string `json:"kind,omitempty" jsonschema:"description=可选：literature_note/literature_comparison/chapter_plan/chapter_digest"`
+			Kind string `json:"kind,omitempty" jsonschema:"description=可选：literature_note/literature_comparison/chapter_plan/chapter_digest/chapter_review"`
 		}) (string, error) {
 			if err := verify(ctx); err != nil {
 				return "", err
@@ -432,9 +438,9 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 
 	createResearch, err := utils.InferTool(
 		"create_research_artifact",
-		"保存一份组织产物候选（不会自动采用）。payload_json 必须符合对应 kind 的结构；每个已报告字段必须带原文依据（sourceVersionId/documentId），未读或未报告要如实标注，不得编造来源。",
+		"保存一份组织产物候选（不会自动采用）。payload_json 必须符合对应 kind 的结构；每个已报告字段必须带原文依据（sourceVersionId/documentId），未读或未报告要如实标注，不得编造来源。chapter_review 报告落库前会逐条核对引文是否真的来自原文，核对不过会被拒绝。",
 		func(ctx context.Context, in struct {
-			Kind        string `json:"kind" jsonschema:"description=literature_note/literature_comparison/chapter_plan/chapter_digest"`
+			Kind        string `json:"kind" jsonschema:"description=literature_note/literature_comparison/chapter_plan/chapter_digest/chapter_review"`
 			PayloadJSON string `json:"payload_json" jsonschema:"description=与 kind 对应的 JSON 对象字符串"`
 		}) (string, error) {
 			if err := verify(ctx); err != nil {
@@ -443,6 +449,13 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 			payload := []byte(in.PayloadJSON)
 			if len(payload) == 0 {
 				return "", fmt.Errorf("payload_json is required")
+			}
+			if in.Kind == store.ResearchArtifactChapterReview {
+				verified, verifyErr := verifyChapterReviewPayload(ctx, db, stg, projectID, payload, reviewReads)
+				if verifyErr != nil {
+					return "", verifyErr
+				}
+				payload = verified
 			}
 			sum := md5.Sum(payload)
 			clientID := runID.String() + ":" + hex.EncodeToString(sum[:])
@@ -474,8 +487,20 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 			if err != nil {
 				return "", fmt.Errorf("invalid artifact_id")
 			}
+			payload := []byte(in.PayloadJSON)
+			var existing store.ResearchArtifact
+			if err := db.WithContext(ctx).Where("id = ? AND project_id = ?", id, projectID).First(&existing).Error; err != nil {
+				return "", fmt.Errorf("artifact not found")
+			}
+			if existing.Kind == store.ResearchArtifactChapterReview {
+				verified, verifyErr := verifyChapterReviewPayload(ctx, db, stg, projectID, payload, reviewReads)
+				if verifyErr != nil {
+					return "", verifyErr
+				}
+				payload = verified
+			}
 			out, err := researchSvc.AddRevision(ctx, ownerID, projectID, store.UUID{UUID: id}, research.RevisionInput{
-				ExpectedRevision: in.ExpectedRevision, Payload: []byte(in.PayloadJSON), Origin: "agent", RunID: &runID,
+				ExpectedRevision: in.ExpectedRevision, Payload: payload, Origin: "agent", RunID: &runID,
 			})
 			if err != nil {
 				return "", err
@@ -487,10 +512,15 @@ func ProjectTools(db *gorm.DB, stg storage.Storage,
 		return nil, err
 	}
 
+	reviewContext, err := chapterReviewContextTool(db, stg, normsProvider, projectID, ownerID, verify, reviewReads)
+	if err != nil {
+		return nil, err
+	}
+
 	return []tool.BaseTool{
 		listDocuments, readDocument, readSource, listLatexFiles, readLatexFile,
 		proposeEdit, compileProject, getWritingState, saveWritingBrief,
-		listResearch, readResearch, createResearch, addResearchRevision,
+		listResearch, readResearch, createResearch, addResearchRevision, reviewContext,
 	}, nil
 }
 
