@@ -108,10 +108,8 @@ export function ReviewPage() {
   const previousPayload = reviewPayload(previous)
   const coverage = payload ? reviewCoverage(payload) : null
   const comparison = payload && previousPayload ? compareReviewReports(previousPayload, payload) : null
-  const sectionTitles = useMemo(
-    () => (payload ? planSectionTitles(payload) : new Map<string, string>()),
-    [payload],
-  )
+  // 小规模映射，直接计算；手动 memo 会被 React Compiler 判定为无法保留。
+  const sectionTitles = payload ? planSectionTitles(payload) : new Map<string, string>()
 
   const wasStreaming = useRef(false)
   useEffect(() => {
