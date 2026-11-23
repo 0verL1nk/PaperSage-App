@@ -65,7 +65,7 @@ def package_path(texmf_dist: Path, absolute: str) -> str | None:
     return "texmf-dist/" + relative.as_posix()
 
 
-def ambiguous_lookups(kpsewhich: Path, texmf_dist: Path, formats: list[dict], names: list[str]) -> list[dict]:
+def ambiguous_lookups(kpsewhich: Path, texmf_dist: Path, formats: list[dict], names: list[str]) -> tuple[list[dict], int]:
     by_suffix: dict[str, list[dict]] = {}
     for fmt in formats:
         for suffix in fmt["suffixes"]:
@@ -90,10 +90,11 @@ def ambiguous_lookups(kpsewhich: Path, texmf_dist: Path, formats: list[dict], na
                 entries.append({"k": kind, "f": str(fmt["id"]), "n": name, "p": source})
                 resolved_any = True
         if not resolved_any:
+            # Names like Makefile or LICENSE.md are never requested through a
+            # TeX format; the offline verify still fails if a required resource
+            # ends up here.
             unresolved.append(name)
-    if unresolved:
-        raise ValueError(f"kpsewhich could not resolve ambiguous names: {', '.join(sorted(unresolved)[:10])}")
-    return entries
+    return entries, len(unresolved)
 
 
 def font_lookups(texmf_dist: Path, fc_scan: Path) -> list[dict]:
@@ -192,7 +193,8 @@ def main() -> int:
     names = []
     if args.ambiguous:
         names = [line.strip() for line in args.ambiguous.read_text(encoding="utf-8").splitlines() if line.strip()]
-    lookups += ambiguous_lookups(args.kpsewhich, args.texmf_dist, formats, names)
+    ambiguous_entries, unresolved = ambiguous_lookups(args.kpsewhich, args.texmf_dist, formats, names)
+    lookups += ambiguous_entries
     lookups += font_lookups(args.texmf_dist, args.fc_scan)
     derived_audit: list[dict] = []
     if args.derived_manifest:
@@ -230,11 +232,11 @@ def main() -> int:
         "snapshot": args.snapshot_url.rstrip("/"),
         "built_at": datetime.datetime.now(datetime.UTC).replace(microsecond=0).isoformat(),
         "tlpdb": {"path": "tlpdb.xz", "sha512": tlpdb_sha512, "size": len(tlpdb_bytes)},
-        "lookups": {"sha256": lookups_sha256, "entries": len(lookups), "ambiguous": len(names)},
+        "lookups": {"sha256": lookups_sha256, "entries": len(lookups), "ambiguous": len(names), "unresolved": unresolved},
         "derived": derived_audit,
     })
     print(
-        f"profile={args.profile} lookups={len(lookups)} ambiguous={len(names)} "
+        f"profile={args.profile} lookups={len(lookups)} ambiguous={len(names)} unresolved={unresolved} "
         f"derived={len(derived_audit)} tlpdb_bytes={len(tlpdb_bytes)} lookups_bytes={len(compressed)}",
         flush=True,
     )
