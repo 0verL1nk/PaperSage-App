@@ -162,6 +162,14 @@ func TestDiskCacheLoadOrFillSharesOneFetch(t *testing.T) {
 	}
 }
 
+func TestSlashPathDropsWindowsDrive(t *testing.T) {
+	// Windows resolves the guard's deploy paths to a drive-qualified form; the
+	// comparison must then still match. Kept platform-neutral so both CI legs
+	// exercise the same rule.
+	require.Equal(t, "/opt/papersage/releases/v1/data", slashPath("C:/opt/papersage/releases/v1/data"))
+	require.Equal(t, "/data/latex-resources", slashPath("D:/data/latex-resources"))
+}
+
 func TestValidateCacheDirRejectsVolatileLocations(t *testing.T) {
 	require.Error(t, ValidateCacheDir(filepath.Join(os.TempDir(), "latex-resources")))
 	require.Error(t, ValidateCacheDir("/opt/papersage/releases/v1/data"))

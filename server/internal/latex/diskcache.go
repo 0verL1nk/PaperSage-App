@@ -74,15 +74,30 @@ func ValidateCacheDir(path string) error {
 	if err != nil {
 		return err
 	}
-	cleaned := filepath.Clean(absolute)
+	cleaned := slashPath(absolute)
 	temp, err := filepath.Abs(os.TempDir())
-	if err == nil && (cleaned == temp || strings.HasPrefix(cleaned, temp+string(os.PathSeparator))) {
-		return fmt.Errorf("LaTeX resource cache directory %q must not live under %q", path, temp)
+	if err == nil {
+		temp = slashPath(temp)
+		if cleaned == temp || strings.HasPrefix(cleaned, temp+"/") {
+			return fmt.Errorf("LaTeX resource cache directory %q must not live under %q", path, temp)
+		}
 	}
-	if strings.HasPrefix(cleaned, "/opt/papersage/releases") {
+	if cleaned == "/opt/papersage/releases" || strings.HasPrefix(cleaned, "/opt/papersage/releases/") {
 		return fmt.Errorf("LaTeX resource cache directory %q must not live under /opt/papersage/releases", path)
 	}
 	return nil
+}
+
+// slashPath compares paths across platforms: Windows resolves the deploy paths
+// in the guard to C:\opt\..., so the drive is dropped before matching. Doing it
+// explicitly instead of via filepath.VolumeName keeps the rule testable off
+// Windows.
+func slashPath(path string) string {
+	cleaned := filepath.ToSlash(filepath.Clean(path))
+	if len(cleaned) >= 2 && cleaned[1] == ':' {
+		cleaned = cleaned[2:]
+	}
+	return cleaned
 }
 
 // NewDiskCache prepares the cache directory, probes that it is writable and
