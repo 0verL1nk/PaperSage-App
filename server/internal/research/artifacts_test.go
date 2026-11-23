@@ -1,8 +1,12 @@
 package research
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -12,6 +16,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/auth"
+	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -193,4 +199,71 @@ func planPayload() json.RawMessage {
 		},
 	})
 	return raw
+}
+
+// 回归：产物路由 URL 只带 artifact_id，handler 需自行解析归属项目。
+// 修复前这 5 条路径都因缺 :project_id 返回 404。
+func TestArtifactRoutesResolveProject(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	cfg := &config.Settings{SecretKey: "t"}
+	api := httpapi.New(nil)
+	Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), svc)
+	token, err := auth.CreateAccessToken(cfg.SecretKey, uid.String(), 30)
+	require.NoError(t, err)
+
+	do := func(method, path string, body any) *httptest.ResponseRecorder {
+		var rdr io.Reader
+		if body != nil {
+			raw, err := json.Marshal(body)
+			require.NoError(t, err)
+			rdr = bytes.NewReader(raw)
+		}
+		req := httptest.NewRequest(method, path, rdr)
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		api.ServeHTTP(rec, req)
+		return rec
+	}
+
+	// create 路由原本就带 :project_id，用它造前置产物。
+	created := do(http.MethodPost, httpapi.APIVersion+"/projects/"+pid.String()+"/research-artifacts",
+		map[string]any{"kind": store.ResearchArtifactChapterPlan, "payload": planPayload()})
+	require.Equal(t, http.StatusOK, created.Code, created.Body.String())
+	var envelope struct {
+		Data struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(created.Body.Bytes(), &envelope))
+	require.NotEmpty(t, envelope.Data.ID)
+	base := httpapi.APIVersion + "/research-artifacts/" + envelope.Data.ID
+
+	// 1. 新增修订
+	added := do(http.MethodPost, base+"/revisions",
+		map[string]any{"expectedRevision": 1, "payload": planPayload(), "origin": "agent"})
+	require.Equal(t, http.StatusOK, added.Code, added.Body.String())
+
+	// 2. 读修订
+	got := do(http.MethodGet, base+"/revisions/2", nil)
+	require.Equal(t, http.StatusOK, got.Code, got.Body.String())
+	assert.Contains(t, got.Body.String(), `"revision":2`)
+
+	// 3. 采用
+	adopted := do(http.MethodPost, base+"/adopt", map[string]any{"revision": 2, "expectedRevision": 2})
+	require.Equal(t, http.StatusOK, adopted.Code, adopted.Body.String())
+	assert.Contains(t, adopted.Body.String(), `"adoptedRevision":2`)
+
+	// 4. 拒绝（先加一版候选再拒）
+	require.Equal(t, http.StatusOK, do(http.MethodPost, base+"/revisions",
+		map[string]any{"expectedRevision": 2, "payload": planPayload(), "origin": "agent"}).Code)
+	rejected := do(http.MethodPost, base+"/reject", map[string]any{"revision": 3, "expectedRevision": 3})
+	require.Equal(t, http.StatusOK, rejected.Code, rejected.Body.String())
+	assert.Contains(t, rejected.Body.String(), `"status":"rejected"`)
+
+	// 5. 删除：之后列表为空
+	require.Equal(t, http.StatusOK, do(http.MethodDelete, base, nil).Code)
+	listed := do(http.MethodGet, httpapi.APIVersion+"/projects/"+pid.String()+"/research-artifacts", nil)
+	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
+	assert.Contains(t, listed.Body.String(), `"data":[]`)
 }
