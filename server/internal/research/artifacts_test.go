@@ -278,6 +278,12 @@ func TestChapterReviewRejectsIncompleteOrFakePass(t *testing.T) {
 		"问题无依据": func(p map[string]any) {
 			p["findings"].([]map[string]any)[0]["basis"] = []map[string]any{}
 		},
+		"维度声称发现问题但无问题": func(p map[string]any) {
+			p["dimensions"].([]map[string]any)[1] = map[string]any{"key": "evidence_support", "status": "findings"}
+		},
+		"维度声称已检查但有问题": func(p map[string]any) {
+			p["dimensions"].([]map[string]any)[0] = map[string]any{"key": "goal_conclusion", "status": "checked"}
+		},
 		"定位文件与计划不一致": func(p map[string]any) {
 			seedLatexFile(t, db, pid, "chapters/other.tex")
 			p["findings"].([]map[string]any)[0]["filePath"] = "chapters/other.tex"

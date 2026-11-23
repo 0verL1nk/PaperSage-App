@@ -900,6 +900,22 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 			}
 		}
 	}
+	findingsPerDimension := map[string]int{}
+	for _, f := range p.Findings {
+		findingsPerDimension[f.Dimension]++
+	}
+	for _, d := range p.Dimensions {
+		switch d.Status {
+		case "findings":
+			if findingsPerDimension[d.Key] == 0 {
+				return httpapi.BadRequest("维度标记为发现问题时必须至少给出一条问题")
+			}
+		case "checked":
+			if findingsPerDimension[d.Key] > 0 {
+				return httpapi.BadRequest("维度标记为已检查时不能包含问题")
+			}
+		}
+	}
 	return nil
 }
 
