@@ -534,20 +534,8 @@ func (s *resourceService) get(c *gin.Context) {
 	}
 	object := catalog.objects[entry.SHA256]
 	contentType := object.MediaType
-	c.Header("Content-Type", contentType)
-	c.Header("Content-Length", fmt.Sprint(object.Size))
-	c.Header("Cache-Control", "public, max-age=31536000, immutable")
-	c.Header("ETag", `"`+object.SHA256+`"`)
-	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
-	if lookup.Kind == "font" {
-		c.Header("fontid", object.SHA256)
-	} else {
-		c.Header("fileid", object.SHA256)
-	}
-	if len(object.Provenance) > 0 {
-		c.Header("X-PaperSage-Package", object.Provenance[0].Package)
-	}
 	if c.Request.Method == http.MethodHead {
+		setCatalogResourceHeaders(c, catalog, lookup, object, contentType)
 		c.Status(http.StatusOK)
 		return
 	}
@@ -564,8 +552,28 @@ func (s *resourceService) get(c *gin.Context) {
 		c.String(http.StatusBadGateway, "LaTeX resource could not be fetched and verified: %v", fetchErr)
 		return
 	}
+	setCatalogResourceHeaders(c, catalog, lookup, object, contentType)
 	c.Header("Content-Length", fmt.Sprint(len(data)))
 	c.Data(http.StatusOK, contentType, data)
+}
+
+// setCatalogResourceHeaders is only called once the body is known to be
+// writable: a Content-Length announced before a failed fetch truncates the
+// 502 body, which edge proxies report as a broken upstream response.
+func setCatalogResourceHeaders(c *gin.Context, catalog *resourceCatalog, lookup resourceLookup, object resourceCatalogObject, contentType string) {
+	c.Header("Content-Type", contentType)
+	c.Header("Content-Length", fmt.Sprint(object.Size))
+	c.Header("Cache-Control", "public, max-age=31536000, immutable")
+	c.Header("ETag", `"`+object.SHA256+`"`)
+	c.Header("X-PaperSage-Resource-Revision", catalog.revision)
+	if lookup.Kind == "font" {
+		c.Header("fontid", object.SHA256)
+	} else {
+		c.Header("fileid", object.SHA256)
+	}
+	if len(object.Provenance) > 0 {
+		c.Header("X-PaperSage-Package", object.Provenance[0].Package)
+	}
 }
 
 func (s *resourceService) serveDerivedResource(c *gin.Context, catalog *resourceCatalog, resource resourceCatalogDerived) {
