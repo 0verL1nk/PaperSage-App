@@ -10,6 +10,7 @@ import {
   normalizeImportPath,
   type DroppedImportFile,
   type ImportEntry,
+  type ImportLimits,
 } from './project-import'
 
 async function makeZip(name: string, entries: Record<string, string>): Promise<File> {
@@ -17,6 +18,46 @@ async function makeZip(name: string, entries: Record<string, string>): Promise<F
   for (const [path, content] of Object.entries(entries)) zip.file(path, content)
   const bytes = await zip.generateAsync({ type: 'arraybuffer' })
   return new File([bytes], name, { type: 'application/zip' })
+}
+
+async function loadedZip(entries: Record<string, string>): Promise<JSZip> {
+  const zip = new JSZip()
+  for (const [path, content] of Object.entries(entries)) zip.file(path, content)
+  return JSZip.loadAsync(await zip.generateAsync({ type: 'arraybuffer' }))
+}
+
+/** Records which ZIP entries the implementation actually decompresses. */
+function spyExtractions(zip: JSZip): string[] {
+  const extracted: string[] = []
+  for (const [name, entry] of Object.entries(zip.files)) {
+    if (entry.dir) continue
+    const original = entry.async.bind(entry) as (type: 'arraybuffer') => Promise<ArrayBuffer>
+    entry.async = ((type: 'arraybuffer') => {
+      extracted.push(name)
+      return original(type)
+    }) as typeof entry.async
+  }
+  return extracted
+}
+
+async function expectRejectedWithoutExtraction(
+  zip: JSZip,
+  limits: Partial<ImportLimits>,
+  message: string,
+): Promise<string[]> {
+  const extracted = spyExtractions(zip)
+  const load = vi.spyOn(JSZip, 'loadAsync').mockResolvedValue(zip)
+  try {
+    await expect(
+      buildImportPlan([{ file: new File(['zip'], 'project.zip'), path: 'project.zip' }], new Set(), {
+        ...DEFAULT_IMPORT_LIMITS,
+        ...limits,
+      }),
+    ).rejects.toThrow(message)
+  } finally {
+    load.mockRestore()
+  }
+  return extracted
 }
 
 function dropped(path: string, content = 'x'): DroppedImportFile {
@@ -151,6 +192,48 @@ describe('buildImportPlan', () => {
         maxTotalBytes: 5,
       }),
     ).rejects.toThrow('超过')
+  })
+
+  it('rejects an over-count ZIP before decompressing any entry', async () => {
+    const zip = await loadedZip({ 'a.tex': 'a', 'b.tex': 'b', 'c.tex': 'c' })
+
+    const extracted = await expectRejectedWithoutExtraction(zip, { maxFiles: 2 }, '文件过多')
+
+    expect(extracted).toEqual([])
+  })
+
+  it('rejects an over-size ZIP from declared sizes before decompressing any entry', async () => {
+    const zip = await loadedZip({ 'a.tex': 'aaaa', 'b.tex': 'bbbb' })
+
+    const extracted = await expectRejectedWithoutExtraction(zip, { maxTotalBytes: 5 }, '超过')
+
+    expect(extracted).toEqual([])
+  })
+
+  it('stops reading entries when actual sizes outrun the declared totals', async () => {
+    const zip = await loadedZip({ 'a.tex': 'a', 'b.tex': 'b', 'c.tex': 'c' })
+    const extracted: string[] = []
+    for (const [name, entry] of Object.entries(zip.files)) {
+      // Headers claim 1 byte each; pretend every payload is actually 10 bytes.
+      entry.async = (() => {
+        extracted.push(name)
+        return Promise.resolve(new ArrayBuffer(10))
+      }) as typeof entry.async
+    }
+
+    const load = vi.spyOn(JSZip, 'loadAsync').mockResolvedValue(zip)
+    try {
+      await expect(
+        buildImportPlan([{ file: new File(['zip'], 'project.zip'), path: 'project.zip' }], new Set(), {
+          ...DEFAULT_IMPORT_LIMITS,
+          maxTotalBytes: 15,
+        }),
+      ).rejects.toThrow('超过')
+    } finally {
+      load.mockRestore()
+    }
+
+    expect(extracted).toEqual(['a.tex', 'b.tex'])
   })
 
   it('reports unreadable ZIP files with an actionable message', async () => {
