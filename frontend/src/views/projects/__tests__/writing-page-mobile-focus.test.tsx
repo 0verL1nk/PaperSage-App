@@ -1,3 +1,4 @@
+import JSZip from 'jszip'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
@@ -14,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   },
   saveWritingState: { mutate: vi.fn() },
   filesResult: { data: [] as unknown[], error: null, refetch: vi.fn() },
+  createLatexFile: vi.fn(async () => ({})),
+  uploadLatexFile: vi.fn(async () => ({})),
 }))
 
 vi.mock('@tanstack/react-router', () => ({
@@ -70,6 +73,8 @@ vi.mock('@/store/chat-store', () => ({
     selector({ pendingBrowserCompileRequest: null, consumeBrowserCompileRequest: vi.fn() }),
 }))
 vi.mock('@/services/latex-api', () => ({
+  createLatexFile: mocks.createLatexFile,
+  uploadLatexFile: mocks.uploadLatexFile,
   cancelCompile: vi.fn(),
   getCompileHistory: vi.fn(),
   createBrowserCompileJob: vi.fn(),
@@ -190,5 +195,34 @@ describe('WritingPage mobile sidebar focus', () => {
     await user.keyboard('{Escape}')
 
     expect(screen.getByRole('dialog', { name: '文件侧栏' })).toBeInTheDocument()
+  })
+})
+
+describe('WritingPage LaTeX project import', () => {
+  beforeEach(() => {
+    window.innerWidth = 1024
+    mocks.createLatexFile.mockClear()
+    mocks.uploadLatexFile.mockClear()
+    mocks.filesResult.refetch.mockClear()
+  })
+
+  it('unpacks an uploaded ZIP into nested project paths', async () => {
+    const zip = new JSZip()
+    zip.file('thesis.tex', '\\documentclass{book}')
+    zip.file('body/ch1_intro.tex', 'chapter one')
+    const file = new File([await zip.generateAsync({ type: 'arraybuffer' })], 'hithesis.zip', {
+      type: 'application/zip',
+    })
+
+    render(<WritingPage />)
+    fireEvent.change(screen.getByLabelText('上传文件或导入 ZIP 工程', { selector: 'input' }), {
+      target: { files: [file] },
+    })
+
+    await waitFor(() => expect(mocks.filesResult.refetch).toHaveBeenCalled())
+    expect(mocks.createLatexFile).toHaveBeenCalledWith('project-1', 'thesis.tex', '\\documentclass{book}')
+    expect(mocks.createLatexFile).toHaveBeenCalledWith('project-1', 'body/ch1_intro.tex', 'chapter one')
+    expect(mocks.createLatexFile).toHaveBeenCalledTimes(2)
+    expect(mocks.uploadLatexFile).not.toHaveBeenCalled()
   })
 })

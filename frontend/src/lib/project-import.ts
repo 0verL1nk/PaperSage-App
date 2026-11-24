@@ -109,6 +109,14 @@ function declaredEntrySize(entry: JSZip.JSZipObject): number | null {
   return typeof size === 'number' ? size : null
 }
 
+function tooManyFilesMessage(limits: ImportLimits): string {
+  return `导入的文件过多（最多 ${limits.maxFiles} 个）。请只保留论文工程需要的文件后重试。`
+}
+
+function tooLargeMessage(limits: ImportLimits): string {
+  return `导入内容超过 ${Math.round(limits.maxTotalBytes / 1024 / 1024)} MB 上限。请只保留论文工程需要的文件后重试。`
+}
+
 async function readZipEntries(file: File, limits: ImportLimits): Promise<{ entries: ImportEntry[]; skipped: SkippedImportFile[] }> {
   let zip: JSZip
   try {
@@ -117,8 +125,8 @@ async function readZipEntries(file: File, limits: ImportLimits): Promise<{ entri
     throw new Error(`无法读取 ZIP「${file.name}」。文件可能已损坏或不是 ZIP 格式，请重新打包后再试。`)
   }
 
-  const entries: ImportEntry[] = []
   const skipped: SkippedImportFile[] = []
+  const candidates: Array<{ entry: JSZip.JSZipObject; path: string; declaredSize: number | null }> = []
   for (const entry of Object.values(zip.files)) {
     if (entry.dir) continue
     const path = normalizeImportPath(entry.name)
@@ -130,11 +138,22 @@ async function readZipEntries(file: File, limits: ImportLimits): Promise<{ entri
       skipped.push({ path, reason: '系统或隐藏文件' })
       continue
     }
-    const declared = declaredEntrySize(entry)
-    if (declared !== null && declared > limits.maxFileBytes) {
+    const declaredSize = declaredEntrySize(entry)
+    if (declaredSize !== null && declaredSize > limits.maxFileBytes) {
       skipped.push({ path, reason: '文件超过大小上限' })
       continue
     }
+    candidates.push({ entry, path, declaredSize })
+  }
+
+  // 用中央目录声明的数量/体积先拒绝超限归档，避免整包解压后才报错、把内容全读进内存。
+  if (candidates.length > limits.maxFiles) throw new Error(tooManyFilesMessage(limits))
+  const declaredTotalBytes = candidates.reduce((sum, item) => sum + (item.declaredSize ?? 0), 0)
+  if (declaredTotalBytes > limits.maxTotalBytes) throw new Error(tooLargeMessage(limits))
+
+  const entries: ImportEntry[] = []
+  let totalBytes = 0
+  for (const { entry, path } of candidates) {
     let buffer: ArrayBuffer
     try {
       buffer = await entry.async('arraybuffer')
@@ -146,6 +165,8 @@ async function readZipEntries(file: File, limits: ImportLimits): Promise<{ entri
       skipped.push({ path, reason: '文件超过大小上限' })
       continue
     }
+    totalBytes += buffer.byteLength
+    if (totalBytes > limits.maxTotalBytes) throw new Error(tooLargeMessage(limits))
     const bytes = new Uint8Array(buffer)
     const isText = isTextImportPath(path) || (!isBinaryImportPath(path) && !looksBinary(bytes))
     entries.push({
@@ -177,10 +198,10 @@ export async function buildImportPlan(
       return
     }
     if (plan.entries.length >= limits.maxFiles) {
-      throw new Error(`导入的文件过多（最多 ${limits.maxFiles} 个）。请只保留论文工程需要的文件后重试。`)
+      throw new Error(tooManyFilesMessage(limits))
     }
     if (totalBytes + entry.file.size > limits.maxTotalBytes) {
-      throw new Error(`导入内容超过 ${Math.round(limits.maxTotalBytes / 1024 / 1024)} MB 上限。请只保留论文工程需要的文件后重试。`)
+      throw new Error(tooLargeMessage(limits))
     }
     seen.add(entry.path)
     totalBytes += entry.file.size
