@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
 import userEvent from '@testing-library/user-event'
@@ -73,6 +73,7 @@ vi.mock('@/store/chat-store', () => ({
     selector({ pendingBrowserCompileRequest: null, consumeBrowserCompileRequest: vi.fn() }),
 }))
 vi.mock('@/services/latex-api', () => ({
+  BROWSER_COMPILE_HEARTBEAT_MS: 60_000,
   createLatexFile: mocks.createLatexFile,
   uploadLatexFile: mocks.uploadLatexFile,
   cancelCompile: vi.fn(),
@@ -81,6 +82,7 @@ vi.mock('@/services/latex-api', () => ({
   fetchLatexFileBytes: vi.fn(),
   fetchLatexFileContent: vi.fn(),
   reportBrowserCompileFailure: vi.fn(),
+  sendBrowserCompileHeartbeat: vi.fn(),
   uploadBrowserCompileResult: vi.fn(),
 }))
 vi.mock('@/services/api-routes', () => ({
@@ -105,6 +107,8 @@ vi.mock('../writing-file-tree', () => ({
 
 import { WritingPage } from '../WritingPage'
 import { prepareForUpdate } from '@/lib/update-prepare'
+import { compileLatexInBrowser } from '@/lib/latex/swiftlatex-browser-compiler'
+import { createBrowserCompileJob, fetchLatexFileContent, reportBrowserCompileFailure } from '@/services/latex-api'
 
 describe('WritingPage update preparation', () => {
   it('reports a Ctrl+S failure instead of leaving a rejected promise unhandled', async () => {
@@ -195,6 +199,46 @@ describe('WritingPage mobile sidebar focus', () => {
     await user.keyboard('{Escape}')
 
     expect(screen.getByRole('dialog', { name: '文件侧栏' })).toBeInTheDocument()
+  })
+})
+
+describe('WritingPage compile recovery', () => {
+  beforeEach(() => {
+    window.innerWidth = 1024
+    mocks.filesResult.data = [{
+      id: 'file-1',
+      file_path: 'main.tex',
+      content_type: 'text/x-tex',
+      size_bytes: 24,
+      last_saved_at: '2026-01-01T00:00:00Z',
+    }]
+    vi.mocked(createBrowserCompileJob).mockResolvedValue({ job_id: 'job-1', status: 'running' })
+    vi.mocked(fetchLatexFileContent).mockResolvedValue({ path: 'main.tex', content: '\\documentclass{article}' })
+    vi.mocked(reportBrowserCompileFailure).mockResolvedValue({ job_id: 'job-1', status: 'failed' })
+  })
+
+  afterEach(() => {
+    mocks.filesResult.data = []
+    vi.mocked(createBrowserCompileJob).mockReset()
+    vi.mocked(compileLatexInBrowser).mockReset()
+    vi.mocked(reportBrowserCompileFailure).mockReset()
+  })
+
+  it('leaves 编译中 and offers a retry when the browser engine times out', async () => {
+    vi.mocked(compileLatexInBrowser).mockRejectedValue(
+      new Error('pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪，已停止本次编译。'),
+    )
+    const { unmount } = render(<WritingPage />)
+
+    fireEvent.click(screen.getByTestId('compile-button'))
+
+    await waitFor(() => expect(screen.getByTestId('retry-browser-compile')).toBeInTheDocument())
+    expect(screen.getByTestId('compile-button')).toBeEnabled()
+    expect(screen.getByText(/编译超过预期时间仍未完成/)).toBeInTheDocument()
+    await waitFor(() => expect(reportBrowserCompileFailure).toHaveBeenCalledWith(
+      'project-1', 'job-1', expect.stringContaining('初始化超时'), expect.any(String),
+    ))
+    unmount()
   })
 })
 

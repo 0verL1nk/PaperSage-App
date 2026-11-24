@@ -44,8 +44,11 @@ type Settings struct {
 
 	MaxConcurrentCompiles int `env:"MAX_CONCURRENT_COMPILES" envDefault:"3"`
 	LatexCompileTimeout   int `env:"LATEX_COMPILE_TIMEOUT" envDefault:"120"`
-	CompileJobMaxAgeHours int `env:"COMPILE_JOB_MAX_AGE_HOURS" envDefault:"24"`
-	CompileHistoryLimit   int `env:"COMPILE_HISTORY_LIMIT" envDefault:"20"`
+	// Browser compiles refresh their job with heartbeats; a running job that
+	// stays silent longer than this is treated as abandoned and timed out.
+	LatexBrowserJobStaleSeconds int `env:"LATEX_BROWSER_JOB_STALE_SECONDS" envDefault:"300"`
+	CompileJobMaxAgeHours       int `env:"COMPILE_JOB_MAX_AGE_HOURS" envDefault:"24"`
+	CompileHistoryLimit         int `env:"COMPILE_HISTORY_LIMIT" envDefault:"20"`
 
 	S3Endpoint                 string `env:"S3_ENDPOINT"`
 	S3AccessKey                string `env:"S3_ACCESS_KEY"`

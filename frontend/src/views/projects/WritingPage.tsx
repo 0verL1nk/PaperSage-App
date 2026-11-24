@@ -47,7 +47,7 @@ import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-set
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
 import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
 import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
-import { createBrowserCompileJob, createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
+import { BROWSER_COMPILE_HEARTBEAT_MS, createBrowserCompileJob, createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, sendBrowserCompileHeartbeat, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
 import {
   buildImportPlan,
   collectDroppedFiles,
@@ -282,7 +282,31 @@ export function WritingPage() {
   const isCompiling = isBrowserCompiling
     || isPublishingBrowserResult
     || isRetryingBrowserUpload
-    || (compileJobId !== null && compileStatus.data !== undefined && !isTerminalStatus(compileStatus.data.status))
+    || (compileJobId !== null && !compileStatus.isStalled && compileStatus.data !== undefined && !isTerminalStatus(compileStatus.data.status))
+
+  // A server job that stops reporting must never hold the editor in 「编译中」.
+  useEffect(() => {
+    if (!compileStatus.isStalled || compileJobId === null) return
+    setCompileJobId(null)
+    if (isBrowserCompiling || isPublishingBrowserResult || isRetryingBrowserUpload) return
+    setCompileError('编译状态长时间没有更新，已停止等待。请重试编译；如果 PDF 已生成，可在编译历史中查看。')
+  }, [compileStatus.isStalled, compileJobId, isBrowserCompiling, isPublishingBrowserResult, isRetryingBrowserUpload])
+
+  // Apply a finished compile immediately instead of waiting for a status
+  // round-trip that may never arrive.
+  const applyCompileSuccess = (buildId: string) => {
+    setCompileError(null)
+    setCompileLogs(null)
+    setPdfBuildId(buildId)
+    void notifyWhenBackground('编译完成', 'PDF 已生成')
+    outputPdfMutation.mutate(
+      { projectId, buildId },
+      {
+        onSuccess: (source) => setPdfFileSource(source),
+        onError: (error) => setCompileError(`PDF 已保存，但载入预览失败：${error.message}。可在「编译历史」中重新打开。`),
+      },
+    )
+  }
 
   // React to terminal compile status — using ref to avoid setState-in-effect lint
   const prevJobIdRef = useRef<string | null>(null)
@@ -294,18 +318,7 @@ export function WritingPage() {
     prevJobIdRef.current = job.job_id
 
     if (job.status === 'success' && job.build_id) {
-      setCompileError(null)
-      setCompileLogs(null)
-      void notifyWhenBackground('编译完成', 'PDF 已生成')
-      outputPdfMutation.mutate(
-        { projectId, buildId: job.build_id },
-        {
-          onSuccess: (source) => {
-            setPdfFileSource(source)
-            setPdfBuildId(job.build_id!)
-          },
-        },
-      )
+      applyCompileSuccess(job.build_id)
     } else if (job.status === 'failed' || job.status === 'timeout') {
       const message = job.error || (job.status === 'timeout' ? '编译超时' : '编译失败')
       setCompileError(message)
@@ -668,6 +681,7 @@ export function WritingPage() {
     setIsBrowserCompiling(true)
     let browserJobId: string | null = null
     let compiledArtifact: { jobId: string; pdf: Uint8Array; logs: string } | null = null
+    let heartbeatTimer: number | null = null
     try {
       await waitForAbortable(autoSave.saveNow(), controller.signal)
       if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
@@ -696,8 +710,9 @@ export function WritingPage() {
       let job: { job_id: string } | null = null
       if (!isGuest) {
         const browserJobRequest = createBrowserCompileJob(projectId, rootFile, compiler)
+        let createdJob: { job_id: string }
         try {
-          job = await waitForAbortable(browserJobRequest, controller.signal)
+          createdJob = await waitForAbortable(browserJobRequest, controller.signal)
         } catch (error) {
           if (controller.signal.aborted) {
             void browserJobRequest
@@ -710,9 +725,17 @@ export function WritingPage() {
           }
           throw error
         }
-        browserJobId = job.job_id
-        browserCompileJobRef.current = job.job_id
-        setCompileJobId(job.job_id)
+        job = createdJob
+        browserJobId = createdJob.job_id
+        browserCompileJobRef.current = createdJob.job_id
+        setCompileJobId(createdJob.job_id)
+        // Tell the server the tab is still alive so a long compile is not
+        // mistaken for an abandoned job.
+        heartbeatTimer = window.setInterval(() => {
+          void sendBrowserCompileHeartbeat(projectId, createdJob.job_id).catch(() => {
+            // Liveness only: a missed beat must not interrupt a running compile.
+          })
+        }, BROWSER_COMPILE_HEARTBEAT_MS)
       }
 
       const result = await compileLatexInBrowser(projectFiles, rootFile, compiler, {
@@ -740,9 +763,11 @@ export function WritingPage() {
         setPendingBrowserResult(compiledArtifact)
         if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
         setIsPublishingBrowserResult(true)
-        await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
+        const uploaded = await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
         setPendingBrowserResult(null)
-        setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
+        setCompileJobId(null)
+        applyCompileSuccess(uploaded.build_id)
+        setBrowserProgressMessage('PDF 已保存')
       } else {
         setBrowserProgressMessage('PDF 已生成（游客模式，仅保留在本次会话）')
         // Guest compiles create no server job, so the polling notification never fires.
@@ -767,10 +792,12 @@ export function WritingPage() {
         } catch (reportError) {
           setCompileError(`${message}\n\n保存失败记录时也发生错误：${reportError instanceof Error ? reportError.message : String(reportError)}`)
         }
-      } else {
-        setCompileJobId(null)
       }
+      // Never leave the UI waiting on a status poll after the browser has
+      // already stopped: the failure is shown from local state.
+      setCompileJobId(null)
     } finally {
+      if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
       browserCompileAbortRef.current = null
       browserCompileJobRef.current = null
       setIsPublishingBrowserResult(false)
@@ -793,10 +820,10 @@ export function WritingPage() {
     setCompileError(null)
     setBrowserProgressMessage('正在重试上传已生成的 PDF')
     try {
-      await uploadBrowserCompileResult(projectId, pending.jobId, pending.pdf, pending.logs)
+      const uploaded = await uploadBrowserCompileResult(projectId, pending.jobId, pending.pdf, pending.logs)
       setPendingBrowserResult(null)
-      setCompileJobId(pending.jobId)
-      setBrowserProgressMessage('PDF 已保存；正在载入持久化预览')
+      applyCompileSuccess(uploaded.build_id)
+      setBrowserProgressMessage('PDF 已保存')
     } catch (error) {
       setCompileError(`PDF 已生成，但上传仍未成功；可以重试上传，无需重新编译：${error instanceof Error ? error.message : String(error)}`)
       setCompileLogs(pending.logs)

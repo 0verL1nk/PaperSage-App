@@ -209,6 +209,31 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 		_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{"job_id": jobID, "status": string(store.JobFailed)}, ""))
 	})
 
+	// POST /compile/:job_id/browser-heartbeat → keep a long browser compile alive.
+	g.POST("/compile/:job_id/browser-heartbeat", func(c *gin.Context) {
+		pid, _, ok := verify(c)
+		if !ok {
+			return
+		}
+		jobID, err := uuid.Parse(c.Param("job_id"))
+		if err != nil {
+			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+			return
+		}
+		alive, err := queue.TouchBrowserJob(c.Request.Context(), jobID, pid, auth.CurrentUser(c).ID.UUID)
+		if err != nil {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Unable to record compile heartbeat"})
+			return
+		}
+		if !alive {
+			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 409, Info: "Compile job is no longer running"})
+			return
+		}
+		_ = httpapi.WriteEnvelope(c.Writer, 200, httpapi.Success(gin.H{
+			"job_id": jobID, "status": string(store.JobRunning),
+		}, ""))
+	})
+
 	// DELETE /compile?job_id= → 取消指定任务；否则停止项目编译
 	g.DELETE("/compile", func(c *gin.Context) {
 		pid, pidStr, ok := verify(c)
@@ -252,6 +277,7 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 			return
 		}
 		limit, _ := strconv.Atoi(c.Query("limit"))
+		queue.ExpireStaleRunningJobs(c.Request.Context())
 		items, total := queue.GetHistory(c.Request.Context(), pid, auth.CurrentUser(c).ID.UUID, limit)
 		out := make([]gin.H, 0, len(items))
 		for i := range items {
@@ -277,6 +303,8 @@ func MountCompile(rg *gin.RouterGroup, authMw gin.HandlerFunc, svc *Service, que
 			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 			return
 		}
+		// Reads converge abandoned browser jobs instead of returning running forever.
+		queue.ExpireStaleRunningJobs(c.Request.Context())
 		job := queue.GetStatus(c.Request.Context(), jobID, auth.CurrentUser(c).ID.UUID)
 		if job == nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Compile job not found"})
