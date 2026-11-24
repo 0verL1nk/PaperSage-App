@@ -14,6 +14,32 @@ import type { GuestWorkspaceBundle } from '@/services/guest-local-workspace'
 import { setGuestImportPending, useSessionStore } from '@/store'
 import { OPEN_GUEST_IMPORT_EVENT } from '@/components/domain/GuestSessionBadge'
 
+const IMPORT_PROMPT_SESSION_KEY = 'papersage_guest_import_prompted'
+
+function hasPromptedThisSession() {
+  try {
+    return window.sessionStorage.getItem(IMPORT_PROMPT_SESSION_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberPromptedThisSession() {
+  try {
+    window.sessionStorage.setItem(IMPORT_PROMPT_SESSION_KEY, '1')
+  } catch {
+    // 隐私模式下 sessionStorage 不可写；大不了下次刷新再提示一次。
+  }
+}
+
+function clearPromptedThisSession() {
+  try {
+    window.sessionStorage.removeItem(IMPORT_PROMPT_SESSION_KEY)
+  } catch {
+    // 同上，不影响导入本身。
+  }
+}
+
 function projectContentCount(bundle: GuestWorkspaceBundle) {
   return bundle.projects.reduce((count, entry) => count + entry.folders.length + entry.documents.length + entry.latexFiles.length, 0)
 }
@@ -45,6 +71,7 @@ export function GuestImportGate() {
       setIdentity(account)
       if (workspace.projects.length === 0) {
         setGuestImportPending(false)
+        clearPromptedThisSession()
         setOpen(false)
         setDismissed(true)
       }
@@ -56,16 +83,29 @@ export function GuestImportGate() {
     }
   }, [bundle])
 
+  const cacheResetFor = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!accessToken || !pending) return
+    if (cacheResetFor.current === accessToken) return
+    cacheResetFor.current = accessToken
+    // Query keys are shared between local and cloud adapters, so guest snapshots
+    // must go before account pages read them. resetQueries refetches active
+    // queries; removeQueries destroyed in-flight ones and left pages stuck on
+    // skeletons forever.
+    for (const key of ['projects', 'project', 'writing-state', 'documents', 'folders', 'latex-files', 'latex-file-content']) {
+      void queryClient.resetQueries({ queryKey: [key] })
+    }
+  }, [accessToken, pending, queryClient])
+
   useEffect(() => {
     if (!accessToken || !pending || dismissed) return
-    // Query keys are shared between local and cloud adapters; evict guest
-    // snapshots before account-backed pages reuse those keys.
-    for (const key of ['projects', 'project', 'writing-state', 'documents', 'folders', 'latex-files', 'latex-file-content']) {
-      queryClient.removeQueries({ queryKey: [key] })
-    }
+    // 每个标签页会话只自动弹一次；用户选「稍后处理」后刷新不再整页遮挡。
+    if (hasPromptedThisSession()) return
+    rememberPromptedThisSession()
     setOpen(true)
     void loadReview()
-  }, [accessToken, pending, dismissed, loadReview, queryClient])
+  }, [accessToken, pending, dismissed, loadReview])
 
   useEffect(() => {
     const openReview = () => {
@@ -108,6 +148,7 @@ export function GuestImportGate() {
     try {
       if (!keepBackup) await clearGuestWorkspace()
       setGuestImportPending(false)
+      clearPromptedThisSession()
       setOpen(false)
       toast.success('游客项目已导入账号', {
         description: keepBackup
@@ -173,7 +214,7 @@ export function GuestImportGate() {
               ))}
             </div>
             <p className="text-xs leading-5 text-muted-foreground">
-              共 {bundle.projects.length} 个项目、{count} 个文件/文件夹，约 {(totalBytes / (1024 * 1024)).toFixed(1)} MB。云端创建与上传完成前不会标记导入成功。
+              共 {bundle.projects.length} 个项目、{count} 个文件/文件夹{totalBytes > 0 ? `，约 ${(totalBytes / (1024 * 1024)).toFixed(1)} MB` : ''}。云端创建与上传完成前不会标记导入成功。
             </p>
             {loading && progress && (
               <div className="space-y-2" aria-live="polite">

@@ -11,7 +11,7 @@ import { DOCUMENTS, FOLDERS, PROJECTS, WRITING_STATE } from '@/services/api-rout
 import { LATEX } from '@/services/api-routes'
 import type { Folder, ProjectDocument } from '@/types/files'
 import type { Project } from '@/types/projects'
-import type { SaveWritingState } from '@/services/writing-state-api'
+import type { SaveWritingState, WritingState } from '@/services/writing-state-api'
 
 export type GuestImportProgress = {
   projectName: string
@@ -105,9 +105,12 @@ export async function importGuestWorkspace(
 
     if (entry.writingState) {
       const writingState = Object.fromEntries(
-        Object.entries(entry.writingState).filter(([key]) => key !== 'project_id' && key !== 'scenario'),
-      ) as SaveWritingState
-      await put(WRITING_STATE.project(cloudProjectId), writingState)
+        Object.entries(entry.writingState).filter(([key]) => key !== 'project_id' && key !== 'scenario' && key !== 'revision'),
+      ) as Omit<SaveWritingState, 'revision'>
+      // 游客副本的 revision 属于本机数据库，云端项目有自己的版本；
+      // 先读云端当前版本再覆盖，导入/重试才不会永久 409。
+      const current = await get<WritingState>(WRITING_STATE.project(cloudProjectId), { skipGlobalLoading: true })
+      await put(WRITING_STATE.project(cloudProjectId), { ...writingState, revision: current?.revision ?? 0 })
       advance(localProject.name, '写作计划')
     }
 
