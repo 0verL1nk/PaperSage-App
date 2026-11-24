@@ -1,0 +1,295 @@
+{
+  "key": "cn-undergrad-thesis-general-2026",
+  "name": "本科毕业论文通用学术规范（2026 版）",
+  "authority": "standard",
+  "edition": "2026",
+  "sourceNote": "依据公开国家标准与教育部规章整理，覆盖格式排版、参考文献、图表公式、学术诚信、结构逻辑与语言表达六类；不含任何学校专属要求，学校特殊规定请自建规范包补充。",
+  "scenario": "undergraduate_thesis",
+  "entries": [
+    {
+      "code": "GBT7714-TYPE-MARKS",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["参考文献", "文献类型"],
+      "title": "按文献类型标注类型标识",
+      "ruleText": "文后参考文献的每一条都要在题名之后标注文献类型标识：专著用 [M]、期刊文章用 [J]、论文集用 [C]、学位论文用 [D]、报纸文章用 [N]、报告用 [R]、标准用 [S]、专利用 [P]，网络资源用 [EB/OL]。",
+      "rationale": "类型标识让读者一眼判断文献性质，是著录格式的组成部分，缺失会被视为格式不规范。",
+      "examples": [
+        { "kind": "good", "text": "张三. 深度学习在文本分类中的应用[J]. 计算机应用, 2023, 43(5): 12-18." },
+        { "kind": "bad", "text": "张三. 深度学习在文本分类中的应用. 计算机应用, 2023, 43(5): 12-18." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》文献类型标识",
+      "sourceQuote": "文献类型标识：[M] 专著、[J] 期刊、[C] 论文集、[D] 学位论文、[N] 报纸、[R] 报告、[S] 标准、[P] 专利、[EB/OL] 电子资源。"
+    },
+    {
+      "code": "GBT7714-JOURNAL-FORMAT",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 20,
+      "tags": ["参考文献", "期刊"],
+      "title": "期刊文献按「作者. 题名[J]. 刊名, 年, 卷(期): 页码」著录",
+      "ruleText": "期刊文章的著录顺序为：主要责任者. 题名[J]. 刊名, 年, 卷(期): 起止页码. 卷号缺失时可省略，但年、期与页码不能同时缺失。",
+      "rationale": "期刊文献是本科论文最常引用的类型，字段顺序错乱会导致读者无法定位原文。",
+      "examples": [
+        { "kind": "good", "text": "李四, 王五. 面向本科教学的写作辅助系统设计[J]. 现代教育技术, 2024, 34(2): 88-95." },
+        { "kind": "bad", "text": "现代教育技术. 李四. 面向本科教学的写作辅助系统设计. 2024." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》期刊文献著录格式",
+      "sourceQuote": "主要责任者. 题名[J]. 刊名, 年, 卷(期): 起止页码."
+    },
+    {
+      "code": "GBT7714-BOOK-FORMAT",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 30,
+      "tags": ["参考文献", "专著"],
+      "title": "专著按「作者. 书名[M]. 出版地: 出版者, 出版年」著录",
+      "ruleText": "专著的著录顺序为：主要责任者. 题名[M]. 版本项. 出版地: 出版者, 出版年: 起止页码. 第 1 版可省略版本项。",
+      "rationale": "出版地、出版者与出版年是区分同名书籍的关键信息，缺一不可。",
+      "examples": [
+        { "kind": "good", "text": "赵六. 学术写作方法论[M]. 北京: 高等教育出版社, 2021: 45-52." },
+        { "kind": "bad", "text": "赵六. 学术写作方法论[M]. 2021." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》专著著录格式",
+      "sourceQuote": "主要责任者. 题名[M]. 版本项. 出版地: 出版者, 出版年: 起止页码."
+    },
+    {
+      "code": "GBT7714-THESIS-FORMAT",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 40,
+      "tags": ["参考文献", "学位论文"],
+      "title": "学位论文按「作者. 题名[D]. 保存地: 保存者, 年份」著录",
+      "ruleText": "引用他人的学位论文时，需注明保存地和保存单位，便于读者检索原文。",
+      "rationale": "学位论文多为非公开出版物，缺少保存单位就无从查证。",
+      "examples": [
+        { "kind": "good", "text": "孙七. 基于大模型的写作反馈研究[D]. 上海: 某某大学, 2023." },
+        { "kind": "bad", "text": "孙七. 基于大模型的写作反馈研究[D]. 2023." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》学位论文著录格式",
+      "sourceQuote": "主要责任者. 题名[D]. 保存地: 保存者, 年份."
+    },
+    {
+      "code": "GBT7714-ONLINE-FORMAT",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 50,
+      "tags": ["参考文献", "电子资源"],
+      "title": "网络资源标注引用日期与获取路径",
+      "ruleText": "引用网页、在线数据等电子资源时，除作者、题名外还要写明更新或发布日期、引用日期与获取路径（网址）。",
+      "rationale": "网络内容随时可能变更或下线，引用日期是判断内容版本的唯一依据。",
+      "examples": [
+        { "kind": "good", "text": "国家标准化管理委员会. 参考文献著录规则[EB/OL]. (2015-05-15)[2026-11-20]. https://openstd.samr.gov.cn/." },
+        { "kind": "bad", "text": "国家标准化管理委员会. 参考文献著录规则[EB/OL]. https://openstd.samr.gov.cn/." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》电子资源著录格式",
+      "sourceQuote": "主要责任者. 题名[EB/OL]. (更新或修改日期)[引用日期]. 获取和访问路径."
+    },
+    {
+      "code": "GBT7714-AUTHORS",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 60,
+      "tags": ["参考文献", "责任者"],
+      "title": "责任者三人以内全列，超过三人列前三加「等」",
+      "ruleText": "文献作者为 3 个或 3 个以下时全部列出；超过 3 个时只列前 3 个，其后加「等」（英文文献加 et al.）。",
+      "rationale": "统一的责任者截断规则保证参考文献表长度可控且格式一致。",
+      "examples": [
+        { "kind": "good", "text": "张三, 李四, 王五, 等. 论文题名[J]. 刊名, 2023, 12(3): 1-8." },
+        { "kind": "bad", "text": "张三, 李四, 王五, 赵六, 孙七, 周八. 论文题名[J]. 刊名, 2023, 12(3): 1-8." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》责任者著录",
+      "sourceQuote": "3 个或 3 个以下作者全部列出；3 个以上作者只列前 3 个，其后加「等」或与之相应的词。"
+    },
+    {
+      "code": "GBT7714-CORRESPONDENCE",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 70,
+      "tags": ["参考文献", "引用"],
+      "title": "正文引用与文后参考文献表一一对应",
+      "ruleText": "正文中引用他人观点、数据或结论时，须在引用处标注文献序号；文后参考文献表的每一条都应在正文中被引用，正文标注的每一个序号也都要在参考文献表中出现。",
+      "rationale": "两端任意一处缺失都会被评审视为引用不规范，也无法核查引用是否支撑论断。",
+      "examples": [
+        { "kind": "good", "text": "已有研究表明样本规模会显著影响结论稳定性[3]。" },
+        { "kind": "bad", "text": "已有研究表明样本规模会显著影响结论稳定性。" }
+      ],
+      "applicableSections": ["全文", "参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》顺序编码制",
+      "sourceQuote": "顺序编码制：按正文中引用文献出现的先后顺序连续编码，序号置于方括号中。"
+    },
+    {
+      "code": "GBT7713-STRUCTURE",
+      "category": "结构逻辑",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["结构", "章节"],
+      "title": "学位论文由前置部分、主体部分与结尾部分组成",
+      "ruleText": "前置部分含封面、摘要、关键词与目录；主体部分含引言、正文、结论与参考文献；结尾部分含致谢与附录。各部分顺序不可随意调换。",
+      "rationale": "固定结构是学位论文的可读性与评审可预期性的基础。",
+      "examples": [
+        { "kind": "good", "text": "摘要 → 目录 → 引言 → 正文 → 结论 → 参考文献 → 致谢" },
+        { "kind": "bad", "text": "引言 → 致谢 → 摘要 → 正文（顺序混乱）" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 7713.1—2006《学位论文编写规则》学位论文结构",
+      "sourceQuote": "本标准规定了学位论文的编写规则。"
+    },
+    {
+      "code": "GBT7713-ABSTRACT",
+      "category": "结构逻辑",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 20,
+      "tags": ["摘要"],
+      "title": "摘要应具有独立性与自含性",
+      "ruleText": "摘要应能脱离正文独立阅读，写清研究目的、方法、主要结果与结论；不引用参考文献，不使用图表，不出现「本文第一章」这类依赖正文的表述。",
+      "rationale": "评审与检索系统常只读摘要，摘要不完整会直接影响对论文水平的判断。",
+      "examples": [
+        { "kind": "good", "text": "本文针对本科论文引用不规范问题，构建了基于大模型的引用核查流程，在 60 篇样例上把漏引率从 24% 降至 9%。" },
+        { "kind": "bad", "text": "本文第一章介绍背景，第二章介绍方法，详见后文。" }
+      ],
+      "applicableSections": ["摘要"],
+      "sourceRef": "GB/T 7713.1—2006《学位论文编写规则》摘要",
+      "sourceQuote": "摘要应具有独立性和自含性，即不阅读论文全文，就能获得必要的信息。"
+    },
+    {
+      "code": "GBT7713-FIGURE-TABLE",
+      "category": "图表公式",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["图表", "编号"],
+      "title": "图表应编号、有题名且具备自明性",
+      "ruleText": "每幅图、每张表都要有编号与题名，并在正文中被提及；图表内容应使读者不看正文也能理解（标明量的符号、单位与数据来源）。",
+      "rationale": "自明性不足的图表会被评审要求返工，也容易被误读。",
+      "examples": [
+        { "kind": "good", "text": "图 3-1 不同样本规模下的漏引率（横轴：样本数；纵轴：漏引率，%）" },
+        { "kind": "bad", "text": "图 3-1（无题名、坐标轴无数名与单位）" }
+      ],
+      "applicableSections": ["正文"],
+      "sourceRef": "GB/T 7713.1—2006《学位论文编写规则》图表编排",
+      "sourceQuote": "图、表应具有自明性，即只看图、表而不阅读正文，就能理解图、表所要表达的意思。"
+    },
+    {
+      "code": "GB3100-UNITS",
+      "category": "格式排版",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["计量单位", "符号"],
+      "title": "使用法定计量单位，量符号斜体、单位符号正体",
+      "ruleText": "全文使用国家法定计量单位；量的符号（如 m、t）用斜体，单位符号（如 kg、s）用正体，数值与单位之间留一个空格。",
+      "rationale": "量和单位的排版规则是科技论文的通用规范，混淆会带来量纲歧义。",
+      "examples": [
+        { "kind": "good", "text": "样本质量 m = 12.5 g，处理时间 t = 30 s。" },
+        { "kind": "bad", "text": "样本质量 M=12.5G，处理时间 T=30S。" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB 3100—1993《国际单位制及其应用》、GB/T 3101—1993《有关量、单位和符号的一般原则》",
+      "sourceQuote": "量的符号一般为斜体，单位的符号为正体。"
+    },
+    {
+      "code": "GBT15834-PUNCTUATION",
+      "category": "语言表达",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["标点", "语言"],
+      "title": "标点符号符合国家标准用法",
+      "ruleText": "中文正文使用全角标点；书名号、引号、括号成对使用；并列词语之间用顿号，并列分句之间用逗号或分号，不用英文半角标点混排。",
+      "rationale": "标点混用是评审最容易注意到的低级错误，也会影响语义断句。",
+      "examples": [
+        { "kind": "good", "text": "本文使用《学位论文编写规则》中的术语，包括「前置部分」「主体部分」。" },
+        { "kind": "bad", "text": "本文使用<学位论文编写规则>中的术语,包括\"前置部分\",\"主体部分\"." }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 15834—2011《标点符号用法》",
+      "sourceQuote": "本标准规定了现代汉语标点符号的用法。"
+    },
+    {
+      "code": "GBT15835-NUMERALS",
+      "category": "语言表达",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 20,
+      "tags": ["数字", "语言"],
+      "title": "数值使用阿拉伯数字，概数与惯用语用汉字",
+      "ruleText": "可以且适宜使用阿拉伯数字的地方（统计数据、年代、编号、百分比）用阿拉伯数字；概数、成语与惯用语（如「三四个」「七上八下」）用汉字。",
+      "rationale": "数字用法不统一会让数据段落显得随意，也影响检索与统计。",
+      "examples": [
+        { "kind": "good", "text": "共收集 128 份问卷，有效率为 92.3%，其中三四个样本存在缺失。" },
+        { "kind": "bad", "text": "共收集一百二十八份问卷，有效率为百分之九十二点三。" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 15835—2011《出版物上数字用法》",
+      "sourceQuote": "凡是可以使用阿拉伯数字而且又很得体的地方，特别是当所表示的数值较大时，均应使用阿拉伯数字。"
+    },
+    {
+      "code": "MOE34-FRAUD",
+      "category": "学术诚信",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 10,
+      "tags": ["学术诚信", "作假"],
+      "title": "严禁买卖、代写、剽窃与伪造数据",
+      "ruleText": "学位论文不得购买、出售或委托他人代写，不得剽窃他人作品和学术成果，不得伪造或篡改数据。上述行为一经认定即构成学位论文作假。",
+      "rationale": "这是学位论文的红线，触碰会直接导致论文无效并追究责任。",
+      "examples": [
+        { "kind": "good", "text": "实验数据来自本人实测记录，原始文件随论文归档。" },
+        { "kind": "bad", "text": "结论部分的数据无法追溯到任何实验记录。" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "《学位论文作假行为处理办法》（教育部令第 34 号）第三条",
+      "sourceQuote": "本办法所称学位论文作假行为包括下列情形：（一）购买、出售学位论文或者组织学位论文买卖的；（二）由他人代写、为他人代写学位论文或者组织学位论文代写的；（三）剽窃他人作品和学术成果的；（四）伪造数据的；（五）有其他严重学位论文作假行为的。"
+    },
+    {
+      "code": "MOE40-MISCONDUCT",
+      "category": "学术诚信",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "undergraduate_thesis",
+      "sortOrder": 20,
+      "tags": ["学术诚信", "引用规范"],
+      "title": "引用他人成果须如实标注，不得侵占或篡改",
+      "ruleText": "引用他人观点、数据与文字须如实注明出处；不得剽窃、抄袭、侵占他人学术成果，不得篡改他人研究成果，不得伪造注释或参考文献。",
+      "rationale": "引用标注既是学术规范要求，也是区分借鉴与抄袭的唯一依据。",
+      "examples": [
+        { "kind": "good", "text": "如文献[5]所述，该方法的召回率受语料规模影响。" },
+        { "kind": "bad", "text": "把他人论文的整段结论改写几个词后作为自己的结论，且不标出处。" }
+      ],
+      "applicableSections": ["全文", "参考文献"],
+      "sourceRef": "《高等学校预防与处理学术不端行为办法》（教育部令第 40 号）第二十七条",
+      "sourceQuote": "学术不端行为包括：（一）剽窃、抄袭、侵占他人学术成果；（二）篡改他人研究成果；（三）伪造科研数据、资料、文献、注释，或者捏造事实、编造虚假研究成果等。"
+    }
+  ]
+}

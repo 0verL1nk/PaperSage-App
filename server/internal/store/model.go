@@ -277,6 +277,7 @@ func coreModels() []any {
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
 		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},
 		&AgentArtifact{}, &AgentChangeProposal{}, &AgentEvidence{}, &AgentWikiSource{},
+		&NormPack{}, &NormEntry{}, &NormVersion{}, &NormEntryTag{}, &ProjectNormAdoption{},
 	}
 }
 

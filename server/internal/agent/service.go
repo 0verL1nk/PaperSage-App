@@ -19,6 +19,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -65,6 +66,9 @@ type Service struct {
 	// 必须复用同一个实例：FilesService 带自己的 LRU 内容缓存，各建一份会让
 	// 同一 S3 key 出现两份缓存、读出陈旧内容。
 	files *latex.FilesService
+	// Norms 提供项目已采用的学术规范；未注入时按「规范库不可用」显式呈现，
+	// 不允许假装「已接入但没有采用」。
+	Norms norms.Provider
 }
 
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
