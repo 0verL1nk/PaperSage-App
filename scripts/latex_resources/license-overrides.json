@@ -1,11 +1,219 @@
 {
+  "garuda-c90": {
+    "license": "GNU GPL version 2",
+    "source": "https://ctan.org/pkg/cjk?lang=en"
+  },
+  "hyphen-afrikaans": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-albanian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-ancientgreek": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-arabic": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-armenian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
   "hyphen-base": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-belarusian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-bulgarian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-catalan": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-chinese": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-churchslavonic": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-coptic": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-czech": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-english": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-esperanto": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-estonian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-ethiopic": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-farsi": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-french": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-friulan": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-galician": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-georgian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-german": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-hebrew": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-indic": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-indonesian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-interlingua": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-irish": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-kazakh": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-kurmanji": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-latvian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-lithuanian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-macedonian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-mongolian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-norwegian": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-occitan": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-piedmontese": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-portuguese": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-romanian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-romansh": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-russian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-sanskrit": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-slovak": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-slovenian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-swedish": {
+    "license": "MIT License",
+    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
+  },
+  "hyphen-thai": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-turkmen": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-ukrainian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-uppersorbian": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-vietnamese": {
+    "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
+    "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "hyphen-welsh": {
     "license": "File-level terms include unrestricted redistribution and LPPL; consult the shipped notice for each file",
     "source": "https://www.tug.org/texlive/copying.html"
   },
   "latexconfig": {
     "license": "Public domain (per-file notices)",
     "source": "https://www.tug.org/texlive/copying.html"
+  },
+  "norasi-c90": {
+    "license": "GNU GPL version 2",
+    "source": "https://ctan.org/pkg/cjk?lang=en"
   },
   "texlive-scripts": {
     "license": "Mixed file-level terms, including GPL-2 and public domain",
@@ -22,41 +230,5 @@
   "xetexconfig": {
     "license": "Public domain (per-file notices)",
     "source": "https://www.tug.org/texlive/copying.html"
-  },
-  "garuda-c90": {
-    "license": "GNU GPL version 2",
-    "source": "https://ctan.org/pkg/cjk?lang=en"
-  },
-  "norasi-c90": {
-    "license": "GNU GPL version 2",
-    "source": "https://ctan.org/pkg/cjk?lang=en"
-  },
-  "hyphen-czech": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-english": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-french": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-german": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-norwegian": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-portuguese": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
-  },
-  "hyphen-swedish": {
-    "license": "MIT License",
-    "source": "https://ctan.org/pkg/hyph-utf8?lang=en"
   }
 }

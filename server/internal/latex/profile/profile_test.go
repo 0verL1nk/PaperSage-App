@@ -66,6 +66,7 @@ func writeProfile(t *testing.T) string {
 	// Two packages ship a hyphen.cfg, so the basename is ambiguous and needs a
 	// kpsewhich override, exactly like the real snapshot.
 	document += tlpdbStanza("texinifiles", "tex/xetex/config/xelatex.ini")
+	document += tlpdbStanza("hyphenafrikaans", "tex/generic/hyph-utf8/loadhyph/loadhyph-af.tex")
 	document += tlpdbStanza("babel", "tex/generic/babel/hyphen.cfg")
 	document += tlpdbStanza("cslatex", "tex/cslatex/base/hyphen.cfg")
 	_, err = writer.Write([]byte(document))
@@ -141,7 +142,7 @@ func TestVerifyReportsMissingRequiredResources(t *testing.T) {
 	bundle, err := Load(root)
 	require.NoError(t, err)
 	findings := bundle.Verify()
-	require.Len(t, findings, 7, strings.Join(findings, "\n"))
+	require.Len(t, findings, 8, strings.Join(findings, "\n"))
 	joined := strings.Join(findings, "\n")
 	require.Contains(t, joined, "geometry.sty: does not resolve to a single source")
 	require.Contains(t, joined, "hyphen.cfg: does not resolve to a single source")
