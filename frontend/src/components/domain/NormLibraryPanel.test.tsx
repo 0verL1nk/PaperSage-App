@@ -37,7 +37,14 @@ function wrap(ui: ReactNode) {
   return <QueryClientProvider client={client}>{ui}</QueryClientProvider>
 }
 
-function adoptionOf(overrides: Partial<NormEntry> & { entryId: string; state: 'enabled' | 'disabled'; hasNewerVersion?: boolean; latestVersion?: number }): NormAdoption {
+type AdoptionOverrides = Omit<Partial<NormEntry>, 'state'> & {
+  entryId: string
+  state: 'enabled' | 'disabled'
+  hasNewerVersion?: boolean
+  latestVersion?: number
+}
+
+function adoptionOf(overrides: AdoptionOverrides): NormAdoption {
   const { entryId, state, hasNewerVersion = false, latestVersion = overrides.version ?? 1, ...entryOverrides } = overrides
   return {
     entryId,

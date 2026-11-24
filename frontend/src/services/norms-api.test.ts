@@ -40,7 +40,7 @@ function adoption(overrides: Partial<NormAdoption> = {}): NormAdoption {
 
 describe('entriesURL', () => {
   it('省掉空值，只拼有效查询参数', () => {
-    const url = entriesURL({ q: 'GB/T 7714', packId: undefined, scenario: '', pageSize: 50 })
+    const url = entriesURL({ q: 'GB/T 7714', packId: undefined, scenario: undefined, pageSize: 50 })
     expect(url).toContain('q=GB%2FT+7714')
     expect(url).toContain('pageSize=50')
     expect(url).not.toContain('packId')

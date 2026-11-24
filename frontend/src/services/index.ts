@@ -14,6 +14,7 @@ export {
   PAGE_QUERY_TIMEOUT_MS,
   patchJson,
   postJson as post,
+  putJson,
   postJson,
   postMultipart,
   putJson as put,

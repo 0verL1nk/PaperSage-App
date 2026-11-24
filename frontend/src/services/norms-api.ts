@@ -1,16 +1,20 @@
 /** 学术规范资源库 API hooks（需要登录；游客不允许隐式写云端规范）。 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { deleteFetch, get, PAGE_QUERY_TIMEOUT_MS, patchJson, post } from '@/services'
+import { deleteFetch, get, PAGE_QUERY_TIMEOUT_MS, patchJson, post, putJson } from '@/services'
 import { GuestCapabilityError } from '@/services/guest-local-workspace'
 import { useSessionStore } from '@/store'
 import { NORMS } from './api-routes'
 import type {
   NormAdoption,
   NormAdoptionState,
+  NormEntryDetail,
+  NormEntryInput,
   NormEntryPage,
   NormEntryQuery,
+  NormEntryUpdateInput,
   NormPack,
+  NormPackInput,
 } from '@/types/norms'
 
 function requireSignedIn() {
@@ -111,6 +115,86 @@ export function useUnadoptNorm(projectId: string) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: normsKeys.project(projectId) })
+    },
+  })
+}
+
+export function useNormEntry(entryId: string | undefined) {
+  return useQuery({
+    queryKey: [KEY, 'entry', entryId ?? ''],
+    enabled: Boolean(entryId),
+    queryFn: async () => {
+      requireSignedIn()
+      return get<NormEntryDetail>(NORMS.entry(entryId!))
+    },
+  })
+}
+
+export function useCreatePack() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NormPackInput) => {
+      requireSignedIn()
+      return post<NormPack>(NORMS.packs, input)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: normsKeys.packs })
+    },
+  })
+}
+
+export function useDeletePack() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (packId: string) => {
+      requireSignedIn()
+      await deleteFetch(NORMS.pack(packId))
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: normsKeys.packs })
+      void qc.invalidateQueries({ queryKey: [KEY, 'entries'] })
+    },
+  })
+}
+
+export function useCreateEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: NormEntryInput) => {
+      requireSignedIn()
+      return post<NormEntryDetail>(NORMS.entries, input)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [KEY, 'entries'] })
+      void qc.invalidateQueries({ queryKey: normsKeys.packs })
+    },
+  })
+}
+
+export function useUpdateEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (input: { entryId: string } & NormEntryUpdateInput) => {
+      requireSignedIn()
+      const { entryId, ...body } = input
+      return putJson<NormEntryDetail>(NORMS.entry(entryId), body)
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [KEY, 'entries'] })
+    },
+  })
+}
+
+export function useDeleteEntry() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: async (entryId: string) => {
+      requireSignedIn()
+      await deleteFetch(NORMS.entry(entryId))
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: [KEY, 'entries'] })
+      void qc.invalidateQueries({ queryKey: normsKeys.packs })
     },
   })
 }

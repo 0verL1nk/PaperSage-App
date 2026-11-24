@@ -8,7 +8,8 @@
     "projects": "所有项目",
     "trash": "回收站",
     "settings": "设置",
-    "documents": "文档"
+    "documents": "文档",
+    "norms": "规范库"
   },
   "layout": {
     "navigationMenu": "导航菜单",

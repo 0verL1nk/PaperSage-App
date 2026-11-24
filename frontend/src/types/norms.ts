@@ -66,6 +66,62 @@ export interface NormAdoption {
   entry: NormEntry
 }
 
+export interface NormVersion {
+  version: number
+  title: string
+  ruleText: string
+  rationale?: string
+  examples: NormExample[]
+  applicableSections: string[]
+  sourceRef: string
+  sourceQuote?: string
+  sourceUrl?: string
+  origin: NormRuleKind | 'builtin' | 'import'
+  contentHash: string
+  createdAt: string
+}
+
+export interface NormEntryDetail extends NormEntry {
+  rationale?: string
+  examples: NormExample[]
+  versions: NormVersion[]
+}
+
+/** 新建/编辑条目的提交体；编辑时额外带 expectedVersion 做乐观锁。 */
+export interface NormEntryInput {
+  packId: string
+  code: string
+  category: string
+  ruleKind: NormRuleKind
+  binding: NormBinding
+  scenario: NormScenario
+  sortOrder?: number
+  tags: string[]
+  title: string
+  ruleText: string
+  rationale?: string
+  examples?: NormExample[]
+  applicableSections: string[]
+  sourceRef: string
+  sourceQuote?: string
+  sourceUrl?: string
+}
+
+export interface NormEntryUpdateInput extends NormEntryInput {
+  expectedVersion: number
+  state?: NormState
+}
+
+export interface NormPackInput {
+  key: string
+  name: string
+  authority?: NormAuthority
+  edition?: string
+  sourceUrl?: string
+  sourceNote?: string
+  scenario?: NormScenario
+}
+
 export interface NormEntryQuery {
   q?: string
   category?: string

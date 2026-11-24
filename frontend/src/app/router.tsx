@@ -24,6 +24,7 @@ import { GuestImportGate } from '@/components/domain/GuestImportGate'
 import { MainLayout } from '@/views/layout/MainLayout'
 import { WorkspaceLayout } from '@/views/layout/WorkspaceLayout'
 import { hasSessionToken, hasWorkspaceSession } from '@/store/session-store'
+import { NormsPage } from '@/views/norms/NormsPage'
 import { ProjectListPage } from '@/views/projects/ProjectListPage'
 import { WritingPage } from '@/views/projects/WritingPage'
 import { PreparePage } from '@/views/projects/PreparePage'
@@ -224,6 +225,13 @@ const projectsRoute = createRoute({
   },
 })
 
+// /app/norms route - 学术规范库管理
+const normsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: '/app/norms',
+  component: NormsPage,
+})
+
 // /app/trash route
 const trashRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
@@ -327,7 +335,7 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   authRoute,
   guestRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectPrepareRoute,
@@ -363,7 +371,7 @@ export function AppRouterProvider({ queryClient }: AppRouterContext) {
 export function getPlannedRouteGroups() {
   return {
     public: ['/', '/auth'],
-    main: ['/app/documents', '/app/trash', '/app/profile', '/app/settings'],
+    main: ['/app/documents', '/app/norms', '/app/trash', '/app/profile', '/app/settings'],
     project: [
       '/project/:projectId',
       '/project/:projectId/prepare',
