@@ -47,6 +47,9 @@ var RequiredResources = []QualifiedResource{
 	{Kind: "xetex", Format: "26", Name: "ccaption.sty"},
 	{Kind: "xetex", Format: "26", Name: "layouts.sty"},
 	{Kind: "xetex", Format: "26", Name: "gbt7714.sty"},
+	// First-run format generation asks for this file by exact name; it is not in
+	// the xetex/26 suffix list, so it guards the exact-name resolution path.
+	{Kind: "xetex", Format: "26", Name: "xelatex.ini"},
 	// TeX Live 2026 generates no hyphen.cfg at install time; kpathsea resolves
 	// it to babel's copy, so it is served through a lookup override rather than
 	// a derived blob.
