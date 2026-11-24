@@ -20,7 +20,13 @@ class ResizeObserverStub implements ResizeObserver {
     this.targets.add(target)
     queueMicrotask(() =>
       this.callback(
-        [{ target } as ResizeObserverEntry],
+        [{
+          target,
+          contentRect: target.getBoundingClientRect(),
+          borderBoxSize: [],
+          contentBoxSize: [],
+          devicePixelContentBoxSize: [],
+        } as unknown as ResizeObserverEntry],
         this as unknown as ResizeObserver,
       ),
     )

@@ -165,7 +165,7 @@ test('browser-local guest can create and save a real project across mobile, tabl
   expect(dialogGeometry.scrollWidth).toBeLessThanOrEqual(dialogGeometry.width + 1)
   await nameInput.fill('Local Guest Research')
   await createButton.click()
-  const projectCard = page.getByRole('button', { name: /Local Guest Research/ })
+  const projectCard = page.getByRole('button', { name: 'Local Guest Research', exact: true })
   await expect(projectCard).toBeVisible()
   await projectCard.click()
   await expect(page).toHaveURL(/\/project\/.+\/prepare$/)
