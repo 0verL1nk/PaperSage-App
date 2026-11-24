@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import type { AxiosProgressEvent } from 'axios'
-import { apiClient, getJson, postJson, deleteFetch, putJson, postMultipart } from './client'
+import { apiClient, getJson, PAGE_QUERY_TIMEOUT_MS, postJson, deleteFetch, putJson, postMultipart } from './client'
 import type { ProjectDocument, MoveDocumentInput, UpdateRemarkInput } from '@/types/files'
 import { DOCUMENTS } from './api-routes'
 import { useSessionStore } from '@/store'
@@ -34,7 +34,7 @@ export function useDocuments(projectId: string, folderId: string | null, allFold
       const url = folderId
         ? DOCUMENTS.listByFolder(folderId)
         : DOCUMENTS.listByProject(projectId)
-      const raw = await getJson<Record<string, unknown>[]>(url)
+      const raw = await getJson<Record<string, unknown>[]>(url, { timeout: PAGE_QUERY_TIMEOUT_MS })
       return raw.map(mapDocKeys)
     },
     enabled: !!projectId,

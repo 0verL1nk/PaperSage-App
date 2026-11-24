@@ -26,7 +26,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="w-full max-w-3xl p-8 md:p-12">
+    <div className="mx-auto w-full max-w-3xl p-8 md:p-12">
       <h1 className="text-2xl font-bold mb-6">{t('settings.pageTitle')}</h1>
       <Tabs defaultValue="ui" className="w-full">
         <TabsList className="mb-4">

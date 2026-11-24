@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link, useParams } from '@tanstack/react-router'
-import { ArrowUpRight, Check, FileText, Sparkles } from 'lucide-react'
+import { ArrowUpRight, Check, FileText, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react'
 
 import { AiPanel } from './ai-panel'
 import { ResearchArtifactsPanel } from '@/components/domain/ResearchArtifactsPanel'
@@ -8,6 +8,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useDocuments } from '@/services/files-api'
+import { friendlyErrorMessage } from '@/services/errors'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import type { WritingBrief } from '@/services/writing-state-api'
 import { useSessionStore } from '@/store'
@@ -33,7 +34,7 @@ export function PreparePage() {
   const { projectId = '' } = useParams({ strict: false })
   const [mobileView, setMobileView] = useState<'chat' | 'brief'>('chat')
   const isGuest = useSessionStore((session) => session.isGuest)
-  const { data: state, isLoading, error } = useWritingState(projectId)
+  const { data: state, isLoading, error, refetch } = useWritingState(projectId)
   const { data: documents = [] } = useDocuments(projectId, null, true)
   const save = useSaveWritingState(projectId).mutate
   const phaseSyncProject = useRef('')
@@ -53,10 +54,28 @@ export function PreparePage() {
   }, [state, save])
 
   if (error) {
-    return <div role="alert" className="m-6 rounded-2xl border border-destructive/20 bg-destructive/5 p-5 text-sm text-destructive">写作准备状态加载失败：{error.message}</div>
+    return (
+      <div className="flex h-full items-center justify-center p-6">
+        <div role="alert" className="w-full max-w-md rounded-2xl border border-border/60 bg-card p-6 text-center shadow-sm">
+          <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-destructive/10 text-destructive">
+            <TriangleAlert className="size-5" />
+          </div>
+          <h2 className="mt-4 text-base font-semibold">暂时打不开这个项目的准备内容</h2>
+          <p className="mt-2 text-sm leading-6 text-muted-foreground">{friendlyErrorMessage(error)}</p>
+          <div className="mt-5 flex flex-wrap justify-center gap-2">
+            <Button onClick={() => void refetch()}>重试</Button>
+            <Button variant="outline" asChild><Link to="/app/projects">返回项目列表</Link></Button>
+          </div>
+        </div>
+      </div>
+    )
   }
   if (isLoading || !state) {
-    return <div className="p-8 text-sm text-muted-foreground">正在加载研究计划…</div>
+    return (
+      <div role="status" className="flex h-full items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+        <LoaderCircle className="size-4 animate-spin" />正在加载研究计划…
+      </div>
+    )
   }
 
   const confirmedDocuments = documents.filter((document) => document.status === 'uploaded')
@@ -103,7 +122,7 @@ export function PreparePage() {
         </button>
       </div>
       <aside className={cn(
-        'order-2 min-w-0 space-y-4 lg:order-1 lg:block lg:overflow-y-auto lg:pr-1',
+        'order-2 min-w-0 space-y-4 lg:order-1 lg:block lg:overflow-y-auto lg:pr-1 lg:scroll-visible',
         mobileView === 'brief' ? 'flex-1 overflow-y-auto' : 'hidden',
       )}>
         <div className="px-1 py-1">

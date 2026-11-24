@@ -1,7 +1,7 @@
 /** 科研组织产物 API hooks（服务端产物需要登录；游客不隐式上传）。 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { deleteFetch, get, post } from '@/services'
+import { deleteFetch, get, PAGE_QUERY_TIMEOUT_MS, post } from '@/services'
 import { GuestCapabilityError } from '@/services/guest-local-workspace'
 import { useSessionStore } from '@/store'
 import type {
@@ -30,7 +30,7 @@ export function useResearchArtifacts(projectId: string | undefined, kind?: Resea
     queryFn: async () => {
       requireSignedIn()
       const url = kind ? `${RESEARCH.list(projectId!)}?kind=${kind}` : RESEARCH.list(projectId!)
-      return (await get<ResearchArtifact[]>(url)) ?? []
+      return (await get<ResearchArtifact[]>(url, { timeout: PAGE_QUERY_TIMEOUT_MS })) ?? []
     },
   })
 }

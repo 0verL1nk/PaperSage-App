@@ -306,7 +306,7 @@ describe('ReviewPage', () => {
   it('surfaces report loading errors in Chinese with technical details collapsed', () => {
     mocks.reportsState.error = new Error('offline')
     render(<ReviewPage />)
-    expect(screen.getByText(/历史报告加载失败：暂时无法读取检查数据/)).toBeInTheDocument()
+    expect(screen.getByText(/历史报告加载失败：暂时无法读取数据/)).toBeInTheDocument()
     expect(screen.getByText('offline')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
     expect(mocks.reportsRefetch).toHaveBeenCalledOnce()
@@ -344,7 +344,7 @@ describe('ReviewPage', () => {
   it('surfaces file-list errors and retries the query', () => {
     mocks.useLatexFiles.mockReturnValue({ data: undefined, isPending: false, error: new Error('IndexedDB index missing'), refetch: mocks.refetch })
     render(<ReviewPage />)
-    expect(screen.getByText(/暂时无法读取检查数据/)).toBeInTheDocument()
+    expect(screen.getByText(/暂时无法读取数据/)).toBeInTheDocument()
     expect(screen.getByText('IndexedDB index missing')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /重试读取/ }))
     expect(mocks.refetch).toHaveBeenCalledOnce()

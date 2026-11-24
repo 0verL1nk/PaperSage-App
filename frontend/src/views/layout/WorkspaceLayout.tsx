@@ -26,7 +26,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   const location = useLocation()
   const { t } = useTranslation()
   const { projectId = 'default' } = useParams({ strict: false })
-  const { data: project, isLoading } = useProject(projectId)
+  const { data: project, isLoading, isError: projectFailed } = useProject(projectId)
   const isGuest = useSessionStore((state) => state.isGuest)
   const guestImportPending = useSessionStore((state) => state.guestImportPending)
 
@@ -51,7 +51,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
         <div className="desktop-no-drag flex min-w-0 flex-1 items-center gap-3">
           <Button
             variant="ghost"
-            size="icon-xs"
+            size="icon-sm"
             className="rounded-full text-muted-foreground hover:text-foreground transition-transform hover:scale-110 active:scale-95"
             onClick={() => navigate({ to: '/app/projects' })}
             aria-label={t('nav.backToProjects')}
@@ -71,10 +71,13 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
 
           {isLoading ? (
             <Skeleton className="h-4 w-24 rounded" />
+          ) : projectFailed ? (
+            // 读取失败时不要用「未知项目」冒充项目名：等页面自己的错误态给出重试入口。
+            <span className="text-[13px] text-muted-foreground">项目信息暂不可用</span>
           ) : (
             <div className="flex min-w-0 items-center gap-2">
               <h2 className="max-w-[240px] truncate text-[13px] font-medium text-foreground">
-                {project?.name || '未知项目'}
+                {project?.name || '项目'}
               </h2>
             </div>
           )}

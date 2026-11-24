@@ -2,6 +2,7 @@ import { cn } from '@/lib/utils'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { useProjects, useGroups } from '@/services/projects-api'
+import { friendlyErrorMessage } from '@/services/errors'
 import { ProjectCard } from '@/components/domain/ProjectCard'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
 import { Button } from '@/components/ui/button'
@@ -14,7 +15,7 @@ export function ProjectListPage() {
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false)
 
-  const { data: projects = [], isLoading, error } = useProjects(selectedGroupId ?? undefined)
+  const { data: projects = [], isLoading, error, refetch } = useProjects(selectedGroupId ?? undefined)
   const { data: groups = [] } = useGroups()
 
   useEffect(() => {
@@ -56,8 +57,8 @@ export function ProjectListPage() {
             <FolderGit2 className="h-6 w-6" />
           </div>
           <p className="text-sm font-medium text-destructive">项目加载失败</p>
-          <p className="text-xs text-muted-foreground">{error.message}</p>
-          <Button variant="outline" size="sm" onClick={() => window.location.reload()}>
+          <p className="text-xs text-muted-foreground">{friendlyErrorMessage(error)}</p>
+          <Button variant="outline" size="sm" onClick={() => void refetch()}>
             重试
           </Button>
         </div>

@@ -9,6 +9,7 @@ import {
   Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
   HardDrive, ExternalLink, X,
 } from 'lucide-react'
+import { EmptyPreview } from './empty-preview'
 import { toast } from 'sonner'
 import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
@@ -1008,7 +1009,7 @@ export function WritingPage() {
       </Select>
       <Button
         variant="ghost"
-        size="icon-xs"
+        size="icon-sm"
         aria-label="初始化浏览器 LaTeX 环境"
         title="初始化浏览器 LaTeX 环境"
         className="rounded-md text-muted-foreground hover:text-foreground"
@@ -1019,7 +1020,7 @@ export function WritingPage() {
       {isDesktop() && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           aria-label="导出项目"
           title="导出项目为 ZIP"
           className="rounded-md text-muted-foreground hover:text-foreground"
@@ -1032,7 +1033,7 @@ export function WritingPage() {
       {isDesktop() && (
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-sm"
           aria-label="本地目录同步"
           title="本地目录同步"
           className="rounded-md text-muted-foreground hover:text-foreground"
@@ -1047,7 +1048,7 @@ export function WritingPage() {
         data-testid="compile-button"
         aria-label={isCompiling ? '编译中' : '编译'}
         title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
-        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-9' : 'h-7')}
+        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-9' : 'h-8')}
         onClick={() => void handleCompile()}
         disabled={isCompiling || !compilerSupported}
       >
@@ -1249,7 +1250,7 @@ export function WritingPage() {
                     }}
                   >
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" aria-label="编译历史" title="编译历史">
+                      <Button variant="ghost" size="icon-sm" className="rounded-md text-muted-foreground" aria-label="编译历史" title="编译历史">
                         <History size={14} />
                       </Button>
                     </DropdownMenuTrigger>
@@ -1301,13 +1302,13 @@ export function WritingPage() {
                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
-                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
+                  <Button variant="ghost" size="icon-sm" className="rounded-md text-muted-foreground" onClick={zoomOut}><ZoomOut size={14} /></Button>
                   <span className="text-[10px] font-bold text-muted-foreground w-10 text-center">{Math.round(displayScale * 100)}%</span>
-                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
+                  <Button variant="ghost" size="icon-sm" className="rounded-md text-muted-foreground" onClick={zoomIn}><ZoomIn size={14} /></Button>
                   <div className="w-px h-3 bg-border mx-1" />
-                  <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
+                  <Button variant="ghost" size="icon-sm" className="rounded-md text-muted-foreground" onClick={resetZoom}><Maximize size={14} /></Button>
                   {(pdfBuildId || (isGuest && pdfFileSource && 'data' in pdfFileSource)) && (
-                    <Button variant="ghost" size="icon-xs" className="rounded-md text-muted-foreground" aria-label="下载 PDF" title="下载 PDF" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
+                    <Button variant="ghost" size="icon-sm" className="rounded-md text-muted-foreground" aria-label="下载 PDF" title="下载 PDF" onClick={handleDownloadPdf} disabled={isDownloadingPdf}>
                       {isDownloadingPdf ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
                     </Button>
                   )}
@@ -1459,7 +1460,10 @@ export function WritingPage() {
                     </Document>
                   </div>
                 ) : (
-                  <EmptyPreview />
+                  <EmptyPreview
+                    onCompile={() => void handleCompile()}
+                    disabled={isCompiling || !compilerSupported}
+                  />
                 )}
               </div>
             </aside>
@@ -1506,17 +1510,6 @@ function TabButton({ icon, active, onClick, testId, label }: { icon: React.React
     >
       {icon}
     </button>
-  )
-}
-
-function EmptyPreview() {
-  return (
-    <div className="flex flex-col items-center justify-center text-center p-12 max-w-xs mt-32 mx-auto">
-      <div className="w-16 h-16 rounded-3xl bg-background shadow-md flex items-center justify-center mb-6">
-        <Play className="h-6 w-6 text-primary fill-primary/10" />
-      </div>
-      <h4 className="text-sm font-bold mb-2 text-muted-foreground">准备编译</h4>
-    </div>
   )
 }
 
@@ -1620,7 +1613,7 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
 
   if (showSaved) {
     return (
-      <div className="flex items-center gap-1 text-[10px] text-green-600/70 animate-in fade-in zoom-in duration-300">
+      <div className="flex items-center gap-1 text-xs text-green-700 animate-in fade-in zoom-in duration-300">
         <Check size={12} />
         <span>{isGuest ? '已保存到本机' : '已保存'}</span>
       </div>
@@ -1628,7 +1621,7 @@ function SavingStatus({ isSaving }: { isSaving: boolean }) {
   }
 
   return (
-    <div className="flex items-center gap-1 text-[10px] text-muted-foreground/40">
+    <div className="flex items-center gap-1 text-xs text-muted-foreground">
       {isGuest ? <HardDrive size={12} /> : <Cloud size={12} />}
       <span>{isGuest ? '仅保存在本机' : '已同步'}</span>
     </div>

@@ -1,7 +1,7 @@
 /** Project-level preparation notes and user-maintained phase state. */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
-import { get, put } from '@/services'
+import { get, PAGE_QUERY_TIMEOUT_MS, put } from '@/services'
 import { useSessionStore } from '@/store'
 import type { ProjectScenario } from '@/types/projects'
 import { WRITING_STATE } from './api-routes'
@@ -52,7 +52,7 @@ export const writingStateKeys = {
 export function useWritingState(projectId: string) {
   return useQuery({
     queryKey: writingStateKeys.project(projectId),
-    queryFn: () => useSessionStore.getState().isGuest ? getGuestWritingState(projectId) : get<WritingState>(WRITING_STATE.project(projectId)),
+    queryFn: () => useSessionStore.getState().isGuest ? getGuestWritingState(projectId) : get<WritingState>(WRITING_STATE.project(projectId), { timeout: PAGE_QUERY_TIMEOUT_MS }),
     enabled: Boolean(projectId),
   })
 }

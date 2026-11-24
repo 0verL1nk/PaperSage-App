@@ -57,6 +57,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
     : providers.find((p) => p.api_key?.trim() && p.base_url?.trim() && p.models.length > 0)
   const bottomRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [atBottom, setAtBottom] = useState(true)
 
   // 会话列表：切会话从这里进来
@@ -88,6 +89,14 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
   useEffect(() => {
     if (atBottom) bottomRef.current?.scrollIntoView({ block: 'end' })
   }, [chat.messages, atBottom])
+
+  // 输入框随内容增高：空态两行，最多 160px，随后内部滚动。
+  useEffect(() => {
+    const el = inputRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 160)}px`
+  }, [input])
 
   useEffect(() => {
     if (mode !== 'preparation') return
@@ -193,7 +202,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           <>
             <DropdownMenu open={pickerOpen} onOpenChange={setPickerOpen}>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground max-w-[72px] sm:max-w-[120px]">
+                <Button variant="ghost" size="sm" className="h-7 gap-1 text-xs text-muted-foreground max-w-[96px]">
                   <span className="truncate">
                     {conversations.find((c) => c.id === activeConversationId)?.title ?? '新对话'}
                   </span>
@@ -244,7 +253,12 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
             }}
           />
         ) : serverFallback?.configured ? (
-          <span className="text-[11px] text-muted-foreground">服务端默认 · {serverFallback.model}</span>
+          <span
+            className="block max-w-[150px] truncate whitespace-nowrap text-[11px] text-muted-foreground"
+            title={`服务端默认模型：${serverFallback.model}`}
+          >
+            服务端默认 · {serverFallback.model}
+          </span>
         ) : undefined}
       />
 
@@ -286,7 +300,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
       {savingModel && <p className="px-4 py-2 text-xs text-muted-foreground">{t('agent.savingModelSettings')}</p>}
       <div className="relative flex-1 min-h-0">
         <div ref={scrollRef} onScroll={onScroll} className="h-full overflow-y-auto overscroll-contain">
-          <div className="p-4 space-y-6">
+          <div className="mx-auto w-full max-w-[720px] p-4 space-y-6">
             {chat.messages.length === 0 && (
               <div className="bg-primary/5 rounded-2xl p-4 border border-primary/10 text-[13px] leading-6 relative">
                 <div className="absolute -top-2 left-4 px-2 bg-background border border-primary/10 rounded-full text-[9px] font-black text-primary uppercase shadow-sm">
@@ -366,6 +380,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
       <div className="p-4 border-t border-border/40 bg-muted/5 flex-none">
         <div className="relative group">
           <textarea
+            ref={inputRef}
+            rows={2}
             value={input}
             disabled={!hasModel || chat.restoring || chat.restoreFailed || chat.cancelling}
             onChange={(e) => setInput(e.target.value)}
@@ -381,7 +397,7 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
               : mode === 'review'
                 ? '问检查结果、问题依据或还需要补什么…'
                 : '问点什么…'}
-            className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none h-28"
+            className="w-full rounded-2xl border border-border/60 bg-background p-4 pr-12 text-[13px] leading-6 focus:outline-none focus:ring-2 focus:ring-primary/10 resize-none min-h-[56px] max-h-40 overflow-y-auto"
           />
           <Button
             size="icon-xs"
@@ -401,13 +417,14 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
 
 function PanelHeader({ right, model }: { right?: React.ReactNode; model?: React.ReactNode }) {
   return (
-    <div className="p-4 min-h-14 border-b border-border/40 flex items-center justify-between gap-2 flex-none bg-card/50">
-      <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest flex items-center gap-2 shrink-0">
-        <Sparkles size={14} className="text-primary" /> <span className="hidden sm:inline">AI Assistant</span>
+    <div className="@container flex min-h-14 flex-none items-center justify-between gap-2 overflow-hidden border-b border-border/40 bg-card/50 px-4">
+      <h3 className="flex shrink-0 items-center gap-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+        <Sparkles size={14} className="text-primary" />
+        <span className="hidden @min-[340px]:inline">AI Assistant</span>
       </h3>
-      <div className="flex items-center gap-1 min-w-0">
-        {model}
-        {right}
+      <div className="flex min-w-0 items-center justify-end gap-1">
+        {model ? <div className="min-w-0 overflow-hidden">{model}</div> : null}
+        <div className="flex shrink-0 items-center gap-1">{right}</div>
       </div>
     </div>
   )

@@ -251,14 +251,6 @@ export function displayBasisRef(basis: ReviewBasis, titles: Map<string, string>)
   return basis.ref || '未命名依据'
 }
 
-/** 面向学生的错误文案；英文库信息统一折叠到“技术细节”。 */
-export function friendlyErrorMessage(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error ?? '')
-  if (/[一-鿿]/.test(raw)) return raw
-  if (/network|fetch|timeout|econn|socket/i.test(raw)) return '网络连接失败，请检查网络后重试。'
-  return '暂时无法读取检查数据，请稍后重试。'
-}
-
 export function reviewLocation(finding: ReviewFinding, titles?: Map<string, string>): string {
   const section = finding.sectionTitle
     || (finding.sectionId ? titles?.get(finding.sectionId) : undefined)
