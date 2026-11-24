@@ -49,6 +49,7 @@ describe('browser compiler resource origin', () => {
   })
 
   afterEach(() => {
+    vi.useRealTimers()
     setDesktopLocalApiBaseUrl(appEnv.localApiBaseUrl)
     setDesktopLocalApiBaseUrl('')
     vi.restoreAllMocks()
@@ -94,5 +95,23 @@ describe('browser compiler resource origin', () => {
     await expect(compileLatexInBrowser(files, 'main.tex', 'pdflatex')).rejects.toThrow('worker stopped after URL inspection')
     expect(messages[0]).toMatchObject({ cmd: 'settexliveurl' })
     expect((messages[0].url as string).startsWith(`${appEnv.localApiBaseUrl}/texlive/`)).toBe(true)
+  })
+
+  it('times out an engine that never reports ready instead of hanging the compile', async () => {
+    vi.useFakeTimers()
+    class SilentWorker {
+      onmessage: ((event: { data: unknown }) => void) | null = null
+      onerror = null
+      constructor() { startWorker() }
+      postMessage() {}
+      terminate() {}
+    }
+    vi.stubGlobal('Worker', SilentWorker)
+
+    const compilation = compileLatexInBrowser(files, 'main.tex', 'pdflatex')
+    const rejection = expect(compilation).rejects.toThrow('浏览器引擎初始化超时：超过 2 分钟仍未就绪')
+    await vi.advanceTimersByTimeAsync(120_000)
+    await rejection
+    expect(startWorker).toHaveBeenCalledTimes(1)
   })
 })
