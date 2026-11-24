@@ -80,8 +80,14 @@ export function ReviewPage() {
   const modelReady = Boolean(agentSettings?.providers?.length || agentSettings?.server_fallback?.configured)
   const settingsPending = !isGuest && !agentSettings
 
-  const reportsQuery = useResearchArtifacts(isGuest ? undefined : projectId, 'chapter_review')
+  const reportsQuery = useResearchArtifacts(isGuest ? undefined : projectId, 'chapter_review', { silent: true })
   const refetchReports = reportsQuery.refetch
+  // 「不支持的产物类型」是服务端白名单的内部说法，不能直接甩给学生。
+  const reportsErrorText = reportsQuery.error
+    ? /不支持的产物类型/.test(reportsQuery.error.message)
+      ? '历史报告暂时无法读取，请稍后重试。'
+      : friendlyErrorMessage(reportsQuery.error)
+    : ''
   const parsedReports = useMemo(
     () => sortReportsByUpdatedAt(reportsQuery.data ?? [])
       .map((report) => {
@@ -291,7 +297,7 @@ export function ReviewPage() {
                 <div className="flex items-start gap-2">
                   <CircleAlert className="mt-0.5 size-4 shrink-0" />
                   <div className="min-w-0">
-                    <span className="break-words">历史报告加载失败：{friendlyErrorMessage(reportsQuery.error)}</span>
+                    <span className="break-words">历史报告加载失败：{reportsErrorText}</span>
                     <details className="mt-1 text-xs text-muted-foreground">
                       <summary className="flex min-h-[44px] cursor-pointer items-center">技术细节</summary>
                       <p className="break-all">{reportsQuery.error.message}</p>

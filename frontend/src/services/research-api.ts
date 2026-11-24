@@ -23,14 +23,22 @@ export const researchKeys = {
   list: (projectId: string, kind?: ResearchArtifactKind) => [KEY, projectId, kind ?? 'all'] as const,
 }
 
-export function useResearchArtifacts(projectId: string | undefined, kind?: ResearchArtifactKind) {
+export function useResearchArtifacts(
+  projectId: string | undefined,
+  kind?: ResearchArtifactKind,
+  options?: { silent?: boolean },
+) {
   return useQuery({
     queryKey: researchKeys.list(projectId ?? '', kind),
     enabled: Boolean(projectId),
     queryFn: async () => {
       requireSignedIn()
       const url = kind ? `${RESEARCH.list(projectId!)}?kind=${kind}` : RESEARCH.list(projectId!)
-      return (await get<ResearchArtifact[]>(url, { timeout: PAGE_QUERY_TIMEOUT_MS })) ?? []
+      return (await get<ResearchArtifact[]>(url, {
+        timeout: PAGE_QUERY_TIMEOUT_MS,
+        // 页面自带加载/错误态时不再叠加全局 toast（检查页曾一进页弹两条）。
+        skipGlobalLoading: options?.silent,
+      })) ?? []
     },
   })
 }

@@ -395,3 +395,22 @@ func TestArtifactRoutesResolveProject(t *testing.T) {
 	require.Equal(t, http.StatusOK, listed.Code, listed.Body.String())
 	assert.Contains(t, listed.Body.String(), `"data":[]`)
 }
+
+// 回归：检查页用 ?kind=chapter_review 读取历史报告。kind 白名单曾漏掉
+// chapter_review，线上每次进入检查页都会返回 400「不支持的产物类型」。
+func TestListChapterReviewKindIsAccepted(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	cfg := &config.Settings{SecretKey: "t"}
+	api := httpapi.New(nil)
+	Mount(api.Group(httpapi.APIVersion), auth.NewService(db, cfg, nil).AuthRequired(), svc)
+	token, err := auth.CreateAccessToken(cfg.SecretKey, uid.String(), 30)
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodGet, httpapi.APIVersion+"/projects/"+pid.String()+"/research-artifacts?kind=chapter_review", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	api.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	assert.NotContains(t, rec.Body.String(), "不支持的产物类型")
+}
