@@ -312,8 +312,12 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("读取历史失败")
 		return
 	}
-	// 规范库由 HELE-25 落地；在此之前显式注入「未接入」，检查报告必须如实标注。
-	tools, err := ProjectTools(s.DB, s.Storage, norms.Unavailable{}, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
+	// 规范库未注入时显式按「未接入」处理，检查报告必须如实标注，不得假装没有采用。
+	normsProvider := s.Norms
+	if normsProvider == nil {
+		normsProvider = norms.Unavailable{}
+	}
+	tools, err := ProjectTools(s.DB, s.Storage, normsProvider, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
 	if err != nil {
 		fail("构建工具失败")
 		return

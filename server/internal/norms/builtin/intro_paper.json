@@ -1,0 +1,238 @@
+{
+  "key": "cn-intro-paper-general-2026",
+  "name": "学术小论文通用规范（2026 版）",
+  "authority": "journal",
+  "edition": "2026",
+  "sourceNote": "面向期刊与会议投稿的通用学术写作与著录要求，依据公开国家标准与教育部规章整理；篇幅、模板与栏目要求以目标期刊的最新投稿须知为准。",
+  "scenario": "intro_paper",
+  "entries": [
+    {
+      "code": "GBT7713-2-STRUCTURE",
+      "category": "结构逻辑",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["结构", "投稿"],
+      "title": "学术论文按题名、作者、摘要、关键词、正文、参考文献组织",
+      "ruleText": "一篇完整的学术小论文应包含题名、作者与单位、摘要、关键词、正文（引言、方法、结果与讨论、结论）以及参考文献；缺少任一部分都可能被期刊退稿。",
+      "rationale": "固定组成部分是期刊初审的形式门槛，也是读者快速定位信息的依据。",
+      "examples": [
+        { "kind": "good", "text": "题名 → 作者与单位 → 摘要 → 关键词 → 1 引言 → 2 方法 → 3 结果与讨论 → 4 结论 → 参考文献" },
+        { "kind": "bad", "text": "题名 → 正文 → 参考文献（缺摘要与关键词）" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》论文组成部分",
+      "sourceQuote": "本文件规定了学术论文的编写规则。"
+    },
+    {
+      "code": "GBT7713-2-ABSTRACT",
+      "category": "结构逻辑",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 20,
+      "tags": ["摘要", "投稿"],
+      "title": "摘要写清目的、方法、结果与结论",
+      "ruleText": "报道性摘要应依次交代研究目的、所用方法、主要结果与结论，并给出关键数据；摘要中不引用参考文献、不使用图表、不出现「本文将在下文讨论」这类依赖正文的表述。",
+      "rationale": "期刊审稿人与检索系统主要依据摘要判断论文是否值得送审。",
+      "examples": [
+        { "kind": "good", "text": "为降低论文漏引率，本文提出基于大模型的引用核查方法。在 60 篇样例上测试，漏引率由 24% 降至 9%，平均核查耗时 2.1 s。" },
+        { "kind": "bad", "text": "本文研究了一个很有意义的问题，具体方法见正文。" }
+      ],
+      "applicableSections": ["摘要"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》摘要",
+      "sourceQuote": "摘要应包括研究目的、方法、结果和结论。"
+    },
+    {
+      "code": "GBT7713-2-KEYWORDS",
+      "category": "结构逻辑",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 30,
+      "tags": ["关键词", "投稿"],
+      "title": "关键词应能反映论文主题并便于检索",
+      "ruleText": "关键词从题名、摘要与正文中选取，应能反映论文的核心主题与研究方法，避免使用过于宽泛或自造的词；具体数量与分隔符以目标期刊投稿须知为准。",
+      "rationale": "关键词直接影响论文在数据库中的可检索性。",
+      "examples": [
+        { "kind": "good", "text": "关键词：学术写作；引用核查；大语言模型；写作辅助系统" },
+        { "kind": "bad", "text": "关键词：研究；系统；方法" }
+      ],
+      "applicableSections": ["摘要"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》关键词",
+      "sourceQuote": "关键词是为便于文献检索而选取的、能反映论文主题内容的词或词组。"
+    },
+    {
+      "code": "INTRO-PROBLEM-AND-CONTRIBUTION",
+      "category": "结构逻辑",
+      "ruleKind": "general",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 40,
+      "tags": ["引言", "论证"],
+      "title": "引言交代研究问题、现状缺口与本文贡献",
+      "ruleText": "引言应说明研究背景与要解决的问题，评述已有工作的不足，并明确本文的做法与贡献；只罗列背景而不指出缺口，会让读者无法判断研究的必要性。",
+      "rationale": "引言是审稿人判断创新点的位置，缺口与贡献必须成对出现。",
+      "examples": [
+        { "kind": "good", "text": "现有写作辅助工具多停留在语法检查，缺少对引用是否支撑论断的判断；本文提出以证据为核心的核查流程，并在两个场景上验证。" },
+        { "kind": "bad", "text": "随着人工智能的发展，写作辅助越来越重要，本文对此进行了研究。" }
+      ],
+      "applicableSections": ["引言"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》引言与正文撰写要求",
+      "sourceQuote": "引言应简要说明研究工作的目的、范围、相关领域的前人工作和知识空白、理论基础和分析、研究设想、研究方法和实验设计、预期结果和意义等。"
+    },
+    {
+      "code": "CONCLUSION-NO-NEW-EVIDENCE",
+      "category": "结构逻辑",
+      "ruleKind": "general",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 50,
+      "tags": ["结论", "论证"],
+      "title": "结论只总结已有论证，不引入新证据",
+      "ruleText": "结论部分应回答引言提出的问题，概括本文的主要发现与局限；不得在结论中出现正文未论证过的新数据、新案例或新论断。",
+      "rationale": "结论引入新证据会让论证链条断裂，是审稿常见退修意见。",
+      "examples": [
+        { "kind": "good", "text": "本文在 60 篇样例上将漏引率降至 9%，局限在于样例仅覆盖两个学科。" },
+        { "kind": "bad", "text": "结论：本方法在全部学科上均优于现有工具（正文未给出该证据）。" }
+      ],
+      "applicableSections": ["结论"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》结论撰写要求",
+      "sourceQuote": "结论是论文最终的、总体的结论，不是正文中各段小结的简单重复。"
+    },
+    {
+      "code": "GBT7714-JOURNAL-FORMAT",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["参考文献", "期刊"],
+      "title": "期刊文献按「作者. 题名[J]. 刊名, 年, 卷(期): 页码」著录",
+      "ruleText": "期刊文章的著录顺序为：主要责任者. 题名[J]. 刊名, 年, 卷(期): 起止页码. 卷号缺失时可省略，但年、期与页码不能同时缺失。",
+      "rationale": "投稿系统的格式校验会直接拒绝字段顺序错误的参考文献。",
+      "examples": [
+        { "kind": "good", "text": "李四, 王五. 面向本科教学的写作辅助系统设计[J]. 现代教育技术, 2024, 34(2): 88-95." },
+        { "kind": "bad", "text": "现代教育技术. 李四. 面向本科教学的写作辅助系统设计. 2024." }
+      ],
+      "applicableSections": ["参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》期刊文献著录格式",
+      "sourceQuote": "主要责任者. 题名[J]. 刊名, 年, 卷(期): 起止页码."
+    },
+    {
+      "code": "GBT7714-CORRESPONDENCE",
+      "category": "参考文献",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 20,
+      "tags": ["参考文献", "引用"],
+      "title": "正文引用与文后参考文献表一一对应",
+      "ruleText": "正文中引用他人观点、数据或结论时须标注文献序号；文后参考文献表的每一条都应在正文中被引用，正文标注的每一个序号也都要在参考文献表中出现。",
+      "rationale": "两端任意一处缺失都会被审稿人视为引用不规范。",
+      "examples": [
+        { "kind": "good", "text": "已有研究表明样本规模会显著影响结论稳定性[3]。" },
+        { "kind": "bad", "text": "已有研究表明样本规模会显著影响结论稳定性。" }
+      ],
+      "applicableSections": ["全文", "参考文献"],
+      "sourceRef": "GB/T 7714—2015《信息与文献 参考文献著录规则》顺序编码制",
+      "sourceQuote": "顺序编码制：按正文中引用文献出现的先后顺序连续编码，序号置于方括号中。"
+    },
+    {
+      "code": "GBT7713-2-FIGURE-TABLE",
+      "category": "图表公式",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["图表", "编号"],
+      "title": "图表应编号、有题名且具备自明性",
+      "ruleText": "每幅图、每张表都要有编号与题名，并在正文中被提及；图表应标明量的符号、单位与数据来源，使读者不看正文也能理解。",
+      "rationale": "期刊排版会单独处理图表，缺少自明性的图表在排版后容易失去上下文。",
+      "examples": [
+        { "kind": "good", "text": "图 1 不同样本规模下的漏引率（横轴：样本数；纵轴：漏引率，%）" },
+        { "kind": "bad", "text": "图 1（无题名、坐标轴无数名与单位）" }
+      ],
+      "applicableSections": ["正文"],
+      "sourceRef": "GB/T 7713.2—2022《学术论文编写规则》图表编排",
+      "sourceQuote": "图、表应具有自明性，即只看图、表而不阅读正文，就能理解图、表所要表达的意思。"
+    },
+    {
+      "code": "GB3100-UNITS",
+      "category": "格式排版",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["计量单位", "符号"],
+      "title": "使用法定计量单位，量符号斜体、单位符号正体",
+      "ruleText": "全文使用国家法定计量单位；量的符号（如 m、t）用斜体，单位符号（如 kg、s）用正体，数值与单位之间留一个空格。",
+      "rationale": "量和单位的排版规则是科技论文的通用规范，混淆会带来量纲歧义。",
+      "examples": [
+        { "kind": "good", "text": "平均耗时 t = 2.1 s，内存占用 m = 512 MB。" },
+        { "kind": "bad", "text": "平均耗时 T=2.1S，内存占用 M=512MB。" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB 3100—1993《国际单位制及其应用》、GB/T 3101—1993《有关量、单位和符号的一般原则》",
+      "sourceQuote": "量的符号一般为斜体，单位的符号为正体。"
+    },
+    {
+      "code": "GBT15835-NUMERALS",
+      "category": "语言表达",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["数字", "语言"],
+      "title": "数值使用阿拉伯数字，概数与惯用语用汉字",
+      "ruleText": "可以且适宜使用阿拉伯数字的地方（统计数据、年代、编号、百分比）用阿拉伯数字；概数、成语与惯用语用汉字。",
+      "rationale": "数字用法不统一会让结果段落显得随意，也影响数据核对。",
+      "examples": [
+        { "kind": "good", "text": "共测试 60 篇样例，漏引率由 24% 降至 9%。" },
+        { "kind": "bad", "text": "共测试六十篇样例，漏引率由百分之二十四降至百分之九。" }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 15835—2011《出版物上数字用法》",
+      "sourceQuote": "凡是可以使用阿拉伯数字而且又很得体的地方，特别是当所表示的数值较大时，均应使用阿拉伯数字。"
+    },
+    {
+      "code": "GBT15834-PUNCTUATION",
+      "category": "语言表达",
+      "ruleKind": "official",
+      "binding": "should",
+      "scenario": "intro_paper",
+      "sortOrder": 20,
+      "tags": ["标点", "语言"],
+      "title": "标点符号符合国家标准用法",
+      "ruleText": "中文正文使用全角标点；书名号、引号、括号成对使用；并列词语之间用顿号，并列分句之间用逗号或分号，不用英文半角标点混排。",
+      "rationale": "标点混用是评审最容易注意到的低级错误，也会影响语义断句。",
+      "examples": [
+        { "kind": "good", "text": "本文使用《学术论文编写规则》中的术语，包括「摘要」「关键词」。" },
+        { "kind": "bad", "text": "本文使用<学术论文编写规则>中的术语,包括\"摘要\",\"关键词\"." }
+      ],
+      "applicableSections": ["全文"],
+      "sourceRef": "GB/T 15834—2011《标点符号用法》",
+      "sourceQuote": "本标准规定了现代汉语标点符号的用法。"
+    },
+    {
+      "code": "MOE40-MISCONDUCT",
+      "category": "学术诚信",
+      "ruleKind": "official",
+      "binding": "must",
+      "scenario": "intro_paper",
+      "sortOrder": 10,
+      "tags": ["学术诚信", "引用规范"],
+      "title": "引用他人成果须如实标注，不得侵占或篡改",
+      "ruleText": "引用他人观点、数据与文字须如实注明出处；不得剽窃、抄袭、侵占他人学术成果，不得篡改他人研究成果，不得伪造注释或参考文献。一稿多投同样属于学术不端。",
+      "rationale": "期刊对学术不端零容忍，认定后会被撤稿并通报作者单位。",
+      "examples": [
+        { "kind": "good", "text": "如文献[5]所述，该方法的召回率受语料规模影响。" },
+        { "kind": "bad", "text": "把他人论文的整段结论改写几个词后作为自己的结论，且不标出处。" }
+      ],
+      "applicableSections": ["全文", "参考文献"],
+      "sourceRef": "《高等学校预防与处理学术不端行为办法》（教育部令第 40 号）第二十七条",
+      "sourceQuote": "学术不端行为包括：（一）剽窃、抄袭、侵占他人学术成果；（二）篡改他人研究成果；（三）伪造科研数据、资料、文献、注释，或者捏造事实、编造虚假研究成果等。"
+    }
+  ]
+}
