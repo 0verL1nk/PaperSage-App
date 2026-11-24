@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { DOCUMENTS, FOLDERS, LATEX, PROJECTS } from '@/services/api-routes'
+import { DOCUMENTS, FOLDERS, LATEX, PROJECTS, WRITING_STATE } from '@/services/api-routes'
 import { deleteFetch, get, post, postMultipart, put } from '@/services'
 import {
   recordGuestDocumentImport,
@@ -131,6 +131,22 @@ describe('importGuestWorkspace', () => {
     expect(postMultipart).not.toHaveBeenCalled()
     expect(post).not.toHaveBeenCalledWith(LATEX.files(cloudProjectId), expect.anything(), expect.anything())
     expect(put).toHaveBeenCalledOnce() // Writing-state PUT is safe to replay.
+  })
+
+  it('overwrites the cloud writing state with the cloud revision so retries never conflict', async () => {
+    vi.mocked(get).mockImplementation(async (url) => {
+      if (url === WRITING_STATE.project(cloudProjectId)) return { revision: 7 }
+      return { id: cloudProjectId, is_deleted: false }
+    })
+
+    await importGuestWorkspace(makeBundle(), 'alice')
+
+    expect(get).toHaveBeenCalledWith(WRITING_STATE.project(cloudProjectId), { skipGlobalLoading: true })
+    expect(put).toHaveBeenCalledOnce()
+    const payload = vi.mocked(put).mock.calls[0]![1] as Record<string, unknown>
+    expect(payload).toMatchObject({ revision: 7, current_phase: 'prepare' })
+    expect(payload.project_id).toBeUndefined()
+    expect(payload.scenario).toBeUndefined()
   })
 
   it('preserves progress checkpoints and propagates a failed item for a later retry', async () => {
