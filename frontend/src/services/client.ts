@@ -274,12 +274,37 @@ export function unwrapApiEnvelope<TData>(response: AxiosResponse<ApiEnvelope<TDa
   return response.data.data
 }
 
+/**
+ * 传输层可能永久挂起：真实断网/弱网时浏览器既不返回成功也不返回错误，
+ * axios 的 timeout 依赖底层 XHR 计时，挂起时不一定触发。页面级查询再套一层
+ * JS 计时，保证错误态一定会在上限内出现。
+ */
+function withRequestTimeout<T>(request: Promise<T>, timeoutMs?: number): Promise<T> {
+  if (!timeoutMs) return request
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new FrontendApiError('请求超时，请检查网络后重试。', { kind: 'network' }))
+    }, timeoutMs)
+    request.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 export async function requestApi<TResponse, TBody = unknown>(
   config: ApiRequestConfig<TBody>,
 ) {
   try {
-    const response = await apiClient.request<ApiEnvelope<TResponse>, AxiosResponse<ApiEnvelope<TResponse>>, TBody>(
-      config,
+    const response = await withRequestTimeout(
+      apiClient.request<ApiEnvelope<TResponse>, AxiosResponse<ApiEnvelope<TResponse>>, TBody>(config),
+      config.timeout,
     )
     return unwrapApiEnvelope(response)
   } catch (error) {
