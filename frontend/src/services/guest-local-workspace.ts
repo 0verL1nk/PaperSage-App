@@ -67,7 +67,7 @@ export class GuestStorageError extends Error {
 }
 
 export class GuestCapabilityError extends Error {
-  constructor(capability: 'AI 助手' | 'LaTeX 在线编译' | '云端 PDF' | '项目分组' | '科研组织产物') {
+  constructor(capability: 'AI 助手' | 'LaTeX 在线编译' | '云端 PDF' | '项目分组' | '科研组织产物' | '学术规范库') {
     super(capability === '项目分组'
       ? '游客模式暂不支持项目分组；项目和文件仍会保存在此浏览器。'
       : `${capability}需要登录后连接云端服务。游客模式下，项目和文件仅保存在此浏览器。`)

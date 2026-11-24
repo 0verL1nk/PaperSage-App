@@ -398,6 +398,19 @@ export function putJson<TResponse, TBody = unknown>(
   })
 }
 
+export function patchJson<TResponse, TBody = unknown>(
+  url: string,
+  data?: TBody,
+  config?: ApiRequestConfig<TBody>,
+) {
+  return requestApi<TResponse, TBody>({
+    ...config,
+    method: 'patch',
+    url,
+    data,
+  })
+}
+
 export function deleteFetch<TResponse = void, TBody = unknown>(
   url: string,
   config?: ApiRequestConfig<TBody>,
