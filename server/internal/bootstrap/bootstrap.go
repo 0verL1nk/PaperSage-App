@@ -23,6 +23,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	latexprofile "github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
@@ -120,6 +121,13 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	researchSvc := research.NewService(db)
 	sourcesSvc := sources.NewService(db, s3)
+
+	// 学术规范资源库：内置种子随二进制分发，启动时幂等写入。
+	// 种子校验不通过时启动失败——不允许无出处的规范进库。
+	normSvc := norms.NewService(db)
+	if err := norms.EnsureBuiltins(ctx, db); err != nil {
+		return nil, fmt.Errorf("academic norms seed: %w", err)
+	}
 	// 来源版本发布后异步抽取；失败只记日志，不阻断上传。
 	docSvc.OnSourceVersion = func(projectID, _ store.UUID, versionID store.UUID, _, _, _ string) {
 		go func() {
@@ -130,6 +138,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	}
 
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
+	agentSvc.Norms = normSvc
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)
@@ -161,6 +170,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	research.Mount(v1, authSvc.AuthRequired(), researchSvc)
 	sources.Mount(v1, authSvc.AuthRequired(), sourcesSvc)
+	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
