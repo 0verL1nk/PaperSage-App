@@ -47,9 +47,9 @@ func TestBrowserCompileHeartbeatRefreshesRunningJob(t *testing.T) {
 	stale := time.Now().UTC().Add(-10 * time.Minute)
 	require.NoError(t, ts.DB.Exec("UPDATE compile_jobs SET updated_at = ? WHERE id = ?", stale, job.ID).Error)
 
-	base := compileBase(project.ID.UUID.String())
+	base := compileBase(project.ID.String())
 	heartbeat := func() *http.Response {
-		return ts.Do(t, http.MethodPost, base+"/"+job.ID.UUID.String()+"/browser-heartbeat", nil)
+		return ts.Do(t, http.MethodPost, base+"/"+job.ID.String()+"/browser-heartbeat", nil)
 	}
 
 	resp := heartbeat()
@@ -79,7 +79,7 @@ func TestStaleBrowserCompileJobConvergesToTimeout(t *testing.T) {
 	require.NoError(t, ts.DB.Exec("UPDATE compile_jobs SET updated_at = ? WHERE id = ?",
 		time.Now().UTC().Add(-10*time.Minute), stale.ID).Error)
 
-	base := compileBase(project.ID.UUID.String())
+	base := compileBase(project.ID.String())
 	statusOf := func(jobID string) map[string]any {
 		resp := ts.Do(t, http.MethodGet, base+"/"+jobID+"/status/", nil)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -88,12 +88,12 @@ func TestStaleBrowserCompileJobConvergesToTimeout(t *testing.T) {
 		return envelope["data"].(map[string]any)
 	}
 
-	data := statusOf(stale.ID.UUID.String())
+	data := statusOf(stale.ID.String())
 	assert.Equal(t, string(store.JobTimeout), data["status"], "查询不能永远返回 running")
 	require.NotNil(t, data["error"])
 	assert.Contains(t, data["error"], "没有回传结果")
 
-	assert.Equal(t, string(store.JobRunning), statusOf(fresh.ID.UUID.String())["status"])
+	assert.Equal(t, string(store.JobRunning), statusOf(fresh.ID.String())["status"])
 
 	var expired store.CompileJob
 	require.NoError(t, ts.DB.Where("id = ?", stale.ID).First(&expired).Error)
@@ -109,13 +109,13 @@ func TestBrowserCompileResultAfterTimeoutStillCompletes(t *testing.T) {
 	require.NoError(t, ts.DB.Exec("UPDATE compile_jobs SET updated_at = ? WHERE id = ?",
 		time.Now().UTC().Add(-10*time.Minute), job.ID).Error)
 
-	base := compileBase(project.ID.UUID.String())
-	resp := ts.Do(t, http.MethodGet, base+"/"+job.ID.UUID.String()+"/status/", nil)
+	base := compileBase(project.ID.String())
+	resp := ts.Do(t, http.MethodGet, base+"/"+job.ID.String()+"/status/", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// The tab was merely suspended: a late but valid artifact still wins over
 	// losing the PDF the browser produced.
-	resp = uploadBrowserResult(t, ts, base, job.ID.UUID.String(), minimalValidPDF())
+	resp = uploadBrowserResult(t, ts, base, job.ID.String(), minimalValidPDF())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	var envelope map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&envelope))
