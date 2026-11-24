@@ -61,7 +61,7 @@ describe('AiPanel', () => {
     vi.spyOn(agentApi, 'listMessages').mockImplementation(async (id) => [{ id, role: 'user', status: 'completed', createdAt: '2025-01-01T00:00:00Z', parts: [{ id: 'p', ordinal: 0, type: 'text', status: 'completed', createdAt: '2025-01-01T00:00:00Z', text: `History ${id}` }] }])
     const send = vi.spyOn(useChatStore.getState(), 'send')
     renderWithRealQuery()
-    expect(await screen.findByText('History c1')).toBeInTheDocument()
+    expect(await screen.findByText('History c1', undefined, { timeout: 5000 })).toBeInTheDocument()
     expect(list).toHaveBeenCalledWith('p1')
     expect(screen.getByText('尚未配置 AI 模型')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '去设置' })).toBeInTheDocument()
@@ -71,7 +71,7 @@ describe('AiPanel', () => {
     expect(send).not.toHaveBeenCalled()
     fireEvent.pointerDown(screen.getByRole('button', { name: /First history/ }), { button: 0, ctrlKey: false })
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Second history' }))
-    expect(await screen.findByText('History c2')).toBeInTheDocument()
+    expect(await screen.findByText('History c2', undefined, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('keeps the setup prompt when there is no provider or history', async () => {

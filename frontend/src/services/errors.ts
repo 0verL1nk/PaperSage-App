@@ -111,6 +111,17 @@ export function isFrontendApiError(error: unknown): error is FrontendApiError {
   return error instanceof FrontendApiError
 }
 
+/**
+ * 面向用户的错误文案：中文原样返回；已知传输层错误转成可行动提示。
+ * 页面错误态统一用它，避免把 "Network request failed." 直接甩给用户。
+ */
+export function friendlyErrorMessage(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error ?? '')
+  if (/[一-鿿]/.test(raw)) return raw
+  if (/network|fetch|timeout|econn|socket/i.test(raw)) return '网络连接失败，请检查网络后重试。'
+  return '暂时无法读取数据，请稍后重试。'
+}
+
 export function normalizeApiError(error: unknown) {
   if (isFrontendApiError(error)) {
     return error

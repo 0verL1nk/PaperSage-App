@@ -46,6 +46,13 @@ export const apiClient = axios.create({
   timeout: 60_000,
 })
 
+/**
+ * 页面首屏数据查询的超时：离线或服务不可达时浏览器可能长时间不返回错误，
+ * 60s 的全局超时会让页面一直停在「正在加载」。页面级查询统一用更短的上限，
+ * 让错误态和重试入口及时出现。
+ */
+export const PAGE_QUERY_TIMEOUT_MS = 15_000
+
 // Token refresh state to prevent multiple concurrent refresh requests
 let isRefreshing = false
 let refreshSubscribers: Array<{
@@ -267,12 +274,37 @@ export function unwrapApiEnvelope<TData>(response: AxiosResponse<ApiEnvelope<TDa
   return response.data.data
 }
 
+/**
+ * 传输层可能永久挂起：真实断网/弱网时浏览器既不返回成功也不返回错误，
+ * axios 的 timeout 依赖底层 XHR 计时，挂起时不一定触发。页面级查询再套一层
+ * JS 计时，保证错误态一定会在上限内出现。
+ */
+function withRequestTimeout<T>(request: Promise<T>, timeoutMs?: number): Promise<T> {
+  if (!timeoutMs) return request
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new FrontendApiError('请求超时，请检查网络后重试。', { kind: 'network' }))
+    }, timeoutMs)
+    request.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    )
+  })
+}
+
 export async function requestApi<TResponse, TBody = unknown>(
   config: ApiRequestConfig<TBody>,
 ) {
   try {
-    const response = await apiClient.request<ApiEnvelope<TResponse>, AxiosResponse<ApiEnvelope<TResponse>>, TBody>(
-      config,
+    const response = await withRequestTimeout(
+      apiClient.request<ApiEnvelope<TResponse>, AxiosResponse<ApiEnvelope<TResponse>>, TBody>(config),
+      config.timeout,
     )
     return unwrapApiEnvelope(response)
   } catch (error) {

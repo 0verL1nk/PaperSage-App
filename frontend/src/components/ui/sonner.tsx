@@ -9,6 +9,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       theme="light"
       closeButton
       position="top-right"
+      offset={{ top: 72 }}
       richColors
       className="toaster group"
       icons={{

@@ -16,6 +16,7 @@ import {
   type PdfRangeSource,
 } from '@/services/latex-api'
 // Query keys（定义在 @/lib/query-keys，供 AI 面板等复用而不引入重依赖）
+import { PAGE_QUERY_TIMEOUT_MS } from '@/services/client'
 import { latexKeys } from '@/lib/query-keys'
 import { pushFileToDisk } from '@/lib/folder-sync'
 export { latexKeys }
@@ -25,7 +26,7 @@ export { latexKeys }
 export function useLatexFiles(projectId: string) {
   return useQuery({
     queryKey: latexKeys.files(projectId),
-    queryFn: () => fetchLatexFiles(projectId, { skipGlobalLoading: true }),
+    queryFn: () => fetchLatexFiles(projectId, { skipGlobalLoading: true, timeout: PAGE_QUERY_TIMEOUT_MS }),
     enabled: !!projectId,
   })
 }
@@ -33,7 +34,7 @@ export function useLatexFiles(projectId: string) {
 export function useLatexFileContent(projectId: string, filePath: string | null) {
   return useQuery({
     queryKey: latexKeys.content(projectId, filePath ?? ''),
-    queryFn: () => fetchLatexFileContent(projectId, filePath!, { skipGlobalLoading: true }),
+    queryFn: () => fetchLatexFileContent(projectId, filePath!, { skipGlobalLoading: true, timeout: PAGE_QUERY_TIMEOUT_MS }),
     enabled: !!projectId && !!filePath,
   })
 }

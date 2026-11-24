@@ -77,7 +77,7 @@ describe('use-latex hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(result.current.data).toEqual(mockFileList)
-      expect(mockedFetchLatexFiles).toHaveBeenCalledWith('proj-1', { skipGlobalLoading: true })
+      expect(mockedFetchLatexFiles).toHaveBeenCalledWith('proj-1', { skipGlobalLoading: true, timeout: 15000 })
     })
 
     it('is disabled when projectId is empty', () => {

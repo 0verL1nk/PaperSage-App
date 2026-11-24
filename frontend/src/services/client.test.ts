@@ -56,6 +56,27 @@ describe('unreachable API errors', () => {
   })
 })
 
+describe('hung transport', () => {
+  it('rejects a page query at its own timeout even when the transport never settles', async () => {
+    vi.useFakeTimers()
+    try {
+      // 真实断网时 XHR 可能既不成功也不失败；这里模拟一个永不 settle 的传输层。
+      apiClient.defaults.adapter = () => new Promise(() => {})
+
+      const pending = getJson('/writing-state', { timeout: 15_000, skipGlobalLoading: true })
+      const assertion = expect(pending).rejects.toMatchObject({
+        kind: 'network',
+        message: '请求超时，请检查网络后重试。',
+      })
+
+      await vi.advanceTimersByTimeAsync(15_000)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('refresh with an unavailable local backend', () => {
   const backendError = '本地后端版本不匹配'
   const tokens = { accessToken: 'old-access', refreshToken: 'old-refresh' }
