@@ -47,11 +47,20 @@ import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-set
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
 import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
 import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
-import { createBrowserCompileJob, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
+import { createBrowserCompileJob, createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
+import {
+  buildImportPlan,
+  collectDroppedFiles,
+  commonRelativePaths,
+  filesFromInput,
+  importEntries,
+  TEXT_FILE_EXTENSIONS,
+  type DroppedImportFile,
+  type ImportFailure,
+  type SkippedImportFile,
+} from '@/lib/project-import'
 import { base64File, getDesktopService, isDesktop, notifyWhenBackground, onDesktopFilesDropped } from '@/lib/desktop'
 import { useProject } from '@/services/projects-api'
-
-const TEXT_FILE_EXTENSIONS = new Set(['tex', 'bib', 'cls', 'sty', 'bst', 'def', 'ist', 'txt', 'md', 'lof', 'lot', 'toc', 'cfg', 'fd'])
 
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = ''
@@ -117,6 +126,20 @@ function isEditableFile(path: string): boolean {
 function isImageFile(path: string): boolean {
   const ext = path.split('.').pop()?.toLowerCase() ?? ''
   return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)
+}
+
+function summarizeSkipped(skipped: SkippedImportFile[]): string {
+  const counts = new Map<string, number>()
+  for (const item of skipped) counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1)
+  const reasons = Array.from(counts, ([reason, count]) => `${count} 个${reason}`).join('；')
+  const names = skipped.slice(0, 3).map((item) => item.path).join('、')
+  return `已跳过 ${skipped.length} 个文件（${reasons}）：${names}${skipped.length > 3 ? ' 等' : ''}`
+}
+
+function summarizeFailures(failed: ImportFailure[]): string {
+  const lines = failed.slice(0, 3).map((item) => `${item.path}：${item.message}`)
+  if (failed.length > 3) lines.push(`等共 ${failed.length} 个文件失败`)
+  return lines.join('；')
 }
 
 function isPdfFile(path: string): boolean {
@@ -428,13 +451,104 @@ export function WritingPage() {
     autoSave.onChange(value)
   }
 
-  const handleSelectFile = (filePath: string) => {
+  const handleSelectFile = useCallback((filePath: string) => {
     autoSave.switchFile(filePath)
     activeFilePathRef.current = filePath
     setActiveFilePath(filePath)
     setEditorContent(autoSave.getContent())
     if (isMobile) setMobilePane('editor')
-  }
+  }, [autoSave, isMobile])
+
+  const filesRef = useRef(files)
+  filesRef.current = files
+  const isImportingRef = useRef(false)
+
+  const importSources = useCallback(async (sources: DroppedImportFile[]) => {
+    if (sources.length === 0) {
+      toast.error('没有找到可导入的文件', { description: '请选择 LaTeX 工程文件、文件夹或 ZIP 压缩包。' })
+      return
+    }
+    if (isImportingRef.current) {
+      toast.info('正在导入，请等待当前导入完成。')
+      return
+    }
+    isImportingRef.current = true
+    const toastId = toast.loading('正在读取导入内容…')
+    try {
+      const existingPaths = new Set(filesRef.current.map((file) => file.file_path))
+      const plan = await buildImportPlan(sources, existingPaths)
+      if (plan.entries.length === 0) {
+        toast.error('没有可导入的文件', {
+          id: toastId,
+          description: plan.skipped.length
+            ? summarizeSkipped(plan.skipped)
+            : '压缩包或文件夹里没有可导入的文件。请确认其中包含论文工程需要的 .tex、.bib 或图片文件。',
+        })
+        return
+      }
+
+      const outcome = await importEntries(
+        plan.entries,
+        async (entry) => {
+          if (entry.isText) {
+            await createLatexFile(projectId, entry.path, entry.content ?? await entry.file.text())
+          } else {
+            await uploadLatexFile(projectId, entry.path, entry.file)
+          }
+        },
+        (done, total) => toast.loading('正在导入工程…', {
+          id: toastId,
+          description: `已写入 ${done} / ${total} 个文件`,
+        }),
+      )
+      await refetchFiles()
+
+      const mainCandidate = outcome.imported.find((entry) => entry.isText
+        && /\.tex$/i.test(entry.path)
+        && !entry.path.includes('/')
+        && entry.content?.includes('\\documentclass'))
+        ?? outcome.imported.find((entry) => /\.tex$/i.test(entry.path) && !entry.path.includes('/'))
+        ?? outcome.imported.find((entry) => /\.tex$/i.test(entry.path))
+      if (mainCandidate) handleSelectFile(mainCandidate.path)
+
+      const details: string[] = []
+      if (plan.skipped.length) details.push(summarizeSkipped(plan.skipped) + '。')
+      if (mainCandidate) {
+        const keepsDefaultMain = mainCandidate.path !== 'main.tex'
+          && filesRef.current.some((file) => file.file_path === 'main.tex')
+        details.push(keepsDefaultMain
+          ? `已打开 ${mainCandidate.path}。项目自带的 main.tex 仍是编译入口，编译该模板前请先在文件树中删除 main.tex。`
+          : `已打开 ${mainCandidate.path}。`)
+      }
+      if (outcome.failed.length) details.push(summarizeFailures(outcome.failed) + '。')
+
+      if (outcome.failed.length === 0) {
+        toast.success(`已导入 ${outcome.imported.length} 个文件`, {
+          id: toastId,
+          description: details.join(' ') || undefined,
+        })
+      } else if (outcome.imported.length > 0) {
+        toast.warning(`已导入 ${outcome.imported.length} 个文件，${outcome.failed.length} 个失败`, {
+          id: toastId,
+          description: details.join(' '),
+        })
+      } else {
+        toast.error('导入失败', { id: toastId, description: details.join(' ') })
+      }
+    } catch (error) {
+      toast.error('导入失败', {
+        id: toastId,
+        description: error instanceof Error
+          ? error.message
+          : '导入过程中出现未知错误，请重试；如果仍然失败，可以把压缩包解压后逐个上传文件。',
+      })
+    } finally {
+      isImportingRef.current = false
+    }
+  }, [projectId, refetchFiles, handleSelectFile])
+
+  const importSourcesRef = useRef(importSources)
+  importSourcesRef.current = importSources
 
   const handleDownloadPdf = useCallback(async () => {
     if (isDownloadingPdf) return
@@ -512,21 +626,26 @@ export function WritingPage() {
     const service = getDesktopService()
     if (!service) return
     void (async () => {
-      const dropped = await service.readFiles(paths)
-      if (!dropped?.length) return
-      let imported = 0
-      for (const file of dropped) {
-        try {
-          await uploadLatexFile(projectId, file.name, base64File(file.name, file.data))
-          imported += 1
-        } catch {
-          // Keep importing the rest; the toast reports skipped files.
+      try {
+        const dropped = await service.readFiles(paths)
+        if (!dropped?.length) {
+          toast.error('无法读取拖入的文件', {
+            description: '文件可能过大、为空或没有读取权限；也可以把工程打成 ZIP 后拖入。',
+          })
+          return
         }
+        const relative = commonRelativePaths(dropped.map((file) => file.path))
+        await importSourcesRef.current(dropped.map((file) => ({
+          file: base64File(file.name, file.data),
+          path: relative.get(file.path) ?? file.name,
+        })))
+      } catch (error) {
+        toast.error('读取拖入文件失败', {
+          description: error instanceof Error ? error.message : String(error),
+        })
       }
-      await refetchFiles()
-      toast.success(`已导入 ${imported}/${dropped.length} 个文件`)
     })()
-  }), [projectId, refetchFiles])
+  }), [])
 
   const handleCompile = async (requestedRootFile?: string) => {
     if (pendingBrowserResult) {
@@ -560,10 +679,9 @@ export function WritingPage() {
 
       if (!rootFile) return
 
-      const textExtensions = new Set(['tex', 'bib', 'cls', 'sty', 'bst', 'def', 'ist', 'txt', 'md', 'lof', 'lot', 'toc', 'cfg', 'fd'])
       const projectFiles = await waitForAbortable(Promise.all(files.map(async (file) => {
         const extension = file.file_path.split('.').pop()?.toLowerCase() ?? ''
-        if (file.content_type.startsWith('text/') || textExtensions.has(extension)) {
+        if (file.content_type.startsWith('text/') || TEXT_FILE_EXTENSIONS.has(extension)) {
           const content = file.file_path === activeFilePath && isEditable
             ? editorContent
             : (await fetchLatexFileContent(projectId, file.file_path, { skipGlobalLoading: true })).content
@@ -802,22 +920,9 @@ export function WritingPage() {
     })
   }
 
-  const uploadFiles = useCallback((fileList: FileList | File[]) => {
-    const files = Array.from(fileList)
-    for (const file of files) {
-      createMutation.mutate(
-        { path: file.name, file },
-        {
-          onSuccess: () => { setActiveFilePath(file.name) },
-          onError: (err) => { toast.error(`上传失败: ${file.name}`, { description: err.message }) },
-        },
-      )
-    }
-  }, [createMutation])
-
   const handleUploadClick = () => uploadInputRef.current?.click()
   const handleUploadChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files?.length) uploadFiles(e.target.files)
+    if (e.target.files?.length) void importSources(filesFromInput(e.target.files))
     e.target.value = ''
   }
 
@@ -830,7 +935,7 @@ export function WritingPage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault()
     setIsDragOver(false)
-    if (e.dataTransfer.files.length) uploadFiles(e.dataTransfer.files)
+    void collectDroppedFiles(e.dataTransfer).then(importSources)
   }
 
   const zoomIn = () => setDisplayScale((p) => Math.min(p + ZOOM_STEP, ZOOM_MAX))
@@ -949,7 +1054,7 @@ export function WritingPage() {
     >
       {isDragOver && (
         <div className="absolute inset-0 z-10 bg-accent/10 border-2 border-dashed border-accent/40 rounded-lg flex items-center justify-center pointer-events-none">
-          <p className="text-xs text-accent-foreground/70 font-medium">拖放文件到此处上传</p>
+          <p className="text-xs text-accent-foreground/70 font-medium">拖放文件、文件夹或 ZIP 工程到此处导入</p>
         </div>
       )}
       <div className="h-10 px-3 border-b border-border/40 flex items-center justify-between flex-none bg-card/50">
@@ -957,8 +1062,8 @@ export function WritingPage() {
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件" onClick={() => fileTreeRef.current?.createLeaf()}><Plus size={14} /></Button>
           <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" title="新建文件夹" onClick={() => fileTreeRef.current?.createInternal()}><FolderPlus size={14} /></Button>
-          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" onClick={handleUploadClick}><Upload size={14} /></Button>
-          <input ref={uploadInputRef} type="file" multiple className="hidden" onChange={handleUploadChange} />
+          <Button variant="ghost" size="icon-xs" className="h-7 w-7 rounded-md" aria-label="上传文件或导入 ZIP 工程" title="上传文件或导入 ZIP 工程" onClick={handleUploadClick}><Upload size={14} /></Button>
+          <input ref={uploadInputRef} type="file" multiple aria-label="上传文件或导入 ZIP 工程" className="hidden" onChange={handleUploadChange} />
         </div>
       </div>
       {filesError ? (
@@ -984,7 +1089,7 @@ export function WritingPage() {
           onRenameFile={handleTreeRenameFile}
           onRenameFolder={handleTreeRenameFolder}
           onMoveFile={handleTreeMoveFile}
-          onExternalDrop={(fileList) => uploadFiles(fileList)}
+          onExternalDrop={(fileList) => void importSources(filesFromInput(fileList))}
         />
       )}
     </div>
