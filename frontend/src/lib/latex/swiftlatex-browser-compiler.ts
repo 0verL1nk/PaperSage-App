@@ -126,6 +126,16 @@ const COMMAND_TIMEOUT_MS = browserEngineManifest.executionLimits.compileCommandT
 const MAX_AUXILIARY_FILES = browserEngineManifest.executionLimits.maximumAuxiliaryFiles
 const MAX_AUXILIARY_TOTAL_BYTES = browserEngineManifest.executionLimits.maximumAuxiliaryBytes
 const PDFTEX_BANNER_COMPATIBILITY_SOURCE = '\\ifdefined\\pdftexbanner\\edef\\pdftexbanner{This is \\pdftexbanner}\\fi\n'
+/** A worker that never reports ready means its WASM fetch stalled; without
+ * this bound the compile would sit in 「编译中」 forever. */
+const ENGINE_INIT_TIMEOUT_MS = 120_000
+
+const ENGINE_LABELS: Record<'pdftex' | 'xetex' | 'dvipdfmx' | 'bibtex', string> = {
+  pdftex: 'pdfLaTeX',
+  xetex: 'XeLaTeX',
+  bibtex: 'BibTeX',
+  dvipdfmx: 'PDF 转换',
+}
 
 function abortError(): DOMException {
   return new DOMException('编译已取消', 'AbortError')
@@ -224,7 +234,15 @@ function createEngineWorker(
     progress: onProgress,
     async initialize(initializeSignal) {
       if (initializeSignal?.aborted) throw abortError()
-      await ready
+      await new Promise<void>((resolve, reject) => {
+        const timer = window.setTimeout(() => reject(new Error(
+          `${ENGINE_LABELS[engine]} 浏览器引擎初始化超时：超过 ${ENGINE_INIT_TIMEOUT_MS / 60_000} 分钟仍未就绪，已停止本次编译。请检查网络后重试；若反复失败，请刷新页面或联系管理员。`,
+        )), ENGINE_INIT_TIMEOUT_MS)
+        ready.then(
+          () => { window.clearTimeout(timer); resolve() },
+          (error) => { window.clearTimeout(timer); reject(error) },
+        )
+      })
       if (initializeSignal?.aborted) throw abortError()
     },
     close() {
@@ -265,7 +283,9 @@ function createEngineWorker(
       return new Promise<T>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           activeCommand = null
-          reject(new Error(`${engine} ${cmd} 超过 10 分钟未完成`))
+          reject(new Error(
+            `${ENGINE_LABELS[engine]} 单步编译超过 ${COMMAND_TIMEOUT_MS / 60_000} 分钟没有返回结果，已停止。请重试编译；如果文档较大，可尝试拆分文档或换用性能更好的设备。`,
+          ))
         }, COMMAND_TIMEOUT_MS)
         const finish = (callback: () => void) => {
           window.clearTimeout(timeout)

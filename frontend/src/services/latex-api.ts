@@ -206,6 +206,17 @@ export function reportBrowserCompileFailure(projectId: string, jobId: string, er
   )
 }
 
+/** Keep the server-side browser job alive while the compile is still running. */
+export const BROWSER_COMPILE_HEARTBEAT_MS = 60_000
+
+export function sendBrowserCompileHeartbeat(projectId: string, jobId: string) {
+  return postJson<{ job_id: string; status: string }>(
+    LATEX.browserCompileHeartbeat(projectId, jobId),
+    undefined,
+    { skipGlobalLoading: true },
+  )
+}
+
 export async function fetchLatexFileBytes(projectId: string, filePath: string): Promise<Uint8Array> {
   const blob = await downloadBlob(`${LATEX.fileContent(projectId, filePath)}?raw=true`)
   return new Uint8Array(await blob.arrayBuffer())

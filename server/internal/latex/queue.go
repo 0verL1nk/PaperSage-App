@@ -80,11 +80,14 @@ func (q *Queue) CreateBrowserJob(ctx context.Context, projectID, userID uuid.UUI
 }
 
 // CompleteBrowserJob records a browser-produced artifact after its object has
-// been stored. Repeating the same completion for a successful job is safe.
+// been stored. Repeating the same completion for a successful job is safe, and
+// a job already converged to timeout still accepts a late artifact: losing a
+// PDF the browser did produce is worse than a late success.
 func (q *Queue) CompleteBrowserJob(ctx context.Context, jobID, projectID, userID uuid.UUID, buildID, logs string) error {
 	result := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
-		Where("id = ? AND project_id = ? AND user_id = ? AND status = ?",
-			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}, string(store.JobRunning)).
+		Where("id = ? AND project_id = ? AND user_id = ? AND status IN ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID},
+			[]string{string(store.JobRunning), string(store.JobTimeout)}).
 		Updates(map[string]any{
 			"status": string(store.JobSuccess), "build_id": buildID,
 			"error": nil, "logs": logs,
@@ -138,6 +141,34 @@ func (q *Queue) FailBrowserJob(ctx context.Context, jobID, projectID, userID uui
 		return nil
 	}
 	return fmt.Errorf("compile job is no longer running")
+}
+
+// TouchBrowserJob refreshes a running browser job's last-activity time so a
+// live compile is not mistaken for an abandoned one.
+func (q *Queue) TouchBrowserJob(ctx context.Context, jobID, projectID, userID uuid.UUID) (bool, error) {
+	result := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("id = ? AND project_id = ? AND user_id = ? AND status = ?",
+			store.UUID{UUID: jobID}, store.UUID{UUID: projectID}, store.UUID{UUID: userID}, string(store.JobRunning)).
+		Update("updated_at", time.Now().UTC())
+	return result.RowsAffected == 1, result.Error
+}
+
+// ExpireStaleRunningJobs converges running jobs that stopped reporting. Browser
+// compiles keep their job fresh with heartbeats; legacy CLSI jobs are bounded by
+// LatexCompileTimeout, so the same silence window covers both safely.
+func (q *Queue) ExpireStaleRunningJobs(ctx context.Context) int64 {
+	stale := q.Cfg.LatexBrowserJobStaleSeconds
+	if stale < 60 {
+		stale = 60
+	}
+	cutoff := time.Now().UTC().Add(-time.Duration(stale) * time.Second)
+	res := q.DB.WithContext(ctx).Model(&store.CompileJob{}).
+		Where("status = ? AND updated_at < ?", string(store.JobRunning), cutoff).
+		Updates(map[string]any{
+			"status": string(store.JobTimeout),
+			"error":  fmt.Sprintf("浏览器编译超过 %d 分钟没有回传结果，任务已自动结束。请重试编译。", stale/60),
+		})
+	return res.RowsAffected
 }
 
 func (q *Queue) schedule(jobID uuid.UUID) {

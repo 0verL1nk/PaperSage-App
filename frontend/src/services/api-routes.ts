@@ -70,6 +70,8 @@ export const LATEX = {
     `${V1}/projects/${projectId}/latex/compile/${jobId}/browser-result`,
   browserCompileFailure: (projectId: string, jobId: string) =>
     `${V1}/projects/${projectId}/latex/compile/${jobId}/browser-failure`,
+  browserCompileHeartbeat: (projectId: string, jobId: string) =>
+    `${V1}/projects/${projectId}/latex/compile/${jobId}/browser-heartbeat`,
   compileStatus: (projectId: string, jobId: string) =>
     `${V1}/projects/${projectId}/latex/compile/${jobId}/status/`,
   compileHistory: (projectId: string) =>
