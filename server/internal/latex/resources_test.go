@@ -55,13 +55,20 @@ func tlpdbStanza(name string, size int, checksum string, files ...string) string
 
 func makeTestArchive(t *testing.T, content []byte) []byte {
 	t.Helper()
+	return makeTestArchiveFiles(t, map[string][]byte{"tex/latex/amsmath/amsmath.sty": content})
+}
+
+func makeTestArchiveFiles(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
 	var compressed bytes.Buffer
 	xzWriter, err := xz.NewWriter(&compressed)
 	require.NoError(t, err)
 	tarWriter := tar.NewWriter(xzWriter)
-	require.NoError(t, tarWriter.WriteHeader(&tar.Header{Name: "tex/latex/amsmath/amsmath.sty", Mode: 0o644, Size: int64(len(content))}))
-	_, err = tarWriter.Write(content)
-	require.NoError(t, err)
+	for name, content := range files {
+		require.NoError(t, tarWriter.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}))
+		_, err = tarWriter.Write(content)
+		require.NoError(t, err)
+	}
 	require.NoError(t, tarWriter.Close())
 	require.NoError(t, xzWriter.Close())
 	return compressed.Bytes()
@@ -88,6 +95,7 @@ func writeTestProfile(t *testing.T, archive []byte, lookups []profile.Lookup, de
 	document := tlpdbStanza("amsmath", size, checksum, "tex/latex/amsmath/amsmath.sty")
 	document += tlpdbStanza("duplicate", size, checksum, "tex/latex/duplicate/duplicate.sty")
 	document += tlpdbStanza("amanother", size, checksum, "tex/latex/amanother/duplicate.sty")
+	document += tlpdbStanza("texinifiles", size, checksum, "tex/xetex/config/xelatex.ini")
 	document += tlpdbStanza("babel", size, checksum, "tex/generic/babel/hyphen.cfg")
 	document += tlpdbStanza("cslatex", size, checksum, "tex/cslatex/base/hyphen.cfg")
 	_, err = writer.Write([]byte(document))
@@ -329,4 +337,17 @@ func TestResourceServiceReportsAnHTMLChallengeClearly(t *testing.T) {
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil))
 	require.Equal(t, http.StatusBadGateway, response.Code)
 	require.Contains(t, response.Body.String(), "HTML page")
+}
+
+func TestResourceServiceServesExactNamesOutsideTheFormatSuffixList(t *testing.T) {
+	amsmath := []byte("% amsmath resource")
+	ini := []byte("% xelatex ini")
+	archive := makeTestArchiveFiles(t, map[string][]byte{
+		"tex/latex/amsmath/amsmath.sty": amsmath,
+		"tex/xetex/config/xelatex.ini":  ini,
+	})
+	fixture := newTestResourceEngine(t, writeTestProfile(t, archive, nil, nil), archive)
+	response := fixture.get(t, http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex?format=26&name=xelatex.ini")
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Equal(t, ini, response.Body.Bytes())
 }
