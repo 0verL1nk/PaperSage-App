@@ -169,6 +169,26 @@ func (s *resourceService) serveDerived(c *gin.Context, lookup resourceLookup, de
 
 func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 	suffix := strings.ToLower(path.Ext(lookup.Name))
+	// The engine asks for concrete filenames (xelatex.ini, *.bst, …). A unique
+	// exact match in the profile is authoritative even when the format's suffix
+	// list does not mention the extension; the list only decides lookups that
+	// arrive without one.
+	if suffix != "" && lookup.Kind != "font" {
+		records := s.exactIndexMatches(lookup.Name, suffix)
+		if len(records) == 1 {
+			s.serveProvenance(c, lookup, records[0])
+			return
+		}
+		if len(records) > 1 {
+			packages := make([]string, 0, len(records))
+			for _, record := range records {
+				packages = append(packages, record.Package)
+			}
+			c.Header("Cache-Control", "no-store")
+			c.String(http.StatusConflict, "ambiguous TeX Live filename %q matches multiple packages: %s", lookup.Name, strings.Join(packages, ", "))
+			return
+		}
+	}
 	formatSuffixes := s.formatSuffixes[lookup.Kind+"\x00"+lookup.Format]
 	// The engine's Kpathsea enum can contain formats this profile does not
 	// list. It still sends an explicit filename suffix, and the index is keyed
@@ -227,6 +247,18 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 		return
 	}
 	s.serveProvenance(c, lookup, filtered[0])
+}
+
+// exactIndexMatches returns every indexed file whose basename and extension match
+// the request exactly.
+func (s *resourceService) exactIndexMatches(name, suffix string) []texlive.TexliveProvenance {
+	var matched []texlive.TexliveProvenance
+	for _, provenance := range s.bundle.Index[name] {
+		if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), suffix) {
+			matched = append(matched, provenance)
+		}
+	}
+	return matched
 }
 
 func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
