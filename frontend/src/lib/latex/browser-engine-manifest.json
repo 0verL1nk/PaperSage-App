@@ -15,7 +15,7 @@
   },
   "executionLimits": {
     "swiftLatexWasmMaximumMemoryBytes": 2147483648,
-    "compileCommandTimeoutMs": 600000,
+    "compileCommandTimeoutMs": 1800000,
     "maximumTexPasses": 5,
     "maximumAuxiliaryFiles": 1024,
     "maximumAuxiliaryBytes": 33554432
