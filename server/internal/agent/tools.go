@@ -685,7 +685,13 @@ func SearchSubAgent(ctx context.Context, db *gorm.DB, ragStore *rag.Store,
 			if err := verify(ctx); err != nil {
 				return "", err
 			}
-			if _, err := ragStore.UpsertWiki(ctx, projectID, in.Title, in.Content, ""); err != nil {
+			page, err := ragStore.UpsertWiki(ctx, projectID, in.Title, in.Content, "")
+			if err != nil {
+				return "", err
+			}
+			// 记录本 Run 读过的来源，资料变更时该页才能被准确标为待复查；
+			// 写入失败让模型重试，避免「页面在、来源无法回溯」的静默缺口。
+			if err := persistWikiSources(ctx, db, rootRunID, page.ID); err != nil {
 				return "", err
 			}
 			return "已沉淀 wiki 页：" + in.Title, nil

@@ -242,6 +242,106 @@ func reviewPayload(planID store.UUID, revision int) map[string]any {
 	}
 }
 
+// 待复查标记：Adopt 前置 409，列表聚合原因；用户处理后恢复可采用。
+func TestAdoptBlockedByOpenRecheckMark(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	ctx := context.Background()
+	created, err := svc.Create(ctx, uid, pid, createRequest{Kind: store.ResearchArtifactChapterPlan, Payload: planPayload()})
+	require.NoError(t, err)
+	artifactID := store.UUID{UUID: created.ID}
+	revisionID := store.UUID{UUID: created.Current.ID}
+
+	mark := store.ContentRecheckMark{
+		ID: store.MustNewUUID(), ProjectID: pid,
+		TargetType: store.RecheckTargetArtifactRevision, TargetID: revisionID,
+		TriggerKind: store.RecheckTriggerSourceDeleted, TriggerID: store.MustNewUUID(),
+		Reason: "资料《论文.pdf》已删除",
+	}
+	require.NoError(t, db.Create(&mark).Error)
+
+	_, err = svc.Adopt(ctx, uid, pid, artifactID, decisionRequest{Revision: 1, ExpectedRevision: 1})
+	var apiErr *httpapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusConflict, apiErr.Code)
+	assert.Contains(t, apiErr.Info, "资料《论文.pdf》已删除")
+
+	items, err := svc.List(ctx, uid, pid, "")
+	require.NoError(t, err)
+	require.Len(t, items, 1)
+	assert.True(t, items[0].NeedsRecheck, "产物级聚合应带待复查")
+	assert.Equal(t, []string{"资料《论文.pdf》已删除"}, items[0].RecheckReasons)
+	require.NotNil(t, items[0].Current)
+	assert.True(t, items[0].Current.NeedsRecheck, "修订级聚合应带待复查")
+
+	// 处理完（已复查）后旧修订恢复可采用。
+	require.NoError(t, db.Model(&store.ContentRecheckMark{}).Where("id = ?", mark.ID).
+		Updates(map[string]any{"resolved_seq": 123, "resolution": store.RecheckResolutionRechecked}).Error)
+	_, err = svc.Adopt(ctx, uid, pid, artifactID, decisionRequest{Revision: 1, ExpectedRevision: 1})
+	require.NoError(t, err)
+}
+
+// 跨章节检查报告要落「依据计划」依赖并归一 planRevision，资料变更时才能只标受影响的报告。
+func TestChapterReviewWritesPlanDependencyAndRevision(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+	ctx := context.Background()
+
+	raw, err := json.Marshal(reviewPayload(planID, 1))
+	require.NoError(t, err)
+	created, err := svc.Create(ctx, uid, pid, createRequest{Kind: store.ResearchArtifactChapterReview, Payload: raw})
+	require.NoError(t, err)
+
+	var deps []store.ResearchArtifactDependency
+	require.NoError(t, db.Where("artifact_id = ? AND revision = 1", store.UUID{UUID: created.ID}).Find(&deps).Error)
+	foundPlanDep := false
+	for _, dep := range deps {
+		if dep.Kind == store.ResearchDependencyArtifact && dep.RefID.UUID == planID.UUID {
+			foundPlanDep = true
+		}
+	}
+	assert.True(t, foundPlanDep, "review 必须写入 artifact_revision 依赖")
+
+	// 模型没写 planRevision 时，服务端补上实际采用的版本。
+	payloadWithoutRevision := reviewPayload(planID, 1)
+	delete(payloadWithoutRevision["input"].(map[string]any), "planRevision")
+	rawWithout, err := json.Marshal(payloadWithoutRevision)
+	require.NoError(t, err)
+	createdWithout, err := svc.Create(ctx, uid, pid, createRequest{
+		Kind: store.ResearchArtifactChapterReview, Payload: rawWithout,
+	})
+	require.NoError(t, err)
+	var stored ChapterReview
+	require.NoError(t, json.Unmarshal(createdWithout.Current.Payload, &stored))
+	require.NotNil(t, stored.Input.PlanRevision)
+	assert.Equal(t, 1, *stored.Input.PlanRevision)
+}
+
+// 删除资料后，其来源版本不能再被用来生成新产物（防绕开复查）；未删除时正常。
+func TestCreateRejectsSourceVersionAfterDocumentDeleted(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	src := store.ProjectSource{ProjectID: pid, Kind: "document", CurrentRevision: 1}
+	require.NoError(t, db.Create(&src).Error)
+	ver := store.SourceVersion{SourceID: src.ID, Revision: 1, S3Key: "k", ContentSHA256: "abc", SizeBytes: 1}
+	require.NoError(t, db.Create(&ver).Error)
+	doc := store.Document{
+		Name: "论文.pdf", Type: "application/pdf", Size: 1, Status: "uploaded",
+		S3Key: "k", ProjectID: pid, OwnerID: uid, SourceID: &src.ID,
+	}
+	require.NoError(t, db.Create(&doc).Error)
+	ctx := context.Background()
+
+	_, err := svc.Create(ctx, uid, pid, createRequest{Kind: store.ResearchArtifactLiteratureNote, Payload: notePayload(ver.ID)})
+	require.NoError(t, err)
+
+	require.NoError(t, db.Delete(&doc).Error)
+	_, err = svc.Create(ctx, uid, pid, createRequest{Kind: store.ResearchArtifactLiteratureNote, Payload: notePayload(ver.ID)})
+	var apiErr *httpapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, http.StatusBadRequest, apiErr.Code)
+	assert.Contains(t, apiErr.Info, "引用的资料已被删除")
+}
+
 func TestChapterReviewPayloadValidation(t *testing.T) {
 	svc, db, uid, _, pid := setup(t)
 	seedLatexFile(t, db, pid, "chapters/method.tex")

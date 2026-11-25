@@ -26,6 +26,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
+	"github.com/0verL1nk/GraduateProject/server/internal/recheck"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/sources"
@@ -120,6 +121,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
 	researchSvc := research.NewService(db)
+	recheckSvc := recheck.NewService(db)
 	sourcesSvc := sources.NewService(db, s3)
 
 	// 学术规范资源库：内置种子随二进制分发，启动时幂等写入。
@@ -169,6 +171,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	research.Mount(v1, authSvc.AuthRequired(), researchSvc)
+	recheck.Mount(v1, authSvc.AuthRequired(), recheckSvc)
 	sources.Mount(v1, authSvc.AuthRequired(), sourcesSvc)
 	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)

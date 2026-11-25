@@ -44,6 +44,8 @@ func (s *Store) UpsertWiki(ctx context.Context, projectID store.UUID,
 	}
 	page.Content = content
 	page.Meta = datatypes.JSON(metaJSON)
+	// 重写即重新生成：过期标记复位，新内容重新作为新鲜页面参与检索。
+	page.StaleAt = nil
 	if err := s.DB.WithContext(ctx).Save(&page).Error; err != nil {
 		return nil, err
 	}
