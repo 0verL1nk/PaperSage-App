@@ -5,6 +5,9 @@
 name: Publish LaTeX profile
 
 on:
+  # Weekly baseline rebuild against the same CTAN source the runtime uses.
+  schedule:
+    - cron: '0 3 * * 1'
   workflow_dispatch:
     inputs:
       profile_id:
@@ -14,7 +17,7 @@ on:
       snapshot_url:
         description: Immutable tlnet snapshot URL (install-tl repository)
         required: true
-        default: https://texlive.info/tlnet-archive/2026/11/22/tlnet
+        default: https://mirror.ctan.org/systems/texlive/tlnet
 
 concurrency:
   group: publish-latex-profile

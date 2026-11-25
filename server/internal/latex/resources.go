@@ -8,12 +8,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -43,9 +48,19 @@ type resourceService struct {
 	repositories []string
 	profileID    string
 
+	// index is swapped atomically when upstream drift forces a tlpdb refresh.
+	index atomic.Pointer[map[string][]texlive.TexliveProvenance]
+
+	refreshMu      sync.Mutex
+	lastRefresh    time.Time
 	formatSuffixes map[string][]string
 	packageMaps    map[string][]texlive.TexliveProvenance
 }
+
+const (
+	resourceRefreshCooldown = 30 * time.Minute
+	maxTlpdbRefreshBytes    = 64 << 20
+)
 
 func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceService, error) {
 	if bundle == nil {
@@ -74,8 +89,67 @@ func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceServ
 	for _, format := range bundle.Profile.FormatSuffixes {
 		service.formatSuffixes[format.Kind+"\x00"+format.Format] = format.Suffixes
 	}
-	service.packageMaps = buildResourcePackageMaps(bundle)
+	index := bundle.Index
+	if data, err := os.ReadFile(cache.TlpdbPath()); err == nil {
+		if database, parseErr := texlive.ParseTlpdbXZ(data); parseErr == nil {
+			refreshed, _ := texlive.BuildTexliveIndex(database, bundle.Profile.LicenseOverrides)
+			index = refreshed
+		}
+	}
+	service.index.Store(&index)
 	return service, nil
+}
+
+func (s *resourceService) currentIndex() map[string][]texlive.TexliveProvenance {
+	if pointer := s.index.Load(); pointer != nil {
+		return *pointer
+	}
+	return nil
+}
+
+// refreshTlpdb replaces the in-memory index with one built from the current
+// upstream tlpdb and persists it, so a drifted package heals without a rebuild.
+// It is single-flight and rate limited: concurrent drift errors share one fetch.
+func (s *resourceService) refreshTlpdb(ctx context.Context) error {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	if !s.lastRefresh.IsZero() && time.Since(s.lastRefresh) < resourceRefreshCooldown {
+		return fmt.Errorf("LaTeX resource index was refreshed %s ago", time.Since(s.lastRefresh).Round(time.Minute))
+	}
+	var lastErr error
+	for _, repository := range s.repositories {
+		request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(repository, "/")+"/tlpkg/texlive.tlpdb.xz", nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		request.Header.Set("User-Agent", "PaperSage/1.0")
+		response, err := s.archives.client.Do(request)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		data, readErr := io.ReadAll(io.LimitReader(response.Body, maxTlpdbRefreshBytes+1))
+		_ = response.Body.Close()
+		if readErr != nil || response.StatusCode != http.StatusOK || len(data) > maxTlpdbRefreshBytes {
+			lastErr = fmt.Errorf("refresh tlpdb from %s failed", repository)
+			continue
+		}
+		database, parseErr := texlive.ParseTlpdbXZ(data)
+		if parseErr != nil {
+			lastErr = parseErr
+			continue
+		}
+		index, _ := texlive.BuildTexliveIndex(database, s.bundle.Profile.LicenseOverrides)
+		s.index.Store(&index)
+		s.lastRefresh = time.Now()
+		_ = os.WriteFile(s.cache.TlpdbPath(), data, 0o600)
+		return nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no TeX Live repository is configured")
+	}
+	return lastErr
 }
 
 func validResourceLookup(lookup resourceLookup) bool {
@@ -223,7 +297,7 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 		} else if suffix == "" {
 			indexName += candidateSuffix
 		}
-		for _, provenance := range s.bundle.Index[indexName] {
+		for _, provenance := range s.currentIndex()[indexName] {
 			if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), candidateSuffix) {
 				filtered = append(filtered, provenance)
 			}
@@ -253,7 +327,7 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 // the request exactly.
 func (s *resourceService) exactIndexMatches(name, suffix string) []texlive.TexliveProvenance {
 	var matched []texlive.TexliveProvenance
-	for _, provenance := range s.bundle.Index[name] {
+	for _, provenance := range s.currentIndex()[name] {
 		if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), suffix) {
 			matched = append(matched, provenance)
 		}
@@ -263,7 +337,7 @@ func (s *resourceService) exactIndexMatches(name, suffix string) []texlive.Texli
 
 func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
 	key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
-	entry, err := s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
+	fill := func(provenance texlive.TexliveProvenance) (DiskCacheEntry, error) {
 		data, fetchErr := s.packageFile(c.Request.Context(), provenance)
 		if fetchErr != nil {
 			return DiskCacheEntry{}, fetchErr
@@ -280,7 +354,17 @@ func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup,
 			},
 			Data: data,
 		}, nil
-	})
+	}
+	entry, err := s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) { return fill(provenance) })
+	if err != nil && errors.Is(err, errResourceArchiveDrift) {
+		// Upstream replaced this package after the profile was pinned: refresh
+		// the index from the repository, re-resolve the file, and retry once.
+		if refreshErr := s.refreshTlpdb(c.Request.Context()); refreshErr == nil {
+			if refreshed, found := s.provenanceForSource(provenance.SourcePath); found {
+				entry, err = s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) { return fill(refreshed) })
+			}
+		}
+	}
 	if err != nil {
 		c.Header("Cache-Control", "no-store")
 		c.String(http.StatusBadGateway, "TeX Live resource %q could not be fetched from package %q: %v", lookup.Name, provenance.Package, err)
@@ -292,27 +376,27 @@ func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup,
 // packageFile tries every trusted source in order. All sources serve the same
 // pinned bytes, so a fallback never weakens the checksum guarantee.
 func (s *resourceService) packageFile(ctx context.Context, provenance texlive.TexliveProvenance) ([]byte, error) {
-	var failures []string
+	var failures []error
 	for _, repository := range s.repositories {
 		data, err := s.archives.packageFile(ctx, repository, provenance)
 		if err == nil {
 			return data, nil
 		}
-		failures = append(failures, fmt.Sprintf("%s: %v", repository, err))
+		failures = append(failures, fmt.Errorf("%s: %w", repository, err))
 	}
-	return nil, errors.New(strings.Join(failures, "; "))
+	return nil, errors.Join(failures...)
 }
 
 func (s *resourceService) packageFiles(ctx context.Context, provenance texlive.TexliveProvenance, paths []string) (map[string][]byte, error) {
-	var failures []string
+	var failures []error
 	for _, repository := range s.repositories {
 		content, err := s.archives.packageFiles(ctx, repository, provenance, paths)
 		if err == nil {
 			return content, nil
 		}
-		failures = append(failures, fmt.Sprintf("%s: %v", repository, err))
+		failures = append(failures, fmt.Errorf("%s: %w", repository, err))
 	}
-	return nil, errors.New(strings.Join(failures, "; "))
+	return nil, errors.Join(failures...)
 }
 
 func (s *resourceService) writeResource(c *gin.Context, lookup resourceLookup, mediaType, packageName, digest string, data []byte) {
@@ -344,7 +428,7 @@ func (s *resourceService) provenanceForSource(source string) (texlive.TexlivePro
 	if index := strings.LastIndex(source, "/"); index >= 0 {
 		base = source[index+1:]
 	}
-	for _, record := range s.bundle.Index[base] {
+	for _, record := range s.currentIndex()[base] {
 		if record.SourcePath == source {
 			return record, true
 		}
@@ -493,7 +577,7 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 				indexName += candidateSuffix
 			}
 			var matched []texlive.TexliveProvenance
-			for _, provenance := range s.bundle.Index[indexName] {
+			for _, provenance := range s.currentIndex()[indexName] {
 				if isKpathseaPackageSourcePath(provenance.SourcePath) && strings.EqualFold(path.Ext(provenance.SourcePath), candidateSuffix) {
 					matched = append(matched, provenance)
 				}

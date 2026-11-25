@@ -191,7 +191,7 @@ func TestVerifyReportsCorruptDerivedBlob(t *testing.T) {
 func TestEmbeddedProfileVerifiesAllRequiredResources(t *testing.T) {
 	bundle, err := Embedded()
 	require.NoError(t, err)
-	require.Equal(t, "tl2026-tlnet-20261122", bundle.Profile.Profile)
+	require.Equal(t, "tl2026-tlnet-20261125", bundle.Profile.Profile)
 	require.Empty(t, bundle.Verify(), "the committed profile must keep all seven template resources resolvable")
 }
 

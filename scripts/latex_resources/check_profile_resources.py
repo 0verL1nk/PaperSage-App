@@ -52,13 +52,18 @@ def main() -> int:
     parser.add_argument("--kind", default="xetex")
     parser.add_argument("--format", default="26")
     parser.add_argument("--timeout", type=float, default=30.0)
+    parser.add_argument("--font-names", nargs="*", default=[],
+                        help="font aliases to probe through /resolve/font/OT (e.g. fandolsong-regular)")
     parser.add_argument("names", nargs="+", help="resource filenames to probe")
     args = parser.parse_args()
 
     base = args.base_url.rstrip("/")
+    targets = [(f"{args.kind}/{args.format}", name) for name in args.names]
+    # Fonts are requested by family/PostScript alias, not by filename.
+    targets += [("font/OT", name) for name in args.font_names]
     failures = 0
-    for name in args.names:
-        url = f"{base}/texlive/{args.profile}/resolve/{args.kind}/{args.format}/{name}"
+    for route, name in targets:
+        url = f"{base}/texlive/{args.profile}/resolve/{route}/{name}"
         ok, detail = probe(url, args.timeout)
         print(f"{'ok  ' if ok else 'FAIL'} {name} {detail}", flush=True)
         failures += 0 if ok else 1

@@ -79,7 +79,21 @@ func sha256Hex(data []byte) string {
 	return hex.EncodeToString(digest[:])
 }
 
+func testTlpdbDocument(size int, checksum string) string {
+	document := tlpdbStanza("amsmath", size, checksum, "tex/latex/amsmath/amsmath.sty")
+	document += tlpdbStanza("duplicate", size, checksum, "tex/latex/duplicate/duplicate.sty")
+	document += tlpdbStanza("amanother", size, checksum, "tex/latex/amanother/duplicate.sty")
+	document += tlpdbStanza("texinifiles", size, checksum, "tex/xetex/config/xelatex.ini")
+	document += tlpdbStanza("babel", size, checksum, "tex/generic/babel/hyphen.cfg")
+	document += tlpdbStanza("cslatex", size, checksum, "tex/cslatex/base/hyphen.cfg")
+	return document
+}
+
 func writeTestProfile(t *testing.T, archive []byte, lookups []profile.Lookup, derived map[string][]byte) *profile.Bundle {
+	return writeTestProfilePinned(t, archive, len(archive), sha512Hex(archive), lookups, derived)
+}
+
+func writeTestProfilePinned(t *testing.T, archive []byte, size int, checksum string, lookups []profile.Lookup, derived map[string][]byte) *profile.Bundle {
 	t.Helper()
 	root := t.TempDir()
 	if len(derived) > 0 {
@@ -91,13 +105,7 @@ func writeTestProfile(t *testing.T, archive []byte, lookups []profile.Lookup, de
 	var tlpdb bytes.Buffer
 	writer, err := xz.NewWriter(&tlpdb)
 	require.NoError(t, err)
-	size, checksum := len(archive), sha512Hex(archive)
-	document := tlpdbStanza("amsmath", size, checksum, "tex/latex/amsmath/amsmath.sty")
-	document += tlpdbStanza("duplicate", size, checksum, "tex/latex/duplicate/duplicate.sty")
-	document += tlpdbStanza("amanother", size, checksum, "tex/latex/amanother/duplicate.sty")
-	document += tlpdbStanza("texinifiles", size, checksum, "tex/xetex/config/xelatex.ini")
-	document += tlpdbStanza("babel", size, checksum, "tex/generic/babel/hyphen.cfg")
-	document += tlpdbStanza("cslatex", size, checksum, "tex/cslatex/base/hyphen.cfg")
+	document := testTlpdbDocument(size, checksum)
 	_, err = writer.Write([]byte(document))
 	require.NoError(t, err)
 	require.NoError(t, writer.Close())
@@ -350,4 +358,48 @@ func TestResourceServiceServesExactNamesOutsideTheFormatSuffixList(t *testing.T)
 	response := fixture.get(t, http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex?format=26&name=xelatex.ini")
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.Equal(t, ini, response.Body.Bytes())
+}
+
+func TestResourceServiceRefreshesTheIndexWhenUpstreamDrifted(t *testing.T) {
+	content := []byte("% amsmath resource")
+	archive := makeTestArchive(t, content)
+	// The embedded profile pins stale metadata for every package.
+	stale := strings.Repeat("b", 128)
+	bundle := writeTestProfilePinned(t, archive, len(archive)+1, stale, nil, nil)
+
+	var compressed bytes.Buffer
+	writer, err := xz.NewWriter(&compressed)
+	require.NoError(t, err)
+	_, err = writer.Write([]byte(testTlpdbDocument(len(archive), sha512Hex(archive))))
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	freshTlpdb := compressed.Bytes()
+
+	requests := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if strings.HasSuffix(r.URL.Path, "/tlpkg/texlive.tlpdb.xz") {
+			_, _ = w.Write(freshTlpdb)
+			return
+		}
+		_, _ = w.Write(archive)
+	}))
+	t.Cleanup(server.Close)
+	target, err := url.Parse(server.URL)
+	require.NoError(t, err)
+	cache, err := NewDiskCache(t.TempDir(), 1<<20)
+	require.NoError(t, err)
+	service, err := newResourceService(bundle, cache)
+	require.NoError(t, err)
+	service.archives.client.Transport = redirectingRoundTripper{base: server.Client().Transport, target: target}
+	engine := gin.New()
+	engine.GET("/texlive/:profile/resolve/:kind/:format/*name", service.get)
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil))
+	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+	require.Equal(t, content, response.Body.Bytes())
+	t.Logf("requests=%d", requests)
+	_, statErr := os.Stat(cache.TlpdbPath())
+	require.NoError(t, statErr, "the refreshed tlpdb must be persisted")
 }
