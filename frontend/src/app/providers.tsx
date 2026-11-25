@@ -22,9 +22,9 @@ export function AppProviders() {
             <AppRouterProvider queryClient={queryClient} />
             <UpdateDialog />
             <TopProgressBar />
-            <Toaster />
           </TooltipProvider>
         </div>
+        <Toaster />
       </ThemeProvider>
     </QueryClientProvider>
   )
