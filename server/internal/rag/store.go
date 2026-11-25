@@ -232,6 +232,11 @@ type Hit struct {
 	Score      float64 `json:"score"`
 }
 
+// minCosineSimilarity 向量候选的最小余弦相似度。
+// 零/负相关（正交）片段不得进入候选：小库 top-k 会把 0 分条目带出来，
+// 既挤掉真实召回，也可能被当作证据落库。内存与两条库端路径共用此阈值。
+const minCosineSimilarity = 1e-6
+
 // Search 混合检索：向量 top-k 与 BM25 top-k，RRF 融合。
 // 查询文本嵌入是本函数唯一的嵌入调用。
 func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, k int) ([]Hit, error) {
@@ -240,6 +245,10 @@ func (s *Store) Search(ctx context.Context, projectID store.UUID, query string, 
 	}
 	if s.DB == nil && s.Pg == nil {
 		return nil, fmt.Errorf("no store backend")
+	}
+	if strings.TrimSpace(query) == "" {
+		// 空查询在库端会把零向量送进余弦距离，排序不可预期；显式报错让模型重试。
+		return nil, fmt.Errorf("检索词不能为空，请给出具体的问题或关键词")
 	}
 	if k <= 0 {
 		k = 5
@@ -466,9 +475,7 @@ func (s *Store) vectorSearch(ctx context.Context, projectID store.UUID, q []floa
 				dot += float64(x) * float64(q[i])
 			}
 		}
-		if cos := dot / (e.norm * qn); cos > 1e-6 {
-			// 阈值截断：零重叠（正交）不进候选——否则小库内
-			// top-k 会把 0 分条目也带出来
+		if cos := dot / (e.norm * qn); cos > minCosineSimilarity {
 			list = append(list, scored{e, cos})
 		}
 	}
@@ -607,8 +614,6 @@ func bm25Search(idx *bm25Index, query string, k int) []string {
 	return out
 }
 
-var _ = strings.TrimSpace
-
 // EncodeVec []float32 → 小端 binary（每维 4 字节，定长）。
 func EncodeVec(v []float32) []byte {
 	b := make([]byte, len(v)*4)
@@ -661,8 +666,9 @@ func (s *Store) vectorSearchDB(ctx context.Context, projectID store.UUID, q []fl
 		`SELECT id, content, source_type, source_id, source_name
 		 FROM rag_chunks
 		 WHERE project_id = ? AND generation = ? AND embedding IS NOT NULL
-		 ORDER BY vec_cosine_distance(embedding, ?)
-		 LIMIT ?`, projectID, gen, VecLiteral(q), k).Scan(&rows).Error
+		   AND vec_cosine_distance(embedding, ?) < ?
+		 ORDER BY vec_cosine_distance(embedding, ?), id
+		 LIMIT ?`, projectID, gen, VecLiteral(q), 1-minCosineSimilarity, VecLiteral(q), k).Scan(&rows).Error
 	if err != nil {
 		return nil, err
 	}

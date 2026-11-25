@@ -162,7 +162,23 @@ func TestProjectToolsHasNoWriteTool(t *testing.T) {
 		require.NoError(t, ierr)
 		names = append(names, info.Name)
 	}
-	assert.NotContains(t, names, "write_latex_file", "写盘工具必须已摘除")
+	// 显式白名单：新增工具必须在此登记才能通过，防止未来新增写稿工具被默认放行。
+	// 只允许「读」「产出建议」「非稿件写入（编译请求、蓝图/产物保存）」三类。
+	allowed := map[string]bool{
+		"list_documents": true, "read_document": true, "read_source_version": true,
+		"list_latex_files": true, "read_latex_file": true,
+		"propose_edit": true, "compile_project": true,
+		"get_writing_state": true, "save_writing_preparation": true,
+		"list_research_artifacts": true, "read_research_artifact": true,
+		"create_research_artifact": true, "add_research_artifact_revision": true,
+		"get_chapter_review_context": true,
+	}
+	for _, name := range names {
+		assert.Truef(t, allowed[name], "工具 %q 未登记在白名单：确认它不是写稿工具并显式登记", name)
+	}
+	for _, forbidden := range []string{"write_latex_file", "update_latex_file", "delete_latex_file", "apply_edit"} {
+		assert.NotContains(t, names, forbidden, "写盘工具必须已摘除")
+	}
 	assert.Contains(t, names, "propose_edit", "应改为产出建议")
 }
 

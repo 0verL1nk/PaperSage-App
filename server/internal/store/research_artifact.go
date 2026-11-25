@@ -25,6 +25,9 @@ const (
 	ResearchDependencySourceSegment = "source_segment"
 	ResearchDependencyArtifact      = "artifact_revision"
 	ResearchDependencyRun           = "run"
+	// ResearchDependencyDocument 依赖文档本身：文档没有来源版本时使用。
+	// 有来源版本时必须记 source_version，记录实际依赖的内容版本。
+	ResearchDependencyDocument = "document"
 )
 
 // ResearchArtifact 是组织产物聚合根：当前修订与用户已采用修订分开记录。
