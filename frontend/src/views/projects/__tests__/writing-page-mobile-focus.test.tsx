@@ -43,10 +43,6 @@ vi.mock('@/hooks/use-latex', () => {
   }
 })
 vi.mock('@/hooks/use-auto-save', () => ({ useAutoSave: () => mocks.autoSave }))
-vi.mock('@/hooks/use-compile-polling', () => ({
-  useCompileStatusPolling: () => ({ data: undefined }),
-  isTerminalStatus: () => true,
-}))
 vi.mock('@/lib/monaco-setup', () => ({}))
 vi.mock('@monaco-editor/react', () => ({
   default: () => <div data-testid="monaco-editor" />,
@@ -109,6 +105,7 @@ import { WritingPage } from '../WritingPage'
 import { prepareForUpdate } from '@/lib/update-prepare'
 import { compileLatexInBrowser } from '@/lib/latex/swiftlatex-browser-compiler'
 import { createBrowserCompileJob, fetchLatexFileContent, reportBrowserCompileFailure } from '@/services/latex-api'
+import { useCompileStore } from '@/store/compile-store'
 
 describe('WritingPage update preparation', () => {
   it('reports a Ctrl+S failure instead of leaving a rejected promise unhandled', async () => {
@@ -222,6 +219,7 @@ describe('WritingPage compile recovery', () => {
     vi.mocked(createBrowserCompileJob).mockReset()
     vi.mocked(compileLatexInBrowser).mockReset()
     vi.mocked(reportBrowserCompileFailure).mockReset()
+    useCompileStore.getState().reset()
   })
 
   it('leaves 编译中 and offers a retry when the browser engine times out', async () => {

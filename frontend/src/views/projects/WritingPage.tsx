@@ -28,12 +28,12 @@ import {
   useDeleteLatexFolder, useRenameLatexFile, useRenameLatexFolder,
   useMoveLatexFile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
-import { useCompileStatusPolling, isTerminalStatus } from '@/hooks/use-compile-polling'
+import { useProjectCompile } from '@/hooks/use-project-compile'
 import { useAutoSave } from '@/hooks/use-auto-save'
 import { PREPARE_UPDATE_EVENT } from '@/lib/update-prepare'
 import { useFolderSyncStatus } from '@/hooks/use-folder-sync-status'
-import type { PdfRangeSource, CompileJobStatus, CompileJobListItem, LatexFileItem } from '@/services/latex-api'
-import { cancelCompile, getCompileHistory } from '@/services/latex-api'
+import type { PdfRangeSource, CompileJobListItem, LatexFileItem } from '@/services/latex-api'
+import { getCompileHistory } from '@/services/latex-api'
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
@@ -46,9 +46,10 @@ import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
-import { compileLatexInBrowser, type BrowserLatexProgress, type BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
 import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
-import { BROWSER_COMPILE_HEARTBEAT_MS, createBrowserCompileJob, createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, reportBrowserCompileFailure, sendBrowserCompileHeartbeat, uploadBrowserCompileResult, uploadLatexFile } from '@/services/latex-api'
+import { createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, uploadLatexFile } from '@/services/latex-api'
+import { cancelProjectCompile, retryBrowserUpload, startCompile } from '@/lib/compile-manager'
+import { isCompileActive, useCompileStore, type ProjectCompileState } from '@/store/compile-store'
 import {
   buildImportPlan,
   collectDroppedFiles,
@@ -60,7 +61,7 @@ import {
   type ImportFailure,
   type SkippedImportFile,
 } from '@/lib/project-import'
-import { base64File, getDesktopService, isDesktop, notifyWhenBackground, onDesktopFilesDropped } from '@/lib/desktop'
+import { base64File, getDesktopService, isDesktop, onDesktopFilesDropped } from '@/lib/desktop'
 import { useProject } from '@/services/projects-api'
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -147,23 +148,9 @@ function isPdfFile(path: string): boolean {
   return path.toLowerCase().endsWith('.pdf')
 }
 
-function waitForAbortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) return Promise.reject(new DOMException('编译已取消', 'AbortError'))
-  return new Promise<T>((resolve, reject) => {
-    const cleanup = () => signal.removeEventListener('abort', onAbort)
-    const onAbort = () => {
-      cleanup()
-      reject(new DOMException('编译已取消', 'AbortError'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    operation.then(
-      (value) => { cleanup(); resolve(value) },
-      (error: unknown) => { cleanup(); reject(error) },
-    )
-  })
-}
-
 type SidebarTab = 'files' | 'ai'
+
+const NO_RESOURCES: ProjectCompileState['resources'] = {}
 
 // --- Main Component ---
 
@@ -201,16 +188,7 @@ export function WritingPage() {
   const [editorContent, setEditorContent] = useState('')
   const [isLatexSetupOpen, setIsLatexSetupOpen] = useState(false)
   const [isFolderSyncOpen, setIsFolderSyncOpen] = useState(false)
-  const [isBrowserCompiling, setIsBrowserCompiling] = useState(false)
-  const [isPublishingBrowserResult, setIsPublishingBrowserResult] = useState(false)
-  const [isRetryingBrowserUpload, setIsRetryingBrowserUpload] = useState(false)
-  const [pendingBrowserResult, setPendingBrowserResult] = useState<{ jobId: string; pdf: Uint8Array; logs: string } | null>(null)
-  const [browserProgressMessage, setBrowserProgressMessage] = useState<string | null>(null)
-  const [browserThirdPartyLicense, setBrowserThirdPartyLicense] = useState<NonNullable<Extract<BrowserLatexProgress, { stage: 'convert' }>['license']> | null>(null)
-  const [browserResources, setBrowserResources] = useState<Record<string, BrowserLatexResourceEvent>>({})
-  const browserCompileAbortRef = useRef<AbortController | null>(null)
-  const browserCompileJobRef = useRef<string | null>(null)
-  const handleCompileRef = useRef<((rootFile?: string) => Promise<void>) | null>(null)
+  const handleCompileRef = useRef<((rootFile?: string) => void) | null>(null)
 
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
@@ -257,9 +235,16 @@ export function WritingPage() {
   const moveMutation = useMoveLatexFile(projectId)
   const outputPdfMutation = useLatexOutputPdf()
 
-  // Async compile state
-  const [compileJobId, setCompileJobId] = useState<string | null>(null)
-  const compileStatus = useCompileStatusPolling(projectId, compileJobId)
+  // Browser compile state belongs to the module-level manager so it survives
+  // leaving this page; the page only renders it.
+  const compileState = useProjectCompile(projectId)
+  const isBrowserCompiling = compileState?.phase === 'preparing' || compileState?.phase === 'compiling'
+  const isRetryingBrowserUpload = compileState?.retryingUpload ?? false
+  const isCompiling = isCompileActive(compileState?.phase) || isRetryingBrowserUpload
+  const pendingBrowserResult = compileState?.pendingUpload ?? null
+  const browserProgressMessage = compileState?.progressMessage ?? null
+  const browserThirdPartyLicense = compileState?.license ?? null
+  const browserResources = compileState?.resources ?? NO_RESOURCES
 
   // Agent compile requests are handed to the browser compiler below.
   const pendingBrowserCompileRequest = useChatStore((s) => s.pendingBrowserCompileRequest)
@@ -268,6 +253,7 @@ export function WritingPage() {
   // Derived state
   const [pdfFileSource, setPdfFileSource] = useState<PdfRangeSource | { data: Uint8Array } | null>(null)
   const [pdfBuildId, setPdfBuildId] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [isExportingProject, setIsExportingProject] = useState(false)
   const { data: project } = useProject(projectId)
@@ -276,60 +262,20 @@ export function WritingPage() {
   const [compileHistory, setCompileHistory] = useState<CompileJobListItem[]>([])
   const [compileHistoryTotal, setCompileHistoryTotal] = useState(0)
   const [compileHistoryError, setCompileHistoryError] = useState<string | null>(null)
-  const [compileError, setCompileError] = useState<string | null>(null)
-  const [compileLogs, setCompileLogs] = useState<string | null>(null)
-  const [compileWarning, setCompileWarning] = useState<string | null>(null)
+  const compileError = compileState?.error ?? previewError
+  const compileLogs = compileState?.logs ?? null
+  const compileWarning = compileState?.warning ?? null
 
-  const isCompiling = isBrowserCompiling
-    || isPublishingBrowserResult
-    || isRetryingBrowserUpload
-    || (compileJobId !== null && !compileStatus.isStalled && compileStatus.data !== undefined && !isTerminalStatus(compileStatus.data.status))
-
-  // A server job that stops reporting must never hold the editor in 「编译中」.
+  // A compile that finished while the user was elsewhere becomes the preview
+  // as soon as this page renders again.
+  const storePdf = compileState?.pdf ?? null
+  const storeBuildId = compileState?.buildId ?? null
   useEffect(() => {
-    if (!compileStatus.isStalled || compileJobId === null) return
-    setCompileJobId(null)
-    if (isBrowserCompiling || isPublishingBrowserResult || isRetryingBrowserUpload) return
-    setCompileError('编译状态长时间没有更新，已停止等待。请重试编译；如果 PDF 已生成，可在编译历史中查看。')
-  }, [compileStatus.isStalled, compileJobId, isBrowserCompiling, isPublishingBrowserResult, isRetryingBrowserUpload])
-
-  // Apply a finished compile immediately instead of waiting for a status
-  // round-trip that may never arrive.
-  const applyCompileSuccess = (buildId: string) => {
-    setCompileError(null)
-    setCompileLogs(null)
-    setPdfBuildId(buildId)
-    void notifyWhenBackground('编译完成', 'PDF 已生成')
-    outputPdfMutation.mutate(
-      { projectId, buildId },
-      {
-        onSuccess: (source) => setPdfFileSource(source),
-        onError: (error) => setCompileError(`PDF 已保存，但载入预览失败：${error.message}。可在「编译历史」中重新打开。`),
-      },
-    )
-  }
-
-  // React to terminal compile status — using ref to avoid setState-in-effect lint
-  const prevJobIdRef = useRef<string | null>(null)
-  useEffect(() => {
-    const job = compileStatus.data
-    if (!job || !isTerminalStatus(job.status as CompileJobStatus)) return
-    // Only process each job once
-    if (prevJobIdRef.current === job.job_id) return
-    prevJobIdRef.current = job.job_id
-
-    if (job.status === 'success' && job.build_id) {
-      applyCompileSuccess(job.build_id)
-    } else if (job.status === 'failed' || job.status === 'timeout') {
-      const message = job.error || (job.status === 'timeout' ? '编译超时' : '编译失败')
-      setCompileError(message)
-      if (job.logs) setCompileLogs(job.logs)
-      void notifyWhenBackground('编译失败', message)
-    }
-
-    setCompileJobId(null)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [compileStatus.data?.status, compileStatus.data?.job_id])
+    if (!storePdf) return
+    setPreviewError(null)
+    setPdfFileSource({ data: storePdf })
+    setPdfBuildId(storeBuildId)
+  }, [storePdf, storeBuildId])
 
   // Monaco LaTeX LSP
   useEffect(() => {
@@ -661,148 +607,49 @@ export function WritingPage() {
     })()
   }), [])
 
-  const handleCompile = async (requestedRootFile?: string) => {
+  const handleCompile = (requestedRootFile?: string) => {
     if (pendingBrowserResult) {
       if (requestedRootFile) {
         toast.error('先处理上一次 PDF 的上传，再启动新的编译')
         return
       }
-      await handleRetryBrowserUpload()
+      void retryBrowserUpload(projectId)
       return
     }
-    if (browserCompileAbortRef.current) return
-    const controller = new AbortController()
-    browserCompileAbortRef.current = controller
-    setCompileError(null)
-    setCompileLogs(null)
-    setCompileWarning(null)
-    setBrowserProgressMessage('正在保存并读取项目文件')
-    setBrowserThirdPartyLicense(null)
-    setBrowserResources({})
-    setIsBrowserCompiling(true)
-    let browserJobId: string | null = null
-    let compiledArtifact: { jobId: string; pdf: Uint8Array; logs: string } | null = null
-    let heartbeatTimer: number | null = null
-    try {
-      await waitForAbortable(autoSave.saveNow(), controller.signal)
-      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
-
-      const rootFile = requestedRootFile
-        || files.find((f) => f.file_path === 'main.tex')?.file_path
-        || activeFilePath
-        || files[0]?.file_path
-
-      if (!rootFile) return
-
-      const projectFiles = await waitForAbortable(Promise.all(files.map(async (file) => {
-        const extension = file.file_path.split('.').pop()?.toLowerCase() ?? ''
-        if (file.content_type.startsWith('text/') || TEXT_FILE_EXTENSIONS.has(extension)) {
-          const content = file.file_path === activeFilePath && isEditable
-            ? editorContent
-            : (await fetchLatexFileContent(projectId, file.file_path, { skipGlobalLoading: true })).content
-          return { path: file.file_path, content }
-        }
-        return { path: file.file_path, content: await fetchLatexFileBytes(projectId, file.file_path) }
-      })), controller.signal)
-      if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
-
-      // Guest projects exist only on this device, so there is no server-side
-      // job to create or PDF to upload; the compile stays in the browser.
-      let job: { job_id: string } | null = null
-      if (!isGuest) {
-        const browserJobRequest = createBrowserCompileJob(projectId, rootFile, compiler)
-        let createdJob: { job_id: string }
-        try {
-          createdJob = await waitForAbortable(browserJobRequest, controller.signal)
-        } catch (error) {
-          if (controller.signal.aborted) {
-            void browserJobRequest
-              .then((createdJob) => cancelCompile(projectId, createdJob.job_id))
-              .catch((cancelError: unknown) => {
-                toast.error('浏览器编译已停止，但服务端任务取消失败', {
-                  description: cancelError instanceof Error ? cancelError.message : String(cancelError),
-                })
-              })
+    setPreviewError(null)
+    const rootFile = requestedRootFile
+      || files.find((f) => f.file_path === 'main.tex')?.file_path
+      || activeFilePath
+      || files[0]?.file_path
+    if (!rootFile) return
+    const result = startCompile({
+      projectId,
+      projectName: project?.name ?? '论文',
+      rootFile,
+      compiler,
+      isGuest,
+      // Snapshot the files now; the manager keeps running after this page unmounts.
+      prepare: async () => {
+        await autoSave.saveNow()
+        return Promise.all(files.map(async (file) => {
+          const extension = file.file_path.split('.').pop()?.toLowerCase() ?? ''
+          if (file.content_type.startsWith('text/') || TEXT_FILE_EXTENSIONS.has(extension)) {
+            const content = file.file_path === activeFilePath && isEditable
+              ? editorContent
+              : (await fetchLatexFileContent(projectId, file.file_path, { skipGlobalLoading: true })).content
+            return { path: file.file_path, content }
           }
-          throw error
-        }
-        job = createdJob
-        browserJobId = createdJob.job_id
-        browserCompileJobRef.current = createdJob.job_id
-        setCompileJobId(createdJob.job_id)
-        // Tell the server the tab is still alive so a long compile is not
-        // mistaken for an abandoned job.
-        heartbeatTimer = window.setInterval(() => {
-          void sendBrowserCompileHeartbeat(projectId, createdJob.job_id).catch(() => {
-            // Liveness only: a missed beat must not interrupt a running compile.
-          })
-        }, BROWSER_COMPILE_HEARTBEAT_MS)
-      }
-
-      const result = await compileLatexInBrowser(projectFiles, rootFile, compiler, {
-        signal: controller.signal,
-        onProgress: (progress: BrowserLatexProgress) => {
-          setBrowserProgressMessage(progress.message)
-          if (progress.stage === 'convert' && progress.license) setBrowserThirdPartyLicense(progress.license)
-          if (progress.stage === 'resource') {
-            setBrowserResources((previous) => ({
-              ...previous,
-              [`${progress.resource.kind}:${progress.resource.name}`]: progress.resource,
-            }))
-          }
-        },
+          return { path: file.file_path, content: await fetchLatexFileBytes(projectId, file.file_path) }
+        }))
+      },
+    })
+    if (!result.ok) {
+      const busyName = useCompileStore.getState().projects[result.busyProjectId]?.projectName
+      toast.error('另一个项目的 PDF 正在编译', {
+        description: busyName
+          ? `《${busyName}》的编译尚未结束，请等它完成或先到那个项目取消。`
+          : '请等当前编译结束或取消后再试。',
       })
-
-      setPdfFileSource({ data: result.pdf })
-      setCompileLogs(result.log)
-      setCompileWarning(result.log.includes('did not stabilize')
-        ? '编译已达到既有多遍上限，参考文献或交叉引用可能尚未稳定；请检查 PDF 中的引用编号。'
-        : null)
-      if (job) {
-        setBrowserProgressMessage('PDF 已生成，正在上传到对象存储并保存编译记录')
-        compiledArtifact = { jobId: job.job_id, pdf: result.pdf, logs: result.log }
-        setPendingBrowserResult(compiledArtifact)
-        if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
-        setIsPublishingBrowserResult(true)
-        const uploaded = await uploadBrowserCompileResult(projectId, job.job_id, result.pdf, result.log)
-        setPendingBrowserResult(null)
-        setCompileJobId(null)
-        applyCompileSuccess(uploaded.build_id)
-        setBrowserProgressMessage('PDF 已保存')
-      } else {
-        setBrowserProgressMessage('PDF 已生成（游客模式，仅保留在本次会话）')
-        // Guest compiles create no server job, so the polling notification never fires.
-        void notifyWhenBackground('编译完成', 'PDF 已生成')
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : '浏览器编译失败'
-      if (controller.signal.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
-        setCompileError(null)
-        setCompileLogs(null)
-        setBrowserProgressMessage('编译已取消')
-      } else {
-        setCompileError(compiledArtifact
-          ? `PDF 已在浏览器生成，但上传或保存编译记录失败：${message}`
-          : message)
-        setCompileLogs(compiledArtifact?.logs ?? message)
-        if (!browserJobId) void notifyWhenBackground('编译失败', message)
-      }
-      if (browserJobId && !compiledArtifact && !controller.signal.aborted && !(err instanceof DOMException && err.name === 'AbortError')) {
-        try {
-          await reportBrowserCompileFailure(projectId, browserJobId, message, message)
-        } catch (reportError) {
-          setCompileError(`${message}\n\n保存失败记录时也发生错误：${reportError instanceof Error ? reportError.message : String(reportError)}`)
-        }
-      }
-      // Never leave the UI waiting on a status poll after the browser has
-      // already stopped: the failure is shown from local state.
-      setCompileJobId(null)
-    } finally {
-      if (heartbeatTimer !== null) window.clearInterval(heartbeatTimer)
-      browserCompileAbortRef.current = null
-      browserCompileJobRef.current = null
-      setIsPublishingBrowserResult(false)
-      setIsBrowserCompiling(false)
     }
   }
 
@@ -811,42 +658,8 @@ export function WritingPage() {
   useEffect(() => {
     if (!pendingBrowserCompileRequest) return
     const request = consumeBrowserCompileRequest()
-    if (request) void handleCompileRef.current?.(request.rootFile)
+    if (request) handleCompileRef.current?.(request.rootFile)
   }, [pendingBrowserCompileRequest, consumeBrowserCompileRequest])
-
-  const handleRetryBrowserUpload = async () => {
-    const pending = pendingBrowserResult
-    if (!pending || isRetryingBrowserUpload) return
-    setIsRetryingBrowserUpload(true)
-    setCompileError(null)
-    setBrowserProgressMessage('正在重试上传已生成的 PDF')
-    try {
-      const uploaded = await uploadBrowserCompileResult(projectId, pending.jobId, pending.pdf, pending.logs)
-      setPendingBrowserResult(null)
-      applyCompileSuccess(uploaded.build_id)
-      setBrowserProgressMessage('PDF 已保存')
-    } catch (error) {
-      setCompileError(`PDF 已生成，但上传仍未成功；可以重试上传，无需重新编译：${error instanceof Error ? error.message : String(error)}`)
-      setCompileLogs(pending.logs)
-    } finally {
-      setIsRetryingBrowserUpload(false)
-    }
-  }
-
-  const handleCancelBrowserCompile = async () => {
-    const controller = browserCompileAbortRef.current
-    if (!controller || isPublishingBrowserResult) return
-    controller.abort()
-    setBrowserProgressMessage('正在停止浏览器引擎并取消编译任务')
-    const jobId = browserCompileJobRef.current
-    if (jobId) {
-      try {
-        await cancelCompile(projectId, jobId)
-      } catch (error) {
-        setCompileError(`本地编译已停止，但未能同步取消服务端任务：${error instanceof Error ? error.message : String(error)}`)
-      }
-    }
-  }
 
   const loadCompileHistory = async (limit?: number) => {
     if (isGuest) {
@@ -870,14 +683,14 @@ export function WritingPage() {
 
   const handleSelectCompileHistory = (item: CompileJobListItem) => {
     if (item.status !== 'success' || !item.build_id) return
-    setCompileError(null)
-    setCompileLogs(null)
+    useCompileStore.getState().patch(projectId, { error: null, logs: null })
+    setPreviewError(null)
     setPdfBuildId(item.build_id)
     outputPdfMutation.mutate(
       { projectId, buildId: item.build_id },
       {
         onSuccess: (source) => setPdfFileSource(source),
-        onError: (error) => setCompileError(`无法载入此编译历史的 PDF：${error.message}`),
+        onError: (error) => setPreviewError(`无法载入此编译历史的 PDF：${error.message}`),
       },
     )
   }
@@ -1055,7 +868,7 @@ export function WritingPage() {
         {isCompiling ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className="fill-current" />}
         <span>{isCompiling ? '编译中' : '编译'}</span>
       </Button>
-      {isBrowserCompiling && !isPublishingBrowserResult && (
+      {isBrowserCompiling && (
         <Button
           variant="ghost"
           size="sm"
@@ -1063,7 +876,7 @@ export function WritingPage() {
           aria-label="取消浏览器编译"
           title="停止浏览器引擎并取消编译任务"
           className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
-          onClick={handleCancelBrowserCompile}
+          onClick={() => void cancelProjectCompile(projectId)}
         >
           <Square size={12} className="fill-current" />
           <span className="hidden sm:inline">取消</span>
@@ -1379,7 +1192,7 @@ export function WritingPage() {
                       size="sm"
                       data-testid="retry-browser-upload"
                       className="mt-3 h-8 gap-2"
-                      onClick={handleRetryBrowserUpload}
+                      onClick={() => void retryBrowserUpload(projectId)}
                       disabled={isRetryingBrowserUpload}
                     >
                       {isRetryingBrowserUpload && <Loader2 size={13} className="animate-spin" />}

@@ -36,7 +36,7 @@
 | 前端 | [frontend](../frontend/) | React 19、TypeScript、Vite；TanStack Router/Query；写作页采用 Monaco 与 PDF 预览 |
 | 后端 | [主入口](../server/cmd/papersage/main.go)、[装配](../server/internal/bootstrap/) | Go、Gin；模块化服务；不是旧 FastAPI 主线 |
 | 数据与文件 | [SQL 表定义](../server/schema/tables/)、[内部模块](../server/internal/) | 关系数据库、GORM 相关访问和 S3 兼容对象存储；数据库/向量能力以实际环境验证为准 |
-| 写作与编译 | [WritingPage](../frontend/src/views/projects/WritingPage.tsx) | 文件编辑、保存与编译预览已有基础；真实 AI 面板交互尚需接通 |
+| 写作与编译 | [WritingPage](../frontend/src/views/projects/WritingPage.tsx)、[编译管理器](../frontend/src/lib/compile-manager.ts)、[编译状态](../frontend/src/store/compile-store.ts) | 文件编辑、保存与编译预览；浏览器编译由模块级管理器按项目托管，站内切页/切后台标签页不中断，离开撰写页后完成或失败会弹全局提示，切回直接看到进度与最新 PDF，仅显式「取消」才中断，编译中关标签页有 `beforeunload` 提醒；真实 AI 面板交互尚需接通 |
 | AI 与检索 | [Agent](../server/internal/agent/)、[RAG](../server/internal/rag/) | 模型配置、流式会话、工具、混合检索和 wiki 已有原型；不代表用户确认、来源定位或标准融合均已完成 |
 
 后续实施工作：补两场景三阶段的状态与提示；建立阅读记录、文献比较、章节计划和摘要；补来源定位、论断支持评估及实际依赖记录；校正检索融合；以批注呈现建议并确认候选修改；实现跨章节检查、运行恢复与分层验收。提示评价沿用正式报告约30个固定任务，检索与流程评价另行记录。细节见调研驱动方案；这些均是计划，不是本次交付的运行功能。
