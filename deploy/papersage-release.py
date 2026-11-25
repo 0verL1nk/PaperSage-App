@@ -32,6 +32,9 @@ RESOURCE_PROBE_NAMES = (
     "kvoptions.sty", "geometry.sty", "ifxetex.sty", "ccaption.sty",
     "layouts.sty", "gbt7714.sty", "hyphen.cfg",
 )
+# Chinese templates pull these fonts on the first compile; probing them during
+# the release both verifies and warms the on-disk cache.
+RESOURCE_PROBE_FONTS = ("fandolsong-regular",)
 RESOURCE_PROBE_TIMEOUT_SECONDS = 30
 RESOURCE_PROBE_BUDGET_SECONDS = 180
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
@@ -259,20 +262,21 @@ def check_resources():
     origin = HEALTH_URL.removesuffix("/health")
     opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
     deadline = time.monotonic() + RESOURCE_PROBE_BUDGET_SECONDS
-    pending = list(RESOURCE_PROBE_NAMES)
+    pending = [(f"xetex/26/{name}", name) for name in RESOURCE_PROBE_NAMES]
+    pending += [(f"font/OT/{name}", name) for name in RESOURCE_PROBE_FONTS]
     while pending and time.monotonic() < deadline:
-        for name in list(pending):
-            url = f"{origin}/texlive/{profile}/resolve/xetex/26/{name}"
+        for route, name in list(pending):
+            url = f"{origin}/texlive/{profile}/resolve/{route}"
             try:
                 with opener.open(url, timeout=RESOURCE_PROBE_TIMEOUT_SECONDS) as response:
                     response.read(1)
             except OSError:
                 continue
-            pending.remove(name)
+            pending.remove((route, name))
         if pending:
             time.sleep(1)
     if pending:
-        raise DeployError(f"resource check failed: {', '.join(sorted(pending))}")
+        raise DeployError(f"resource check failed: {', '.join(sorted(name for _, name in pending))}")
 
 
 def transition(target, previous, with_migration):

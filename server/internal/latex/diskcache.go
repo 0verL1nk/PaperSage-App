@@ -383,6 +383,12 @@ func (c *DiskCache) evict() {
 	}
 }
 
+// TlpdbPath is where a refreshed tlpdb is persisted; the service prefers it over
+// the embedded copy so a drift heal survives restarts.
+func (c *DiskCache) TlpdbPath() string {
+	return filepath.Join(c.root, "tlpdb.xz")
+}
+
 // Bytes reports the current on-disk footprint, for logs and tests.
 func (c *DiskCache) Bytes() int64 {
 	c.mu.Lock()

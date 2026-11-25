@@ -32,6 +32,10 @@ const (
 )
 
 var resourceArchiveHashPattern = regexp.MustCompile(`^[a-f0-9]{128}$`)
+
+// errResourceArchiveDrift marks an archive whose bytes no longer match the
+// pinned profile; the service refreshes its index and retries once.
+var errResourceArchiveDrift = errors.New("TeX Live package archive does not match its pinned revision")
 var resourcePackagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 
 type packageArchiveCache struct {
@@ -184,7 +188,7 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, errors.New("TeX Live package archive resolved to an invalid address")
 	}
 	if response.ContentLength >= 0 && response.ContentLength != provenance.ContainerSize {
-		return nil, fmt.Errorf("TeX Live package archive %q has an unexpected size: got %d bytes, pinned %d", provenance.Package, response.ContentLength, provenance.ContainerSize)
+		return nil, fmt.Errorf("%w: %q got %d bytes, pinned %d", errResourceArchiveDrift, provenance.Package, response.ContentLength, provenance.ContainerSize)
 	}
 	limited := io.LimitReader(response.Body, maxResourceArchiveBytes+1)
 	archive, err := io.ReadAll(limited)
@@ -192,11 +196,11 @@ func (c *packageArchiveCache) fetch(ctx context.Context, repository string, prov
 		return nil, fmt.Errorf("read TeX Live package archive %q: %w", provenance.Package, err)
 	}
 	if int64(len(archive)) != provenance.ContainerSize {
-		return nil, fmt.Errorf("TeX Live package archive %q size does not match its pinned revision: got %d bytes, pinned %d", provenance.Package, len(archive), provenance.ContainerSize)
+		return nil, fmt.Errorf("%w: %q got %d bytes, pinned %d", errResourceArchiveDrift, provenance.Package, len(archive), provenance.ContainerSize)
 	}
 	digest := sha512.Sum512(archive)
 	if hex.EncodeToString(digest[:]) != provenance.ContainerSHA512 {
-		return nil, fmt.Errorf("TeX Live package archive %q checksum does not match its pinned revision: got %s, pinned %s", provenance.Package, hex.EncodeToString(digest[:])[:16], provenance.ContainerSHA512[:16])
+		return nil, fmt.Errorf("%w: %q checksum got %s, pinned %s", errResourceArchiveDrift, provenance.Package, hex.EncodeToString(digest[:])[:16], provenance.ContainerSHA512[:16])
 	}
 	return archive, nil
 }

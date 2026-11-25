@@ -1317,12 +1317,12 @@
     "sha256": "fa88e934383a6ca698e58e9723be2bd781c8bede4d30bcd219b303bcb17ea45b"
   },
   "mirror": "https://mirror.ctan.org/systems/texlive/tlnet",
-  "profile": "tl2026-tlnet-20261122",
-  "repository": "https://texlive.info/tlnet-archive/2026/11/22/tlnet",
+  "profile": "tl2026-tlnet-20261125",
+  "repository": "https://mirror.ctan.org/systems/texlive/tlnet",
   "schema_version": 1,
   "tlpdb": {
     "path": "tlpdb.xz",
-    "sha512": "1b69a62f8e133950e8dbfbb2378a372b6483138cf64a8a0da88c164842624822538846e1fd161f2c48413ae16f26d63f1932dfd77eb7551b54888f57e7e0f5b3",
-    "size": 2832116
+    "sha512": "2d8a8706b22d155e7078cfee3a9167aae733614d6af51dd99824022e714f6a4022a02ffbfd95b2a87482e7ca5dd8d54965040b1de19a0944f9ecef8cd7b6a744",
+    "size": 2831748
   }
 }
