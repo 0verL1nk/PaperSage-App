@@ -63,3 +63,27 @@ func TestNoopSenderReportsUnavailable(t *testing.T) {
 	s := email.Noop{}
 	require.ErrorContains(t, s.Send(context.Background(), "a@b.c", "s", "b"), "not configured")
 }
+
+// 邮件头注入回归：CR/LF 或畸形地址必须在建连前被拒绝（CodeQL go/email-injection）。
+func TestSMTPSenderRejectsHeaderInjection(t *testing.T) {
+	s := &email.SMTP{Host: "127.0.0.1:1", From: "noreply@example.com"}
+	for _, to := range []string{
+		"",
+		"not-an-email",
+		"user@example.com\r\nBcc: evil@example.com",
+		"user@example.com\nX-Evil: 1",
+		"user@example.com ",
+	} {
+		err := s.Send(context.Background(), to, "s", "b")
+		require.Error(t, err, "地址 %q 必须被拒绝", to)
+		assert.Contains(t, err.Error(), "invalid address")
+	}
+}
+
+func TestSMTPSenderAcceptsDisplayAddressSyntax(t *testing.T) {
+	// 只验证地址归一化，不真的建连：无效 Host 会在解析之后才失败。
+	s := &email.SMTP{Host: "127.0.0.1:1", From: "PaperSage <noreply@example.com>"}
+	err := s.Send(context.Background(), "Student <student@hit.edu.cn>", "s", "b")
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), "invalid address")
+}

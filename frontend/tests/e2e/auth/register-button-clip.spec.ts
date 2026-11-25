@@ -57,7 +57,8 @@ test('container height shrinks back when switching to the shorter tab', async ({
   const back = await H()
 
   // scrollHeight 恒 ≥ 被钉住的 clientHeight：不「解钉测量」会把高度焊死在
-  // 历史最大值（只涨不缩事故）
-  expect(reg).toBeGreaterThan(login)
+  // 历史最大值（只涨不缩事故）。默认面板改为验证码登录后，登录面板（邮箱+
+  // 验证码+双按钮）比注册面板高，因此由登录切到注册必须真的收缩。
+  expect(reg).toBeLessThan(login)
   expect(Math.abs(back - login)).toBeLessThanOrEqual(1, '切回登录 tab 应缩回原高度')
 })

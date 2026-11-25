@@ -40,6 +40,11 @@ func (s *Service) requestPasswordReset(c *gin.Context) {
 		return
 	}
 	emailAddress := normalizeEmail(strings.TrimSpace(req.Email))
+	if !validEmailAddress(emailAddress) {
+		// 与未知邮箱同响应：畸形地址不发送、也不暴露账号状态。
+		s.writePasswordResetRequestOK(c)
+		return
+	}
 	allowed := s.limiter.allow("password-reset-ip:"+c.ClientIP(), 10)
 	allowed = s.limiter.allow("password-reset-email:"+emailAddress, 1) && allowed
 	if !allowed {

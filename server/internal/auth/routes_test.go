@@ -50,6 +50,7 @@ type authServer struct {
 	*httptest.Server
 	db     *gorm.DB
 	mailer *swappableSender
+	svc    *Service // 限流器等内部状态的可控入口（测试同包）
 }
 
 func (a *authServer) setEmailSender(t *testing.T, s email.Sender) {
@@ -87,7 +88,7 @@ func newAuthTestServer(t *testing.T) *authServer {
 	v1.GET("/me", svc.AuthRequired(), svc.me)
 
 	srv := httptest.NewServer(api)
-	return &authServer{Server: srv, db: db, mailer: mailer}
+	return &authServer{Server: srv, db: db, mailer: mailer, svc: svc}
 }
 
 func postForm(t *testing.T, url string, form url.Values) *http.Response {

@@ -52,7 +52,8 @@ jobs:
       # is the host the browser sees. Mirrors S3_ENDPOINT for CI.
       S3_PUBLIC_URL: http://localhost:9000
       EMAIL_PROVIDER: smtp
-      SMTP_HOST: localhost
+      SMTP_HOST: localhost:2525
+      SMTP_USER: e2e@example.com
       # Frontend
       # The frontend reads VITE_API_BASE_URL (not VITE_API_BASE) — see
       # frontend/src/lib/env.ts. Using an absolute URL bypasses the Vite
@@ -94,6 +95,26 @@ jobs:
           cat "$GITHUB_WORKSPACE/logs/fakes3.log" || true
           exit 1
 
+      # 验证码登录 E2E 需要真实收信：用仓库内的 in-process SMTP 收信服务，
+      # SMTP :2525，取信 HTTP API :2526（GET /messages?to=...）。
+      - name: Start fake SMTP
+        working-directory: server
+        run: |
+          go build -o bin/fakesmtp ./cmd/fakesmtp
+          nohup ./bin/fakesmtp --addr :2525 --http :2526 \
+            > "$GITHUB_WORKSPACE/logs/fakesmtp.log" 2>&1 &
+          echo $! > /tmp/fakesmtp.pid
+          for i in {1..30}; do
+            if curl -sf http://localhost:2526/messages >/dev/null 2>&1; then
+              echo "Fake SMTP ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Fake SMTP did not start in 30s"
+          cat "$GITHUB_WORKSPACE/logs/fakesmtp.log" || true
+          exit 1
+
       # ── Frontend setup ────────────────────────────────────
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -127,7 +148,8 @@ jobs:
           S3_REGION=us-east-1
           S3_PUBLIC_URL=http://localhost:9000
           EMAIL_PROVIDER=smtp
-          SMTP_HOST=localhost
+          SMTP_HOST=localhost:2525
+          SMTP_USER=e2e@example.com
           ENVEOF
 
       # ── Seed e2e DB ───────────────────────────────────────
