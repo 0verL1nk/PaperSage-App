@@ -24,7 +24,7 @@ test.skip(cases.length === 0, '通过 BROWSER_LATEX_TEMPLATE_CASES 提供 ZIP �
 
 for (const template of cases) {
   test(`${template.name} template compiles in the browser`, async ({ page }) => {
-    test.setTimeout(15 * 60_000)
+    test.setTimeout(30 * 60_000)
     expect(template.sha256, `${template.name}: sha256 must be a 64-character hexadecimal ZIP digest`)
       .toMatch(/^[a-f\d]{64}$/i)
     await scopeVercelAccessToOrigin(page, apiBaseUrl)
@@ -68,7 +68,16 @@ for (const template of cases) {
       .map(async (entry) => ({ path: entry.name.slice(projectRoot.length), base64: (await entry.async('base64')) })))
     expect(files.some((file) => file.path === rootFile), `主文件 ${template.mainFile} 不在 ${template.zipPath} 中`).toBe(true)
 
-    const result = await page.evaluate(async ({ files: projectFiles, rootFile, compiler }) => {
+    // Format generation on first use can take many minutes on slow hardware;
+    // log live progress so a timeout is diagnosable instead of silent.
+    const compileStartedAt = Date.now()
+    const progress = setInterval(() => {
+      const failures = networkLogs.filter((line) => line.startsWith('FAILED') || /^HTTP 5|^HTTP 4/.test(line)).length
+      console.log(`[template-e2e] ${template.name}: ${Math.round((Date.now() - compileStartedAt) / 1000)}s elapsed, texlive requests=${networkLogs.length}, failures=${failures}`)
+    }, 15_000)
+    let result: { pdfBase64?: string; log?: string; error?: string }
+    try {
+      result = await page.evaluate(async ({ files: projectFiles, rootFile, compiler }) => {
       const binaryFiles = projectFiles.map(({ path: filePath, base64 }) => {
         const binary = atob(base64)
         const bytes = new Uint8Array(binary.length)
@@ -86,7 +95,10 @@ for (const template of cases) {
       } catch (error) {
         return { error: error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error) }
       }
-    }, { files, rootFile, compiler: template.engine })
+      }, { files, rootFile, compiler: template.engine })
+    } finally {
+      clearInterval(progress)
+    }
 
     expect(result.error, `编译失败\n${result.error ?? ''}\nTeX 资源请求:\n${networkLogs.slice(-60).join('\n')}\nWorker 日志:\n${workerLogs.slice(-60).join('\n')}`).toBeUndefined()
     const pdfBytes = Buffer.from(result.pdfBase64 ?? '', 'base64')
