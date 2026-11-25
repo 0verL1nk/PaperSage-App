@@ -8,18 +8,34 @@ package norms
 import (
 	"context"
 	"errors"
+	"strconv"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
 // Entry 是一条已采用的规范条目；字段与未来规范库的对外契约保持一致。
+// Code + Version 构成稳定的引用号（提示词里写作 [N-<code>@v<version>]），
+// 让模型的每处规范依据都能回溯到具体条款版本。
 type Entry struct {
 	ID       string `json:"id"`
+	Code     string `json:"code,omitempty"`
+	Version  int    `json:"version,omitempty"`
 	Title    string `json:"title"`
 	Rule     string `json:"rule"`
 	Category string `json:"category,omitempty"`
 	Source   string `json:"source,omitempty"`
 	Scope    string `json:"scope,omitempty"`
+}
+
+// Cite 返回模型在正文/建议里必须使用的稳定引用号。
+func (e Entry) Cite() string {
+	if e.Code == "" {
+		return "N-" + e.ID
+	}
+	if e.Version <= 0 {
+		return "N-" + e.Code
+	}
+	return "N-" + e.Code + "@v" + strconv.Itoa(e.Version)
 }
 
 // ErrUnavailable 表示规范库尚未接入；调用方必须把它呈现为「不可用」。
