@@ -97,6 +97,7 @@ func newResourceService(bundle *profile.Bundle, cache *DiskCache) (*resourceServ
 		}
 	}
 	service.index.Store(&index)
+	service.packageMaps = buildResourcePackageMaps(index)
 	return service, nil
 }
 
@@ -473,10 +474,10 @@ func containsString(values []string, target string) bool {
 // buildResourcePackageMaps groups the profile's font map files by package. One
 // archive can hold many maps; callers decompress it once instead of once per
 // file (a package like `lm` ships 20 maps in a 12 MiB archive).
-func buildResourcePackageMaps(bundle *profile.Bundle) map[string][]texlive.TexliveProvenance {
+func buildResourcePackageMaps(index map[string][]texlive.TexliveProvenance) map[string][]texlive.TexliveProvenance {
 	maps := make(map[string][]texlive.TexliveProvenance)
 	seen := make(map[string]bool)
-	for _, records := range bundle.Index {
+	for _, records := range index {
 		for _, record := range records {
 			if seen[record.SourcePath] || !strings.HasSuffix(record.SourcePath, ".map") {
 				continue
