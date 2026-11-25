@@ -32,6 +32,12 @@ vi.mock('@tanstack/react-router', () => ({
   Link: ({ children, to, ...props }: { children: ReactNode; to: string; [key: string]: unknown }) => <a href={to} {...props}>{children}</a>,
 }))
 vi.mock('@/services/files-api', () => ({ useDocuments: () => ({ data: [] }) }))
+// 规范面板会读项目已采用的规范；本用例只关心准备页本身，给空集合即可。
+vi.mock('@/services/norms-api', () => ({
+  useProjectNorms: () => ({ data: [], isLoading: false, error: null, refetch: vi.fn() }),
+  adoptionSummary: (items: unknown[]) => ({ total: items.length, enabled: items.length, outdated: 0, categories: [] }),
+  adoptionIndex: () => new Map(),
+}))
 const writingStateResult: { data: typeof state | undefined; isLoading: boolean; error: Error | null; refetch: () => void } = {
   data: state, isLoading: false, error: null, refetch: vi.fn(),
 }

@@ -136,6 +136,15 @@ export async function mockWritingPageAPIs(page: Page) {
     })
   })
 
+  // 准备页的「学术规范」卡片会读项目已采用的规范；不 mock 会打到真实后端。
+  await page.route(`**/api/v1/projects/${TEST_PROJECT_ID}/norms`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 200, data: [], info: '' }),
+    })
+  })
+
   await page.route(`**/api/v1/projects/${TEST_PROJECT_ID}/agent/conversations`, async (route) => {
     await route.fulfill({
       status: 200,

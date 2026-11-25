@@ -3,6 +3,7 @@ import { Link, useParams } from '@tanstack/react-router'
 import { ArrowUpRight, Check, FileText, LoaderCircle, Sparkles, TriangleAlert } from 'lucide-react'
 
 import { AiPanel } from './ai-panel'
+import { NormLibraryPanel } from '@/components/domain/NormLibraryPanel'
 import { ResearchArtifactsPanel } from '@/components/domain/ResearchArtifactsPanel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -178,6 +179,8 @@ export function PreparePage() {
             ) : <p className="flex items-center gap-2 text-xs text-emerald-700"><Check className="size-3.5" />目前没有明显缺项，可以继续完善或进入撰写。</p>}
           </CardContent>
         </Card>
+
+        {!isGuest && <NormLibraryPanel projectId={projectId} />}
 
         {!isGuest && <ResearchArtifactsPanel projectId={projectId} />}
 

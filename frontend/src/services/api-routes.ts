@@ -111,6 +111,17 @@ export const AGENT = {
 } as const
 
 // --- Research organization artifacts ---
+// --- 学术规范资源库 ---
+export const NORMS = {
+  packs: `${V1}/norms/packs`,
+  pack: (packId: string) => `${V1}/norms/packs/${packId}`,
+  entries: `${V1}/norms/entries`,
+  entry: (entryId: string) => `${V1}/norms/entries/${entryId}`,
+  projectNorms: (projectId: string) => `${V1}/projects/${projectId}/norms`,
+  adopt: (projectId: string) => `${V1}/projects/${projectId}/norms/adopt`,
+  adoption: (projectId: string, entryId: string) => `${V1}/projects/${projectId}/norms/${entryId}`,
+} as const
+
 export const RESEARCH = {
   list: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,
   create: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,

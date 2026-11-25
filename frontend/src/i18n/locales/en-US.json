@@ -8,7 +8,8 @@
     "projects": "All Projects",
     "trash": "Trash",
     "settings": "Settings",
-    "documents": "Documents"
+    "documents": "Documents",
+    "norms": "Norms"
   },
   "layout": {
     "navigationMenu": "Navigation menu",
