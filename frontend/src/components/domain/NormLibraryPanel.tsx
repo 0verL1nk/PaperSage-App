@@ -64,7 +64,7 @@ export function NormLibraryPanel({ projectId }: { projectId: string }) {
               ))}
             </div>
             {summary.outdated > 0 && (
-              <p className="text-xs text-amber-700">{summary.outdated} 条规范有新版本，可在「管理」里按需升级。</p>
+              <p className="text-xs text-amber-700">{summary.outdated} 条规范有新版本；本项目仍按采用时的版本生效，取消采用后重新采用即可换到新版本。</p>
             )}
           </>
         )}
@@ -195,6 +195,7 @@ function NormPicker({ projectId }: { projectId: string }) {
                 key={entry.id}
                 entry={entry}
                 adoptedState={adopted.get(entry.id)?.state}
+                adoptedVersion={adopted.get(entry.id)?.version}
                 hasNewerVersion={adopted.get(entry.id)?.hasNewerVersion ?? false}
                 latestVersion={adopted.get(entry.id)?.latestVersion ?? entry.version}
                 busy={busy}
@@ -220,6 +221,7 @@ function NormPicker({ projectId }: { projectId: string }) {
 interface EntryRowProps {
   entry: NormEntry
   adoptedState?: 'enabled' | 'disabled'
+  adoptedVersion?: number
   hasNewerVersion: boolean
   latestVersion: number
   busy: boolean
@@ -231,6 +233,7 @@ interface EntryRowProps {
 function EntryRow({
   entry,
   adoptedState,
+  adoptedVersion,
   hasNewerVersion,
   latestVersion,
   busy,
@@ -251,8 +254,12 @@ function EntryRow({
           <Badge variant={entry.binding === 'must' ? 'default' : 'outline'} className="font-normal">
             {bindingLabel(entry.binding)}
           </Badge>
-          {adoptedState === 'enabled' && <Badge variant="secondary" className="font-normal">已启用</Badge>}
-          {adoptedState === 'disabled' && <Badge variant="outline" className="font-normal">已停用</Badge>}
+          {adoptedState === 'enabled' && (
+            <Badge variant="secondary" className="font-normal">已启用 v{adoptedVersion}</Badge>
+          )}
+          {adoptedState === 'disabled' && (
+            <Badge variant="outline" className="font-normal">已停用 v{adoptedVersion}</Badge>
+          )}
         </div>
       </div>
 
@@ -289,7 +296,10 @@ function EntryRow({
               取消采用
             </Button>
             {hasNewerVersion && (
-              <span className="text-xs text-amber-700">条目已更新到 v{latestVersion}，当前仍按采用时的版本生效</span>
+              <span className="text-xs text-amber-700">
+                这里是目录里的最新 v{latestVersion}；本项目仍按 v{adoptedVersion} 生效。
+                想换到新版本：先「取消采用」再点「采用这条」。
+              </span>
             )}
           </>
         ) : (
