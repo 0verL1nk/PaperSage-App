@@ -18,6 +18,7 @@ import (
 	"github.com/cloudwego/eino/components/tool/utils"
 	"github.com/cloudwego/eino/compose"
 	"github.com/google/uuid"
+	"gorm.io/datatypes"
 	"gorm.io/gorm"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/norms"
@@ -65,6 +66,65 @@ func (t *toolFailureTracker) middleware(next compose.InvokableToolEndpoint) comp
 
 // ProjectTools 构建 project 作用域的工具集（agentic 核心：读文献、
 // 读写 LaTeX、触发编译）。每次请求构建，闭包携带归属校验。
+
+// normRefMeta 是落到建议上的条款元数据：服务端按本次注入集合解析，模型无法伪造。
+type normRefMeta struct {
+	Cite    string `json:"cite"`
+	Version int    `json:"version,omitempty"`
+	Title   string `json:"title"`
+	Rule    string `json:"rule"`
+	Source  string `json:"source"`
+}
+
+const maxNormRefsPerProposal = 10
+
+// resolveNormRefs 把模型给出的引用号解析成本次注入集合里的真实条款。
+// 未命中的引用号整条拒绝——宁可让模型重试，也不落一条无法回查的依据。
+func resolveNormRefs(ctx context.Context, provider norms.Provider, projectID store.UUID, cites []string) (datatypes.JSON, error) {
+	empty := datatypes.JSON([]byte("[]"))
+	if len(cites) == 0 {
+		return empty, nil
+	}
+	if len(cites) > maxNormRefsPerProposal {
+		return nil, fmt.Errorf("一条建议最多引用 %d 条规范", maxNormRefsPerProposal)
+	}
+	if provider == nil {
+		return nil, fmt.Errorf("项目未接入学术规范库，不能引用规范条款")
+	}
+	entries, err := provider.AdoptedForProject(ctx, projectID)
+	if errors.Is(err, norms.ErrUnavailable) {
+		return nil, fmt.Errorf("学术规范库不可用，不能引用规范条款")
+	}
+	if err != nil {
+		return nil, fmt.Errorf("读取项目规范失败：%w", err)
+	}
+	byCite := make(map[string]norms.Entry, len(entries))
+	for _, entry := range entries {
+		byCite[entry.Cite()] = entry
+	}
+	out := make([]normRefMeta, 0, len(cites))
+	seen := map[string]bool{}
+	for _, raw := range cites {
+		cite := strings.TrimSpace(raw)
+		if cite == "" || seen[cite] {
+			continue
+		}
+		seen[cite] = true
+		entry, ok := byCite[cite]
+		if !ok {
+			return nil, fmt.Errorf("引用号 %s 不在本项目生效的规范里。只能用上下文中列出的编号，或去掉规范引用", cite)
+		}
+		out = append(out, normRefMeta{
+			Cite: cite, Version: entry.Version, Title: entry.Title, Rule: entry.Rule, Source: entry.Source,
+		})
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return nil, err
+	}
+	return datatypes.JSON(encoded), nil
+}
+
 func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider,
 	projectID, ownerID, runID store.UUID, documentReadLimitBytes int) ([]tool.BaseTool, error) {
 
@@ -248,6 +308,8 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 			OldText string `json:"old_text" jsonschema:"description=要被替换的原文片段（必须与文件当前内容逐字一致）"`
 			NewText string `json:"new_text" jsonschema:"description=替换后的新文"`
 			Reason  string `json:"reason" jsonschema:"description=修改理由"`
+			// 只能引用系统提示里列出的本项目规范编号；服务端会按本次注入集合校验。
+			NormRefs []string `json:"norm_refs,omitempty" jsonschema:"description=本建议依据的项目规范引用号（形如 N-GBT7714@v1），只能取自上下文列出的条目；没有依据就留空"`
 		}) (string, error) {
 			if err := verify(ctx); err != nil {
 				return "", err
@@ -269,10 +331,14 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 			}
 			sum := md5.Sum([]byte(content))
 			base := hex.EncodeToString(sum[:])
+			normRefs, err := resolveNormRefs(ctx, normsProvider, projectID, in.NormRefs)
+			if err != nil {
+				return "", err
+			}
 			p := store.AgentChangeProposal{
 				ID: store.MustNewUUID(), ProjectID: projectID, RunID: &runID,
 				FilePath: in.Path, BaseContentHash: base,
-				OldText: in.OldText, NewText: in.NewText, Status: "pending",
+				OldText: in.OldText, NewText: in.NewText, NormRefs: normRefs, Status: "pending",
 			}
 			if in.Reason != "" {
 				p.Reason = &in.Reason

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -81,4 +82,35 @@ func TestEntryCite(t *testing.T) {
 	assert.Equal(t, "N-GBT7714@v3", norms.Entry{Code: "GBT7714", Version: 3}.Cite())
 	assert.Equal(t, "N-GBT7714", norms.Entry{Code: "GBT7714"}.Cite())
 	assert.Equal(t, "N-entry-1", norms.Entry{ID: "entry-1"}.Cite())
+}
+
+func TestResolveNormRefs(t *testing.T) {
+	provider := fakeNorms{entries: []norms.Entry{{
+		ID: "e1", Code: "GBT7714", Version: 1, Title: "类型标识", Rule: "用 [J] 标注。", Source: "GB/T 7714—2015",
+	}}}
+	ctx := context.Background()
+	pid := store.MustNewUUID()
+
+	refs, err := resolveNormRefs(ctx, provider, pid, []string{"N-GBT7714@v1", " N-GBT7714@v1 "})
+	require.NoError(t, err)
+	var decoded []normRefMeta
+	require.NoError(t, json.Unmarshal(refs, &decoded))
+	require.Len(t, decoded, 1, "重复引用号应去重")
+	assert.Equal(t, "N-GBT7714@v1", decoded[0].Cite)
+	assert.Equal(t, "用 [J] 标注。", decoded[0].Rule)
+	assert.Equal(t, "GB/T 7714—2015", decoded[0].Source)
+
+	// 未注入的引用号整条拒绝：宁可让模型重试，也不落不可回查的依据。
+	_, err = resolveNormRefs(ctx, provider, pid, []string{"N-FAKE@v9"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "不在本项目生效的规范里")
+
+	_, err = resolveNormRefs(ctx, norms.Unavailable{}, pid, []string{"N-GBT7714@v1"})
+	require.Error(t, err)
+	_, err = resolveNormRefs(ctx, nil, pid, []string{"N-GBT7714@v1"})
+	require.Error(t, err)
+
+	empty, err := resolveNormRefs(ctx, provider, pid, nil)
+	require.NoError(t, err)
+	assert.Equal(t, "[]", string(empty), "没有引用时必须落空数组，不能是 NULL")
 }

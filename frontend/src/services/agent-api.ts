@@ -53,12 +53,22 @@ export interface AgentRunEvidence {
   quote: string
 }
 
+/** 服务端按本次注入集合解析出的规范条款；模型只能给引用号，内容由服务端补齐。 */
+export interface ProposalNormRef {
+  cite: string
+  version?: number
+  title: string
+  rule: string
+  source: string
+}
+
 export interface AgentChangeProposal {
   id: string
   filePath: string
   oldText: string
   newText: string
   reason?: string
+  normRefs?: ProposalNormRef[]
   status: 'pending' | 'applied' | 'rejected' | 'stale'
 }
 

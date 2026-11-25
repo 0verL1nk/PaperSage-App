@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
 
 // ── Agent 运行时模型 ────────────────────────────────────────────────
@@ -131,22 +132,33 @@ func (AgentArtifact) TableName() string { return "agent_artifacts" }
 // 助手不写盘：base_content_hash 记的是产出建议时的稿件版本，
 // 稿件一变旧建议即失效，避免用旧基准覆盖新内容。
 type AgentChangeProposal struct {
-	ID              UUID       `gorm:"column:id;primaryKey"`
-	ProjectID       UUID       `gorm:"column:project_id;not null;index:ix_proposal_project_status,priority:1"`
-	RunID           *UUID      `gorm:"column:run_id;index"`
-	ToolCallID      *UUID      `gorm:"column:tool_call_id"`
-	FilePath        string     `gorm:"column:file_path;size:500;not null"`
-	BaseContentHash string     `gorm:"column:base_content_hash;size:64;not null"`
-	OldText         string     `gorm:"column:old_text;not null"`
-	NewText         string     `gorm:"column:new_text;not null"`
-	Reason          *string    `gorm:"column:reason"`
-	Status          string     `gorm:"column:status;size:20;not null;index:ix_proposal_project_status,priority:2"`
-	AppliedAt       *time.Time `gorm:"column:applied_at"`
-	RejectedAt      *time.Time `gorm:"column:rejected_at"`
-	CreatedAt       time.Time  `gorm:"column:created_at;autoCreateTime"`
+	ID              UUID    `gorm:"column:id;primaryKey"`
+	ProjectID       UUID    `gorm:"column:project_id;not null;index:ix_proposal_project_status,priority:1"`
+	RunID           *UUID   `gorm:"column:run_id;index"`
+	ToolCallID      *UUID   `gorm:"column:tool_call_id"`
+	FilePath        string  `gorm:"column:file_path;size:500;not null"`
+	BaseContentHash string  `gorm:"column:base_content_hash;size:64;not null"`
+	OldText         string  `gorm:"column:old_text;not null"`
+	NewText         string  `gorm:"column:new_text;not null"`
+	Reason          *string `gorm:"column:reason"`
+	// NormRefs 是模型引用、服务端按本次注入集合解析后的条款元数据（JSON 数组）。
+	// 只存服务端解析出的真实条款，模型无法把未注入的内容塞进这里。
+	NormRefs   datatypes.JSON `gorm:"column:norm_refs;not null"`
+	Status     string         `gorm:"column:status;size:20;not null;index:ix_proposal_project_status,priority:2"`
+	AppliedAt  *time.Time     `gorm:"column:applied_at"`
+	RejectedAt *time.Time     `gorm:"column:rejected_at"`
+	CreatedAt  time.Time      `gorm:"column:created_at;autoCreateTime"`
 }
 
 func (AgentChangeProposal) TableName() string { return "agent_change_proposals" }
+
+// BeforeCreate 保证 norm_refs 永远是 JSON 数组：列为 NOT NULL，且读取端按数组解析。
+func (p *AgentChangeProposal) BeforeCreate(*gorm.DB) error {
+	if len(p.NormRefs) == 0 {
+		p.NormRefs = datatypes.JSON([]byte("[]"))
+	}
+	return nil
+}
 
 // AgentEvidence 证据身份与版本。当前 source_version 记录检索摘录的 SHA-256，
 // 不代表整个来源文档的不可变版本。source_id 是多态引用（document / latex_file /
