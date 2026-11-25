@@ -295,6 +295,7 @@ func coreModels() []any {
 		&ProjectWritingState{},
 		&ProjectSource{}, &SourceVersion{}, &SourceExtraction{}, &SourceSegment{},
 		&ResearchArtifact{}, &ResearchArtifactRevision{}, &ResearchArtifactDependency{},
+		&ContentRecheckMark{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
 		&SystemSetting{}, &VerificationToken{}, &EmailLoginCode{}, &ImportReceipt{},
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},

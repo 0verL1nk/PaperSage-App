@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/datatypes"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
@@ -179,6 +180,73 @@ func TestMoveRemarkDeleteFlow(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 	resp = ts.Do(t, http.MethodDelete, "/api/v1/documents/"+id, nil)
 	assert.Equal(t, 404, resp.StatusCode)
+}
+
+// 删除资料要与「依赖它待复查」同成同败：成功时留下标记，标记写不进去时删除回滚。
+func TestDeleteDocumentMarksDependentArtifacts(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	doc := store.Document{Name: "d.pdf", Type: "application/pdf", Size: 3, Status: "uploaded",
+		S3Key: "k", ProjectID: p.ID, OwnerID: ts.UserID()}
+	require.NoError(t, ts.DB.Create(&doc).Error)
+
+	artifact := store.ResearchArtifact{
+		ProjectID: p.ID, Kind: store.ResearchArtifactChapterPlan, State: "active",
+		CurrentRevision: 1, CreatedBy: ts.UserID(),
+	}
+	require.NoError(t, ts.DB.Create(&artifact).Error)
+	rev := store.ResearchArtifactRevision{
+		ArtifactID: artifact.ID, Revision: 1,
+		PayloadJSON: datatypes.JSON(`{"sections":[{"id":"s1","title":"引言","responsibility":"提出问题","order":1}]}`),
+		Origin:      "user", Status: store.ResearchArtifactRevisionCandidate, CreatedBy: ts.UserID(),
+	}
+	require.NoError(t, ts.DB.Create(&rev).Error)
+	require.NoError(t, ts.DB.Create(&store.ResearchArtifactDependency{
+		ProjectID: p.ID, ArtifactID: artifact.ID, Revision: 1,
+		Kind: store.ResearchDependencyDocument, RefID: doc.ID,
+	}).Error)
+
+	resp := ts.Do(t, http.MethodDelete, "/api/v1/documents/"+doc.ID.String(), nil)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var marks []store.ContentRecheckMark
+	require.NoError(t, ts.DB.
+		Where("target_type = ? AND target_id = ?", store.RecheckTargetArtifactRevision, rev.ID).
+		Find(&marks).Error)
+	require.Len(t, marks, 1)
+	assert.Equal(t, store.RecheckTriggerSourceDeleted, marks[0].TriggerKind)
+	assert.Equal(t, doc.ID, marks[0].TriggerID)
+	assert.Contains(t, marks[0].Reason, "d.pdf")
+}
+
+func TestDeleteDocumentRollsBackWhenMarkingFails(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+	doc := store.Document{Name: "d.pdf", Type: "application/pdf", Size: 3, Status: "uploaded",
+		S3Key: "k", ProjectID: p.ID, OwnerID: ts.UserID()}
+	require.NoError(t, ts.DB.Create(&doc).Error)
+	// 需要有依赖命中，标记写入才会真正落表并失败。
+	artifact := store.ResearchArtifact{
+		ProjectID: p.ID, Kind: store.ResearchArtifactChapterPlan, State: "active",
+		CurrentRevision: 1, CreatedBy: ts.UserID(),
+	}
+	require.NoError(t, ts.DB.Create(&artifact).Error)
+	require.NoError(t, ts.DB.Create(&store.ResearchArtifactRevision{
+		ArtifactID: artifact.ID, Revision: 1,
+		PayloadJSON: datatypes.JSON(`{"sections":[]}`),
+		Origin:      "user", Status: store.ResearchArtifactRevisionCandidate, CreatedBy: ts.UserID(),
+	}).Error)
+	require.NoError(t, ts.DB.Create(&store.ResearchArtifactDependency{
+		ProjectID: p.ID, ArtifactID: artifact.ID, Revision: 1,
+		Kind: store.ResearchDependencyDocument, RefID: doc.ID,
+	}).Error)
+	require.NoError(t, ts.DB.Migrator().DropTable(&store.ContentRecheckMark{}))
+
+	resp := ts.Do(t, http.MethodDelete, "/api/v1/documents/"+doc.ID.String(), nil)
+	assert.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+	var still store.Document
+	require.NoError(t, ts.DB.First(&still, "id = ?", doc.ID).Error, "标记失败时删除必须回滚")
 }
 
 func TestDeleteDocumentCleansDerivedIndex(t *testing.T) {

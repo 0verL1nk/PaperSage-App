@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/dto"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/norms"
+	"github.com/0verL1nk/GraduateProject/server/internal/recheck"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -189,6 +191,12 @@ type ChapterReview struct {
 	SourcesRead []ReviewSource     `json:"sourcesRead"`
 }
 
+// reviewPlanRef 记录检查报告实际依据的计划产物与修订号（未引用计划时为空）。
+type reviewPlanRef struct {
+	ArtifactID *store.UUID
+	Revision   int
+}
+
 // ── 请求/响应 ───────────────────────────────────────────────────────
 
 type dependencyInput struct {
@@ -230,6 +238,9 @@ type revisionResponse struct {
 	Payload   json.RawMessage `json:"payload"`
 	RunID     *uuid.UUID      `json:"runId"`
 	CreatedAt dto.JSONTime    `json:"createdAt"`
+	// 依赖资料变更后未处理的复查原因；处理完即消失。
+	NeedsRecheck   bool     `json:"needsRecheck"`
+	RecheckReasons []string `json:"recheckReasons,omitempty"`
 }
 
 type artifactResponse struct {
@@ -244,6 +255,9 @@ type artifactResponse struct {
 	Current         *revisionResponse  `json:"current,omitempty"`
 	Adopted         *revisionResponse  `json:"adopted,omitempty"`
 	Revisions       []revisionResponse `json:"revisions,omitempty"`
+	// 产物级聚合：当前修订与已采用修订的并集，旧候选上的标记不给整个产物打标。
+	NeedsRecheck   bool     `json:"needsRecheck"`
+	RecheckReasons []string `json:"recheckReasons,omitempty"`
 }
 
 // ── 写入路径 ────────────────────────────────────────────────────────
@@ -385,6 +399,14 @@ func (s *Service) Adopt(ctx context.Context, uid, projectID, artifactID store.UU
 	if rev.Status == store.ResearchArtifactRevisionAdopted {
 		return s.loadArtifact(ctx, artifact.ID)
 	}
+	// 依赖资料已变更的修订必须先复查：用户确认「已复查 / 已重建 / 忽略」后才能采用。
+	reasons, err := recheck.OpenReasons(ctx, s.DB, store.RecheckTargetArtifactRevision, rev.ID)
+	if err != nil {
+		return nil, err
+	}
+	if len(reasons) > 0 {
+		return nil, conflict("依赖资料已变更，请先复查或重建：" + strings.Join(reasons, "；"))
+	}
 	if err := s.validateDependencies(ctx, projectID, artifact.ID, req.Revision); err != nil {
 		return nil, err
 	}
@@ -525,8 +547,20 @@ func (s *Service) loadArtifact(ctx context.Context, artifactID store.UUID) (*art
 		CreatedAt:       dto.JSONTime{Time: artifact.CreatedAt},
 		UpdatedAt:       dto.JSONTime{Time: artifact.UpdatedAt},
 	}
+	revisionIDs := make([]store.UUID, 0, len(revisions))
+	for i := range revisions {
+		revisionIDs = append(revisionIDs, revisions[i].ID)
+	}
+	markReasons, err := recheck.OpenRevisionMarks(ctx, s.DB, revisionIDs)
+	if err != nil {
+		return nil, err
+	}
 	for i := range revisions {
 		rr := toRevisionResponse(&revisions[i])
+		if reasons := markReasons[revisions[i].ID]; len(reasons) > 0 {
+			rr.NeedsRecheck = true
+			rr.RecheckReasons = reasons
+		}
 		resp.Revisions = append(resp.Revisions, rr)
 		if revisions[i].Revision == artifact.CurrentRevision {
 			r := rr
@@ -535,6 +569,17 @@ func (s *Service) loadArtifact(ctx context.Context, artifactID store.UUID) (*art
 		if artifact.AdoptedRevision != nil && revisions[i].Revision == *artifact.AdoptedRevision {
 			r := rr
 			resp.Adopted = &r
+		}
+	}
+	for _, target := range []*revisionResponse{resp.Current, resp.Adopted} {
+		if target == nil || !target.NeedsRecheck {
+			continue
+		}
+		resp.NeedsRecheck = true
+		for _, reason := range target.RecheckReasons {
+			if !slices.Contains(resp.RecheckReasons, reason) {
+				resp.RecheckReasons = append(resp.RecheckReasons, reason)
+			}
 		}
 	}
 	return &resp, nil
@@ -582,7 +627,7 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 	}
 	validateRef := func(ref EvidenceRef) error {
 		if ref.SourceVersionID != nil {
-			return s.checkSourceVersion(ctx, projectID, *ref.SourceVersionID)
+			return s.checkSourceVersionForCreate(ctx, projectID, *ref.SourceVersionID)
 		}
 		if ref.DocumentID != nil {
 			var count int64
@@ -706,8 +751,21 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 		if err := json.Unmarshal(raw, &p); err != nil {
 			return nil, nil, httpapi.BadRequest("跨章节检查报告结构不合法")
 		}
-		if err := s.validateChapterReview(ctx, projectID, p); err != nil {
+		var plan reviewPlanRef
+		if err := s.validateChapterReview(ctx, projectID, p, &plan); err != nil {
 			return nil, nil, err
+		}
+		if plan.ArtifactID != nil {
+			// 记录「检查的是哪一版计划」并落依赖行：资料变更时只标记受影响的报告。
+			if p.Input.PlanRevision == nil || *p.Input.PlanRevision != plan.Revision {
+				p.Input.PlanRevision = &plan.Revision
+				updated, err := json.Marshal(p)
+				if err != nil {
+					return nil, nil, err
+				}
+				raw = updated
+			}
+			allDeps = append(allDeps, dependencyInput{Kind: store.ResearchDependencyArtifact, ID: *plan.ArtifactID})
 		}
 	}
 	for _, dep := range deps {
@@ -721,7 +779,7 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 
 // validateChapterReview 只校验结构与诚实边界；语义判断由模型完成。
 // 这里刻意拒绝「规范库不可用却声称已完成规范符合度检查」这类伪通过。
-func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUID, p ChapterReview) error {
+func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUID, p ChapterReview, plan *reviewPlanRef) error {
 	if len(p.Dimensions) != len(reviewDimensionSet) {
 		return httpapi.BadRequest("检查报告必须覆盖四个语义维度")
 	}
@@ -782,6 +840,9 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 
 	var planSections map[string]ChapterSection
 	if p.Input.PlanArtifactID != nil {
+		if plan != nil {
+			plan.ArtifactID = p.Input.PlanArtifactID
+		}
 		var artifact store.ResearchArtifact
 		err := s.DB.WithContext(ctx).Where("id = ? AND project_id = ? AND kind = ?",
 			*p.Input.PlanArtifactID, projectID, store.ResearchArtifactChapterPlan).First(&artifact).Error
@@ -800,6 +861,9 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 		}
 		if revision <= 0 || revision > artifact.CurrentRevision {
 			return httpapi.BadRequest("章节计划修订号不存在")
+		}
+		if plan != nil {
+			plan.Revision = revision
 		}
 		var rev store.ResearchArtifactRevision
 		if err := s.DB.WithContext(ctx).Where("artifact_id = ? AND revision = ?", artifact.ID, revision).First(&rev).Error; err != nil {
@@ -974,6 +1038,43 @@ func (s *Service) checkSourceVersion(ctx context.Context, projectID, versionID s
 	}
 	if count == 0 {
 		return httpapi.BadRequest("引用的来源版本不属于该项目")
+	}
+	return nil
+}
+
+// checkSourceVersionForCreate 在创建/新增修订路径上额外要求：文档来源必须仍有
+// 未删除文档引用，防止删除资料后用旧 source_version 造出新产物绕开复查。
+// Adopt 路径不走这里（用户复查后仍应能采用旧修订）。
+func (s *Service) checkSourceVersionForCreate(ctx context.Context, projectID, versionID store.UUID) error {
+	if err := s.checkSourceVersion(ctx, projectID, versionID); err != nil {
+		return err
+	}
+	var row struct {
+		Kind     string     `gorm:"column:kind"`
+		SourceID store.UUID `gorm:"column:source_id"`
+	}
+	err := s.DB.WithContext(ctx).Table("source_versions AS v").
+		Select("ps.kind AS kind, ps.id AS source_id").
+		Joins("JOIN project_sources AS ps ON ps.id = v.source_id").
+		Where("v.id = ?", versionID).Scan(&row).Error
+	if err != nil {
+		return err
+	}
+	if row.Kind != "document" {
+		return nil
+	}
+	var total, active int64
+	if err := s.DB.WithContext(ctx).Unscoped().Model(&store.Document{}).
+		Where("project_id = ? AND source_id = ?", projectID, row.SourceID).Count(&total).Error; err != nil {
+		return err
+	}
+	if err := s.DB.WithContext(ctx).Model(&store.Document{}).
+		Where("project_id = ? AND source_id = ?", projectID, row.SourceID).Count(&active).Error; err != nil {
+		return err
+	}
+	// 只有「曾有文档引用该来源、但现在全被删除」才拒绝；没有文档行的历史/服务级来源不误伤。
+	if total > 0 && active == 0 {
+		return httpapi.BadRequest("引用的资料已被删除，无法再基于它生成或修改产物")
 	}
 	return nil
 }

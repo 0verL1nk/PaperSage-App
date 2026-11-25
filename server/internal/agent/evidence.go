@@ -73,6 +73,38 @@ func persistRunEvidence(ctx context.Context, db *gorm.DB, runID store.UUID, hits
 	return rows, nil
 }
 
+// persistWikiSources 把本 Run 已落库的证据写成 wiki 页的来源回溯。
+// Run 级保守近似：记录「本 Run 读过的来源」，不是逐句引用；宁可多标记，
+// 也不假装精确。唯一键（见迁移 0028）+ ON CONFLICT DO NOTHING 保证幂等。
+func persistWikiSources(ctx context.Context, db *gorm.DB, runID, pageID store.UUID) error {
+	var rows []store.AgentEvidence
+	if err := db.WithContext(ctx).Where("run_id = ?", runID).Find(&rows).Error; err != nil {
+		return err
+	}
+	sources := make([]store.AgentWikiSource, 0, len(rows))
+	for _, row := range rows {
+		// 唯一键对 NULL 不去重（MySQL），只写字段完整的证据。
+		if row.ChunkID == nil || row.SourceVersion == nil {
+			continue
+		}
+		sources = append(sources, store.AgentWikiSource{
+			ID: store.MustNewUUID(), WikiPageID: pageID,
+			SourceType: row.SourceType, SourceID: row.SourceID,
+			SourceVersion: row.SourceVersion, ChunkID: row.ChunkID,
+		})
+	}
+	if len(sources) == 0 {
+		return nil
+	}
+	return db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "wiki_page_id"}, {Name: "source_type"}, {Name: "source_id"},
+			{Name: "source_version"}, {Name: "chunk_id"},
+		},
+		DoNothing: true,
+	}).Create(&sources).Error
+}
+
 func chunkLocator(chunkID string) string {
 	last := strings.LastIndexByte(chunkID, ':')
 	if last >= 0 {
