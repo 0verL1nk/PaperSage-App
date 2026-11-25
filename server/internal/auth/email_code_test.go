@@ -385,6 +385,44 @@ func TestSetPasswordRequiresAuth(t *testing.T) {
 	assert.Equal(t, 401, resp.StatusCode)
 }
 
+// 发信前的强校验：空白、缺 @、CR/LF 一律 400 且不得发信（默认白名单不限制域名时同样生效）。
+func TestEmailCodeSendRejectsMalformedAddresses(t *testing.T) {
+	srv := newAuthTestServer(t)
+	defer srv.Close()
+	cap := &captureSender{}
+	srv.setEmailSender(t, cap)
+
+	for _, email := range []string{
+		"",
+		"   ",
+		"no-at-sign",
+		"a@b.com\r\nBcc: evil@example.com",
+		"a b@hit.edu.cn",
+	} {
+		resp := postJSON(t, srv.URL+"/api/v1/auth/email-code/send", map[string]string{"email": email})
+		assert.Equal(t, 400, resp.StatusCode, "邮箱 %q 必须被拒绝", email)
+	}
+	assert.Empty(t, cap.sent, "畸形地址不得触发发信")
+}
+
+func TestRegisterAndResendRejectMalformedEmail(t *testing.T) {
+	srv := newAuthTestServer(t)
+	defer srv.Close()
+	cap := &captureSender{}
+	srv.setEmailSender(t, cap)
+
+	for _, email := range []string{"no-at-sign", "a@b.com\r\nBcc: evil@example.com"} {
+		resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
+			"email": {email}, "password": {"Passw0rd!"},
+		})
+		assert.Equal(t, 400, resp.StatusCode, "注册邮箱 %q 必须被拒绝", email)
+
+		resp = postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": email})
+		assert.Equal(t, 400, resp.StatusCode, "重发邮箱 %q 必须被拒绝", email)
+	}
+	assert.Empty(t, cap.sent, "畸形地址不得触发发信")
+}
+
 func TestRateLimiterWindowAndSweep(t *testing.T) {
 	r := newRateLimiter()
 	assert.True(t, r.allowWindow("k", 2, time.Hour))

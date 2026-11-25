@@ -26,6 +26,9 @@ test.describe('Auth flow (real backend)', () => {
 
   test('wrong password shows an error and stays on /auth', async ({ page }) => {
     await page.goto('/auth')
+    // 登录页默认「验证码登录」，密码表单需要先切到对应面板。
+    await page.getByRole('button', { name: '密码登录' }).click()
+    await expect(page.getByPlaceholder('请输入您的账号')).toBeVisible()
     await page.getByPlaceholder('请输入您的账号').fill(e2eEnv('E2E_USER', 'e2euser'))
     await page.getByPlaceholder('••••••••').fill('wrong-password-1234')
     await page.getByRole('button', { name: '立即登录' }).click()

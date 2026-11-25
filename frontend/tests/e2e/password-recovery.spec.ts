@@ -23,6 +23,8 @@ test('password recovery request is clear and responsive from phone to desktop', 
   for (const viewport of viewports) {
     await page.setViewportSize(viewport)
     await page.goto('/auth')
+    // 「忘记密码」在密码登录面板内；默认面板是验证码登录。
+    await page.getByRole('button', { name: '密码登录' }).click()
     await page.getByRole('link', { name: '忘记密码？' }).click()
     await expect(page).toHaveURL(/\/auth\/forgot-password$/)
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true)

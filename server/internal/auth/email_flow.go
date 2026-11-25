@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +27,18 @@ import (
 // 可配），匹配语义：裸域命中自身与任意子域，"*."前缀仅子域，
 // 精确段匹配防前后缀伪造。
 var EmailGate = emailAllowedFromDB
+
+// emailAddressPattern：实用邮箱语法（本地部分 + 至少一个点分域名）。
+var emailAddressPattern = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$`)
+
+// validEmailAddress：发信前的强校验。空白、缺 @、CR/LF、超长一律拒绝——
+// 地址会进入 SMTP 头，CRLF 会造成邮件头注入（CodeQL go/email-injection）。
+func validEmailAddress(email string) bool {
+	if email == "" || len(email) > 254 || strings.ContainsAny(email, "\r\n\t ") {
+		return false
+	}
+	return emailAddressPattern.MatchString(email)
+}
 
 // allowedDomainsFromDB 读白名单（空列表 = 不限制）。
 func allowedDomainsFromDB(db *gorm.DB) []string {
@@ -51,6 +64,9 @@ func (s *Service) emailDomainsHandler(c *gin.Context) {
 }
 
 func emailAllowedFromDB(db *gorm.DB, email string) (bool, string) {
+	if !validEmailAddress(email) {
+		return false, "邮箱格式不正确"
+	}
 	domains := allowedDomainsFromDB(db)
 	if len(domains) == 0 {
 		return true, ""
@@ -368,15 +384,19 @@ func (s *Service) resendVerification(c *gin.Context) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Email == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	if !s.limiter.allow("resend:"+req.Email, 1) {
+	email := normalizeEmail(strings.TrimSpace(req.Email))
+	if !validEmailAddress(email) {
+		httpapi.WriteError(c.Writer, errBad("邮箱格式不正确", http.StatusBadRequest))
+		return
+	}
+	if !s.limiter.allow("resend:"+email, 1) {
 		httpapi.WriteError(c.Writer, errBad("Verification email is cooling down; please try again shortly.", http.StatusTooManyRequests))
 		return
 	}
-	email := normalizeEmail(req.Email)
 	var user store.User
 	err := s.DB.Where("email = ? AND email_verified = false", email).First(&user).Error
 	if err == nil {

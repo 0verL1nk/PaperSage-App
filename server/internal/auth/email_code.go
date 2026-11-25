@@ -65,11 +65,15 @@ func (s *Service) sendEmailCode(c *gin.Context) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Email) == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
+	if !validEmailAddress(email) {
+		httpapi.WriteError(c.Writer, errBad("邮箱格式不正确", http.StatusBadRequest))
+		return
+	}
 	if ok, reason := EmailGate(s.DB, email); !ok {
 		httpapi.WriteError(c.Writer, errBad(reason, http.StatusBadRequest))
 		return
@@ -143,7 +147,7 @@ func (s *Service) verifyEmailCode(c *gin.Context) {
 	}
 	email := strings.ToLower(strings.TrimSpace(req.Email))
 	code := strings.TrimSpace(req.Code)
-	if email == "" || !emailCodePattern.MatchString(code) {
+	if !validEmailAddress(email) || !emailCodePattern.MatchString(code) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
