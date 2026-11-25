@@ -399,7 +399,6 @@ func TestResourceServiceRefreshesTheIndexWhenUpstreamDrifted(t *testing.T) {
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/xetex/26/amsmath.sty", nil))
 	require.Equal(t, http.StatusOK, response.Code, response.Body.String())
 	require.Equal(t, content, response.Body.Bytes())
-	t.Logf("requests=%d", requests)
 	_, statErr := os.Stat(cache.TlpdbPath())
 	require.NoError(t, statErr, "the refreshed tlpdb must be persisted")
 }

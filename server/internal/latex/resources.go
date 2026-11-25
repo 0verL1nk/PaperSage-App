@@ -339,22 +339,7 @@ func (s *resourceService) exactIndexMatches(name, suffix string) []texlive.Texli
 func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
 	key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
 	fill := func(provenance texlive.TexliveProvenance) (DiskCacheEntry, error) {
-		data, fetchErr := s.packageFile(c.Request.Context(), provenance)
-		if fetchErr != nil {
-			return DiskCacheEntry{}, fetchErr
-		}
-		digest := sha256.Sum256(data)
-		mediaType := mime.TypeByExtension(strings.ToLower(path.Ext(lookup.Name)))
-		if mediaType == "" {
-			mediaType = "application/octet-stream"
-		}
-		return DiskCacheEntry{
-			Meta: DiskCacheMeta{
-				Profile: s.profileID, SourcePath: provenance.SourcePath, Package: provenance.Package,
-				SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data)), MediaType: mediaType,
-			},
-			Data: data,
-		}, nil
+		return s.fetchEntry(c.Request.Context(), lookup, provenance)
 	}
 	entry, err := s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) { return fill(provenance) })
 	if err != nil && errors.Is(err, errResourceArchiveDrift) {
@@ -372,6 +357,54 @@ func (s *resourceService) serveProvenance(c *gin.Context, lookup resourceLookup,
 		return
 	}
 	s.writeResource(c, lookup, entry.Meta.MediaType, entry.Meta.Package, entry.Meta.SHA256, entry.Data)
+}
+
+// fetchEntry downloads, verifies and packages one resource for the disk cache.
+func (s *resourceService) fetchEntry(ctx context.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) (DiskCacheEntry, error) {
+	data, err := s.packageFile(ctx, provenance)
+	if err != nil {
+		return DiskCacheEntry{}, err
+	}
+	digest := sha256.Sum256(data)
+	mediaType := mime.TypeByExtension(strings.ToLower(path.Ext(lookup.Name)))
+	if mediaType == "" {
+		mediaType = "application/octet-stream"
+	}
+	return DiskCacheEntry{
+		Meta: DiskCacheMeta{
+			Profile: s.profileID, SourcePath: provenance.SourcePath, Package: provenance.Package,
+			SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data)), MediaType: mediaType,
+		},
+		Data: data,
+	}, nil
+}
+
+// StartWarmup pre-fetches the files XeTeX needs to build its format, so the
+// first browser compile does not pay dozens of cold archive downloads. It is
+// best effort and never blocks startup.
+func (s *resourceService) StartWarmup() {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		names := []string{"xelatex.ini", "latex.ltx"}
+		for name := range s.currentIndex() {
+			if strings.HasPrefix(name, "loadhyph-") && strings.HasSuffix(name, ".tex") {
+				names = append(names, name)
+			}
+		}
+		for _, name := range names {
+			records := s.exactIndexMatches(name, strings.ToLower(path.Ext(name)))
+			if len(records) != 1 {
+				continue
+			}
+			lookup := resourceLookup{Kind: "xetex", Format: "26", Name: name}
+			key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
+			provenance := records[0]
+			_, _ = s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
+				return s.fetchEntry(ctx, lookup, provenance)
+			})
+		}
+	}()
 }
 
 // packageFile tries every trusted source in order. All sources serve the same
@@ -683,5 +716,6 @@ func MountResources(engine *gin.Engine, bundle *profile.Bundle, cache *DiskCache
 	engine.HEAD("/texlive/:profile/resolve/:kind", service.get)
 	engine.GET("/texlive/:profile/package-maps", service.getPackageMaps)
 	engine.POST("/texlive/:profile/package-maps", service.getPackageMaps)
+	service.StartWarmup()
 	return nil
 }
