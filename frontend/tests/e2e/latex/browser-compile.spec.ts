@@ -300,9 +300,13 @@ PaperSage XeLaTeX browser smoke test.
 test('XeLaTeX 中文二次编译零回源，并清理旧 profile 缓存', async ({ page }) => {
   test.setTimeout(25 * 60_000)
   const { workerLogs, resourceNetworkLogs } = await prepareCompilerPage(page)
-  const resolveRequests: string[] = []
-  page.on('request', (request) => {
-    if (request.url().includes('/texlive/') && request.url().includes('/resolve/')) resolveRequests.push(request.url())
+  // Optional fontconfig probes (.fontspec) legitimately 404 and are not cacheable;
+  // only HTTP 200 resource bytes must be served from IndexedDB on the second run.
+  const resolveResponses: Array<{ url: string; status: number }> = []
+  page.on('response', (response) => {
+    if (response.url().includes('/texlive/') && response.url().includes('/resolve/')) {
+      resolveResponses.push({ url: response.url(), status: response.status() })
+    }
   })
 
   const compileChinese = () => page.evaluate(async () => {
@@ -341,7 +345,7 @@ PaperSage 中文缓存验收：宏包、字体与 PDF 转换资源应命中本�
           url: entry.url,
           revision: entry.revision,
           bytes: entry.bytes?.byteLength ?? 0,
-          isFont: Boolean(entry.fontid),
+          isFont: Boolean(entry.fontid) || /\.(?:otf|ttf|ttc)(?:$|&)/i.test(entry.url),
         })))
         request.onerror = () => reject(request.error)
       })
@@ -350,11 +354,30 @@ PaperSage 中文缓存验收：宏包、字体与 PDF 转换资源应命中本�
     }
   })
 
+  const firstStartedAt = Date.now()
   const first = await compileChinese()
-  const firstResolveCount = resolveRequests.length
+  const firstMs = Date.now() - firstStartedAt
+  const firstOkCount = resolveResponses.filter((response) => response.status === 200).length
+  const secondStartedAt = Date.now()
+  const secondStartIndex = resolveResponses.length
   const second = await compileChinese()
-  const secondResolveCount = resolveRequests.length - firstResolveCount
+  const secondMs = Date.now() - secondStartedAt
+  const secondSlice = resolveResponses.slice(secondStartIndex)
+  const secondOkCount = secondSlice.filter((response) => response.status === 200).length
   const cacheAfterSecond = await readWorkerCache()
+
+  const runWarmup = () => page.evaluate(async () => {
+    const { warmupBrowserLatex, WARMUP_SAMPLES } = await import('/src/lib/latex/warmup.ts')
+    const stages = new Set<string>()
+    await warmupBrowserLatex(WARMUP_SAMPLES[0], { onProgress: (event) => stages.add(event.stage) })
+    return [...stages]
+  })
+  const warmupStartedAt = resolveResponses.length
+  const warmupStages = await runWarmup()
+  const warmupFirstOkCount = resolveResponses.slice(warmupStartedAt).filter((response) => response.status === 200).length
+  const secondWarmupStartedAt = resolveResponses.length
+  await runWarmup()
+  const warmupSecondOkCount = resolveResponses.slice(secondWarmupStartedAt).filter((response) => response.status === 200).length
 
   await page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
@@ -381,17 +404,24 @@ PaperSage 中文缓存验收：宏包、字体与 PDF 转换资源应命中本�
   const third = await compileChinese()
   const cacheAfterThird = await readWorkerCache()
 
+  const cacheBytes = cacheAfterSecond.reduce((total, entry) => total + entry.bytes, 0)
+  console.log(`[hele39] firstMs=${firstMs} secondMs=${secondMs} firstResolve200=${firstOkCount} secondResolve200=${secondOkCount} secondResolveNon200=${secondSlice.filter((response) => response.status !== 200).length} cacheEntries=${cacheAfterSecond.length} cacheBytes=${cacheBytes} fontEntries=${cacheAfterSecond.filter((entry) => entry.isFont).length} warmupFirst200=${warmupFirstOkCount} warmupSecond200=${warmupSecondOkCount}`)
+
   expect(first.prefix).toBe('%PDF-')
   expect(first.events.some((event) => event.state === 'loaded')).toBe(true)
-  expect(firstResolveCount).toBeGreaterThan(0)
+  expect(firstOkCount).toBeGreaterThan(0)
   expect(second.prefix).toBe('%PDF-')
   expect(second.events.every((event) => event.state !== 'loaded' || event.cacheSource === 'browser')).toBe(true)
-  expect(second.events.some((event) => event.state === 'loaded' && event.kind === 'font' && event.cacheSource === 'browser')).toBe(true)
+  expect(second.events.some((event) => event.state === 'loaded' && event.cacheSource === 'browser' && /\.(?:otf|ttf|ttc)$/i.test(event.name))).toBe(true)
   expect(
-    secondResolveCount,
-    `第二次编译仍在回源：\n${resolveRequests.slice(firstResolveCount, firstResolveCount + 10).join('\n')}`,
+    secondOkCount,
+    `第二次编译仍回源 200 资源：\n${secondSlice.filter((response) => response.status === 200).slice(0, 10).map((response) => response.url).join('\n')}`,
   ).toBe(0)
+  expect(warmupStages).toContain('compile')
+  expect(warmupStages).toContain('convert')
+  expect(warmupSecondOkCount, '第二次预热仍回源').toBe(0)
   expect(cacheAfterSecond.some((entry) => entry.isFont)).toBe(true)
+  expect(cacheAfterSecond.every((entry) => !entry.url.includes('.fontspec'))).toBe(true)
   if (first.events.some((event) => event.lookup?.kind === 'dvipdfmx')) {
     expect(cacheAfterSecond.some((entry) => entry.url.includes('/resolve/dvipdfmx'))).toBe(true)
   }

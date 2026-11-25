@@ -49,6 +49,18 @@ describe('summarizeTexliveEntries', () => {
     expect(summary.byProfile.map((profile) => profile.profile)).toEqual(['tl-url', '内置资源'])
   })
 
+  it('XeTeX 以 fileid 缓存的 OpenType 字体也计入字体', () => {
+    const summary = summarizeTexliveEntries([
+      entry({
+        url: 'https://api.example.test/texlive/tl-new/resolve/xetex?format=47&name=FandolSong-Bold.otf',
+        fileid: 'e'.repeat(64), package: 'fandol', revision: 'tl-new',
+      }),
+    ])
+
+    expect(summary.fonts).toBe(1)
+    expect(summary.packages).toBe(0)
+  })
+
   it('空缓存返回零值而不是抛错', () => {
     expect(summarizeTexliveEntries([])).toMatchObject({ entries: 0, bytes: 0, packages: 0, fonts: 0, lastUsed: null })
   })

@@ -435,8 +435,14 @@ export interface TexliveCacheSummary {
 
 const TEXLIVE_PROFILE_KEY = 'papersage_texlive_profile'
 
+const FONT_FILE_PATTERN = /\.(?:otf|ttf|ttc|pfb|afm)(?:$|&)/i
+
 function isFontEntry(entry: TexliveCacheEntry): boolean {
-  return Boolean(entry.fontid) || /\/resolve\/font(?:$|\?)/.test(entry.url)
+  // XeTeX requests OpenType fonts as kind `xetex`, so the backend reports a
+  // fileid and only the lookup name identifies them as fonts.
+  return Boolean(entry.fontid)
+    || /\/resolve\/font(?:$|\?)/.test(entry.url)
+    || FONT_FILE_PATTERN.test(entry.url)
 }
 
 const BUILTIN_PROFILE = '内置资源'

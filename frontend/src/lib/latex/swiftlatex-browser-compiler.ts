@@ -92,6 +92,7 @@ const ENGINE_VERSION = browserEngineManifest.engineVersion
 
 const ENGINE_URL = engineResourceUrl('papersage-swift-worker')
 const BIBTEX_WORKER_ENTRY_URL = engineResourceUrl('wasmtex-bibtex-entry')
+const DVIPDFMX_WORKER_ENTRY_URL = engineResourceUrl('papersage-dvipdfmx-entry')
 const DVIPDFMX_LICENSE: NonNullable<EpsPreprocessProgress['license']> = {
   name: 'TeX Live 2026 Dvipdfmx',
   spdx: 'GPL-2.0-or-later',
@@ -126,8 +127,12 @@ function createEngineWorker(
 ): EngineWorker {
   if (signal?.aborted) throw abortError()
 
-  // Every engine, including dvipdfmx, runs behind the shared cache adapter.
-  const url = new URL(engine === 'bibtex' ? BIBTEX_WORKER_ENTRY_URL : ENGINE_URL, window.location.origin)
+  // Every engine runs behind the shared cache adapter. Engine entries live in
+  // their own asset directory so sibling-relative runtime imports still resolve.
+  const entryUrl = engine === 'bibtex' ? BIBTEX_WORKER_ENTRY_URL
+    : engine === 'dvipdfmx' ? DVIPDFMX_WORKER_ENTRY_URL
+      : ENGINE_URL
+  const url = new URL(entryUrl, window.location.origin)
   url.searchParams.set('engine', engine)
   const worker = new Worker(url, { type: 'classic' })
   let readyResolve: (() => void) | undefined
