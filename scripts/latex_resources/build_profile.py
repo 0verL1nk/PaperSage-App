@@ -8,7 +8,7 @@ own `kpsewhich`, exactly like generate_catalog.py.
 
     python scripts/latex_resources/build_profile.py \
       --snapshot-url https://texlive.info/tlnet-archive/2026/11/22/tlnet \
-      --profile tl2026-tlnet-20261122 \
+      --profile tl2026-tlnet-20261125 \
       --output build/profile \
       --tlpdb tlnet/tlpkg/texlive.tlpdb.xz \
       --kpsewhich /usr/local/texlive/2026/bin/x86_64-linux/kpsewhich \
