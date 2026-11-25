@@ -561,7 +561,8 @@ func (s *Service) AdoptedForProject(ctx context.Context, projectID store.UUID) (
 			rule = *a.OverrideText
 		}
 		out = append(out, Entry{
-			ID: entry.ID.String(), Title: v.Title, Rule: rule,
+			ID: entry.ID.String(), Code: entry.Code, Version: v.Version,
+			Title: v.Title, Rule: rule,
 			Category: entry.Category, Source: v.SourceRef, Scope: entry.Scenario,
 		})
 	}
