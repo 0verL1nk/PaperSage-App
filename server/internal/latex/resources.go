@@ -398,13 +398,37 @@ func (s *resourceService) StartWarmup() {
 				continue
 			}
 			lookup := resourceLookup{Kind: "xetex", Format: "26", Name: name}
-			key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
-			provenance := records[0]
-			_, _ = s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
-				return s.fetchEntry(ctx, lookup, provenance)
-			})
+			s.warm(ctx, lookup, records[0])
+		}
+		// Chinese templates pull the Fandol fonts and ctex macros on the first
+		// compile; one archive covers the fonts, so warm both up front.
+		for _, entry := range s.bundle.Lookups {
+			if entry.Kind != "font" || !strings.HasPrefix(entry.Name, "fandol") || entry.Source == "" {
+				continue
+			}
+			if provenance, found := s.provenanceForSource(entry.Source); found {
+				s.warm(ctx, resourceLookup{Kind: "font", Format: entry.Format, Name: entry.Name}, provenance)
+			}
+		}
+		warmed := make(map[string]bool)
+		for _, records := range s.currentIndex() {
+			for _, provenance := range records {
+				if provenance.Package != "ctex" || warmed[provenance.SourcePath] {
+					continue
+				}
+				warmed[provenance.SourcePath] = true
+				name := provenance.SourcePath[strings.LastIndex(provenance.SourcePath, "/")+1:]
+				s.warm(ctx, resourceLookup{Kind: "xetex", Format: "26", Name: name}, provenance)
+			}
 		}
 	}()
+}
+
+func (s *resourceService) warm(ctx context.Context, lookup resourceLookup, provenance texlive.TexliveProvenance) {
+	key := diskCacheKey(s.profileID, lookup.Kind, lookup.Format, lookup.Name)
+	_, _ = s.cache.LoadOrFill(key, func() (DiskCacheEntry, error) {
+		return s.fetchEntry(ctx, lookup, provenance)
+	})
 }
 
 // packageFile tries every trusted source in order. All sources serve the same

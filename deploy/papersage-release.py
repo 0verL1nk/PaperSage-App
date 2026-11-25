@@ -34,7 +34,7 @@ RESOURCE_PROBE_NAMES = (
 )
 # Chinese templates pull these fonts on the first compile; probing them during
 # the release both verifies and warms the on-disk cache.
-RESOURCE_PROBE_FONTS = ("fandolsong-regular",)
+RESOURCE_PROBE_FONTS = ("fandolsong-regular", "fandolfang-regular", "fandolhei-regular", "fandolkai-regular")
 RESOURCE_PROBE_TIMEOUT_SECONDS = 30
 RESOURCE_PROBE_BUDGET_SECONDS = 180
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
