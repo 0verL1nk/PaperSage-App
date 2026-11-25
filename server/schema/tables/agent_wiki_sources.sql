@@ -16,6 +16,9 @@ CREATE TABLE `agent_wiki_sources` (
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY `ix_wiki_source_page` (`wiki_page_id`),
   KEY `ix_wiki_source_source` (`source_type`,`source_id`),
+  -- 同一页同一证据只记一次；写入侧始终给非空 source_version/chunk_id
+  -- （MySQL 唯一键对 NULL 不去重）。
+  UNIQUE KEY `uq_wiki_source_trace` (`wiki_page_id`,`source_type`,`source_id`,`source_version`,`chunk_id`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_wiki_source_page` FOREIGN KEY (`wiki_page_id`) REFERENCES `agent_wiki_pages` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;

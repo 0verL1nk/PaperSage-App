@@ -20,6 +20,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/importreceipt"
+	"github.com/0verL1nk/GraduateProject/server/internal/recheck"
 	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -405,15 +406,36 @@ func (s *Service) delete(c *gin.Context) {
 		return
 	}
 	var doc store.Document
-	err = s.DB.WithContext(ctx).
-		Where("id = ? AND owner_id = ?", store.UUID{UUID: did}, store.UUID{UUID: uid}).First(&doc).Error
-	if err != nil {
+	// 删除与「依赖它的产物标记待复查」必须同成同败：宁可删除失败让用户重试，
+	// 也不要出现「资料没了但依赖它的产物没被标记」。
+	err = s.DB.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND owner_id = ?", store.UUID{UUID: did}, store.UUID{UUID: uid}).
+			First(&doc).Error; err != nil {
+			return err
+		}
+		if err := tx.Delete(&doc).Error; err != nil {
+			return err
+		}
+		return recheck.MarkSourceChanged(ctx, tx, doc.ProjectID, recheck.SourceChange{
+			Kind:       store.RecheckTriggerSourceDeleted,
+			TriggerID:  doc.ID,
+			DocumentID: doc.ID,
+			SourceID:   doc.SourceID,
+			Reason:     "资料《" + doc.Name + "》已删除",
+		})
+	})
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Document not found"})
 		return
 	}
-	// S3 对象删除失败不阻断（Python 侧行为：仅告警）
-	_ = s.Storage.Delete(ctx, doc.S3Key)
-	_ = s.DB.WithContext(ctx).Delete(&doc).Error
+	if err != nil {
+		httpapi.WriteError(c.Writer, err)
+		return
+	}
+	// 提交后再清理对象存储与派生索引：失败只告警，不回滚已完成的删除。
+	if err := s.Storage.Delete(ctx, doc.S3Key); err != nil {
+		slog.Warn("documents: delete object failed", "doc", doc.ID.String(), "err", err)
+	}
 	if s.Indexer != nil && s.Indexer.DeleteDocument != nil {
 		s.Indexer.DeleteDocument(doc.ProjectID, doc.ID)
 	}

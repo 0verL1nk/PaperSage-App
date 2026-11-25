@@ -181,11 +181,11 @@ func (AgentEvidence) TableName() string { return "agent_evidence" }
 // AgentWikiSource wiki 页的来源回溯：来源 ID / 版本 / 片段。
 type AgentWikiSource struct {
 	ID            UUID      `gorm:"column:id;primaryKey"`
-	WikiPageID    UUID      `gorm:"column:wiki_page_id;not null;index"`
-	SourceType    string    `gorm:"column:source_type;size:20;not null;index:ix_wiki_source_source,priority:1"`
-	SourceID      UUID      `gorm:"column:source_id;not null;index:ix_wiki_source_source,priority:2"`
-	SourceVersion *string   `gorm:"column:source_version;size:64"`
-	ChunkID       *string   `gorm:"column:chunk_id;size:80"`
+	WikiPageID    UUID      `gorm:"column:wiki_page_id;not null;uniqueIndex:uq_wiki_source_trace,priority:1;index"`
+	SourceType    string    `gorm:"column:source_type;size:20;not null;uniqueIndex:uq_wiki_source_trace,priority:2;index:ix_wiki_source_source,priority:1"`
+	SourceID      UUID      `gorm:"column:source_id;not null;uniqueIndex:uq_wiki_source_trace,priority:3;index:ix_wiki_source_source,priority:2"`
+	SourceVersion *string   `gorm:"column:source_version;size:64;uniqueIndex:uq_wiki_source_trace,priority:4"`
+	ChunkID       *string   `gorm:"column:chunk_id;size:80;uniqueIndex:uq_wiki_source_trace,priority:5"`
 	CreatedAt     time.Time `gorm:"column:created_at;autoCreateTime"`
 }
 
