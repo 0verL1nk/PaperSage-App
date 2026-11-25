@@ -130,6 +130,9 @@ export interface ReviewSource {
 
 export interface ReviewNormEntry {
   id: string
+  /** 后端 norms.Entry.Code：与 version 一起构成稳定引用号。 */
+  code?: string
+  version?: number
   title: string
   rule: string
   category?: string

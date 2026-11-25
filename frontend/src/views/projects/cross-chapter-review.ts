@@ -85,6 +85,16 @@ export function reviewCoverage(report: ChapterReviewPayload): ReviewCoverage {
   return { complete: covered === REVIEW_DIMENSION_ORDER.length, covered, reasons }
 }
 
+/**
+ * 规范引用号，与后端 `norms.Entry.Cite()` 同一格式：
+ * `N-<code>@v<version>`，缺 code/version 时退回条目 ID。
+ */
+export function normCite(norm: { id: string; code?: string; version?: number }): string {
+  if (!norm.code) return `N-${norm.id}`
+  if (!norm.version || norm.version <= 0) return `N-${norm.code}`
+  return `N-${norm.code}@v${norm.version}`
+}
+
 export function dimensionOf(report: ChapterReviewPayload, key: ReviewDimensionKey): ReviewDimension | undefined {
   return report.dimensions?.find((item) => item.key === key)
 }
