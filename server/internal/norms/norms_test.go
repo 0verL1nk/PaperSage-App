@@ -332,6 +332,7 @@ func TestAdoptionLocksVersionAndBlocksDelete(t *testing.T) {
 
 	update := entryUpdateRequest{entryRequest: entryReq(pack.ID, "LOCK-1"), ExpectedVersion: 1}
 	update.RuleText = "改后的规则说明"
+	update.Title = "改后的标题"
 	_, err = svc.UpdateEntry(ctx, uid, mustUUID(t, created.ID), update)
 	require.NoError(t, err)
 
@@ -341,6 +342,10 @@ func TestAdoptionLocksVersionAndBlocksDelete(t *testing.T) {
 	assert.Equal(t, 1, list[0].Version, "已采用版本不得随条目更新静默变化")
 	assert.Equal(t, 2, list[0].LatestVersion)
 	assert.True(t, list[0].HasNewerVersion)
+	// 采用列表展示的必须是锁定版本的内容，不能把改后的正文当成项目当前生效规范。
+	assert.Equal(t, 1, list[0].Entry.Version)
+	assert.Equal(t, "标题 LOCK-1", list[0].Entry.Title)
+	assert.Equal(t, "规则说明", list[0].Entry.RuleText)
 
 	entries, err := svc.AdoptedForProject(ctx, pid)
 	require.NoError(t, err)
