@@ -2,9 +2,12 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
@@ -50,7 +53,36 @@ func (s *Service) systemPromptFor(ctx context.Context, projectID, ownerID store.
 	if brief.Methods != "" {
 		fmt.Fprintf(&b, "- 方法：%s\n", brief.Methods)
 	}
+	s.appendAdoptedNorms(ctx, &b, projectID)
 	return b.String()
+}
+
+// appendAdoptedNorms 注入项目已采用的规范（采用时锁定的版本）。
+//
+// 只提供条款原文、出处与稳定引用号；是否符合规范由模型结合草稿做语义判断，
+// 这里不做任何关键词/正则匹配。规范库不可用或未采用时如实说明，
+// 让模型没有条件假装「符合某条规范」。
+func (s *Service) appendAdoptedNorms(ctx context.Context, b *strings.Builder, projectID store.UUID) {
+	const unavailable = "\n学术规范：本次没有可用的项目规范，不要声称遵循或符合任何具体规范条款。\n"
+	if s.Norms == nil {
+		b.WriteString(unavailable)
+		return
+	}
+	entries, err := s.Norms.AdoptedForProject(ctx, projectID)
+	switch {
+	case errors.Is(err, norms.ErrUnavailable):
+		b.WriteString(unavailable)
+	case err != nil:
+		slog.Warn("agent: 读取项目已采用规范失败", "project_id", projectID.String(), "err", err)
+		b.WriteString(unavailable)
+	case len(entries) == 0:
+		b.WriteString("\n学术规范：本项目尚未采用任何规范条目；不要声称引用或符合某条规范。\n")
+	default:
+		b.WriteString("\n本项目已采用的学术规范（给出建议或改动时必须逐条对照；引用时使用方括号里的编号，不得编造未列出的条款）：\n")
+		for _, entry := range entries {
+			fmt.Fprintf(b, "- [%s] %s\n  规则：%s\n  出处：%s\n", entry.Cite(), entry.Title, entry.Rule, entry.Source)
+		}
+	}
 }
 
 func scenarioLabel(s string) string {

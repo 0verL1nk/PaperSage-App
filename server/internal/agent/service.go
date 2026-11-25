@@ -148,7 +148,7 @@ func (s *Service) chat(c *gin.Context) {
 
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
 // 值会快照进 Run，避免换了提示却仍声称同一实验条件。
-const systemPromptVersion = "v4"
+const systemPromptVersion = "v5"
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
 	if idStr != "" {
