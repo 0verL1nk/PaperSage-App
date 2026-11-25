@@ -56,6 +56,22 @@ test.describe('Email code login (real backend)', () => {
     expect(replay.status()).toBe(401)
   })
 
+  // B1 回归：错码必须留在当前页、保留邮箱、给出中文错误（不能整页刷新）。
+  test('wrong code keeps the form and shows a Chinese error', async ({ page }) => {
+    const email = `e2e_wrong_${Date.now()}@hit.edu.cn`
+    await page.goto('/auth')
+    await page.getByLabel('邮箱', { exact: true }).fill(email)
+    await page.getByRole('button', { name: '获取验证码' }).click()
+    await expect(page.getByRole('button', { name: /重新发送（\d+s）/ })).toBeVisible()
+
+    await page.getByLabel('验证码', { exact: true }).fill('000000')
+    await page.getByRole('button', { name: '登录 / 自动注册' }).click()
+
+    await expect(page.getByText(/验证码不正确/)).toBeVisible({ timeout: 10_000 })
+    await expect(page).toHaveURL(/\/auth/)
+    await expect(page.getByLabel('邮箱', { exact: true })).toHaveValue(email)
+  })
+
   test('code-registered user can set a password and then sign in with it', async ({ page, request }) => {
     const email = `e2e_setpw_${Date.now()}@hit.edu.cn`
     const password = 'NewPass123'

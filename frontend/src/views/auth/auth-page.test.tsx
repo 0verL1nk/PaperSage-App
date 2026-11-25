@@ -93,7 +93,7 @@ describe('AuthPage', () => {
 
     await user.click(screen.getByRole('button', { name: '密码登录' }))
 
-    expect(screen.getByLabelText('用户名')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByLabelText('邮箱或用户名')).toHaveAttribute('autocomplete', 'username')
     expect(screen.getByLabelText('密码')).toHaveAttribute('autocomplete', 'current-password')
   })
 
@@ -150,6 +150,31 @@ describe('AuthPage', () => {
       '账号已创建',
       expect.objectContaining({ description: expect.stringContaining('账号与安全') }),
     ))
+  })
+
+  it('clears the stale email error after a successful send', async () => {
+    const user = userEvent.setup()
+    vi.mocked(sendEmailCode).mockResolvedValue({ message: '验证码已发送，请查收邮件。' })
+    renderAuthPage()
+
+    await user.click(screen.getByRole('button', { name: '获取验证码' }))
+    expect(await screen.findByText('请输入邮箱')).toBeVisible()
+
+    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.click(screen.getByRole('button', { name: '获取验证码' }))
+
+    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', expect.anything()))
+    await waitFor(() => expect(screen.queryByText('请输入邮箱')).not.toBeInTheDocument())
+  })
+
+  it('accepts only digits in the verification code field', async () => {
+    const user = userEvent.setup()
+    renderAuthPage()
+
+    const codeInput = screen.getByLabelText('验证码')
+    await user.type(codeInput, '12ab56cd')
+
+    expect(codeInput).toHaveValue('1256')
   })
 
   it('shows wrong-code errors inside the code form', async () => {
@@ -225,7 +250,7 @@ describe('AuthPage', () => {
     renderAuthPage()
     await user.click(screen.getByRole('button', { name: '密码登录' }))
 
-    await user.type(screen.getByLabelText('用户名'), 'alice')
+    await user.type(screen.getByLabelText('邮箱或用户名'), 'alice')
     await user.type(screen.getByLabelText('密码'), 'Pass1234')
     await user.click(screen.getByRole('button', { name: '立即登录' }))
 

@@ -78,7 +78,8 @@ export async function sendEmailCode(email: string) {
   return postJson<{ message?: string; cooldownSeconds?: number }>(
     AUTH.emailCodeSend,
     { email },
-    { skipGlobalLoading: true },
+    // 弱网/断网时按钮不能无限转圈：与页面查询同样的 JS 级超时兜底。
+    { skipGlobalLoading: true, timeout: 15_000 },
   )
 }
 
@@ -87,7 +88,7 @@ export async function verifyEmailCode(email: string, code: string) {
   const data = await postJson<Partial<SessionTokens> & { isNewUser?: boolean }>(
     AUTH.emailCodeVerify,
     { email, code },
-    { skipGlobalLoading: true },
+    { skipGlobalLoading: true, timeout: 15_000 },
   )
   if (!data?.accessToken || !data.refreshToken) {
     throw new FrontendApiError('登录响应缺少 accessToken 或 refreshToken。', {

@@ -41,6 +41,17 @@ function withRequiredRuntimeConfig() {
   getRequiredApiBaseUrl()
 }
 
+/**
+ * 凭据类 auth 端点的 401 是「这次输入不对」，不是会话过期：
+ * 既不能走 refresh（会把错误变成整页跳转），也不能在失败分支里清 token 跳 /auth，
+ * 否则页面上的表单与错误提示会一起被清空。唯一名单，避免两处判断漂移。
+ */
+function isCredentialAuthEndpoint(url: string | undefined): boolean {
+  if (!url) return false
+  return ['/auth/login', '/auth/register', '/auth/guest', '/auth/refresh', '/auth/email-code/']
+    .some((path) => url.includes(path))
+}
+
 export const apiClient = axios.create({
   baseURL: getOptionalApiBaseUrl() || undefined,
   timeout: 60_000,
@@ -173,10 +184,7 @@ apiClient.interceptors.response.use(
     // and aren't marked to skip auth refresh
     if (
       error.response?.status === 401 &&
-      !requestConfig?.url?.includes('/auth/login') &&
-      !requestConfig?.url?.includes('/auth/register') &&
-      !requestConfig?.url?.includes('/auth/guest') &&
-      !requestConfig?.url?.includes('/auth/refresh') &&
+      !isCredentialAuthEndpoint(requestConfig?.url) &&
       !requestConfig?.skipAuthRefresh
     ) {
       // Guests have no tokens to refresh: a 401 is a capability limit, not an
@@ -244,13 +252,7 @@ apiClient.interceptors.response.use(
     // auth 端点的 401/403 是凭据问题，交给页面渲染错误提示；
     // 这里若再整页跳转 /auth 会清空表单与错误状态（login wrong-password
     // 用例曾因此永远看不到 alert）
-    const isAuthEndpoint =
-      requestConfig?.url?.includes('/auth/login') ||
-      requestConfig?.url?.includes('/auth/register') ||
-      requestConfig?.url?.includes('/auth/guest') ||
-      requestConfig?.url?.includes('/auth/refresh') ||
-      requestConfig?.url?.includes('/auth/email-code/')
-    if (!isAuthEndpoint && !useSessionStore.getState().isGuest && (normalized.status === 401 || normalized.status === 403)) {
+    if (!isCredentialAuthEndpoint(requestConfig?.url) && !useSessionStore.getState().isGuest && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()
       // Redirect to auth page
       if (typeof window !== 'undefined') {

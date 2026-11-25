@@ -31,7 +31,12 @@ export const registerSchema = z
   })
 
 export const emailCodeLoginSchema = z.object({
-  email: emailSchema,
+  // 验证码登录不限于学校邮箱（域名白名单由后端按部署配置），文案保持中性。
+  email: z
+    .string()
+    .trim()
+    .min(1, '请输入邮箱')
+    .email('邮箱格式不正确'),
   code: z
     .string()
     .trim()

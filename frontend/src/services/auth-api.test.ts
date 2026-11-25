@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
-import { confirmPasswordReset, getCurrentUser, loginWithPassword, registerWithEmail, requestPasswordReset } from '@/services/auth-api'
+import { confirmPasswordReset, getCurrentUser, loginWithPassword, registerWithEmail, requestPasswordReset, sendEmailCode } from '@/services/auth-api'
 import { sha256 as jsSha256 } from 'js-sha256'
 
 vi.mock('@/services', async () => {
@@ -36,6 +36,16 @@ describe('auth api', () => {
     vi.mocked(getJson).mockResolvedValue({ isGuest: false, emailVerified: true })
     await expect(getCurrentUser()).resolves.toMatchObject({ isGuest: false, emailVerified: true })
     expect(getJson).toHaveBeenCalledWith('/api/v1/auth/me', { skipGlobalLoading: true })
+  })
+
+  it('gives the email-code send a bounded timeout so the button cannot spin forever', async () => {
+    vi.mocked(postJson).mockResolvedValue({ message: '验证码已发送' })
+    await sendEmailCode('student@hit.edu.cn')
+    expect(postJson).toHaveBeenCalledWith(
+      '/api/v1/auth/email-code/send',
+      { email: 'student@hit.edu.cn' },
+      { skipGlobalLoading: true, timeout: 15_000 },
+    )
   })
 
   it('requests a reset link without exposing whether the email exists', async () => {

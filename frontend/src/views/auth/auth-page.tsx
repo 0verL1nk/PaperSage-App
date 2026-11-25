@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
   ChevronRight,
@@ -204,6 +204,8 @@ export function AuthPage() {
     }
     try {
       await sendCodeMutation.mutateAsync(rawEmail.trim())
+      // 发送成功说明邮箱已合法，清掉上一次「请输入邮箱」的红字，避免误导。
+      codeForm.clearErrors('email')
       toast.success('验证码已发送', { description: '请查收邮件，验证码 5 分钟内有效。' })
       setCooldown(60)
     } catch (error) {
@@ -338,17 +340,17 @@ export function AuthPage() {
                     }}
                     className="mt-5 w-full gap-0"
                   >
-                    <TabsList className="grid w-full grid-cols-2 rounded-[10px] bg-muted/60 p-[3px]">
-                      <TabsTrigger value="login" className="text-[13px] font-medium transition-all duration-200">
+                    <TabsList className="grid min-h-12 w-full grid-cols-2 rounded-[10px] bg-muted/60 p-[3px]">
+                      <TabsTrigger value="login" className="min-h-11 text-[13px] font-medium transition-all duration-200">
                         账号登录
                       </TabsTrigger>
-                      <TabsTrigger value="register" className="text-[13px] font-medium transition-all duration-200">
+                      <TabsTrigger value="register" className="min-h-11 text-[13px] font-medium transition-all duration-200">
                         注册新账号
                       </TabsTrigger>
                     </TabsList>
 
                     <SmoothHeight className="pt-5" data-testid="auth-panels">
-                      <TabsContent value="login" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-left-2 duration-300">
+                      <TabsContent value="login" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-left-2 duration-300 focus-visible:ring-2 focus-visible:ring-ring/50">
                         {pendingVerifyEmail && (
                           <div className="flex items-start gap-2.5 rounded-lg border border-primary/20 bg-primary/[0.06] p-3">
                             <MailCheck className="mt-0.5 size-4 flex-none text-primary/70" />
@@ -367,7 +369,7 @@ export function AuthPage() {
                               aria-pressed={loginMethod === 'code'}
                               onClick={() => switchLoginMethod('code')}
                               className={cn(
-                                'h-11 rounded-lg text-[12.5px] font-medium transition-colors',
+                                'h-12 rounded-lg text-[12.5px] font-medium transition-colors',
                                 loginMethod === 'code'
                                   ? 'bg-background text-foreground shadow-sm'
                                   : 'text-muted-foreground hover:text-foreground',
@@ -380,7 +382,7 @@ export function AuthPage() {
                               aria-pressed={loginMethod === 'password'}
                               onClick={() => switchLoginMethod('password')}
                               className={cn(
-                                'h-11 rounded-lg text-[12.5px] font-medium transition-colors',
+                                'h-12 rounded-lg text-[12.5px] font-medium transition-colors',
                                 loginMethod === 'password'
                                   ? 'bg-background text-foreground shadow-sm'
                                   : 'text-muted-foreground hover:text-foreground',
@@ -410,7 +412,7 @@ export function AuthPage() {
                                   spellCheck={false}
                                   {...codeForm.register('email')}
                                   placeholder="your-id@hit.edu.cn"
-                                  className={fieldInputClass}
+                                  className={cn(fieldInputClass, 'min-h-12')}
                                 />
                                 {codeForm.formState.errors.email && (
                                   <p className="ml-1 text-[11.5px] text-destructive">{codeForm.formState.errors.email.message}</p>
@@ -425,16 +427,20 @@ export function AuthPage() {
                                     inputMode="numeric"
                                     maxLength={6}
                                     autoComplete="one-time-code"
-                                    {...codeForm.register('code')}
+                                    {...codeForm.register('code', {
+                                      onChange: (event: ChangeEvent<HTMLInputElement>) => {
+                                        event.target.value = event.target.value.replace(/\D/g, '').slice(0, 6)
+                                      },
+                                    })}
                                     placeholder="6 位数字"
-                                    className={cn(fieldInputClass, 'flex-1 tracking-[0.3em]')}
+                                    className={cn(fieldInputClass, 'min-h-12 flex-1 tracking-[0.3em]')}
                                   />
                                   <Button
                                     type="button"
                                     variant="outline"
                                     onClick={handleSendCode}
                                     disabled={cooldown > 0 || sendCodeMutation.isPending}
-                                    className="h-11 flex-none rounded-[10px] px-3 text-[12.5px]"
+                                    className="h-12 flex-none rounded-[10px] px-3 text-[12.5px]"
                                   >
                                     {sendCodeMutation.isPending && <LoaderCircle className="mr-1 size-3.5 animate-spin" />}
                                     {cooldown > 0 ? `重新发送（${cooldown}s）` : '获取验证码'}
@@ -474,7 +480,7 @@ export function AuthPage() {
                             )}
                             <form onSubmit={handleLoginSubmit} className="space-y-3.5">
                               <div className="space-y-1.5">
-                                <Label htmlFor="username" className={fieldLabelClass}>用户名</Label>
+                                <Label htmlFor="username" className={fieldLabelClass}>邮箱或用户名</Label>
                                 <Input
                                   id="username"
                                   autoComplete="username"
@@ -533,7 +539,7 @@ export function AuthPage() {
 
                       </TabsContent>
 
-                      <TabsContent value="register" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-right-2 duration-300">
+                      <TabsContent value="register" className="mt-0 space-y-4 outline-none animate-in fade-in slide-in-from-right-2 duration-300 focus-visible:ring-2 focus-visible:ring-ring/50">
                         {authError && (
                           <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
                             <ShieldCheck className="mr-2 h-4 w-4" />
