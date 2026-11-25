@@ -176,6 +176,12 @@ func proposalPayload(p *store.AgentChangeProposal) gin.H {
 	if p.Reason != nil {
 		h["reason"] = *p.Reason
 	}
+	if len(p.NormRefs) > 0 {
+		var refs []normRefMeta
+		if err := json.Unmarshal(p.NormRefs, &refs); err == nil && len(refs) > 0 {
+			h["normRefs"] = refs
+		}
+	}
 	return h
 }
 
