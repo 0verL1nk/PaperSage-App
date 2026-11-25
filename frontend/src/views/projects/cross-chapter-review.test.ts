@@ -7,6 +7,7 @@ import {
   displayBasisRef,
   findingsByDimension,
   humanizeReviewText,
+  normCite,
   planSectionTitles,
   reviewCoverage,
   reviewLocation,
@@ -44,6 +45,17 @@ function report(overrides: Partial<ChapterReviewPayload> = {}): ChapterReviewPay
     ...overrides,
   }
 }
+
+describe('normCite', () => {
+  it('与后端 Cite() 同格式：N-<code>@v<version>', () => {
+    expect(normCite({ id: 'x', code: 'GBT7714', version: 2 })).toBe('N-GBT7714@v2')
+  })
+  it('缺版本或编号时退回可用信息，不编造版本', () => {
+    expect(normCite({ id: 'x', code: 'GBT7714' })).toBe('N-GBT7714')
+    expect(normCite({ id: 'entry-1' })).toBe('N-entry-1')
+    expect(normCite({ id: 'x', code: 'GBT7714', version: 0 })).toBe('N-GBT7714')
+  })
+})
 
 describe('reviewCoverage', () => {
   it('treats insufficient/not_checked as incomplete and keeps the reason', () => {

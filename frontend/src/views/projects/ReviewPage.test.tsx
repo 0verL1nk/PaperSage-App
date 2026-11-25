@@ -59,9 +59,12 @@ function reviewArtifact(options: {
   updatedAt?: string
   dimensions?: ReviewDimension[]
   findings?: ReviewFinding[]
+  norms?: ChapterReviewPayload['input']['norms']
 } = {}): ResearchArtifact {
   const payload: ChapterReviewPayload = {
-    input: { planStatus: 'adopted', normsAvailable: false, normsNote: '学术规范库尚未接入' },
+    input: options.norms
+      ? { planStatus: 'adopted', normsAvailable: true, norms: options.norms }
+      : { planStatus: 'adopted', normsAvailable: false, normsNote: '学术规范库尚未接入' },
     dimensions: options.dimensions ?? [
       { key: 'goal_conclusion', status: 'findings' },
       { key: 'evidence_support', status: 'insufficient', note: '缺少资料原文' },
@@ -171,6 +174,24 @@ describe('ReviewPage', () => {
     render(<ReviewPage />)
     expect(screen.getByText(/本次四个维度均已完成，未发现问题/)).toBeInTheDocument()
     expect(screen.getByText(/仍需结合导师意见与原始文献人工核验/)).toBeInTheDocument()
+  })
+
+  it('lists the norms that were in effect, with clause text and source on demand', () => {
+    mocks.reportsState.data = [reviewArtifact({
+      norms: [{
+        id: 'entry-1',
+        code: 'GBT7714-TYPE-MARKS',
+        version: 2,
+        title: '按文献类型标注类型标识',
+        rule: '期刊文章用 [J] 标注。',
+        source: 'GB/T 7714—2015',
+      }],
+    })]
+    render(<ReviewPage />)
+    expect(screen.getByText(/本次生效的规范依据 · 1 条/)).toBeInTheDocument()
+    expect(screen.getByText(/\[N-GBT7714-TYPE-MARKS@v2\] 按文献类型标注类型标识/)).toBeInTheDocument()
+    expect(screen.getByText('期刊文章用 [J] 标注。')).toBeInTheDocument()
+    expect(screen.getByText('出处：GB/T 7714—2015')).toBeInTheDocument()
   })
 
   it('compares the selected report with the previous one', () => {

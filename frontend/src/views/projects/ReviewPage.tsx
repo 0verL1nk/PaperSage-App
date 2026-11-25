@@ -31,6 +31,7 @@ import {
   findingsByDimension,
   formatReviewTime,
   humanizeReviewText,
+  normCite,
   planSectionTitles,
   reviewCoverage,
   reviewLocation,
@@ -371,6 +372,23 @@ export function ReviewPage() {
                         学术规范：{payload.input?.normsAvailable ? `已采用 ${payload.input.norms?.length ?? 0} 条` : humanizeReviewText(payload.input?.normsNote || '尚未接入', sectionTitles)}
                       </span>
                     </div>
+
+                    {payload.input?.normsAvailable && (payload.input.norms?.length ?? 0) > 0 && (
+                      <details className="rounded-xl border border-border/50 bg-muted/30 p-3">
+                        <summary className="min-h-11 cursor-pointer text-xs font-medium">
+                          本次生效的规范依据 · {payload.input.norms?.length ?? 0} 条（点开看条款与出处）
+                        </summary>
+                        <ul className="mt-2 space-y-2">
+                          {(payload.input.norms ?? []).map((norm) => (
+                            <li key={norm.id} className="text-xs leading-5">
+                              <p className="font-medium">[{normCite(norm)}] {norm.title}</p>
+                              <p className="mt-0.5 whitespace-pre-wrap text-muted-foreground">{norm.rule}</p>
+                              {norm.source && <p className="mt-0.5 text-muted-foreground">出处：{norm.source}</p>}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
 
                     <div className="grid gap-2 sm:grid-cols-2">
                       {REVIEW_DIMENSION_ORDER.map((key) => {
