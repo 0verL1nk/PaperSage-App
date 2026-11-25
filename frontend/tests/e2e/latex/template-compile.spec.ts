@@ -24,7 +24,12 @@ test.skip(cases.length === 0, '通过 BROWSER_LATEX_TEMPLATE_CASES 提供 ZIP �
 
 for (const template of cases) {
   test(`${template.name} template compiles in the browser`, async ({ page }) => {
-    test.setTimeout(30 * 60_000)
+    // A fresh browser has no cached format, so the first command (format
+    // generation) pulls every macro package over the network and is the
+    // slowest run this suite ever sees. Keep the harness budget above the
+    // engine's own per-command limit so a cold run fails on the real cause
+    // instead of the test timeout.
+    test.setTimeout(45 * 60_000)
     expect(template.sha256, `${template.name}: sha256 must be a 64-character hexadecimal ZIP digest`)
       .toMatch(/^[a-f\d]{64}$/i)
     await scopeVercelAccessToOrigin(page, apiBaseUrl)
