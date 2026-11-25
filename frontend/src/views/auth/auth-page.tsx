@@ -26,7 +26,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 import { SmoothHeight } from '@/components/shared/smooth-height'
 import { useQuery } from '@tanstack/react-query'
-import { useLoginMutation, useRegisterMutation } from '@/hooks/auth-hooks'
+import {
+  useLoginMutation,
+  useRegisterMutation,
+  useSendEmailCodeMutation,
+  useVerifyEmailCodeMutation,
+} from '@/hooks/auth-hooks'
+import { FrontendApiError } from '@/services'
 import { getEmailDomains, resendVerification } from '@/services/auth-api'
 import { initializeGuestWorkspace } from '@/services/guest-local-workspace'
 import { ApiTargetToggle } from '@/components/shared/api-target-toggle'
@@ -35,20 +41,27 @@ import { DesktopAppMenu, WindowControls } from '@/components/desktop/desktop-tit
 import { getApiTarget } from '@/lib/env'
 import { cn } from '@/lib/utils'
 import {
+  emailCodeLoginSchema,
   loginSchema,
   registerSchema,
+  type EmailCodeLoginFormValues,
   type LoginFormValues,
   type RegisterFormValues,
 } from '@/types/auth'
 import { activateLocalGuestSession, setSessionTokens, useSessionStore } from '@/store'
 
 type AuthMode = 'login' | 'register'
+type LoginMethod = 'code' | 'password'
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) {
     return error.message
   }
   return '操作失败，请稍后重试。'
+}
+
+function isRateLimited(error: unknown): boolean {
+  return error instanceof FrontendApiError && (error.status === 429 || error.code === 429)
 }
 
 /** 后端 403 "Please verify your email" → 登录被验证门槛拦截 */
@@ -116,14 +129,32 @@ export function AuthPage() {
   const guestImportPending = useSessionStore((state) => state.guestImportPending)
   const loginMutation = useLoginMutation()
   const registerMutation = useRegisterMutation()
+  const sendCodeMutation = useSendEmailCodeMutation()
+  const verifyCodeMutation = useVerifyEmailCodeMutation()
+  // 本机/离线后端通常没配 SMTP，摆一个必然失败的验证码入口是坏体验。
+  const codeLoginAvailable = getApiTarget() !== 'local'
   const [mode, setMode] = useState<AuthMode>('login')
+  const [loginMethod, setLoginMethod] = useState<LoginMethod>(codeLoginAvailable ? 'code' : 'password')
   const [authError, setAuthError] = useState('')
+  const [codeError, setCodeError] = useState('')
+  const [cooldown, setCooldown] = useState(0)
   const [needsVerify, setNeedsVerify] = useState(false)
   // 注册成功后待验证邮箱（常驻提醒，登录成功即清除）
   const [pendingVerifyEmail, setPendingVerifyEmail] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [guestStarting, setGuestStarting] = useState(false)
   const [guestError, setGuestError] = useState('')
+
+  useEffect(() => {
+    if (cooldown <= 0) return
+    const timer = setInterval(() => setCooldown((n) => Math.max(0, n - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [cooldown])
+
+  const codeForm = useForm<EmailCodeLoginFormValues>({
+    resolver: zodResolver(emailCodeLoginSchema),
+    defaultValues: { email: '', code: '' },
+  })
 
   useEffect(() => {
     if (accessToken) {
@@ -153,6 +184,51 @@ export function AuthPage() {
     } catch (error) {
       setAuthError(getErrorMessage(error))
       setNeedsVerify(isVerifyRequired(error))
+    }
+  })
+
+  const switchLoginMethod = (method: LoginMethod) => {
+    setLoginMethod(method)
+    setAuthError('')
+    setCodeError('')
+    setNeedsVerify(false)
+  }
+
+  const handleSendCode = async () => {
+    setCodeError('')
+    const rawEmail = codeForm.getValues('email')
+    const parsed = emailCodeLoginSchema.shape.email.safeParse(rawEmail)
+    if (!parsed.success) {
+      codeForm.setError('email', { message: parsed.error.issues[0]?.message ?? '邮箱格式不正确' })
+      return
+    }
+    try {
+      await sendCodeMutation.mutateAsync(rawEmail.trim())
+      toast.success('验证码已发送', { description: '请查收邮件，验证码 5 分钟内有效。' })
+      setCooldown(60)
+    } catch (error) {
+      setCodeError(getErrorMessage(error))
+      // 服务端冷却同样是 60s；本地同步倒计时，避免用户反复点击。
+      if (isRateLimited(error)) setCooldown(60)
+    }
+  }
+
+  const handleCodeSubmit = codeForm.handleSubmit(async (values) => {
+    setCodeError('')
+    try {
+      const result = await verifyCodeMutation.mutateAsync({
+        email: values.email.trim(),
+        code: values.code,
+      })
+      setSessionTokens({ accessToken: result.accessToken, refreshToken: result.refreshToken })
+      toast.success(result.isNewUser ? '账号已创建' : '登录成功', {
+        description: result.isNewUser
+          ? '已为你创建 PaperSage 账号。可随时在「设置 → 账号与安全」中设置登录密码。'
+          : '欢迎回来，PaperSage 会话已建立。',
+      })
+      await navigate({ to: '/app/projects' })
+    } catch (error) {
+      setCodeError(getErrorMessage(error))
     }
   })
 
@@ -284,73 +360,176 @@ export function AuthPage() {
                             </div>
                           </div>
                         )}
-                        {needsVerify && loginForm.getValues('username') && (
-                          <div className="text-[11.5px]">
-                            <ResendButton email={loginForm.getValues('username')} className="font-medium" />
+                        {codeLoginAvailable && (
+                          <div role="group" aria-label="登录方式" className="grid grid-cols-2 gap-1 rounded-[10px] bg-muted/40 p-[3px]">
+                            <button
+                              type="button"
+                              aria-pressed={loginMethod === 'code'}
+                              onClick={() => switchLoginMethod('code')}
+                              className={cn(
+                                'h-11 rounded-lg text-[12.5px] font-medium transition-colors',
+                                loginMethod === 'code'
+                                  ? 'bg-background text-foreground shadow-sm'
+                                  : 'text-muted-foreground hover:text-foreground',
+                              )}
+                            >
+                              验证码登录
+                            </button>
+                            <button
+                              type="button"
+                              aria-pressed={loginMethod === 'password'}
+                              onClick={() => switchLoginMethod('password')}
+                              className={cn(
+                                'h-11 rounded-lg text-[12.5px] font-medium transition-colors',
+                                loginMethod === 'password'
+                                  ? 'bg-background text-foreground shadow-sm'
+                                  : 'text-muted-foreground hover:text-foreground',
+                              )}
+                            >
+                              密码登录
+                            </button>
                           </div>
                         )}
-                        {authError && (
-                          <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
-                            <ShieldCheck className="mr-2 h-4 w-4" />
-                            <AlertDescription className="text-[12px] font-medium leading-snug">{authError}</AlertDescription>
-                          </Alert>
-                        )}
-                        <form onSubmit={handleLoginSubmit} className="space-y-3.5">
-                          <div className="space-y-1.5">
-                            <Label htmlFor="username" className={fieldLabelClass}>用户名</Label>
-                            <Input
-                              id="username"
-                              autoComplete="username"
-                              autoCapitalize="none"
-                              spellCheck={false}
-                              {...loginForm.register('username')}
-                              placeholder="请输入您的账号"
-                              className={fieldInputClass}
-                            />
-                            {loginForm.formState.errors.username && (
-                              <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.username.message}</p>
+
+                        {loginMethod === 'code' && codeLoginAvailable ? (
+                          <>
+                            {codeError && (
+                              <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                                <AlertDescription className="text-[12px] font-medium leading-snug">{codeError}</AlertDescription>
+                              </Alert>
                             )}
-                          </div>
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <Label htmlFor="password" className={fieldLabelClass}>密码</Label>
-                              <Link to="/auth/forgot-password" className="text-[11.5px] font-medium text-primary/80 transition-colors hover:text-primary">
-                                忘记密码？
-                              </Link>
-                            </div>
-                            <div className="relative">
-                              <Input
-                                id="password"
-                                type={showPassword ? 'text' : 'password'}
-                                autoComplete="current-password"
-                                {...loginForm.register('password')}
-                                placeholder="••••••••"
-                                className={cn(fieldInputClass, 'pr-10')}
-                              />
-                              <button
-                                type="button"
-                                aria-label={showPassword ? '隐藏密码' : '显示密码'}
-                                onClick={() => setShowPassword(!showPassword)}
-                                className="absolute right-0 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                            <form onSubmit={handleCodeSubmit} className="space-y-3.5">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="code-email" className={fieldLabelClass}>邮箱</Label>
+                                <Input
+                                  id="code-email"
+                                  type="email"
+                                  autoComplete="email"
+                                  autoCapitalize="none"
+                                  spellCheck={false}
+                                  {...codeForm.register('email')}
+                                  placeholder="your-id@hit.edu.cn"
+                                  className={fieldInputClass}
+                                />
+                                {codeForm.formState.errors.email && (
+                                  <p className="ml-1 text-[11.5px] text-destructive">{codeForm.formState.errors.email.message}</p>
+                                )}
+                                <AllowedDomainsHint />
+                              </div>
+                              <div className="space-y-1.5">
+                                <Label htmlFor="login-code" className={fieldLabelClass}>验证码</Label>
+                                <div className="flex gap-2">
+                                  <Input
+                                    id="login-code"
+                                    inputMode="numeric"
+                                    maxLength={6}
+                                    autoComplete="one-time-code"
+                                    {...codeForm.register('code')}
+                                    placeholder="6 位数字"
+                                    className={cn(fieldInputClass, 'flex-1 tracking-[0.3em]')}
+                                  />
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleSendCode}
+                                    disabled={cooldown > 0 || sendCodeMutation.isPending}
+                                    className="h-11 flex-none rounded-[10px] px-3 text-[12.5px]"
+                                  >
+                                    {sendCodeMutation.isPending && <LoaderCircle className="mr-1 size-3.5 animate-spin" />}
+                                    {cooldown > 0 ? `重新发送（${cooldown}s）` : '获取验证码'}
+                                  </Button>
+                                </div>
+                                {codeForm.formState.errors.code && (
+                                  <p className="ml-1 text-[11.5px] text-destructive">{codeForm.formState.errors.code.message}</p>
+                                )}
+                                <p className="ml-1 text-[11px] leading-4 text-muted-foreground/80">
+                                  未注册的邮箱验证通过后会直接创建账号，无需先设密码。
+                                </p>
+                              </div>
+                              <Button
+                                type="submit"
+                                disabled={verifyCodeMutation.isPending}
+                                className="h-12 w-full gap-2 rounded-[10px] text-[13.5px] font-semibold"
                               >
-                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                              </button>
-                            </div>
-                            {loginForm.formState.errors.password && (
-                              <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.password.message}</p>
+                                {verifyCodeMutation.isPending
+                                  ? <LoaderCircle className="size-4 animate-spin" />
+                                  : <LogIn className="size-4" />}
+                                {verifyCodeMutation.isPending ? '正在登录...' : '登录 / 自动注册'}
+                              </Button>
+                            </form>
+                          </>
+                        ) : (
+                          <>
+                            {needsVerify && loginForm.getValues('username') && (
+                              <div className="text-[11.5px]">
+                                <ResendButton email={loginForm.getValues('username')} className="font-medium" />
+                              </div>
                             )}
-                          </div>
-                          <Button
-                            type="submit"
-                            disabled={loginMutation.isPending}
-                            className="h-12 w-full gap-2 rounded-[10px] text-[13.5px] font-semibold"
-                          >
-                            {loginMutation.isPending
-                              ? <LoaderCircle className="size-4 animate-spin" />
-                              : <LogIn className="size-4" />}
-                            {loginMutation.isPending ? '正在连接...' : '立即登录'}
-                          </Button>
-                        </form>
+                            {authError && (
+                              <Alert variant="destructive" className="rounded-lg border-none bg-destructive/10 py-2.5 text-destructive">
+                                <ShieldCheck className="mr-2 h-4 w-4" />
+                                <AlertDescription className="text-[12px] font-medium leading-snug">{authError}</AlertDescription>
+                              </Alert>
+                            )}
+                            <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+                              <div className="space-y-1.5">
+                                <Label htmlFor="username" className={fieldLabelClass}>用户名</Label>
+                                <Input
+                                  id="username"
+                                  autoComplete="username"
+                                  autoCapitalize="none"
+                                  spellCheck={false}
+                                  {...loginForm.register('username')}
+                                  placeholder="请输入您的账号"
+                                  className={fieldInputClass}
+                                />
+                                {loginForm.formState.errors.username && (
+                                  <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.username.message}</p>
+                                )}
+                              </div>
+                              <div className="space-y-1.5">
+                                <div className="flex items-center justify-between">
+                                  <Label htmlFor="password" className={fieldLabelClass}>密码</Label>
+                                  <Link to="/auth/forgot-password" className="text-[11.5px] font-medium text-primary/80 transition-colors hover:text-primary">
+                                    忘记密码？
+                                  </Link>
+                                </div>
+                                <div className="relative">
+                                  <Input
+                                    id="password"
+                                    type={showPassword ? 'text' : 'password'}
+                                    autoComplete="current-password"
+                                    {...loginForm.register('password')}
+                                    placeholder="••••••••"
+                                    className={cn(fieldInputClass, 'pr-10')}
+                                  />
+                                  <button
+                                    type="button"
+                                    aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-0 top-1/2 flex size-10 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                                  >
+                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                  </button>
+                                </div>
+                                {loginForm.formState.errors.password && (
+                                  <p className="ml-1 text-[11.5px] text-destructive">{loginForm.formState.errors.password.message}</p>
+                                )}
+                              </div>
+                              <Button
+                                type="submit"
+                                disabled={loginMutation.isPending}
+                                className="h-12 w-full gap-2 rounded-[10px] text-[13.5px] font-semibold"
+                              >
+                                {loginMutation.isPending
+                                  ? <LoaderCircle className="size-4 animate-spin" />
+                                  : <LogIn className="size-4" />}
+                                {loginMutation.isPending ? '正在连接...' : '立即登录'}
+                              </Button>
+                            </form>
+                          </>
+                        )}
 
                       </TabsContent>
 

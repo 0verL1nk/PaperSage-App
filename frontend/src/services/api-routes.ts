@@ -14,6 +14,9 @@ export const AUTH = {
   refresh: `${V1}/auth/refresh`,
   passwordResetRequest: `${V1}/auth/password-reset/request`,
   passwordResetConfirm: `${V1}/auth/password-reset/confirm`,
+  emailCodeSend: `${V1}/auth/email-code/send`,
+  emailCodeVerify: `${V1}/auth/email-code/verify`,
+  password: `${V1}/auth/password`,
 } as const
 
 // --- Projects ---

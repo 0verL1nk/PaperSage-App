@@ -61,12 +61,12 @@ test.describe('Auth flow (real backend)', () => {
     await page.getByPlaceholder('请再次输入密码').fill(password)
     await page.getByRole('button', { name: '创建我的账号' }).click()
 
-    // CI has no SMTP server: registration must report mail failure instead
-    // of acknowledging success, while keeping the account for a retry.
-    await expect(page.getByRole('alert')).toContainText('验证邮件发送失败', { timeout: 5000 })
+    // CI 有 fakesmtp 时注册成功并提示查收邮件；没有邮件服务时会提示发送失败。
+    // 两种情况下账号都已创建，未验证的密码登录都必须被拦截。
+    await expect(page.getByText(/验证邮件已发送至|验证邮件发送失败/).first()).toBeVisible({ timeout: 5000 })
 
-    // The account exists but cannot log in until the verification email is sent.
     await page.getByRole('tab', { name: '账号登录' }).click()
+    await page.getByRole('button', { name: '密码登录' }).click()
     await page.getByPlaceholder('请输入您的账号').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
     await page.getByRole('button', { name: '立即登录' }).click()

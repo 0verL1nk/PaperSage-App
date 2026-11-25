@@ -89,32 +89,57 @@ const (
 	rateMaxLogin = 8 // 略宽于 OWASP 下限，兼顾多人共享校园出口 IP
 )
 
+type rateEntry struct {
+	hits   []time.Time
+	window time.Duration
+}
+
 type rateLimiter struct {
-	mu   sync.Mutex
-	hits map[string][]time.Time
+	mu        sync.Mutex
+	hits      map[string]*rateEntry
+	lastSweep time.Time
 }
 
 func newRateLimiter() *rateLimiter {
-	return &rateLimiter{hits: map[string][]time.Time{}}
+	return &rateLimiter{hits: map[string]*rateEntry{}}
 }
 
-// allow 记录一次尝试；返回 false 表示超出窗口限额。
+// allow 记录一次尝试；返回 false 表示超出速率窗口限额。
 func (r *rateLimiter) allow(key string, max int) bool {
+	return r.allowWindow(key, max, rateWindow)
+}
+
+// allowWindow 是 allow 的通用形式：window 内最多 max 次。
+// 惰性清扫：键会按任意邮箱/IP 累积，过期条目在调用时删除，避免无界内存。
+func (r *rateLimiter) allowWindow(key string, max int, window time.Duration) bool {
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	list := r.hits[key]
-	keep := list[:0]
-	for _, t := range list {
-		if now.Sub(t) < rateWindow {
+	if now.Sub(r.lastSweep) >= rateWindow {
+		for k, e := range r.hits {
+			if len(e.hits) == 0 || now.Sub(e.hits[len(e.hits)-1]) >= e.window {
+				delete(r.hits, k)
+			}
+		}
+		r.lastSweep = now
+	}
+	e := r.hits[key]
+	if e == nil {
+		e = &rateEntry{}
+		r.hits[key] = e
+	}
+	e.window = window
+	keep := e.hits[:0]
+	for _, t := range e.hits {
+		if now.Sub(t) < window {
 			keep = append(keep, t)
 		}
 	}
+	e.hits = keep
 	if len(keep) >= max {
-		r.hits[key] = keep
 		return false
 	}
-	r.hits[key] = append(keep, now)
+	e.hits = append(e.hits, now)
 	return true
 }
 
@@ -161,7 +186,7 @@ func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
 	}
-	username, err := s.uniqueUsernameFromEmail(email)
+	username, err := s.uniqueUsernameFromEmail(s.DB, email)
 	if err != nil {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
@@ -200,7 +225,8 @@ func normalizeEmail(email string) string {
 }
 
 // uniqueUsernameFromEmail：email 本地部分生成 username，冲突加短随机后缀。
-func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
+// db 由调用方传入（事务内必须用 tx，否则 SQLite :memory: 会另开一个空库连接）。
+func (s *Service) uniqueUsernameFromEmail(db *gorm.DB, email string) (string, error) {
 	local := email[:strings.Index(email, "@")]
 	local = strings.Map(func(r rune) rune {
 		switch {
@@ -220,7 +246,7 @@ func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
 			candidate = base + "_" + randSuffix(4)
 		}
 		var n int64
-		if err := s.DB.Model(&store.User{}).Where("username = ?", candidate).Count(&n).Error; err != nil {
+		if err := db.Model(&store.User{}).Where("username = ?", candidate).Count(&n).Error; err != nil {
 			return "", err
 		}
 		if n == 0 {

@@ -380,6 +380,8 @@ export async function loginAs(
   const u = username ?? process.env.E2E_USER ?? 'e2euser'
   const p = password ?? process.env.E2E_PASS ?? 'e2epass1'
   await page.goto('/auth')
+  // 登录页默认「验证码登录」，密码登录需要先切到对应面板。
+  await page.getByRole('button', { name: '密码登录' }).click()
   await page.getByPlaceholder('请输入您的账号').fill(u)
   await page.getByPlaceholder('••••••••').fill(p)
   await page.getByRole('button', { name: '立即登录' }).click()

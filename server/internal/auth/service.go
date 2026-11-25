@@ -120,6 +120,7 @@ func (s *Service) me(c *gin.Context) {
 		"isSuperuser":   u.IsSuperuser,
 		"email":         nil,
 		"emailVerified": u.EmailVerified,
+		"hasPassword":   hasPassword(u.PasswordHash),
 	}
 	if u.Email != nil {
 		resp["email"] = *u.Email

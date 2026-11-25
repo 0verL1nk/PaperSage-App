@@ -46,6 +46,8 @@ test('auth and browser-local guest entry remain usable on narrow phones through 
       message: `auth must not overflow horizontally at ${viewport.name}`,
     }).toBe(true)
 
+    // 默认面板是验证码登录；密码表单的控件与触控尺寸同样要在窄屏可用。
+    await page.getByRole('button', { name: '密码登录' }).click()
     const loginButton = page.getByRole('button', { name: '立即登录' })
     await loginButton.scrollIntoViewIfNeeded()
     await expect(loginButton).toBeInViewport()

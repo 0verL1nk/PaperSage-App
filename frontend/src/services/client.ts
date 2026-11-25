@@ -248,7 +248,8 @@ apiClient.interceptors.response.use(
       requestConfig?.url?.includes('/auth/login') ||
       requestConfig?.url?.includes('/auth/register') ||
       requestConfig?.url?.includes('/auth/guest') ||
-      requestConfig?.url?.includes('/auth/refresh')
+      requestConfig?.url?.includes('/auth/refresh') ||
+      requestConfig?.url?.includes('/auth/email-code/')
     if (!isAuthEndpoint && !useSessionStore.getState().isGuest && (normalized.status === 401 || normalized.status === 403)) {
       clearSessionTokens()
       // Redirect to auth page

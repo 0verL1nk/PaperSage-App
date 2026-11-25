@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/store/settings-store'
 import { GeneralSettings } from './GeneralSettings'
 import { EditorSettings } from './EditorSettings'
 import { AgentSettings } from './AgentSettings'
+import { AccountSettings } from './AccountSettings'
 import { AboutSettings } from './AboutSettings'
 
 export function SettingsPage() {
@@ -33,6 +34,7 @@ export function SettingsPage() {
           <TabsTrigger value="ui">{t('settings.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="editor">{t('settings.tabEditor')}</TabsTrigger>
           <TabsTrigger value="agent">{t('settings.tabAgent')}</TabsTrigger>
+          <TabsTrigger value="account">{t('settings.tabAccount')}</TabsTrigger>
           <TabsTrigger value="about">{t('settings.tabAbout')}</TabsTrigger>
         </TabsList>
         <TabsContent value="ui">
@@ -43,6 +45,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="agent">
           <AgentSettings />
+        </TabsContent>
+        <TabsContent value="account">
+          <AccountSettings />
         </TabsContent>
         <TabsContent value="about">
           <AboutSettings />
