@@ -414,3 +414,37 @@ func TestListChapterReviewKindIsAccepted(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	assert.NotContains(t, rec.Body.String(), "不支持的产物类型")
 }
+
+// 规范依据必须逐条命中本次生效清单：模型编造一条编号要被拒，而不是落进报告。
+func TestChapterReviewRejectsUnknownNormBasis(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+
+	payload := reviewPayload(planID, 1)
+	payload["input"].(map[string]any)["normsAvailable"] = true
+	payload["input"].(map[string]any)["normsNote"] = ""
+	payload["input"].(map[string]any)["norms"] = []map[string]any{{
+		"id": "entry-1", "code": "GBT7714", "version": 2,
+		"title": "类型标识", "rule": "用 [J] 标注。", "source": "GB/T 7714—2015",
+	}}
+	finding := payload["findings"].([]map[string]any)[0]
+	finding["basis"] = []map[string]any{{"kind": "norm", "ref": "N-FAKE@v9", "quote": "编造的条款"}}
+
+	create := createRequest{Kind: store.ResearchArtifactChapterReview, Payload: mustJSON(t, payload)}
+	if _, err := svc.Create(context.Background(), uid, pid, create); err == nil {
+		t.Fatal("引用不存在的规范条款必须被拒绝")
+	}
+
+	finding["basis"] = []map[string]any{{"kind": "norm", "ref": "N-GBT7714@v2", "quote": "用 [J] 标注。"}}
+	if _, err := svc.Create(context.Background(), uid, pid, createRequest{Kind: store.ResearchArtifactChapterReview, Payload: mustJSON(t, payload)}); err != nil {
+		t.Fatalf("命中清单的规范依据应被接受：%v", err)
+	}
+}
+
+func mustJSON(t *testing.T, v any) json.RawMessage {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	require.NoError(t, err)
+	return raw
+}
