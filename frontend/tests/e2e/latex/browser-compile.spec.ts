@@ -296,3 +296,105 @@ PaperSage XeLaTeX browser smoke test.
   expect(result).toMatchObject({ prefix: '%PDF-' })
   expect(result.bytes).toBeGreaterThan(100)
 })
+
+test('XeLaTeX 中文二次编译零回源，并清理旧 profile 缓存', async ({ page }) => {
+  test.setTimeout(25 * 60_000)
+  const { workerLogs, resourceNetworkLogs } = await prepareCompilerPage(page)
+  const resolveRequests: string[] = []
+  page.on('request', (request) => {
+    if (request.url().includes('/texlive/') && request.url().includes('/resolve/')) resolveRequests.push(request.url())
+  })
+
+  const compileChinese = () => page.evaluate(async () => {
+    const { compileLatexInBrowser } = await import('/src/lib/latex/swiftlatex-browser-compiler.ts')
+    const events: Array<{ name: string; kind: string; state: string; cacheSource?: string; lookup?: { kind: string } }> = []
+    const source = String.raw`\documentclass[UTF8,a4paper]{ctexart}
+\begin{document}
+PaperSage 中文缓存验收：宏包、字体与 PDF 转换资源应命中本机缓存。
+\end{document}
+`
+    const compiled = await compileLatexInBrowser(
+      [{ path: 'main.tex', content: source }],
+      'main.tex',
+      'xelatex',
+      { onProgress: (event) => { if (event.stage === 'resource') events.push(event.resource) } },
+    )
+    return { prefix: new TextDecoder().decode(compiled.pdf.subarray(0, 5)), bytes: compiled.pdf.byteLength, events }
+  }).catch((error: unknown) => {
+    console.error(`Browser resource network:\n${resourceNetworkLogs.slice(-30).join('\n')}\nSwiftLaTeX worker logs:\n${workerLogs.slice(-30).join('\n')}`)
+    throw error
+  })
+
+  const readWorkerCache = () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('papersage-swiftlatex-worker-cache-v2', 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise<Array<{ url: string; revision?: string; bytes: number; isFont: boolean }>>((resolve, reject) => {
+        const tx = db.transaction('resources', 'readonly')
+        const request = tx.objectStore('resources').getAll()
+        request.onsuccess = () => resolve(request.result.map((entry: {
+          url: string; revision?: string; fontid?: string; bytes?: ArrayBuffer
+        }) => ({
+          url: entry.url,
+          revision: entry.revision,
+          bytes: entry.bytes?.byteLength ?? 0,
+          isFont: Boolean(entry.fontid),
+        })))
+        request.onerror = () => reject(request.error)
+      })
+    } finally {
+      db.close()
+    }
+  })
+
+  const first = await compileChinese()
+  const firstResolveCount = resolveRequests.length
+  const second = await compileChinese()
+  const secondResolveCount = resolveRequests.length - firstResolveCount
+  const cacheAfterSecond = await readWorkerCache()
+
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('papersage-swiftlatex-worker-cache-v2', 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('resources', 'readwrite')
+      tx.objectStore('resources').put({
+        url: 'https://example.invalid/texlive/tl-old-profile/resolve/xetex?format=26&name=stale.sty',
+        bytes: new Uint8Array([1, 2, 3]).buffer,
+        fileid: '0'.repeat(64),
+        revision: 'tl-old-profile',
+        lastUsed: 1,
+      })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error ?? new Error('旧 profile 缓存预置事务已中止'))
+    })
+    db.close()
+    localStorage.setItem('papersage_texlive_profile', 'tl-old-profile')
+  })
+  const third = await compileChinese()
+  const cacheAfterThird = await readWorkerCache()
+
+  expect(first.prefix).toBe('%PDF-')
+  expect(first.events.some((event) => event.state === 'loaded')).toBe(true)
+  expect(firstResolveCount).toBeGreaterThan(0)
+  expect(second.prefix).toBe('%PDF-')
+  expect(second.events.every((event) => event.state !== 'loaded' || event.cacheSource === 'browser')).toBe(true)
+  expect(second.events.some((event) => event.state === 'loaded' && event.kind === 'font' && event.cacheSource === 'browser')).toBe(true)
+  expect(
+    secondResolveCount,
+    `第二次编译仍在回源：\n${resolveRequests.slice(firstResolveCount, firstResolveCount + 10).join('\n')}`,
+  ).toBe(0)
+  expect(cacheAfterSecond.some((entry) => entry.isFont)).toBe(true)
+  if (first.events.some((event) => event.lookup?.kind === 'dvipdfmx')) {
+    expect(cacheAfterSecond.some((entry) => entry.url.includes('/resolve/dvipdfmx'))).toBe(true)
+  }
+  expect(third.prefix).toBe('%PDF-')
+  expect(cacheAfterThird.some((entry) => entry.revision === 'tl-old-profile')).toBe(false)
+})

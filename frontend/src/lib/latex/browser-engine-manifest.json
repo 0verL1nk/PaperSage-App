@@ -45,10 +45,10 @@
     {
       "id": "papersage-swift-worker",
       "name": "SwiftLaTeX \u8d44\u6e90\u9002\u914d\u5668",
-      "url": "/latex-engines/papersage-swift-worker.js?v=a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
-      "version": "papersage-swiftlatex-2026-10-10-2",
-      "size": 21989,
-      "sha256": "a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
+      "url": "/latex-engines/papersage-swift-worker.js?v=15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
+      "version": "papersage-swiftlatex-2026-10-10-3",
+      "size": 22462,
+      "sha256": "15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
       "license": "AGPL-3.0",
       "notice": "/latex-engines/LICENSE"
     },

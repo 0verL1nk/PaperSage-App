@@ -94,13 +94,24 @@ function mapStaticResourceUrl(value) {
   const base = new URL(self.texlive_endpoint, self.location.href)
   if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname)) return url.href
 
-  const request = url.pathname.slice(base.pathname.length).split('/')
-  if (request.length < 3 || request.some((part) => !part)) {
-    throw new Error(`Unsupported TeX Live resource lookup: ${url.pathname}`)
+  const request = url.pathname.slice(base.pathname.length).replace(/\/+$/, '').split('/')
+  let source
+  let format
+  let encodedName
+  if (request.length === 2 && request[0] === 'resolve') {
+    // The dvipdfmx worker asks for resolve/<kind>?format=<n>&name=<file>.
+    source = request[1]
+    format = url.searchParams.get('format') || ''
+    encodedName = url.searchParams.get('name') || ''
+  } else {
+    if (request.length < 3 || request.some((part) => !part)) {
+      throw new Error(`Unsupported TeX Live resource lookup: ${url.pathname}`)
+    }
+    source = request[0]
+    format = request.slice(1, -1).join('/')
+    encodedName = request.at(-1)
   }
-  const source = request[0]
-  const format = request.slice(1, -1).join('/')
-  const encodedName = request.at(-1)
+  if (!format || !encodedName) throw new Error(`Unsupported TeX Live resource lookup: ${url.pathname}`)
   const requestedName = decodeURIComponent(encodedName)
   const builtin = BUILTIN_RESOURCES.get(`${source}/${format}/${requestedName}`)
     || (engine === 'dvipdfmx' && format === '11' && requestedName === 'pdftex.map'
@@ -248,10 +259,24 @@ async function writePersistedResource(item) {
 }
 
 function persistResource(url, bytes, headers, onCacheError) {
-  if (bytes.byteLength === 0 || bytes.byteLength > RESOURCE_MAX_ENTRY) return
+  if (bytes.byteLength === 0) {
+    onCacheError?.(new Error('资源内容为空，未写入浏览器缓存'))
+    return
+  }
+  if (bytes.byteLength > RESOURCE_MAX_ENTRY) {
+    onCacheError?.(new Error(`资源 ${Math.ceil(bytes.byteLength / 1024 / 1024)} MiB 超过单条缓存上限 ${RESOURCE_MAX_ENTRY / 1024 / 1024} MiB，未写入浏览器缓存`))
+    return
+  }
   const copy = bytes.slice(0)
   const item = { url, bytes: copy, fileid: headers.fileid, fontid: headers.fontid, sha256: headers.fileid || headers.fontid, package: headers.package, revision: headers.revision, lastUsed: Date.now() }
-  if (!resourceChecksum(copy, headers) || !item.revision) return
+  if (!resourceChecksum(copy, headers)) {
+    onCacheError?.(new Error('资源校验值缺失或与内容不一致，未写入浏览器缓存'))
+    return
+  }
+  if (!item.revision) {
+    onCacheError?.(new Error('资源缺少版本号（profile），未写入浏览器缓存'))
+    return
+  }
   resourceCache.set(url, item)
   let memoryBytes = 0
   for (const cached of resourceCache.values()) memoryBytes += cached.bytes.byteLength
