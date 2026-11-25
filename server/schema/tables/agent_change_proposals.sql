@@ -17,6 +17,7 @@ CREATE TABLE `agent_change_proposals` (
   `old_text` text NOT NULL,
   `new_text` text NOT NULL,
   `reason` text DEFAULT NULL,
+  `norm_refs` json NOT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'pending',
   `applied_at` datetime(6) DEFAULT NULL,
   `rejected_at` datetime(6) DEFAULT NULL,

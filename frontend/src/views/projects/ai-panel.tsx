@@ -621,6 +621,34 @@ function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId
           {proposal.newText}
         </pre>
         {proposal.reason && <p className="text-[11px] text-muted-foreground">{proposal.reason}</p>}
+        {proposal.normRefs && proposal.normRefs.length > 0 && (
+          <div className="space-y-1">
+            <div className="flex flex-wrap gap-1">
+              {proposal.normRefs.map((ref) => (
+                <span
+                  key={ref.cite}
+                  className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                >
+                  {ref.cite}
+                </span>
+              ))}
+            </div>
+            <details>
+              <summary className="min-h-11 cursor-pointer text-[11px] text-primary">
+                查看依据的规范条款（{proposal.normRefs.length} 条）
+              </summary>
+              <ul className="mt-1 space-y-1">
+                {proposal.normRefs.map((ref) => (
+                  <li key={ref.cite} className="text-[11px] leading-5 text-muted-foreground">
+                    <span className="font-medium text-foreground">[{ref.cite}] {ref.title}</span>
+                    <span className="block">{ref.rule}</span>
+                    <span className="block">出处：{ref.source}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </div>
+        )}
         {proposal.status === 'stale' && (
           <p className="text-[11px] text-muted-foreground">稿件已变化，请基于当前内容重新请求修改建议。</p>
         )}
