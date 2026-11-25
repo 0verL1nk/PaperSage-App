@@ -77,6 +77,37 @@ describe('hung transport', () => {
   })
 })
 
+describe('credential auth endpoints skip token refresh', () => {
+  afterEach(() => {
+    setSessionTokens({ accessToken: '', refreshToken: '' })
+    vi.restoreAllMocks()
+  })
+
+  // B1 回归：验证码错误是 401，绝不能走 refresh → 清 token → 整页跳 /auth，
+  // 否则用户输入被清空且看不到任何错误提示。
+  it('surfaces wrong email-code errors without refreshing or redirecting', async () => {
+    setSessionTokens({ accessToken: 'old-access', refreshToken: 'old-refresh' })
+    const create = vi.spyOn(axios, 'create')
+    const adapter: AxiosAdapter = async (config) => {
+      throw new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', config, {}, {
+        config,
+        data: { code: 401, info: 'Invalid or expired verification code' },
+        headers: {},
+        status: 401,
+        statusText: 'Unauthorized',
+      })
+    }
+
+    await expect(
+      apiClient.post('/api/v1/auth/email-code/verify', { email: 'a@hit.edu.cn', code: '000000' }, { adapter }),
+    ).rejects.toMatchObject({ status: 401, message: '验证码错误或已过期，请重新获取。' })
+
+    expect(create).not.toHaveBeenCalled()
+    expect(getAccessToken()).toBe('old-access')
+    expect(getRefreshToken()).toBe('old-refresh')
+  })
+})
+
 describe('refresh with an unavailable local backend', () => {
   const backendError = '本地后端版本不匹配'
   const tokens = { accessToken: 'old-access', refreshToken: 'old-refresh' }

@@ -14,4 +14,7 @@ func Mount(rg *gin.RouterGroup, s *Service) {
 	rg.POST("/auth/resend-verification", s.resendVerification)
 	rg.POST("/auth/password-reset/request", s.requestPasswordReset)
 	rg.POST("/auth/password-reset/confirm", s.confirmPasswordReset)
+	rg.POST("/auth/email-code/send", s.sendEmailCode)
+	rg.POST("/auth/email-code/verify", s.verifyEmailCode)
+	rg.POST("/auth/password", s.AuthRequired(), s.setPassword)
 }

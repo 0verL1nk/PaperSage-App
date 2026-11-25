@@ -1,8 +1,13 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { loginWithPassword, registerWithEmail } from '@/services/auth-api'
+import {
+  loginWithPassword,
+  registerWithEmail,
+  sendEmailCode,
+  verifyEmailCode,
+} from '@/services/auth-api'
 import { initializeGuestWorkspace } from '@/services/guest-local-workspace'
 import { AuthPage } from '@/views/auth/auth-page'
 import { setSessionTokens, useSessionStore } from '@/store'
@@ -14,6 +19,8 @@ const toastErrorMock = vi.fn()
 vi.mock('@/services/auth-api', () => ({
   loginWithPassword: vi.fn(),
   registerWithEmail: vi.fn(),
+  sendEmailCode: vi.fn(),
+  verifyEmailCode: vi.fn(),
   getEmailDomains: vi.fn().mockResolvedValue(['hit.edu.cn']),
   resendVerification: vi.fn(),
 }))
@@ -60,6 +67,8 @@ describe('AuthPage', () => {
     toastErrorMock.mockReset()
     vi.mocked(loginWithPassword).mockReset()
     vi.mocked(registerWithEmail).mockReset()
+    vi.mocked(sendEmailCode).mockReset()
+    vi.mocked(verifyEmailCode).mockReset()
     vi.mocked(initializeGuestWorkspace).mockReset().mockResolvedValue(undefined)
     useSessionStore.setState({
       accessToken: '',
@@ -68,11 +77,118 @@ describe('AuthPage', () => {
     })
   })
 
-  it('labels credential fields for browser autofill', () => {
+  it('defaults to email code login', () => {
     renderAuthPage()
 
-    expect(screen.getByLabelText('用户名')).toHaveAttribute('autocomplete', 'username')
+    expect(screen.getByRole('button', { name: '验证码登录' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '密码登录' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('邮箱')).toHaveAttribute('autocomplete', 'email')
+    expect(screen.getByLabelText('验证码')).toHaveAttribute('autocomplete', 'one-time-code')
+    expect(screen.getByRole('button', { name: '获取验证码' })).toBeVisible()
+  })
+
+  it('labels credential fields for browser autofill in password mode', async () => {
+    const user = userEvent.setup()
+    renderAuthPage()
+
+    await user.click(screen.getByRole('button', { name: '密码登录' }))
+
+    expect(screen.getByLabelText('邮箱或用户名')).toHaveAttribute('autocomplete', 'username')
     expect(screen.getByLabelText('密码')).toHaveAttribute('autocomplete', 'current-password')
+  })
+
+  it('sends a code and starts the 60s countdown', async () => {
+    const user = userEvent.setup()
+    vi.mocked(sendEmailCode).mockResolvedValue({ message: '验证码已发送，请查收邮件。' })
+    renderAuthPage()
+
+    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.click(screen.getByRole('button', { name: '获取验证码' }))
+
+    // TanStack Query v5 会把 mutation context 作为第二个参数传给 mutationFn。
+    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', expect.anything()))
+    const countdown = await screen.findByRole('button', { name: /重新发送（\d+s）/ })
+    expect(countdown).toBeDisabled()
+  })
+
+  it('verifies the code, stores tokens and navigates to projects', async () => {
+    const user = userEvent.setup()
+    vi.mocked(verifyEmailCode).mockResolvedValue({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      isNewUser: false,
+    })
+    renderAuthPage()
+
+    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('验证码'), '123456')
+    await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
+
+    await waitFor(() => {
+      expect(verifyEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', '123456')
+    })
+    expect(useSessionStore.getState().accessToken).toBe('access-token')
+    expect(useSessionStore.getState().refreshToken).toBe('refresh-token')
+    expect(navigateMock).toHaveBeenCalledWith({ to: '/app/projects' })
+    expect(toastSuccessMock).toHaveBeenCalledWith('登录成功', expect.anything())
+  })
+
+  it('tells a first-time user that the account was created and how to set a password', async () => {
+    const user = userEvent.setup()
+    vi.mocked(verifyEmailCode).mockResolvedValue({
+      accessToken: 'access-token',
+      refreshToken: 'refresh-token',
+      isNewUser: true,
+    })
+    renderAuthPage()
+
+    await user.type(screen.getByLabelText('邮箱'), 'new@hit.edu.cn')
+    await user.type(screen.getByLabelText('验证码'), '123456')
+    await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
+
+    await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledWith(
+      '账号已创建',
+      expect.objectContaining({ description: expect.stringContaining('账号与安全') }),
+    ))
+  })
+
+  it('clears the stale email error after a successful send', async () => {
+    const user = userEvent.setup()
+    vi.mocked(sendEmailCode).mockResolvedValue({ message: '验证码已发送，请查收邮件。' })
+    renderAuthPage()
+
+    await user.click(screen.getByRole('button', { name: '获取验证码' }))
+    expect(await screen.findByText('请输入邮箱')).toBeVisible()
+
+    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.click(screen.getByRole('button', { name: '获取验证码' }))
+
+    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', expect.anything()))
+    await waitFor(() => expect(screen.queryByText('请输入邮箱')).not.toBeInTheDocument())
+  })
+
+  it('accepts only digits in the verification code field', async () => {
+    const user = userEvent.setup()
+    renderAuthPage()
+
+    const codeInput = screen.getByLabelText('验证码')
+    await user.type(codeInput, '12ab56cd')
+
+    expect(codeInput).toHaveValue('1256')
+  })
+
+  it('shows wrong-code errors inside the code form', async () => {
+    const user = userEvent.setup()
+    vi.mocked(verifyEmailCode).mockRejectedValue(new Error('验证码错误或已过期，请重新获取。'))
+    renderAuthPage()
+
+    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('验证码'), '000000')
+    await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
+
+    expect(await screen.findByText('验证码错误或已过期，请重新获取。')).toBeVisible()
+    expect(useSessionStore.getState().accessToken).toBe('')
+    expect(navigateMock).not.toHaveBeenCalled()
   })
 
   it('redirects away from /auth when a session already exists', async () => {
@@ -123,36 +239,7 @@ describe('AuthPage', () => {
     expect(toastSuccessMock).not.toHaveBeenCalled()
   })
 
-  // TODO: Fix this test - React Hook Form validation not triggering properly in test environment
-  it.skip('validates password confirmation in register mode', async () => {
-    renderAuthPage()
-
-    // Click register tab
-    await userEvent.click(screen.getByRole('tab', { name: '注册新账号' }))
-
-    // Wait for register form to be visible
-    await screen.findByLabelText('创建用户名')
-
-    // Use fireEvent to fill inputs (more reliable in tests)
-    const usernameInput = screen.getByLabelText('创建用户名')
-    const passwordInput = screen.getByLabelText('设置密码')
-    const confirmInput = screen.getByLabelText('确认密码')
-
-    fireEvent.change(usernameInput, { target: { value: 'alice' } })
-    fireEvent.change(passwordInput, { target: { value: 'Pass1234' } })
-    fireEvent.change(confirmInput, { target: { value: 'Pass4321' } })
-
-    // Submit form
-    await userEvent.click(screen.getByRole('button', { name: '创建我的账号' }))
-
-    // Should show password mismatch error
-    await waitFor(() => {
-      expect(screen.getByText(/两次输入的密码不一致/i)).toBeInTheDocument()
-    })
-    expect(registerWithEmail).not.toHaveBeenCalled()
-  })
-
-  it('stores long and short tokens after a successful login', async () => {
+  it('stores tokens after a successful password login', async () => {
     const user = userEvent.setup()
 
     vi.mocked(loginWithPassword).mockResolvedValue({
@@ -161,8 +248,9 @@ describe('AuthPage', () => {
     })
 
     renderAuthPage()
+    await user.click(screen.getByRole('button', { name: '密码登录' }))
 
-    await user.type(screen.getByLabelText('用户名'), 'alice')
+    await user.type(screen.getByLabelText('邮箱或用户名'), 'alice')
     await user.type(screen.getByLabelText('密码'), 'Pass1234')
     await user.click(screen.getByRole('button', { name: '立即登录' }))
 

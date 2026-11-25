@@ -5,8 +5,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -26,6 +28,18 @@ import (
 // 可配），匹配语义：裸域命中自身与任意子域，"*."前缀仅子域，
 // 精确段匹配防前后缀伪造。
 var EmailGate = emailAllowedFromDB
+
+// emailAddressPattern：实用邮箱语法（本地部分 + 至少一个点分域名）。
+var emailAddressPattern = regexp.MustCompile(`^[A-Za-z0-9.!#$%&'*+/=?^_{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$`)
+
+// validEmailAddress：发信前的强校验。空白、缺 @、CR/LF、超长一律拒绝——
+// 地址会进入 SMTP 头，CRLF 会造成邮件头注入（CodeQL go/email-injection）。
+func validEmailAddress(email string) bool {
+	if email == "" || len(email) > 254 || strings.ContainsAny(email, "\r\n\t ") {
+		return false
+	}
+	return emailAddressPattern.MatchString(email)
+}
 
 // allowedDomainsFromDB 读白名单（空列表 = 不限制）。
 func allowedDomainsFromDB(db *gorm.DB) []string {
@@ -51,6 +65,9 @@ func (s *Service) emailDomainsHandler(c *gin.Context) {
 }
 
 func emailAllowedFromDB(db *gorm.DB, email string) (bool, string) {
+	if !validEmailAddress(email) {
+		return false, "邮箱格式不正确"
+	}
 	domains := allowedDomainsFromDB(db)
 	if len(domains) == 0 {
 		return true, ""
@@ -89,32 +106,57 @@ const (
 	rateMaxLogin = 8 // 略宽于 OWASP 下限，兼顾多人共享校园出口 IP
 )
 
+type rateEntry struct {
+	hits   []time.Time
+	window time.Duration
+}
+
 type rateLimiter struct {
-	mu   sync.Mutex
-	hits map[string][]time.Time
+	mu        sync.Mutex
+	hits      map[string]*rateEntry
+	lastSweep time.Time
 }
 
 func newRateLimiter() *rateLimiter {
-	return &rateLimiter{hits: map[string][]time.Time{}}
+	return &rateLimiter{hits: map[string]*rateEntry{}}
 }
 
-// allow 记录一次尝试；返回 false 表示超出窗口限额。
+// allow 记录一次尝试；返回 false 表示超出速率窗口限额。
 func (r *rateLimiter) allow(key string, max int) bool {
+	return r.allowWindow(key, max, rateWindow)
+}
+
+// allowWindow 是 allow 的通用形式：window 内最多 max 次。
+// 惰性清扫：键会按任意邮箱/IP 累积，过期条目在调用时删除，避免无界内存。
+func (r *rateLimiter) allowWindow(key string, max int, window time.Duration) bool {
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	list := r.hits[key]
-	keep := list[:0]
-	for _, t := range list {
-		if now.Sub(t) < rateWindow {
+	if now.Sub(r.lastSweep) >= rateWindow {
+		for k, e := range r.hits {
+			if len(e.hits) == 0 || now.Sub(e.hits[len(e.hits)-1]) >= e.window {
+				delete(r.hits, k)
+			}
+		}
+		r.lastSweep = now
+	}
+	e := r.hits[key]
+	if e == nil {
+		e = &rateEntry{}
+		r.hits[key] = e
+	}
+	e.window = window
+	keep := e.hits[:0]
+	for _, t := range e.hits {
+		if now.Sub(t) < window {
 			keep = append(keep, t)
 		}
 	}
+	e.hits = keep
 	if len(keep) >= max {
-		r.hits[key] = keep
 		return false
 	}
-	r.hits[key] = append(keep, now)
+	e.hits = append(e.hits, now)
 	return true
 }
 
@@ -161,7 +203,7 @@ func (s *Service) registerEmailFlow(c *gin.Context, email, password string) {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
 	}
-	username, err := s.uniqueUsernameFromEmail(email)
+	username, err := s.uniqueUsernameFromEmail(s.DB, email)
 	if err != nil {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
@@ -200,7 +242,8 @@ func normalizeEmail(email string) string {
 }
 
 // uniqueUsernameFromEmail：email 本地部分生成 username，冲突加短随机后缀。
-func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
+// db 由调用方传入（事务内必须用 tx，否则 SQLite :memory: 会另开一个空库连接）。
+func (s *Service) uniqueUsernameFromEmail(db *gorm.DB, email string) (string, error) {
 	local := email[:strings.Index(email, "@")]
 	local = strings.Map(func(r rune) rune {
 		switch {
@@ -220,7 +263,7 @@ func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
 			candidate = base + "_" + randSuffix(4)
 		}
 		var n int64
-		if err := s.DB.Model(&store.User{}).Where("username = ?", candidate).Count(&n).Error; err != nil {
+		if err := db.Model(&store.User{}).Where("username = ?", candidate).Count(&n).Error; err != nil {
 			return "", err
 		}
 		if n == 0 {
@@ -232,6 +275,17 @@ func (s *Service) uniqueUsernameFromEmail(email string) (string, error) {
 
 // sendVerification 仅在验证 token 已持久化且邮件服务接受发送后返回成功。
 func (s *Service) sendVerification(ctx context.Context, user *store.User) error {
+	// 发信地址以落库值为准：刚注册的 user 里可能是请求原值，直接进邮件头会被
+	// 视为不可信输入（CodeQL go/email-injection）；同时避免与持久化状态不一致。
+	var persisted store.User
+	if err := s.DB.WithContext(ctx).Select("id", "email").Where("id = ?", user.ID).First(&persisted).Error; err != nil {
+		return err
+	}
+	if persisted.Email == nil || *persisted.Email == "" {
+		return errors.New("user has no email")
+	}
+	to := *persisted.Email
+
 	token, err := CreateVerifyToken(s.Cfg.SecretKey, user.ID.String(), verifyTokenTTL)
 	if err != nil {
 		return err
@@ -249,10 +303,6 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) error 
 		return err
 	}
 
-	to := ""
-	if user.Email != nil {
-		to = *user.Email
-	}
 	// 热生效：管理后台的 app_url / email 组覆盖启动配置
 	appURL := syssettings.GetAppURL(s.DB)
 	if appURL == "" {
@@ -342,15 +392,19 @@ func (s *Service) resendVerification(c *gin.Context) {
 	var req struct {
 		Email string `json:"email"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Email == "" {
+	if err := c.ShouldBindJSON(&req); err != nil {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
-	if !s.limiter.allow("resend:"+req.Email, 1) {
+	email := normalizeEmail(strings.TrimSpace(req.Email))
+	if !validEmailAddress(email) {
+		httpapi.WriteError(c.Writer, errBad("邮箱格式不正确", http.StatusBadRequest))
+		return
+	}
+	if !s.limiter.allow("resend:"+email, 1) {
 		httpapi.WriteError(c.Writer, errBad("Verification email is cooling down; please try again shortly.", http.StatusTooManyRequests))
 		return
 	}
-	email := normalizeEmail(req.Email)
 	var user store.User
 	err := s.DB.Where("email = ? AND email_verified = false", email).First(&user).Error
 	if err == nil {

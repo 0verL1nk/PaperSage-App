@@ -84,7 +84,17 @@ const INFO_ZH: Record<string, string> = {
   'Refresh token has been revoked': '登录已失效，请重新登录',
   'Invalid or expired verification link': '验证链接无效或已过期，请重新发送验证邮件',
   'Invalid or expired password reset link': '密码重置链接无效、已过期或已使用，请重新申请',
+  'Login code email could not be sent. Please try again shortly.': '验证码邮件发送失败，请稍后重试。',
+  'Too many verification code requests. Please try again later.': '验证码请求过于频繁，请稍后再试。',
+  'Invalid or expired verification code': '验证码错误或已过期，请重新获取。',
+  'Account is disabled': '账号已被停用',
+  'This email is linked to an unavailable account. Please contact support.': '该邮箱关联的账号不可用，请联系管理员。',
+  'Current password is incorrect': '当前密码不正确',
 }
+
+/** 后端带动态剩余次数的错误（逐条翻译整句，避免中英混排） */
+const CODE_ATTEMPTS_LEFT = /^Incorrect verification code\. (\d+) attempts left\.$/
+const CODE_ATTEMPTS_EXHAUSTED = 'Too many incorrect verification codes. Request a new one.'
 
 /** 前缀匹配（带动态后缀的串，如文件大小/类型） */
 const INFO_ZH_PREFIX: Array<[string, string]> = [
@@ -96,6 +106,9 @@ const INFO_ZH_PREFIX: Array<[string, string]> = [
 
 export function translateBackendInfo(info: string | undefined): string | undefined {
   if (!info) return info
+  const attempts = CODE_ATTEMPTS_LEFT.exec(info)
+  if (attempts) return `验证码不正确，还可尝试 ${attempts[1]} 次`
+  if (info === CODE_ATTEMPTS_EXHAUSTED) return '验证码错误次数过多，请重新获取验证码。'
   const exact = INFO_ZH[info]
   if (exact) return exact
   for (const [prefix, zh] of INFO_ZH_PREFIX) {

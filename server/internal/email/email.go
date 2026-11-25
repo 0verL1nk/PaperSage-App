@@ -12,7 +12,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/mail"
 	"net/smtp"
+	"strings"
 )
 
 // Sender 发送一封交易邮件（HTML 正文）。
@@ -76,9 +78,19 @@ type SMTP struct {
 }
 
 func (s *SMTP) Send(_ context.Context, to, subject, html string) error {
-	msg := "From: " + s.From + "\r\n" +
-		"To: " + to + "\r\n" +
-		"Subject: " + subject + "\r\n" +
+	// 地址会进入 SMTP 头：先按 RFC 5322 解析并去 CR/LF，拒绝畸形地址，
+	// 防止用户输入造成邮件头注入（CodeQL go/email-injection）。
+	recipient, err := sanitizeAddress(to)
+	if err != nil {
+		return err
+	}
+	sender, err := sanitizeAddress(s.From)
+	if err != nil {
+		return err
+	}
+	msg := "From: " + sender + "\r\n" +
+		"To: " + recipient + "\r\n" +
+		"Subject: " + sanitizeHeaderValue(subject) + "\r\n" +
 		"MIME-Version: 1.0\r\n" +
 		"Content-Type: text/html; charset=utf-8\r\n\r\n" +
 		html
@@ -86,5 +98,23 @@ func (s *SMTP) Send(_ context.Context, to, subject, html string) error {
 	if s.Auth != nil {
 		auth = s.Auth
 	}
-	return smtp.SendMail(s.Host, auth, s.From, []string{to}, []byte(msg))
+	return smtp.SendMail(s.Host, auth, sender, []string{recipient}, []byte(msg))
+}
+
+// sanitizeAddress 解析并规范化邮件地址；畸形地址或空地址直接报错。
+func sanitizeAddress(raw string) (string, error) {
+	// mail.ParseAddress 会容忍首尾空白；地址进头之前必须原样拒绝空白与 CR/LF。
+	if raw == "" || raw != strings.TrimSpace(raw) || strings.ContainsAny(raw, "\r\n") {
+		return "", errors.New("email: invalid address")
+	}
+	addr, err := mail.ParseAddress(raw)
+	if err != nil || addr.Address == "" {
+		return "", errors.New("email: invalid address")
+	}
+	return sanitizeHeaderValue(addr.Address), nil
+}
+
+// sanitizeHeaderValue 去掉 CR/LF，杜绝头注入。
+func sanitizeHeaderValue(value string) string {
+	return strings.NewReplacer("\r", "", "\n", "").Replace(value)
 }

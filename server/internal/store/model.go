@@ -215,6 +215,29 @@ type VerificationToken struct {
 
 func (VerificationToken) TableName() string { return "verification_tokens" }
 
+// EmailLoginCode：邮箱验证码登录的一次性凭据（bcrypt 哈希，无明文）。
+// 不绑 user_id——首次登录时用户还不存在；按 email 取最新未消费行。
+// 基础设施表硬删（无 deleted_at），与 verification_tokens 同语义。
+type EmailLoginCode struct {
+	ID        UUID       `gorm:"column:id;primaryKey"`
+	Email     string     `gorm:"column:email;size:255;not null;index:ix_email_login_codes_email,priority:1"`
+	CodeHash  string     `gorm:"column:code_hash;size:255;not null"`
+	Attempts  int        `gorm:"column:attempts;not null;default:0"`
+	ExpiresAt time.Time  `gorm:"column:expires_at;not null"`
+	UsedAt    *time.Time `gorm:"column:used_at"`
+	CreatedAt time.Time  `gorm:"column:created_at;not null;autoCreateTime;index:ix_email_login_codes_email,priority:2"`
+}
+
+func (EmailLoginCode) TableName() string { return "email_login_codes" }
+
+// BeforeCreate 填充 uuid4 主键（与其他模型一致）。
+func (c *EmailLoginCode) BeforeCreate(*gorm.DB) error {
+	if c.ID.UUID == uuid.Nil {
+		c.ID = UUID{UUID: uuid.Must(uuid.NewV7())}
+	}
+	return nil
+}
+
 // AgentConversation：AI 助手会话（云端化，DB 持久）。
 // 用 gorm.DeletedAt 而非 SoftDeleteTime：本表无唯一键，不需要 deleted_seq。
 type AgentConversation struct {
@@ -273,7 +296,7 @@ func coreModels() []any {
 		&ProjectSource{}, &SourceVersion{}, &SourceExtraction{}, &SourceSegment{},
 		&ResearchArtifact{}, &ResearchArtifactRevision{}, &ResearchArtifactDependency{},
 		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
-		&SystemSetting{}, &VerificationToken{}, &ImportReceipt{},
+		&SystemSetting{}, &VerificationToken{}, &EmailLoginCode{}, &ImportReceipt{},
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
 		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},
 		&AgentArtifact{}, &AgentChangeProposal{}, &AgentEvidence{}, &AgentWikiSource{},

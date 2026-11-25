@@ -14,6 +14,7 @@ export type CurrentUser = {
   username: string
   email: string | null
   emailVerified: boolean
+  hasPassword: boolean
   isGuest: boolean
   guestExpiresAt?: string
   isSuperuser: boolean
@@ -70,6 +71,49 @@ export async function loginWithPassword(payload: AuthPayload) {
 
 export async function getCurrentUser(): Promise<CurrentUser> {
   return getJson<CurrentUser>(AUTH.me, { skipGlobalLoading: true })
+}
+
+/** 发送邮箱登录验证码（5 分钟有效，60s 冷却）。 */
+export async function sendEmailCode(email: string) {
+  return postJson<{ message?: string; cooldownSeconds?: number }>(
+    AUTH.emailCodeSend,
+    { email },
+    // 弱网/断网时按钮不能无限转圈：与页面查询同样的 JS 级超时兜底。
+    { skipGlobalLoading: true, timeout: 15_000 },
+  )
+}
+
+/** 核销验证码登录；新邮箱会由后端自动注册并返回 isNewUser。 */
+export async function verifyEmailCode(email: string, code: string) {
+  const data = await postJson<Partial<SessionTokens> & { isNewUser?: boolean }>(
+    AUTH.emailCodeVerify,
+    { email, code },
+    { skipGlobalLoading: true, timeout: 15_000 },
+  )
+  if (!data?.accessToken || !data.refreshToken) {
+    throw new FrontendApiError('登录响应缺少 accessToken 或 refreshToken。', {
+      kind: 'backend',
+      info: 'Missing accessToken or refreshToken in login response.',
+      details: data,
+    })
+  }
+  return {
+    accessToken: data.accessToken,
+    refreshToken: data.refreshToken,
+    isNewUser: data.isNewUser === true,
+  }
+}
+
+/** 设置/修改密码；与登录一致，口令在前端 SHA-256 后再传输。 */
+export async function setPassword(payload: { currentPassword?: string; newPassword: string }) {
+  return postJson<{ message?: string; hasPassword?: boolean }>(
+    AUTH.password,
+    {
+      currentPassword: payload.currentPassword ? await sha256(payload.currentPassword) : undefined,
+      newPassword: await sha256(payload.newPassword),
+    },
+    { skipGlobalLoading: true },
+  )
 }
 
 export async function registerWithEmail(email: string, rawPassword: string) {
