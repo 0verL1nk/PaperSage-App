@@ -895,7 +895,8 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 			case "norm":
 				found := false
 				for _, entry := range p.Input.Norms {
-					if entry.ID == b.Ref || entry.Title == b.Ref {
+					// 提示词要求模型用 Cite() 的引用号；同时保留 ID/标题兼容历史报告。
+					if entry.ID == b.Ref || entry.Title == b.Ref || entry.Cite() == b.Ref {
 						found = true
 						break
 					}
