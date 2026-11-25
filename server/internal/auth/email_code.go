@@ -115,7 +115,16 @@ func (s *Service) sendEmailCode(c *gin.Context) {
 		return
 	}
 
-	if err := s.sendLoginCodeEmail(c.Request.Context(), email, code, row.ExpiresAt); err != nil {
+	// 发信地址以落库值为准：与持久化状态一致，也避免把请求原值直接带进邮件头
+	// （CodeQL go/email-injection 对 smtp.SendMail 消息体做数据流检查）。
+	var persisted struct{ Email string }
+	if err := s.DB.WithContext(c.Request.Context()).
+		Model(&store.EmailLoginCode{}).Select("email").Where("id = ?", row.ID).
+		Scan(&persisted).Error; err != nil || persisted.Email == "" {
+		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
+		return
+	}
+	if err := s.sendLoginCodeEmail(c.Request.Context(), persisted.Email, code, row.ExpiresAt); err != nil {
 		// 发信失败立刻作废，避免"没收到却能猜"的窗口。
 		_ = s.DB.WithContext(c.Request.Context()).Model(&store.EmailLoginCode{}).
 			Where("id = ?", row.ID).Update("used_at", time.Now().UTC()).Error

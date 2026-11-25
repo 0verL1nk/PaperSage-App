@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -274,6 +275,17 @@ func (s *Service) uniqueUsernameFromEmail(db *gorm.DB, email string) (string, er
 
 // sendVerification 仅在验证 token 已持久化且邮件服务接受发送后返回成功。
 func (s *Service) sendVerification(ctx context.Context, user *store.User) error {
+	// 发信地址以落库值为准：刚注册的 user 里可能是请求原值，直接进邮件头会被
+	// 视为不可信输入（CodeQL go/email-injection）；同时避免与持久化状态不一致。
+	var persisted store.User
+	if err := s.DB.WithContext(ctx).Select("id", "email").Where("id = ?", user.ID).First(&persisted).Error; err != nil {
+		return err
+	}
+	if persisted.Email == nil || *persisted.Email == "" {
+		return errors.New("user has no email")
+	}
+	to := *persisted.Email
+
 	token, err := CreateVerifyToken(s.Cfg.SecretKey, user.ID.String(), verifyTokenTTL)
 	if err != nil {
 		return err
@@ -291,10 +303,6 @@ func (s *Service) sendVerification(ctx context.Context, user *store.User) error 
 		return err
 	}
 
-	to := ""
-	if user.Email != nil {
-		to = *user.Email
-	}
 	// 热生效：管理后台的 app_url / email 组覆盖启动配置
 	appURL := syssettings.GetAppURL(s.DB)
 	if appURL == "" {
