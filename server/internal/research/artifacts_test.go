@@ -448,3 +448,104 @@ func mustJSON(t *testing.T, v any) json.RawMessage {
 	require.NoError(t, err)
 	return raw
 }
+
+func seedDocument(t *testing.T, db *gorm.DB, projectID, ownerID store.UUID, sourceID *store.UUID) store.UUID {
+	t.Helper()
+	doc := store.Document{
+		Name: "paper.pdf", Type: "application/pdf", Status: "uploaded",
+		S3Key: "k/paper", ProjectID: projectID, OwnerID: ownerID, SourceID: sourceID,
+	}
+	require.NoError(t, db.Create(&doc).Error)
+	return doc.ID
+}
+
+// documentNotePayload 用 documentId（而不是 sourceVersionId）引用依据，
+// 与 rag_search 返回 source_id 后模型按工具说明产出的写法一致。
+func documentNotePayload(document store.UUID) json.RawMessage {
+	field := func(text string, evidence bool) map[string]any {
+		f := map[string]any{"text": text, "status": "reported"}
+		if evidence {
+			f["evidence"] = []map[string]any{{"documentId": document.String()}}
+		}
+		return f
+	}
+	raw, _ := json.Marshal(map[string]any{
+		"source":   map[string]any{"documentId": document.String()},
+		"question": field("研究问题", true), "method": field("方法", true),
+		"objects": field("对象", true), "conditions": field("条件", true),
+		"results": field("结果", true), "limitations": field("限制", true),
+	})
+	return raw
+}
+
+// 回归：documentId 证据必须记录**实际来源版本**（最大 revision），
+// 而不是把文档 ID 记成 source_version——后者会让 adopt 按版本表校验时必然 400。
+func TestDocumentEvidenceRecordsResolvedSourceVersion(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	version := seedSource(t, db, pid)
+	var v1 store.SourceVersion
+	require.NoError(t, db.Where("id = ?", version).First(&v1).Error)
+	v2 := store.SourceVersion{SourceID: v1.SourceID, Revision: 2, S3Key: "k2",
+		ContentSHA256: strings.Repeat("b", 64), SizeBytes: 1}
+	require.NoError(t, db.Create(&v2).Error)
+	docID := seedDocument(t, db, pid, uid, &v1.SourceID)
+
+	ctx := context.Background()
+	created, err := svc.Create(ctx, uid, pid, createRequest{
+		Kind: store.ResearchArtifactLiteratureNote, Payload: documentNotePayload(docID),
+	})
+	require.NoError(t, err)
+
+	var deps []store.ResearchArtifactDependency
+	require.NoError(t, db.Where("artifact_id = ? AND revision = ?", store.UUID{UUID: created.ID}, 1).Find(&deps).Error)
+	require.NotEmpty(t, deps)
+	for _, dep := range deps {
+		assert.Equal(t, store.ResearchDependencySourceVersion, dep.Kind,
+			"有来源版本的文档必须记 source_version 依赖")
+		assert.Equal(t, v2.ID, dep.RefID, "必须记录当前（最大 revision）版本")
+	}
+
+	_, err = svc.Adopt(ctx, uid, pid, store.UUID{UUID: created.ID},
+		decisionRequest{Revision: 1, ExpectedRevision: 1})
+	require.NoError(t, err, "documentId 证据的产物必须可 adopt")
+}
+
+// 没有来源版本的文档只能记 document 依赖，adopt 仍须成功。
+func TestDocumentWithoutSourceVersionUsesDocumentDependency(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	docID := seedDocument(t, db, pid, uid, nil)
+
+	ctx := context.Background()
+	created, err := svc.Create(ctx, uid, pid, createRequest{
+		Kind: store.ResearchArtifactLiteratureNote, Payload: documentNotePayload(docID),
+	})
+	require.NoError(t, err)
+
+	var deps []store.ResearchArtifactDependency
+	require.NoError(t, db.Where("artifact_id = ? AND revision = ?", store.UUID{UUID: created.ID}, 1).Find(&deps).Error)
+	require.NotEmpty(t, deps)
+	for _, dep := range deps {
+		assert.Equal(t, store.ResearchDependencyDocument, dep.Kind)
+		assert.Equal(t, docID, dep.RefID)
+	}
+
+	_, err = svc.Adopt(ctx, uid, pid, store.UUID{UUID: created.ID},
+		decisionRequest{Revision: 1, ExpectedRevision: 1})
+	require.NoError(t, err, "document 依赖的产物必须可 adopt")
+}
+
+// 跨项目 documentId 仍须拒绝（归属校验在 validateRef）。
+func TestCrossProjectDocumentEvidenceRejected(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	otherPid := store.MustNewUUID()
+	require.NoError(t, db.Create(&store.Project{Name: "Q", OwnerID: uid,
+		BaseModel: store.BaseModel{ID: otherPid}}).Error)
+	docID := seedDocument(t, db, otherPid, uid, nil)
+
+	_, err := svc.Create(context.Background(), uid, pid, createRequest{
+		Kind: store.ResearchArtifactLiteratureNote, Payload: documentNotePayload(docID),
+	})
+	var apiErr *httpapi.APIError
+	require.ErrorAs(t, err, &apiErr)
+	assert.Equal(t, 400, apiErr.Code, "跨项目 documentId 必须拒绝")
+}

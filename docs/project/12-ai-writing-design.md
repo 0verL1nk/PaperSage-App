@@ -147,7 +147,8 @@ PDF 优先提取物理页序号，并标明与印刷页码的区别；坐标准�
 
 > **已修复（2026-10-05，`agent-run-architecture` 期间）**：`Store.Search` 的融合改为按本文公式实现——名次**从 1 开始**，**逐路取倒数后相加**（`score(d) = Σ 1/(60 + rank_i(d))`），BM25 独有命中取该路**真实名次**（原先被加上固定 10000，分数塌到 ~1e-4 并被 top-k 截掉）。
 > 回归用例：`internal/rag/rrf_test.go`（名次从 1 起、两路共同命中胜过单路第 1、分数不被基数压低）。
-> **仍未做**：同分稳定性与稳定 ID 排序、空查询/空库、嵌入失败降级的显式用例；以及 §9.2 要求的 BM25 / 向量 / 融合三组对照实验。
+> **库端补齐（2026-11-26，HELE-3）**：内存、Pg（`SearchVector`）与 TiDB（`vectorSearchDB`）三条向量路径统一使用 `minCosineSimilarity = 1e-6` 阈值，并保留 `ORDER BY 距离, id` 的次级排序；`Search` 入口拒绝空白查询（返回中文报错供模型重试，不再把零向量送进余弦距离）；嵌入失败保持显式报错，不降级为 BM25-only。回归：`rrf_test.go` 覆盖空查询/空库/嵌入失败；`neon_integration_test.go` 覆盖同距稳定排序与正交向量过滤（需 `RAG_TEST_PG_DSN`）。**TiDB 路径无运行环境，SQL 与 Pg 同构但未运行验证。**
+> **仍未做**：§9.2 要求的 BM25 / 向量 / 融合三组对照实验。
 
 ### 6.3 索引与 wiki 的新鲜度
 
@@ -172,6 +173,12 @@ wiki 是派生笔记，不是新出现的一份原始证据。每个用于生成
 > 会话入口：`POST /projects/:id/agent/conversations` 显式建会话（归属校验），
 > 面板在**第一条消息**时先建会话再发 Run——此前没有任何建会话接口，
 > 新项目的第一句话会静默丢失（e2e 抓到）。
+>
+> **执行级证据（2026-11-26，HELE-3）**：新增 scripted-model 端到端回归
+> （`server/internal/agent/proposal_write_guard_test.go`）：真实 Run + 真实 `FilesService` 下，
+> 模型调用 `propose_edit` 后 `main.tex` 内容不变、工具调用停在 `awaiting_approval`、建议为 `pending`；
+> `POST /apply` 后才写入并收敛状态；建议产出后先改稿再 apply 返回 409 且建议转 `stale`。
+> `TestProjectToolsHasNoWriteTool` 增加显式工具白名单，新增工具未登记即测试失败。
 >
 > **仍未做**：不可变文件快照与版本回退、批注（WritingComment）与文本锚点区间、
 > `deferred/needs_recheck` 的适用性生命周期、证据身份随来源撤权失效——这些仍属 §10 的 P0/P1 范围。

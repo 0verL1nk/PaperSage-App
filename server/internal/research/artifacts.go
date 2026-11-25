@@ -559,15 +559,26 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 		return nil, nil, httpapi.BadRequest("缺少产物内容")
 	}
 	var allDeps []dependencyInput
-	addEvidence := func(refs []EvidenceRef) {
+	addEvidence := func(refs []EvidenceRef) error {
 		for _, ref := range refs {
 			if ref.SourceVersionID != nil {
 				allDeps = append(allDeps, dependencyInput{Kind: store.ResearchDependencySourceVersion, ID: *ref.SourceVersionID})
 			}
 			if ref.DocumentID != nil {
-				allDeps = append(allDeps, dependencyInput{Kind: store.ResearchDependencySourceVersion, ID: *ref.DocumentID})
+				// 记录实际依赖：能解析到文档当前来源版本就记版本，否则记文档本身。
+				// 曾把文档 ID 直接记成 source_version，adopt 时按版本表校验必然 400。
+				versionID, ok, err := s.resolveDocumentVersion(ctx, *ref.DocumentID)
+				if err != nil {
+					return err
+				}
+				if ok {
+					allDeps = append(allDeps, dependencyInput{Kind: store.ResearchDependencySourceVersion, ID: versionID})
+				} else {
+					allDeps = append(allDeps, dependencyInput{Kind: store.ResearchDependencyDocument, ID: *ref.DocumentID})
+				}
 			}
 		}
+		return nil
 	}
 	validateRef := func(ref EvidenceRef) error {
 		if ref.SourceVersionID != nil {
@@ -602,8 +613,7 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 				return err
 			}
 		}
-		addEvidence(f.Evidence)
-		return nil
+		return addEvidence(f.Evidence)
 	}
 
 	switch kind {
@@ -615,7 +625,9 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 		if err := validateRef(p.Source); err != nil {
 			return nil, nil, err
 		}
-		addEvidence([]EvidenceRef{p.Source})
+		if err := addEvidence([]EvidenceRef{p.Source}); err != nil {
+			return nil, nil, err
+		}
 		for _, f := range []Field{p.Question, p.Method, p.Objects, p.Conditions, p.Results, p.Limitations} {
 			if err := validateField(f); err != nil {
 				return nil, nil, err
@@ -926,6 +938,31 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 	return nil
 }
 
+// resolveDocumentVersion 解析文档当前的来源版本（documents.source_id → 最大 revision）。
+// 文档未走版本化上传或来源尚无版本时返回 false，由调用方改记 document 依赖。
+func (s *Service) resolveDocumentVersion(ctx context.Context, documentID store.UUID) (store.UUID, bool, error) {
+	var doc store.Document
+	if err := s.DB.WithContext(ctx).Select("id", "source_id").First(&doc, "id = ?", documentID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return store.UUID{}, false, nil
+		}
+		return store.UUID{}, false, err
+	}
+	if doc.SourceID == nil {
+		return store.UUID{}, false, nil
+	}
+	var version store.SourceVersion
+	err := s.DB.WithContext(ctx).Where("source_id = ?", *doc.SourceID).
+		Order("revision DESC").First(&version).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return store.UUID{}, false, nil
+	}
+	if err != nil {
+		return store.UUID{}, false, err
+	}
+	return version.ID, true, nil
+}
+
 func (s *Service) checkSourceVersion(ctx context.Context, projectID, versionID store.UUID) error {
 	var count int64
 	err := s.DB.WithContext(ctx).Model(&store.SourceVersion{}).
@@ -946,6 +983,7 @@ var dependencyKinds = map[string]bool{
 	store.ResearchDependencySourceSegment: true,
 	store.ResearchDependencyArtifact:      true,
 	store.ResearchDependencyRun:           true,
+	store.ResearchDependencyDocument:      true,
 }
 
 func createDependencies(tx *gorm.DB, projectID, artifactID store.UUID, revision int, deps []dependencyInput) error {
@@ -1009,6 +1047,15 @@ func (s *Service) validateDependencies(ctx context.Context, projectID, artifactI
 			}
 			if count == 0 {
 				return httpapi.BadRequest("引用的运行不属于该项目")
+			}
+		case store.ResearchDependencyDocument:
+			var count int64
+			if err := s.DB.WithContext(ctx).Model(&store.Document{}).
+				Where("id = ? AND project_id = ?", dep.RefID, projectID).Count(&count).Error; err != nil {
+				return err
+			}
+			if count == 0 {
+				return httpapi.BadRequest("引用的资料已不存在或不属于该项目")
 			}
 		default:
 			return httpapi.BadRequest("依赖类型不合法")

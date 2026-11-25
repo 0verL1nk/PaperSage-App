@@ -136,8 +136,9 @@ func (p *PgStore) SearchVector(ctx context.Context, projectID string, q []float3
 		       1 - (embedding <=> $2::vector) AS score
 		FROM rag_chunks
 		WHERE project_id = $1 AND ($3 <= 0 OR generation = $3)
-		ORDER BY embedding <=> $2::vector
-		LIMIT $4`, projectID, VecLiteral(q), generation, k)
+		  AND 1 - (embedding <=> $2::vector) > $5
+		ORDER BY embedding <=> $2::vector, id
+		LIMIT $4`, projectID, VecLiteral(q), generation, k, minCosineSimilarity)
 	if err != nil {
 		return nil, err
 	}
