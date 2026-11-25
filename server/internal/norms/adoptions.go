@@ -39,11 +39,20 @@ func (s *Service) adoptionResponses(ctx context.Context, uid store.UUID, adoptio
 	if err != nil {
 		return nil, err
 	}
+	// 采用响应的内容必须来自被锁定的版本；loadEntryRows 给的是当前版本，
+	// 直接把当前内容展示成「本项目生效的规范」会让用户误以为改稿已生效。
+	lockedVersions, err := s.loadVersions(ctx, adoptions)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]adoptionResponse, 0, len(adoptions))
 	for _, a := range adoptions {
 		row, ok := rows[a.EntryID]
 		if !ok {
 			continue
+		}
+		if locked, ok := lockedVersions[a.EntryID]; ok {
+			row.Version = locked
 		}
 		resp := adoptionResponse{
 			EntryID: a.EntryID.String(), Version: a.Version, State: a.State,
@@ -56,6 +65,33 @@ func (s *Service) adoptionResponses(ctx context.Context, uid store.UUID, adoptio
 			resp.OverrideText = *a.OverrideText
 		}
 		out = append(out, resp)
+	}
+	return out, nil
+}
+
+// loadVersions 按每条采用记录锁定的版本号精确取内容，供采用列表展示。
+func (s *Service) loadVersions(ctx context.Context, adoptions []store.ProjectNormAdoption) (map[store.UUID]store.NormVersion, error) {
+	out := map[store.UUID]store.NormVersion{}
+	if len(adoptions) == 0 {
+		return out, nil
+	}
+	ids := make([]store.UUID, 0, len(adoptions))
+	versions := make([]int, 0, len(adoptions))
+	pinned := map[store.UUID]int{}
+	for _, a := range adoptions {
+		ids = append(ids, a.EntryID)
+		versions = append(versions, a.Version)
+		pinned[a.EntryID] = a.Version
+	}
+	var rows []store.NormVersion
+	if err := s.DB.WithContext(ctx).Where("entry_id IN ? AND version IN ?", ids, versions).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, v := range rows {
+		if pinned[v.EntryID] == v.Version {
+			out[v.EntryID] = v
+		}
 	}
 	return out, nil
 }
