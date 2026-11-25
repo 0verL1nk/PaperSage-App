@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,6 +38,43 @@ func TestRRFRealRanksBeatArtificialBase(t *testing.T) {
 		assert.Greater(t, h.Score, 1.0/100.0,
 			"分数不应被名次基数压到接近 0（%s）", h.SourceName)
 	}
+}
+
+// 空查询必须在入口拒绝：库端会把零向量送进余弦距离，排序不可预期；
+// 显式报错才能让模型换个具体查询重试，而不是把空结果当成「没有资料」。
+func TestSearchRejectsBlankQuery(t *testing.T) {
+	s := newTestStore(t)
+	for _, q := range []string{"", "   ", "\n\t"} {
+		hits, err := s.Search(context.Background(), store.MustNewUUID(), q, 5)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "检索词不能为空")
+		assert.Empty(t, hits)
+	}
+}
+
+// 空库检索是正常的「没有资料」，不是错误。
+func TestSearchEmptyProjectReturnsEmpty(t *testing.T) {
+	s := newTestStore(t)
+	hits, err := s.Search(context.Background(), store.MustNewUUID(), "quokka", 5)
+	require.NoError(t, err)
+	assert.Empty(t, hits)
+}
+
+// 嵌入失败必须显式报错，不得静默退化为 BM25-only——那只覆盖一半召回，
+// 却会被当成完整混合检索的结果使用。
+func TestSearchFailsLoudWhenQueryEmbeddingFails(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	pid := store.MustNewUUID()
+	want := errors.New("embedding unavailable")
+	require.NoError(t, s.DB.Create(&IndexedChunk{
+		ID: "bm-hit", ProjectID: pid, SourceID: store.MustNewUUID(),
+		SourceType: "document", SourceName: "doc.pdf", Content: "quokka", Generation: 1,
+	}).Error)
+	s.Embed = failingQueryEmbedder{err: want}
+	hits, err := s.Search(ctx, pid, "quokka", 5)
+	require.ErrorIs(t, err, want)
+	assert.Empty(t, hits, "嵌入失败时不得退化为 BM25-only")
 }
 
 // 规格 §6.2 给出的判据：A 仅向量第 1，B 两路均第 2，

@@ -77,6 +77,38 @@ func TestNeonPgVectorIntegration(t *testing.T) {
 	assert.Equal(t, "block.pdf", hits2[0].SourceName)
 }
 
+// 同距候选必须有稳定的次级排序：否则同一查询两次运行会得到不同名次，
+// RRF 分数不可复现。正交向量必须被相似度阈值挡在候选之外。
+func TestIsolatedPGVectorTieBreakAndThreshold(t *testing.T) {
+	ctx := context.Background()
+	pg := newIsolatedPG(t)
+	pid := store.MustNewUUID()
+	vec := make([]float32, 1024)
+	vec[0] = 1
+	orthogonal := make([]float32, 1024)
+	orthogonal[1] = 1
+	srcA, srcB, srcOrth := store.MustNewUUID(), store.MustNewUUID(), store.MustNewUUID()
+	require.NoError(t, pg.IndexSource(ctx, hexID(pid), "document", hexID(srcA), "a.pdf",
+		[]Chunk{{Content: "same distance a"}}, [][]float32{vec}, 1))
+	require.NoError(t, pg.IndexSource(ctx, hexID(pid), "document", hexID(srcB), "b.pdf",
+		[]Chunk{{Content: "same distance b"}}, [][]float32{vec}, 1))
+	require.NoError(t, pg.IndexSource(ctx, hexID(pid), "document", hexID(srcOrth), "orth.pdf",
+		[]Chunk{{Content: "orthogonal"}}, [][]float32{orthogonal}, 1))
+
+	first, err := pg.SearchVector(ctx, hexID(pid), vec, 5, 1)
+	require.NoError(t, err)
+	require.Len(t, first, 2, "正交向量必须被相似度阈值过滤")
+	assert.ElementsMatch(t, []string{hexID(srcA) + ":0", hexID(srcB) + ":0"},
+		[]string{first[0].ID, first[1].ID})
+	for i := 0; i < 10; i++ {
+		again, qerr := pg.SearchVector(ctx, hexID(pid), vec, 5, 1)
+		require.NoError(t, qerr)
+		require.Len(t, again, 2)
+		assert.Equal(t, []string{first[0].ID, first[1].ID},
+			[]string{again[0].ID, again[1].ID}, "同距候选顺序必须稳定")
+	}
+}
+
 type pgTestEmbedder struct{}
 
 func (pgTestEmbedder) Embed(_ context.Context, texts []string) ([][]float32, error) {
@@ -112,8 +144,7 @@ func TestIsolatedPGHybridSearch(t *testing.T) {
 
 	rows, err := pg.SearchVector(ctx, hexID(pid), vec, 5, 2)
 	require.NoError(t, err)
-	require.Len(t, rows, 1)
-	assert.Equal(t, "lexical.pdf", rows[0].SourceName)
+	assert.Empty(t, rows, "正交向量（余弦 0）必须被相似度阈值过滤，不得进入候选")
 	_, err = pg.conn.Exec(ctx, `SAVEPOINT invalid_vector`)
 	require.NoError(t, err)
 	_, err = pg.SearchVector(ctx, hexID(pid), []float32{1}, 5, 2)
