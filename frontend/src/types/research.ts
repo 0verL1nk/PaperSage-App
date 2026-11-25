@@ -186,6 +186,32 @@ export interface ResearchArtifact {
   current?: ResearchRevision
   adopted?: ResearchRevision
   revisions?: ResearchRevision[]
+  /** 产物级聚合：当前修订与已采用修订的并集。 */
+  needsRecheck?: boolean
+  recheckReasons?: string[]
+}
+
+export type RecheckTargetType = 'artifact_revision' | 'evidence' | 'wiki_page'
+export type RecheckTriggerKind = 'source_deleted' | 'source_new_version'
+export type RecheckResolution = 'rechecked' | 'rebuilt' | 'dismissed'
+
+/** 资料删除/出新版本后挂在派生内容上的待复查提醒（目标摘要由服务端确定性派生）。 */
+export interface RecheckMark {
+  id: string
+  projectId: string
+  targetType: RecheckTargetType
+  targetId: string
+  artifactId?: string
+  revision?: number
+  targetTitle: string
+  targetDetail?: string
+  targetMissing: boolean
+  triggerKind: RecheckTriggerKind
+  triggerLabel: string
+  reason: string
+  createdAt: string
+  resolvedAt?: string
+  resolution?: RecheckResolution
 }
 
 export interface ResearchDependencyInput {

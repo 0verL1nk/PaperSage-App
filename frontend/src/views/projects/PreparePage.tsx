@@ -4,6 +4,7 @@ import { ArrowUpRight, Check, FileText, LoaderCircle, Sparkles, TriangleAlert } 
 
 import { AiPanel } from './ai-panel'
 import { NormLibraryPanel } from '@/components/domain/NormLibraryPanel'
+import { RecheckMarksPanel } from '@/components/domain/RecheckMarksPanel'
 import { ResearchArtifactsPanel } from '@/components/domain/ResearchArtifactsPanel'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -181,6 +182,8 @@ export function PreparePage() {
         </Card>
 
         {!isGuest && <NormLibraryPanel projectId={projectId} />}
+
+        {!isGuest && <RecheckMarksPanel projectId={projectId} />}
 
         {!isGuest && <ResearchArtifactsPanel projectId={projectId} />}
 

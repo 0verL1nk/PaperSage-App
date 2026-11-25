@@ -350,6 +350,7 @@ export function ReviewPage() {
                       {reports.map((report, index) => (
                         <option key={report.id} value={report.id}>
                           {formatReviewTime(report.updatedAt)}{index === 0 ? '（最新）' : ''} · {findingCount(report)} 条问题
+                          {report.needsRecheck ? ' · 待复查' : ''}
                         </option>
                       ))}
                     </select>
@@ -362,6 +363,18 @@ export function ReviewPage() {
                   </div>
                 ) : (
                   <>
+                    {selected.needsRecheck ? (
+                      <div role="status" className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-4 text-sm">
+                        <p className="flex items-center gap-2 font-medium text-amber-800 dark:text-amber-300">
+                          <ShieldAlert className="size-4" />这份报告依赖的资料已变化
+                        </p>
+                        <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-muted-foreground">
+                          {(selected.recheckReasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}
+                        </ul>
+                        <p className="mt-2 text-xs text-muted-foreground">报告不会被自动改写；请先到准备页确认提醒，再决定是否重新运行检查。</p>
+                      </div>
+                    ) : null}
+
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{formatReviewTime(selected.updatedAt)} 的检查</span>
                       <span>{payload.findings.length} 条问题</span>
