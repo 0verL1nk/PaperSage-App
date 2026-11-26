@@ -11,9 +11,9 @@ if (engine !== 'pdftex' && engine !== 'xetex' && engine !== 'dvipdfmx' && engine
 const runtimeByEngine = {
   pdftex: 'swiftlatexpdftex.js?v=81a2809fbf3bf08ecba62116b691540784719a37806823797f67f7544a1172d3',
   xetex: 'swiftlatexxetex.js?v=58464629cc774fbe3e7d3cde1df3aca17f16c415ba8b1298cdfc06e7a0c44e50',
-  dvipdfmx: 'wasmtex-dvipdfmx-2026/wasmtex-dvipdfm.worker.js?v=5110f9f3e8917072be1281ea44b94fd4966ad1e816b081646015bfc2420a0606',
+  dvipdfmx: 'wasmtex-dvipdfmx-2026/wasmtex-dvipdfm.worker.js?v=1969f248a014c07a51c8b1736772505096200aa52e974cb54b81acec0bd8077c',
 }
-const BIBTEX_WORKER_URL = '/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/wasmtex-bibtex.worker.js?v=faa856e34c03a920767f906791ea71654bbb52b54c24116c31a08faaa45ee9ba'
+const BIBTEX_WORKER_URL = '/latex-engines/wasmtex-bibtex-2026-9147f5703951082b/wasmtex-bibtex.worker.js?v=fcb80f92a74b71417d2353c6a7385713a4e0a05c25e7654fd954142281fabea3'
 const RESOURCE_DB = 'papersage-swiftlatex-worker-cache-v2'
 const RESOURCE_DB_VERSION = 1
 const RESOURCE_STORE = 'resources'
