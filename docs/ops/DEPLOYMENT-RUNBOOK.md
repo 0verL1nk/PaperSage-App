@@ -39,7 +39,7 @@ GitHub 0verL1nk/PaperSage-App (main)
 | 数据库 | 云端 PostgreSQL（主库） | 应用用池化 `DATABASE_URL`；迁移用直连 `DATABASE_MIGRATION_URL`；均只存在于服务器环境文件 |
 | 对象存储 | Cloudflare R2（S3 兼容） | 上传/PDF/导出；`S3_*` 仅服务器持有 |
 | 缓存 | 可选 Redis | 未配置时进程内内存实现 |
-| CLSI / TeX | **不部署** | 生产 `LATEX_CLSI_ENABLED=false`，编译默认走浏览器 WASM；`papersage-clsi` 镜像只作为可选产物构建到 GHCR，服务器不运行 TeX |
+| CLSI / TeX | **不部署** | 生产 `LATEX_CLSI_ENABLED=false`，编译默认走浏览器 WASM；随仓 CLSI/render 服务与 `papersage-clsi` 镜像已于 2026-11-26 删除（PR #109），**不再构建**，服务器不运行 TeX |
 | 桌面端 | GitHub Release 资产 | `papersage-windows-amd64-installer.exe` + `SHA256SUMS`，由桌面工作流打包，随同一次 Release 发布 |
 
 ## 3. 发布一个版本
@@ -121,5 +121,5 @@ curl -s -o /dev/null -w '%{http_code}\n' -L https://paper.overlink.top/
 - 科研组织产物路由已上线，正确路径是 `GET|POST /api/v1/projects/{project_id}/research-artifacts`；修订/采用/拒绝在 `/api/v1/research-artifacts/{artifact_id}/revisions`、`/adopt`、`/reject`，删除是 `DELETE /api/v1/research-artifacts/{artifact_id}`（无尾段）。**没有**裸 `GET /api/v1/research-artifacts`。
   - 探测时区分两种 404：`{"detail":"Not Found"}` 是路由不存在（路径拼错时出现）；带 token 请求正确路径返回信封 `{"code":404,"data":null,"info":"项目 not found"}`，说明路由存在、只是项目不存在。
 - 前端：Vercel 跟随 `main` 自动构建；后端版本以部署日志 `active:` 为准，两者仅在 Release 后对齐。
-- CLSI：未部署；`papersage-clsi` 镜像构建成功但不参与生产请求。
+- CLSI：未部署。历史状态：`papersage-clsi` 镜像曾构建成功且从未参与生产请求；该镜像与随仓 CLSI/render 服务已于 2026-11-26 删除（PR #109），**现在不再构建**。
 - 学校论文模板（thesis 模板）仍是手工导入/桌面端使用；浏览器 WASM 资源目录覆盖不足时需走桌面端完整 TeX 资源。
