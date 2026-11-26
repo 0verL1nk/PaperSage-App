@@ -203,7 +203,10 @@ let initialized: Promise<void> | null = null
 export function initDesktop(): Promise<void> {
   if (initialized) return initialized
   initialized = (async () => {
-    if (!wailsWindow()?._wails) return
+    // The npm runtime creates `_wails.clientId` in ordinary browsers too; only
+    // the Wails webview injects `environment`. Calling without it POSTs
+    // /wails/runtime and 405s on the web build.
+    if (!wailsWindow()?._wails?.environment) return
     try {
       const info = (await Call.ByName(`${DESKTOP_SERVICE_FQN}.AppInfo`)) as DesktopAppInfo
       if (!info?.isDesktop) return
