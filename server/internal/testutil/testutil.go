@@ -24,6 +24,7 @@ import (
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
+	"github.com/0verL1nk/GraduateProject/server/internal/compilediag"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
@@ -143,6 +144,7 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
+	compilediag.Mount(v1, authSvc, compilediag.NewService(db, 30))
 
 	uid := uuid.MustParse("44444444-4444-4444-4444-444444444444")
 	require.NoError(t, db.Create(&store.User{
