@@ -78,6 +78,7 @@ jobs:
   integration:
     name: postgres migration integration
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: server
@@ -161,6 +162,13 @@ jobs:
         run: |
           total=$(go tool cover -func=cover.out | tail -1 | awk '{print $3}' | tr -d '%')
           echo "total coverage: ${total}%"
+          {
+            echo '### 后端测试覆盖率'
+            echo
+            echo '| 指标 | 覆盖率 | 门槛 |'
+            echo '|---|---|---|'
+            echo "| statements | ${total}% | 48% |"
+          } >> "$GITHUB_STEP_SUMMARY"
           awk -v c="$total" 'BEGIN { exit c < 48 ? 1 : 0 }'
 
   # 官方漏洞扫描：只报实际调用路径上的已知漏洞（非泛 CVE 清单）

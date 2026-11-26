@@ -22,7 +22,7 @@ IndexedDB 是浏览器站点存储。清理站点数据、使用隐私浏览模�
 - [登录后导入流程](../../frontend/src/services/guest-workspace-import.ts)
 - [导入确认界面](../../frontend/src/components/domain/GuestImportGate.tsx)
 - [游客入口](../../frontend/src/views/auth/guest-workspace-page.tsx)
-- [需求与验收](../../openspec/changes/online-guest-workspace/)
+- [需求与验收](../../openspec/changes/archive/2026-11-08-online-guest-workspace/)
 
 账号会话恢复时，当前 access token 优先于已废弃服务端游客流程留下的旧标记；旧标记会被清除，已有的游客导入待办状态和 IndexedDB 内容仍保留。带账号 token 访问 `/guest` 会直接跳转到项目页。
 

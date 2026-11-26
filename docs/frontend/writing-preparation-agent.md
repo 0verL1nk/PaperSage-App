@@ -8,4 +8,4 @@ Agent 需要把已知事实、建议、假设和待验证信息分开处理。�
 
 新建项目会自动初始化 `main.tex`。如果模板的对象存储或元数据写入失败，创建请求需要明确失败并清理新项目记录；不得返回缺模板的“成功”项目。空文件树必须保留创建入口，文件和文件夹写入失败要在页面可见。
 
-能力契约见 [OpenSpec 变更](../../openspec/changes/agentic-writing-preparation/)。
+能力契约见 [OpenSpec 变更](../../openspec/changes/archive/2026-10-08-agentic-writing-preparation/)。
