@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**PaperSage** - Full-stack academic paper management app with LaTeX editing and compilation. React 19 + TypeScript frontend on Vercel, API-only Go (gin + GORM) backend shipped as a standalone binary. Browser WASM compilation is the default; the vendored Overleaf CLSI remains an optional external compiler.
+**PaperSage** - Full-stack academic paper management app with LaTeX editing and compilation. React 19 + TypeScript frontend on Vercel, API-only Go (gin + GORM) backend shipped as a standalone binary. LaTeX 编译在浏览器里用 WASM 完成；vendored Overleaf CLSI 服务（`latex_render/`、`services/clsi/`）已删除，后端只保留可选的外部 CLSI 客户端。
 
 ## CI Status
 
@@ -120,18 +120,18 @@ server/
 
 ### LaTeX Pipeline
 
-The project vendors a modified Overleaf CLSI (Compile LaTeX Service Interface):
-- `latex_render/` — Active CLSI fork with custom patches
-- `vendor/overleaf/` — Original Overleaf source reference
-- Backend `internal/latex/clsi.go` (ClsiClient interface) communicates with CLSI via HTTP
-- CLSI runs on port 3013, backend on 5478, frontend on 5173
+LaTeX compilation runs in the browser (WASM). The vendored Overleaf CLSI fork
+(`latex_render/`, `services/clsi/`) was removed from the repo; Git history keeps it.
+Backend `internal/latex/clsi.go` still exposes an optional external CLSI client
+(`LATEX_CLSI_ENABLED=false` by default) for deployments that run their own compiler.
+Backend on 5478, frontend on 5173.
 
 ## Development Commands
 
 ### Quick Start
 
 ```bash
-make install            # Install all deps (frontend + CLSI)
+make install            # Install frontend deps
 make dev                # Start all services with health checks and PID tracking
 make stop               # Gracefully stop all services
 make status             # Show running service status
@@ -143,7 +143,6 @@ make logs               # Tail all service logs
 ```bash
 make backend            # Go backend (sqlite dev db) on http://localhost:5478
 make frontend           # Vite dev on http://localhost:5173
-make clsi-dev           # CLSI LaTeX service on port 3013
 ```
 
 ### Frontend

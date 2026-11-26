@@ -1,5 +1,7 @@
 # Overleaf LaTeX 编译与渲染实现详解
 
+> **历史文档**：本文分析的是 Overleaf CLSI 的实现细节。该服务（`latex_render/`、`services/clsi/`）已从仓库删除，当前 LaTeX 编译在浏览器内用 WASM 完成；本文仅作技术参考。
+
 ## 概述
 
 Overleaf 的 LaTeX 编译系统采用微服务架构，核心编译服务称为 **CLSI (Compiler/LSP Interface)**，是一个独立的 Node.js 服务。编译流程涉及多个组件的协作，包括请求解析、资源管理、编译执行、输出文件处理和 PDF 渲染。

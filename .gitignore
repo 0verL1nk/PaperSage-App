@@ -144,7 +144,6 @@ captures/
 docker-compose.override.yml
 .dockerignore
 !/.dockerignore
-!/latex_render/.dockerignore
 Dockerfile.env
 
 # Terraform
@@ -195,7 +194,6 @@ tags
 .pids/
 
 # CLSI build artifacts and output
-.clsi/
 output/
 .cc-connect/
 
