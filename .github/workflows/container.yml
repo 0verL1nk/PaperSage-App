@@ -1,0 +1,89 @@
+name: Container Security
+
+# PR：只构建 server 镜像，尽早暴露 Dockerfile/依赖断裂（render 镜像 1 GB+，不进 PR）。
+# push main / 定时：构建后跑 Trivy，结果进 Security 面板。
+# 门禁口径：只对「有修复版本」的 CRITICAL/HIGH 失败——distroless 基础镜像里
+# 大量 CVE 上游未修，ignore-unfixed 关掉会让门禁永久红。
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'server/Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/container.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'server/Dockerfile'
+      - '.dockerignore'
+      - '.github/workflows/container.yml'
+  schedule:
+    # 每天 18:43 UTC（北京 02:43），与 nightly 的 18:37 错峰
+    - cron: '43 18 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: docker build (server)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+          load: true
+          tags: papersage-server:pr-${{ github.sha }}
+          cache-from: type=gha,scope=papersage-server
+          cache-to: type=gha,scope=papersage-server,mode=max
+
+  scan:
+    name: trivy (server image)
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      # SARIF 上传需要写 security-events；只在 push/schedule 生效，
+      # 因此不会让 fork PR 因只读权限变红。
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: server/Dockerfile
+          push: false
+          load: true
+          tags: papersage-server:scan
+          # 与 docker.yml / build job 共用 scope，命中即为增量构建
+          cache-from: type=gha,scope=papersage-server
+      - name: Trivy scan
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: papersage-server:scan
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: sarif
+          output: trivy-server.sarif
+      - name: Upload SARIF
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: trivy-server.sarif
+          category: trivy-server

@@ -1,0 +1,72 @@
+name: IaC Lint
+
+# Workflow / Dockerfile / Shell 静态检查。
+# 用 workflow 级 paths 过滤而不是 job 级开关：没碰这些文件时整个 workflow 不启动，
+# 不占日常 PR 的 8–10 分钟预算。
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
+      - '.dockerignore'
+      - '.hadolint.yaml'
+      - 'scripts/**/*.sh'
+      - 'desktop/build/**/*.sh'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/**'
+      - '.github/actions/**'
+      - '**/Dockerfile'
+      - '**/Dockerfile.*'
+      - '.dockerignore'
+      - '.hadolint.yaml'
+      - 'scripts/**/*.sh'
+      - 'desktop/build/**/*.sh'
+  workflow_dispatch:
+
+concurrency:
+  group: iac-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  actionlint:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # 自带 shellcheck 集成：workflow 内嵌的 run 脚本一并检查。
+      - uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+
+  hadolint:
+    name: hadolint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # 直接跑固定版本镜像：比再引入一个 action 少一层供应链依赖。
+      - name: Lint Dockerfiles
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            hadolint/hadolint:v2.12.0 \
+            hadolint --config .hadolint.yaml --failure-threshold error \
+            server/Dockerfile latex_render/Dockerfile latex_render/Dockerfile.ci
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # runner 预装 shellcheck；warning 以上才拦，info/style 不阻塞。
+      - name: Lint shell scripts
+        run: |
+          mapfile -t files < <(git ls-files 'scripts/*.sh' 'desktop/build/**/*.sh')
+          printf 'checking %d files\n' "${#files[@]}"
+          shellcheck --severity=warning --external-sources "${files[@]}"

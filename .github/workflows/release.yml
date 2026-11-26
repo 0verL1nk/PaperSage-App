@@ -186,7 +186,7 @@ jobs:
           fi
           if [ "$count" -eq 0 ]; then
             if [ -e draft-receipt/receipt.json ]; then
-              echo '::error::The release in this run’s receipt no longer exists; refusing to recreate it.'
+              echo '::error::The release receipt for this run no longer exists; refusing to recreate it.'
               exit 1
             fi
             release_id=$(gh api --method POST "repos/${GITHUB_REPOSITORY}/releases" \
@@ -338,6 +338,7 @@ jobs:
           remote="$SERVER_USER@$SERVER_HOST"
           scp -C "${options[@]}" "bundle/papersage_${RELEASE_TAG#v}_linux_amd64.tar.gz" \
             "$remote:/var/lib/papersage-deploy/uploads/$RELEASE_TAG-$RELEASE_COMMIT.tar.gz"
+          # shellcheck disable=SC2029 # 变量按设计在客户端展开，取值已在上方校验
           ssh "${options[@]}" "$remote" \
             "sudo -n /usr/local/sbin/papersage-release activate '$RELEASE_TAG' '$RELEASE_COMMIT' '$ARCHIVE_CHECKSUM'"
 

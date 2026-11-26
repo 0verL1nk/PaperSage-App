@@ -1,0 +1,7 @@
+# hadolint 以 error 级别作为门禁（见 .github/workflows/iac.yml），
+# 下列为既有镜像的已知取舍，显式记录避免被当成遗漏。
+ignored:
+  # TeX Live 镜像的 apt 包不锁版本：镜像本身由上游 tag 决定，锁版本会立刻失效。
+  - DL3008
+
+failure-threshold: error

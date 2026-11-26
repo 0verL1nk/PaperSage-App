@@ -1,0 +1,21 @@
+# gitleaks 配置：在默认规则集之上，只放行仓库内明确的测试桩。
+# 白名单必须与 workflow 同 PR 落地，否则 CI 会因假凭据长期判红。
+[extend]
+useDefault = true
+
+[allowlist]
+description = "CI 与测试夹具中的假凭据（非真实密钥）"
+
+# 单元测试与 E2E 用固定假值断言鉴权分支，不含真实凭据。
+paths = [
+  '''server/.*_test\.go''',
+  '''frontend/tests/.*''',
+  '''frontend/src/.*\.test\.tsx?''',
+]
+
+# 同一批假值在 workflow 与测试装配里复用的字面量。
+regexes = [
+  '''ci-secret-not-for-prod''',
+  '''papersage_dev_password''',
+  '''re_test_key''',
+]

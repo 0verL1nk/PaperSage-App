@@ -94,7 +94,7 @@ jobs:
 
       - name: Lowercase owner
         if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
-        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_ENV
+        run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Build & Push
         if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
