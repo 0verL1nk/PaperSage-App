@@ -1,6 +1,6 @@
 # PaperSage
 
-PaperSage 是面向科研新手的论文写作辅助系统，支持论文项目管理、LaTeX 写作与编译，并在持续建设 AI 写作辅助能力。当前代码由 React 19 + TypeScript 前端、Go + Gin 后端和独立的 LaTeX CLSI 服务组成；生产构建可将前端资源嵌入 Go 单二进制。
+PaperSage 是面向科研新手的论文写作辅助系统，支持论文项目管理、LaTeX 写作与编译，并在持续建设 AI 写作辅助能力。当前代码由 React 19 + TypeScript 前端与 Go + Gin 后端组成，LaTeX 编译在浏览器内用 WASM 完成；生产构建可将前端资源嵌入 Go 单二进制。
 
 ## 文档入口
 
@@ -14,7 +14,7 @@ PaperSage 是面向科研新手的论文写作辅助系统，支持论文项目�
 
 ## 快速开始
 
-需要 Node.js 与 pnpm、Go（版本见 `server/go.mod`），以及按具体功能配置的数据库、对象存储、模型服务或 CLSI。常用本地开发命令：
+需要 Node.js 与 pnpm、Go（版本见 `server/go.mod`），以及按具体功能配置的数据库、对象存储或模型服务。常用本地开发命令：
 
 ```bash
 make install
@@ -46,4 +46,4 @@ E2E 需先准备后端及其依赖服务。各 Make 目标的准确范围以根 
 make build-server
 ```
 
-该命令先构建前端，再把产物放入 Go embed 目录并编译服务。LaTeX CLSI、数据库、Redis 和对象存储仍按部署配置运行。
+该命令先构建前端，再把产物放入 Go embed 目录并编译服务。数据库、Redis 和对象存储仍按部署配置运行。

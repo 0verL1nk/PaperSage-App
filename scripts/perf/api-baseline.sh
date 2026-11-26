@@ -4,7 +4,7 @@
 # 口径（docs/project/12-ai-writing-design.md）：逐项记录**最大值**与**超时次数**，
 # 最大值 > 预算或超时 > 0 即失败；P50 仅作参考，不作为判定依据。
 #
-# 只测确定性接口：CLSI 已停用，`/latex/wordcount` 依赖外部编译服务，故不纳入；
+# 只测确定性接口：`/latex/wordcount` 依赖外部编译服务（CLSI 服务已删除），故不纳入；
 # `compile/browser` 只代表「提交耗时」，不冒充编译完成，也不纳入主操作判定。
 set -euo pipefail
 

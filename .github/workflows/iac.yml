@@ -56,7 +56,7 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo \
             hadolint/hadolint:v2.12.0 \
             hadolint --config .hadolint.yaml --failure-threshold error \
-            server/Dockerfile latex_render/Dockerfile latex_render/Dockerfile.ci
+            server/Dockerfile
 
   shellcheck:
     name: shellcheck

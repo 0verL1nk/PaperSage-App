@@ -1,5 +1,7 @@
 # Overleaf SyncTeX 双向同步机制技术文档
 
+> **历史文档**：本文分析的是 Overleaf CLSI 的实现细节。该服务（`latex_render/`、`services/clsi/`）已从仓库删除，当前 LaTeX 编译在浏览器内用 WASM 完成；本文仅作技术参考。
+
 ## 目录
 
 1. [SyncTeX 基础](#synctex-基础)
