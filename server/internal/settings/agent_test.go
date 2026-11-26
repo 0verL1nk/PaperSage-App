@@ -14,23 +14,32 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
+	"github.com/0verL1nk/GraduateProject/server/internal/netguard"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
 
 func init() {
 	// httptest servers listen on loopback; production uses the public-only dialer.
-	testClientFactory = func(string) *http.Client { return &http.Client{Timeout: agentTestTimeout} }
+	testClientFactory = func(string, bool) *http.Client { return &http.Client{Timeout: agentTestTimeout} }
 }
 
-func TestProviderProbeRejectsPrivateAddresses(t *testing.T) {
-	for _, address := range []string{
-		"127.0.0.1:443", "10.0.0.5:80", "192.168.1.2:80",
-		"169.254.169.254:80", "100.64.0.1:80", "[::1]:80", "0.0.0.0:80",
+// probeTestService 打开本地模型开关：httptest 服务都在回环地址上。
+func probeTestService() *Service {
+	return NewService(nil, &config.Settings{AgentAllowPrivateProviderURLs: true})
+}
+
+// 生产默认不放开本地模型：用户填的回环/私网地址在校验阶段就被拒绝。
+func TestAgentConnectionRejectsPrivateBaseURLByDefault(t *testing.T) {
+	for _, base := range []string{
+		"http://127.0.0.1:11434/v1", "http://10.0.0.5/v1",
+		"http://169.254.169.254/latest/meta-data", "http://[::1]:11434/v1",
 	} {
-		require.Error(t, publicOnlyControl("tcp", address, nil), address)
+		_, err := NewService(nil, &config.Settings{}).TestAgentConnection(context.Background(), AgentTestRequest{
+			BaseURL: base, APIKey: "synthetic-key", Model: "m1",
+		})
+		require.ErrorIs(t, err, netguard.ErrInvalidBaseURL, base)
 	}
-	require.NoError(t, publicOnlyControl("tcp", "8.8.8.8:443", nil))
 }
 
 func TestAgentConnectionModelsSuccess(t *testing.T) {
@@ -43,7 +52,7 @@ func TestAgentConnectionModelsSuccess(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	res, err := NewService(nil, nil).TestAgentConnection(context.Background(), AgentTestRequest{
+	res, err := probeTestService().TestAgentConnection(context.Background(), AgentTestRequest{
 		BaseURL: upstream.URL + "/v1/", APIKey: "synthetic-key", Model: "m1",
 	})
 	require.NoError(t, err)
@@ -66,7 +75,7 @@ func TestAgentConnectionFallsBackToChat(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	res, err := NewService(nil, nil).TestAgentConnection(context.Background(), AgentTestRequest{
+	res, err := probeTestService().TestAgentConnection(context.Background(), AgentTestRequest{
 		BaseURL: upstream.URL + "/v1", APIKey: "synthetic-key", Model: "m1",
 	})
 	require.NoError(t, err)
@@ -85,7 +94,7 @@ func TestAgentConnectionTimeout(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := NewService(nil, nil).TestAgentConnection(ctx, AgentTestRequest{
+	_, err := probeTestService().TestAgentConnection(ctx, AgentTestRequest{
 		BaseURL: upstream.URL + "/v1", APIKey: "synthetic-key", Model: "m1",
 	})
 	require.Error(t, err)
@@ -97,7 +106,7 @@ func TestAgentConnectionNetworkError(t *testing.T) {
 	closedURL := upstream.URL
 	upstream.Close()
 
-	_, err := NewService(nil, nil).TestAgentConnection(context.Background(), AgentTestRequest{
+	_, err := probeTestService().TestAgentConnection(context.Background(), AgentTestRequest{
 		BaseURL: closedURL + "/v1", APIKey: "synthetic-key", Model: "m1",
 	})
 	require.Error(t, err)
@@ -135,6 +144,18 @@ func TestAgentTestEndpointRejectsMissingFields(t *testing.T) {
 		resp := authedJSON(t, http.MethodPost, srv.URL+"/api/v1/settings/agent/test", mintToken(t, seededUID), payload)
 		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "%v", payload)
 	}
+}
+
+// 内网/回环地址在接口层就是 4xx（用户填错地址），而不是 502。
+func TestAgentTestEndpointRejectsPrivateBaseURL(t *testing.T) {
+	srv, _ := newSettingsTestServer(t, &config.Settings{SecretKey: "t", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7})
+	resp := authedJSON(t, http.MethodPost, srv.URL+"/api/v1/settings/agent/test", mintToken(t, seededUID), map[string]any{
+		"base_url": "http://169.254.169.254/latest/meta-data", "api_key": "k", "model": "m1",
+	})
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), "private or loopback")
 }
 
 func TestAgentTestEndpointRequiresAuth(t *testing.T) {

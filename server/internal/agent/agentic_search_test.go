@@ -122,7 +122,7 @@ func TestAgenticSearchSubagent(t *testing.T) {
 	defer fake.Close()
 
 	cfg := &config.Settings{SecretKey: "t",
-		AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m"}
+		AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m", AgentAllowPrivateProviderURLs: true}
 	svc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rg)
 	authSvc := auth.NewService(db, cfg, nil)
 

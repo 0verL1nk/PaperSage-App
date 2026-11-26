@@ -32,7 +32,8 @@ func newSettingsTestServer(t *testing.T, cfgs ...*config.Settings) (*httptest.Se
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(store.AllModels()...))
 
-	cfg := &config.Settings{SecretKey: "t", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7}
+	// 测试里的 provider 探针都指向 httptest 回环服务，显式打开本地模型开关。
+	cfg := &config.Settings{SecretKey: "t", AccessTokenExpireMinutes: 30, RefreshTokenExpireDays: 7, AgentAllowPrivateProviderURLs: true}
 	if len(cfgs) > 0 && cfgs[0] != nil {
 		cfg = cfgs[0]
 	}
