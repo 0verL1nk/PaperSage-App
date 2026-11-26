@@ -100,6 +100,11 @@ const config = defineConfig({
     // userEvent + jsdom on slow self-hosted ARM runners needs more than the 5s
     // default; a real regression still shows up as a failure, just later.
     testTimeout: 20_000,
+    // 覆盖率只在 CI 的 test:coverage 里产出；json-summary 供 Step Summary 读取。
+    coverage: {
+      provider: 'v8',
+      reporter: ['text-summary', 'json-summary'],
+    },
   },
   resolve: {
     alias: {

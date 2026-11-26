@@ -1,0 +1,56 @@
+name: Bug 报告
+description: 报告一个可复现的问题
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        安全问题请**不要**在这里提交，按 [SECURITY.md](https://github.com/0verL1nk/PaperSage-App/blob/main/SECURITY.md) 走私密渠道。
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 发生了什么
+      description: 实际看到的现象；有报错请贴原文。
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望的结果
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 打开 ...
+        2. 点击 ...
+        3. 看到 ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      description: 页面版本号、镜像 tag 或 commit SHA。
+  - type: dropdown
+    id: area
+    attributes:
+      label: 影响范围
+      options:
+        - 前端界面
+        - 后端 API
+        - LaTeX 编译
+        - AI 写作辅助
+        - 桌面端
+        - 文档
+        - 不确定
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息
+      description: 截图、日志片段、浏览器与操作系统版本。请先去掉凭据与个人信息。

@@ -48,9 +48,12 @@ jobs:
         working-directory: frontend
         run: pnpm lint
 
-  test:
-    name: Test
+  # 生产构建 + 产物体积预算：此前 CI 从不调用 `pnpm build`，构建断裂要到
+  # 发布/Vercel 才暴露；体积上限写进 frontend/.size-limit.json，上调必须出现在 PR diff。
+  build:
+    name: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -70,9 +73,56 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      - name: Run tests
+      - name: Production build
         working-directory: frontend
-        run: pnpm test --run
+        run: pnpm build
+
+      - name: Bundle size budget
+        working-directory: frontend
+        run: pnpm exec size-limit
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests with coverage
+        working-directory: frontend
+        run: pnpm test:coverage
+
+      # 覆盖率摘要进 Step Summary：零成本，不引 Codecov 之类的第三方 SaaS。
+      - name: Coverage summary
+        if: always()
+        working-directory: frontend
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const path = "coverage/coverage-summary.json";
+            if (!fs.existsSync(path)) process.exit(0);
+            const total = JSON.parse(fs.readFileSync(path, "utf8")).total;
+            const rows = ["lines", "statements", "functions", "branches"]
+              .map((k) => `| ${k} | ${total[k].pct}% |`);
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              `### 前端测试覆盖率\n\n| 指标 | 覆盖率 |\n|---|---|\n${rows.join("\n")}\n`);
+          '
 
       - name: Upload test results
         if: always()
@@ -81,6 +131,15 @@ jobs:
           name: frontend-test-results
           path: frontend/test-results
           retention-days: 7
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage
+          path: frontend/coverage
+          retention-days: 7
+          if-no-files-found: warn
 
   # 前端依赖漏洞审计（不依赖 GHAS/依赖图，私有仓库可用；
   # 仓库转公开后可再上 actions/dependency-review-action 拦 license 问题）
