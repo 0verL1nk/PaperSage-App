@@ -1,0 +1,6 @@
+# 历史验证归档（docs/verification/research-writing/ux-audit-2026-11-08.md）
+# 引用了当时本机截图的相对路径，这些 PNG 从未入库（截图含生产环境画面，
+# 不适合公开仓）。归档只作记录，不补图也不改历史结论。
+exclude = [
+  "docs/verification/research-writing/.*\\.png",
+]
