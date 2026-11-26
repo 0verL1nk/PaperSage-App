@@ -98,6 +98,8 @@ jobs:
         with:
           go-version-file: server/go.mod
           cache-dependency-path: server/go.sum
+      - name: Install syft (goreleaser SBOM generator)
+        uses: anchore/sbom-action/download-syft@dfcb83b97731532d72be422cbc51ee64adb6fd56 # v0.24.4
       - uses: goreleaser/goreleaser-action@v6
         with:
           distribution: goreleaser
@@ -113,6 +115,7 @@ jobs:
             dist/papersage_*_linux_amd64.tar.gz
             dist/checksums.txt
             dist/CHANGELOG.md
+            dist/*.sbom.json
           if-no-files-found: error
           overwrite: true
           retention-days: 7
@@ -143,6 +146,7 @@ jobs:
           archive="papersage_${RELEASE_TAG#v}_linux_amd64.tar.gz"
           installer=papersage-windows-amd64-installer.exe
           test -s "bundle/server/$archive"
+          test -s "bundle/server/$archive.sbom.json"
           test -s bundle/server/checksums.txt
           test -s bundle/server/CHANGELOG.md
           test -s "bundle/desktop/$installer"
@@ -224,8 +228,10 @@ jobs:
           RELEASE_ID: ${{ steps.draft.outputs.id }}
         run: |
           archive="papersage_${RELEASE_TAG#v}_linux_amd64.tar.gz"
+          sbom="$archive.sbom.json"
           files=(
             "bundle/server/$archive"
+            "bundle/server/$sbom"
             bundle/server/checksums.txt
             bundle/desktop/papersage-windows-amd64-installer.exe
             bundle/desktop/SHA256SUMS
@@ -234,8 +240,8 @@ jobs:
           draft=$(jq -er --arg tag "$RELEASE_TAG" --argjson id "$RELEASE_ID" \
             'select(.id == $id and .tag_name == $tag and (.draft == true or .draft == false)) | .draft | tostring' <<<"$release")
           assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" | jq -c 'add // []')
-          if ! jq -e --arg archive "$archive" \
-            'all(.[]; .name == $archive or .name == "checksums.txt" or .name == "papersage-windows-amd64-installer.exe" or .name == "SHA256SUMS")' <<<"$assets" >/dev/null; then
+          if ! jq -e --arg archive "$archive" --arg sbom "$sbom" \
+            'all(.[]; .name == $archive or .name == $sbom or .name == "checksums.txt" or .name == "papersage-windows-amd64-installer.exe" or .name == "SHA256SUMS")' <<<"$assets" >/dev/null; then
             echo '::error::Release contains an unexpected asset; refusing to modify it.'
             exit 1
           fi
@@ -273,7 +279,7 @@ jobs:
             done
           fi
           assets=$(gh api --paginate --slurp "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}/assets?per_page=100" | jq -c 'add // []')
-          jq -e 'length == 4' <<<"$assets" >/dev/null
+          jq -e 'length == 5' <<<"$assets" >/dev/null
           for file in "${files[@]}"; do
             digest=$(sha256sum "$file" | cut -d ' ' -f1)
             jq -e --arg name "${file##*/}" --arg digest "sha256:$digest" \
