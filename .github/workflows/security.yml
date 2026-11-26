@@ -1,0 +1,49 @@
+name: Security
+
+# 日常 PR 的供应链门禁：密钥扫描 + 依赖变更审查。
+# 刻意不加 workflow 级 paths 过滤——密钥可能出现在任何 PR 的任何文件里；
+# 重型镜像扫描在 container.yml，Nightly 深度回归在 nightly.yml。
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 只扫本次新增提交必须能取到 base；浅克隆会让 diff 退化为全历史。
+          fetch-depth: 0
+      # 不给 pull-requests: write：fork PR 拿不到写权限，评论开关必须关掉，
+      # 否则外部贡献者的 PR 会因为发不出评论而变红。
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: false
+
+  dependency-review:
+    name: dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/dependency-review-action@v5
+        with:
+          # 公开仓的依赖图免费；只拦 high/critical，避免既有积压把每个 PR 判红。
+          fail-on-severity: high
+          # 不在 PR 里回写评论，因此不需要 pull-requests: write。
+          comment-summary-in-pr: never

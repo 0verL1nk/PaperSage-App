@@ -6,6 +6,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # 门禁变多后每个 PR 都要跑全量；限量避免积压把日常 PR 队列占满。
+    open-pull-requests-limit: 3
     groups:
       go-minor-patch:
         update-types: [minor, patch]
@@ -17,6 +19,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # 门禁变多后每个 PR 都要跑全量；限量避免积压把日常 PR 队列占满。
+    open-pull-requests-limit: 3
     groups:
       npm-minor-patch:
         update-types: [minor, patch]
@@ -28,6 +32,8 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # 门禁变多后每个 PR 都要跑全量；限量避免积压把日常 PR 队列占满。
+    open-pull-requests-limit: 3
     groups:
       actions-minor-patch:
         update-types: [minor, patch]
@@ -39,5 +45,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
+    # 门禁变多后每个 PR 都要跑全量；限量避免积压把日常 PR 队列占满。
+    open-pull-requests-limit: 3
     commit-message:
       prefix: chore(deps)
