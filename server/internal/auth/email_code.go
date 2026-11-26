@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"regexp"
@@ -131,6 +132,11 @@ func (s *Service) sendEmailCode(c *gin.Context) {
 		slogWarn("send login code email failed", "email", maskEmail(email), "err", err)
 		httpapi.WriteError(c.Writer, errBad("Login code email could not be sent. Please try again shortly.", http.StatusServiceUnavailable))
 		return
+	}
+	// 联调开关：仅在显式开启时打印验证码。放在发信成功之后，避免发信失败
+	// 已作废的码出现在日志里被误当作可用。
+	if s.Cfg.DevLogEmailCode {
+		slog.Info("DEV_LOG_EMAIL_CODE: email login verification code issued", "email", email, "code", code)
 	}
 
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(gin.H{
