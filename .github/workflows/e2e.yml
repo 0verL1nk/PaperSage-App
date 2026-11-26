@@ -363,7 +363,7 @@ jobs:
         working-directory: server
         run: |
           nohup ./bin/papersage > /tmp/backend.log 2>&1 &
-          for i in {1..60}; do
+          for _ in {1..60}; do
             curl -sf http://127.0.0.1:5478/health >/dev/null && exit 0
             sleep 1
           done
@@ -373,7 +373,7 @@ jobs:
         working-directory: frontend
         run: |
           nohup pnpm dev --host 127.0.0.1 --port 5173 --strictPort > /tmp/frontend.log 2>&1 &
-          for i in {1..60}; do
+          for _ in {1..60}; do
             curl -sf http://127.0.0.1:5173/ >/dev/null && exit 0
             sleep 1
           done

@@ -1,15 +1,21 @@
 name: CodeQL
 
+# 从 .github/disabled/ 复活：原文件的 category 引用了未定义的 matrix.language，
+# 一旦启用就会因矩阵不存在而失败。现在改成真正的 matrix。
+#
+# 刻意不在 PR 上跑：Go + TS 两个语言约 3–5 分钟，会吃掉日常 PR 的 8–10 分钟预算。
+# push main 已经覆盖合入前的检查，加上每周例行扫描即可。
 on:
-  pull_request:
-    branches: [main]
-    paths: ['frontend/**', 'server/**']
   push:
     branches: [main]
-    paths: ['frontend/**', 'server/**']
+    paths:
+      - 'frontend/**'
+      - 'server/**'
+      - '.github/workflows/codeql.yml'
   schedule:
     # 每周一 03:17 UTC 例行扫描（off-minute 错峰）
     - cron: '17 3 * * 1'
+  workflow_dispatch:
 
 concurrency:
   group: codeql-${{ github.ref }}
@@ -20,19 +26,23 @@ permissions:
 
 jobs:
   analyze:
-    name: CodeQL analyze
+    name: analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
       actions: read # codeql-action 遥测/特性开关需查询 workflow run
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [go, javascript-typescript]
     steps:
       - uses: actions/checkout@v4
 
       - uses: github/codeql-action/init@v3
         with:
-          languages: javascript-typescript, go
+          languages: ${{ matrix.language }}
           # 含质量/可靠性查询的扩展套件
           queries: security-extended
 
