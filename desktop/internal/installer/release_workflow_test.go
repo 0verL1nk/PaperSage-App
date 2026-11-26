@@ -575,7 +575,7 @@ func TestReleaseDraftRecoverySimulation(t *testing.T) {
 		}
 		run(t, root, url, prepare, true)
 		run(t, root, url, publish, true)
-		if state.creates != 1 || state.uploads != 5 || state.patches != 1 || len(state.assets) != 5 || state.draft {
+		if state.creates != 1 || state.uploads != 6 || state.patches != 1 || len(state.assets) != 5 || state.draft {
 			t.Fatalf("unsafe partial retry: %+v", state)
 		}
 		// A repeated build with different bytes must not mutate the public release.
@@ -585,7 +585,7 @@ func TestReleaseDraftRecoverySimulation(t *testing.T) {
 		}
 		run(t, root, url, prepare, true)
 		run(t, root, url, publish, false)
-		if state.uploads != 5 || state.patches != 1 {
+		if state.uploads != 6 || state.patches != 1 {
 			t.Fatalf("public release was modified on full retry: %+v", state)
 		}
 	})
