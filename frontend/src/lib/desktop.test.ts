@@ -258,6 +258,15 @@ describe('desktop local backend startup', () => {
     expect(env.getApiBaseUrlFor('local')).toBe('')
   })
 
+  it('does not call AppInfo when only the npm runtime client id is present', async () => {
+    ;(window as TestWindow)._wails = { clientId: 'browser-client' }
+    const { initDesktop } = await import('./desktop')
+
+    await initDesktop()
+
+    expect(callByName).not.toHaveBeenCalled()
+  })
+
   it('retains the browser local-development fallback', async () => {
     const env = await import('./env')
     const { initDesktop } = await import('./desktop')
