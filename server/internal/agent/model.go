@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/agent/modelregistry"
 	"github.com/0verL1nk/GraduateProject/server/internal/agent/opencode"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
+	"github.com/0verL1nk/GraduateProject/server/internal/netguard"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
@@ -211,7 +213,7 @@ func resolveMetadata(model string, user ModelMetadata) ModelMetadata {
 // NewChatModel 用 eino-ext 的 OpenAI 兼容组件构建模型
 // （DeepSeek/OpenAI/SiliconFlow 等兼容端点通用）。
 // sessionID 用于 OpenCode 网关按会话稳定路由（官方要求，缺失时请求会被拒绝）。
-func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeout, idleTimeout time.Duration) (model.BaseChatModel, error) {
+func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeout, idleTimeout time.Duration, allowPrivate bool) (model.BaseChatModel, error) {
 	cfg := &openai.ChatModelConfig{
 		APIKey:  r.APIKey,
 		BaseURL: strings.TrimRight(r.BaseURL, "/"),
@@ -226,6 +228,9 @@ func NewChatModel(ctx context.Context, r *ResolvedModel, sessionID string, timeo
 	if timeout > 0 {
 		base.ResponseHeaderTimeout = timeout
 	}
+	// 用户可配置的 base_url 只允许连公网目标，避免模型调用被当成 SSRF 跳板；
+	// 本地模型由 AGENT_ALLOW_PRIVATE_PROVIDER_URLS 显式放开。
+	base.DialContext = (&net.Dialer{Timeout: timeout, Control: netguard.Control(allowPrivate)}).DialContext
 	var rt http.RoundTripper = base
 	if sessionID != "" && opencode.IsGateway(r.BaseURL) {
 		rt = opencode.SessionTransport(rt, sessionID)

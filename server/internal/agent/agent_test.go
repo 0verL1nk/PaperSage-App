@@ -101,7 +101,7 @@ func TestAgentReActLoop(t *testing.T) {
 	fake := fakeOpenAI(t)
 	cfg := &config.Settings{
 		SecretKey: "t", AgentAPIKey: "test-key",
-		AgentBaseURL: fake.URL, AgentModel: "test-model",
+		AgentBaseURL: fake.URL, AgentModel: "test-model", AgentAllowPrivateProviderURLs: true,
 	}
 	mem := testutil.NewMemStorage()
 	require.NoError(t, mem.Put(context.Background(), s3Key, []byte("hello")))
