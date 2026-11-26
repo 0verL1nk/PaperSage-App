@@ -93,6 +93,10 @@ type Settings struct {
 	SMTPUser     string `env:"SMTP_USER"`
 	SMTPPassword string `env:"SMTP_PASSWORD"`
 	SMTPTLS      bool   `env:"SMTP_TLS" envDefault:"true"`
+
+	// 开发联调开关：开启后邮箱登录验证码会写入服务端日志，便于无邮箱访问时建号。
+	// 生产必须保持 false——能读日志的人即可登录任意邮箱账号。
+	DevLogEmailCode bool `env:"DEV_LOG_EMAIL_CODE" envDefault:"false"`
 }
 
 // Load loads settings from the environment. A .env file next to the working
