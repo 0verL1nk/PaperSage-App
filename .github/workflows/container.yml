@@ -80,6 +80,9 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: sarif
+          # SARIF 模式默认忽略 severity 过滤，会把 UNKNOWN 的 Debian LTS 通告也
+          # 算进 exit-code，导致门禁对 distroless 基础镜像永久判红。
+          limit-severities-for-sarif: true
           output: trivy-server.sarif
       - name: Upload SARIF
         if: always()
