@@ -33,6 +33,10 @@ function formatTime(value: number | null): string {
   return value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '尚未使用'
 }
 
+function formatDuration(seconds: number): string {
+  return seconds < 60 ? `${seconds} 秒` : `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒`
+}
+
 export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -54,6 +58,8 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
   const [summaryLoading, setSummaryLoading] = useState(false)
   const [warmingId, setWarmingId] = useState<WarmupSample['id'] | null>(null)
   const [warmupMessage, setWarmupMessage] = useState('')
+  const [warmupElapsedSeconds, setWarmupElapsedSeconds] = useState(0)
+  const [warmupProgress, setWarmupProgress] = useState<{ loaded: number; current: string | null }>({ loaded: 0, current: null })
   const warmupControllerRef = useRef<AbortController | null>(null)
 
   const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false)
@@ -73,8 +79,8 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
     setCachedIds(new Set(entries.filter(([, value]) => value.cached).map(([id]) => id)))
   }, [])
 
-  const refreshCache = useCallback(async () => {
-    setSummaryLoading(true)
+  const refreshCache = useCallback(async (silent = false) => {
+    if (!silent) setSummaryLoading(true)
     setProfileError(null)
     try {
       const [profile, texliveSummary, formatSummary, storageStatus] = await Promise.all([
@@ -91,7 +97,7 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
       setFormats(formatSummary)
       setStorage(storageStatus)
     } finally {
-      setSummaryLoading(false)
+      if (!silent) setSummaryLoading(false)
     }
   }, [])
 
@@ -101,32 +107,57 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
     void refreshCache()
   }, [open, refreshEngine, refreshCache])
 
+  useEffect(() => {
+    if (warmingId === null) {
+      setWarmupElapsedSeconds(0)
+      return
+    }
+    const startedAt = Date.now()
+    setWarmupElapsedSeconds(0)
+    const tick = window.setInterval(
+      () => setWarmupElapsedSeconds(Math.floor((Date.now() - startedAt) / 1000)),
+      1_000,
+    )
+    // A cold first warmup downloads hundreds of packages; keep counts moving
+    // so it never looks stalled.
+    const refresh = window.setInterval(() => void refreshCache(true), 10_000)
+    return () => {
+      window.clearInterval(tick)
+      window.clearInterval(refresh)
+    }
+  }, [warmingId, refreshCache])
+
   const storageUnavailable = storage !== null && !storage.available
   const actionsBlocked = disabled || busy || isClearing || isPruning || warmingId !== null || storageUnavailable
+
+  const ensureEngineResources = async (targetProfileId: EngineProfileId, signal: AbortSignal) => {
+    if (isDesktop()) return
+    if (!('serviceWorker' in navigator)) throw new Error('此浏览器不支持 Service Worker，无法让编译引擎从本地缓存加载')
+    await navigator.storage?.persist?.()
+    await navigator.serviceWorker.register('/latex-resource-sw.js', { scope: '/' })
+    await navigator.serviceWorker.ready
+    const targetProfile = ENGINE_PROFILES.find((candidate) => candidate.id === targetProfileId) ?? ENGINE_PROFILES[0]
+    for (const resource of ENGINE_RESOURCES.filter((entry) => targetProfile.resourceIds.includes(entry.id))) {
+      await downloadLatexResource(resource, {
+        signal,
+        onProgress: (progress) => {
+          setCurrent(progress)
+          setStatuses((previous) => ({ ...previous, [resource.id]: progress.downloaded }))
+        },
+      })
+      setCachedIds((previous) => new Set(previous).add(resource.id))
+    }
+    setCurrent(null)
+  }
 
   const start = async () => {
     setBusy(true)
     setError(null)
     setCurrent(null)
+    const controller = new AbortController()
+    controllerRef.current = controller
     try {
-      if (!('serviceWorker' in navigator)) throw new Error('此浏览器不支持 Service Worker，无法让编译引擎从本地缓存加载')
-      await navigator.storage?.persist?.()
-      await navigator.serviceWorker.register('/latex-resource-sw.js', { scope: '/' })
-      await navigator.serviceWorker.ready
-      const controller = new AbortController()
-      controllerRef.current = controller
-      for (const resource of profileResources) {
-        if (cachedIds.has(resource.id)) continue
-        await downloadLatexResource(resource, {
-          signal: controller.signal,
-          onProgress: (progress) => {
-            setCurrent(progress)
-            setStatuses((previous) => ({ ...previous, [resource.id]: progress.downloaded }))
-          },
-        })
-        setCachedIds((previous) => new Set(previous).add(resource.id))
-      }
-      setCurrent(null)
+      await ensureEngineResources(profileId, controller.signal)
       await Promise.all([refreshEngine(), refreshCache()])
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
@@ -146,14 +177,27 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
   const startWarmup = async (sample: WarmupSample) => {
     setWarmingId(sample.id)
     setWarmupMessage(`正在准备${sample.name}…`)
+    setWarmupProgress({ loaded: 0, current: null })
     setError(null)
     setCacheNotice(null)
     const controller = new AbortController()
     warmupControllerRef.current = controller
     try {
+      // Warmup also caches the engine assets, so the engine card moves instead
+      // of appearing stuck and the first real compile does not refetch them.
+      await ensureEngineResources(sample.compiler === 'xelatex' ? 'xelatex' : 'pdflatex', controller.signal)
       await warmupBrowserLatex(sample, {
         signal: controller.signal,
-        onProgress: (progress) => setWarmupMessage(progress.message),
+        onProgress: (progress) => {
+          setWarmupMessage(progress.message)
+          if (progress.stage !== 'resource') return
+          const resource = progress.resource
+          if (resource.state === 'loading') {
+            setWarmupProgress((current) => ({ ...current, current: resource.name }))
+          } else if (resource.state === 'loaded') {
+            setWarmupProgress((current) => ({ loaded: current.loaded + 1, current: null }))
+          }
+        },
       })
       setCacheNotice(`${sample.name}预热完成，相关宏包和字体已保存在本机缓存。`)
     } catch (cause) {
@@ -165,8 +209,9 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
     } finally {
       setWarmingId(null)
       setWarmupMessage('')
+      setWarmupProgress({ loaded: 0, current: null })
       warmupControllerRef.current = null
-      await refreshCache()
+      await Promise.all([refreshCache(), refreshEngine()])
     }
   }
 
@@ -355,7 +400,18 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
                 </Button>
               )}
             </div>
-            {warmingId !== null && <p className="mt-2 text-xs text-muted-foreground" role="status">{warmupMessage}</p>}
+            {texlive?.entries === 0 && warmingId === null && (
+              <p className="mt-2 text-xs text-muted-foreground">首次预热要下载论文常用宏包与中文字体，通常需要几分钟；可以随时取消，已下载的资源会保留。</p>
+            )}
+            {warmingId !== null && (
+              <div className="mt-2 space-y-1 text-xs text-muted-foreground" role="status">
+                <p>
+                  {warmupProgress.current ? `正在下载：${warmupProgress.current} · ` : ''}
+                  已加载 {warmupProgress.loaded} 个资源 · 已用 {formatDuration(warmupElapsedSeconds)}
+                </p>
+                <p>{warmupMessage}</p>
+              </div>
+            )}
           </section>
 
           <section className="rounded-xl border p-4">
@@ -444,7 +500,7 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
         onOpenChange={setIsClearConfirmOpen}
         title="清理浏览器 LaTeX 缓存？"
         description="这会删除已下载引擎、宏包、字体、格式文件和未完成的下载分块。项目源码与已上传的 PDF 不受影响；再次编译时会重新下载需要的资源。"
-        confirmText="清理全部缓存"
+        confirmText="确认清理全部"
         cancelText="保留缓存"
         variant="destructive"
         onConfirm={clearCache}
