@@ -299,7 +299,9 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("模型配置不可用")
 		return
 	}
-	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String(), s.Cfg.AgentModelTimeout, s.Cfg.AgentModelIdleTimeout)
+	// 只有用户设置里的 base_url 属于不可信输入；服务端 env / 管理端配置由运维掌控。
+	allowPrivate := s.Cfg.AgentAllowPrivateProviderURLs || (rc.Model.Source != "" && rc.Model.Source != "user-settings")
+	chatModel, err := NewChatModel(ctx, rc.Model, rc.ConversationID.String(), s.Cfg.AgentModelTimeout, s.Cfg.AgentModelIdleTimeout, allowPrivate)
 	if err != nil {
 		fail("模型初始化失败")
 		return

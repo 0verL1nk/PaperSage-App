@@ -70,6 +70,9 @@ type Settings struct {
 	AgentMaxIterations          int           `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
 	AgentModelTimeout           time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`            // 模型响应头超时，防止连接悬挂
 	AgentModelIdleTimeout       time.Duration `env:"AGENT_MODEL_IDLE_TIMEOUT" envDefault:"5m"`       // 流式空闲超时；0 关闭
+	// 允许用户配置的 provider base_url 指向回环/私网（ollama、LM Studio 等本地模型）。
+	// 默认关闭：生产环境里 base_url 由普通用户填写，开放后等于允许访问服务端所在网络。
+	AgentAllowPrivateProviderURLs bool `env:"AGENT_ALLOW_PRIVATE_PROVIDER_URLS" envDefault:"false"`
 	// 模型能力目录：后台刷新 models.dev 快照；置空可禁用（此时能力未知，由用户手填）。
 	ModelRegistryURL          string `env:"MODEL_REGISTRY_URL" envDefault:"https://models.dev/api.json"`
 	ModelRegistryRefreshHours int    `env:"MODEL_REGISTRY_REFRESH_HOURS" envDefault:"24"`

@@ -99,7 +99,7 @@ func TestProposeEditNeverWritesBeforeUserApproval(t *testing.T) {
 	}))
 	t.Cleanup(fake.Close)
 
-	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m"}
+	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "k", AgentBaseURL: fake.URL, AgentModel: "m", AgentAllowPrivateProviderURLs: true}
 	rg, err := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, err)
 	svc := agent.NewService(db, stg, files, cfg, rg)

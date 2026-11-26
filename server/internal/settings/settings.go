@@ -11,10 +11,8 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -28,6 +26,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/netguard"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
@@ -689,15 +688,15 @@ func (e providerHTTPError) Error() string {
 // TestAgentConnection probes an OpenAI-compatible endpoint: GET /models first,
 // then a one-token chat completion. The 10s budget covers both attempts.
 func (s *Service) TestAgentConnection(ctx context.Context, req AgentTestRequest) (*AgentTestResult, error) {
-	base := strings.TrimRight(strings.TrimSpace(req.BaseURL), "/")
-	apiKey := strings.TrimSpace(req.APIKey)
-	u, err := url.Parse(base)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		return nil, errors.New("base_url must be a valid http(s) URL")
+	allowPrivate := s.allowPrivateProviderURLs()
+	base, err := netguard.ValidateBaseURL(req.BaseURL, allowPrivate)
+	if err != nil {
+		return nil, err
 	}
+	apiKey := strings.TrimSpace(req.APIKey)
 	ctx, cancel := context.WithTimeout(ctx, agentTestTimeout)
 	defer cancel()
-	client := testClientFactory(base)
+	client := testClientFactory(base, allowPrivate)
 
 	models, metadata, err := fetchProviderModels(ctx, client, base, apiKey)
 	if err == nil {
@@ -721,33 +720,17 @@ func (s *Service) TestAgentConnection(ctx context.Context, req AgentTestRequest)
 	return &AgentTestResult{OK: true}, nil
 }
 
+// allowPrivateProviderURLs 报告是否显式放开本地模型（回环/私网 provider）。
+// 未配置时按最严格处理；nil Cfg 只出现在单测里。
+func (s *Service) allowPrivateProviderURLs() bool {
+	return s.Cfg != nil && s.Cfg.AgentAllowPrivateProviderURLs
+}
+
 // testClientFactory is swapped by tests that probe httptest loopback servers.
 var testClientFactory = newAgentTestClient
 
-// publicOnlyControl rejects targets that resolve to private, loopback or
-// link-local addresses so the connection probe cannot be used as an SSRF
-// scanner against the server's own network or cloud metadata.
-func publicOnlyControl(_, address string, _ syscall.RawConn) error {
-	host, _, err := net.SplitHostPort(address)
-	if err != nil {
-		return err
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return errors.New("provider host did not resolve to an IP")
-	}
-	if v4 := ip.To4(); v4 != nil && v4[0] == 100 && v4[1] >= 64 && v4[1] <= 127 {
-		return errors.New("provider host resolves to a private address")
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
-		return errors.New("provider host resolves to a private address")
-	}
-	return nil
-}
-
-func newAgentTestClient(baseURL string) *http.Client {
-	dial := (&net.Dialer{Timeout: agentTestTimeout, Control: publicOnlyControl}).DialContext
+func newAgentTestClient(baseURL string, allowPrivate bool) *http.Client {
+	dial := (&net.Dialer{Timeout: agentTestTimeout, Control: netguard.Control(allowPrivate)}).DialContext
 	var rt http.RoundTripper
 	if base, ok := http.DefaultTransport.(*http.Transport); ok {
 		base = base.Clone()
@@ -949,6 +932,11 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 			return
 		}
 		result, err := s.TestAgentConnection(c.Request.Context(), req)
+		if errors.Is(err, netguard.ErrInvalidBaseURL) {
+			// 用户填错地址属于请求问题，不能报成网关错误。
+			httpapi.WriteError(c.Writer, httpapi.BadRequest(err.Error()))
+			return
+		}
 		if err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusBadGateway, Info: err.Error()})
 			return

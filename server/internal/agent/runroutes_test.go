@@ -85,7 +85,7 @@ func TestRunLifecycleContract(t *testing.T) {
 
 	fake := fakeOpenAI(t)
 	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "k",
-		AgentBaseURL: fake.URL, AgentModel: "test-model"}
+		AgentBaseURL: fake.URL, AgentModel: "test-model", AgentAllowPrivateProviderURLs: true}
 	rgStore, rerr := rag.NewStore(db, rag.HashEmbedder{Dim: 64}, "")
 	require.NoError(t, rerr)
 	svc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, rgStore)
@@ -222,7 +222,7 @@ func lifecycleAPI(t *testing.T, modelURL string) (*agent.Service, *gorm.DB, stri
 	require.NoError(t, db.Create(&store.Project{Name: "P", OwnerID: uid,
 		BaseModel: store.BaseModel{ID: pid}}).Error)
 	require.NoError(t, db.Create(&store.AgentConversation{ID: cid, ProjectID: pid, UserID: uid, Title: "t"}).Error)
-	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "fake", AgentBaseURL: modelURL, AgentModel: "fake"}
+	cfg := &config.Settings{SecretKey: "t", AgentAPIKey: "fake", AgentBaseURL: modelURL, AgentModel: "fake", AgentAllowPrivateProviderURLs: true}
 	svc := agent.NewService(db, testutil.NewMemStorage(), nil, cfg, nil)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
