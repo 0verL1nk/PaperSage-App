@@ -160,6 +160,8 @@ PDF 优先提取物理页序号，并标明与印刷页码的区别；坐标准�
 
 wiki 是派生笔记，不是新出现的一份原始证据。每个用于生成的笔记片段应能回溯到来源 ID、版本与证据 ID；原文变更、删除或撤权时标记受影响笔记过期。优先级应为“wiki 帮助导航—回读原始证据—形成建议”，不能“wiki 写过就当事实”；缺少溯源的现有笔记仅用于浏览，不作为已核验论据。
 
+> **落地状态（2026-11-26，`HELE-13`）**：来源删除/出新版本后的「派生内容待复查」已落地为**确定性依赖标记**：`content_recheck_marks`（迁移 `0028_content_recheck`）由 `server/internal/recheck` 单一持有，按 `research_artifact_dependencies` / `agent_evidence` / `agent_wiki_sources` 标记受影响的产物修订、证据与 wiki 页（置 `stale_at`），并对章节计划做 **review ← plan 一跳级联**（按 payload `planRevision` 过滤，另一版计划不误标）；`Adopt` 遇未处理标记返回 409。用户在准备页逐条「已复查 / 已重建 / 忽略」，系统只提醒、不自动改写任何产物或正文；`wiki_write` 会把本 Run 读过的证据写成来源回溯（Run 级保守近似，唯一键幂等）。**仍未做**：撤权/排除触发（无数据模型，仅预留枚举）、来源新版本发布入口（当前无生产者，仅服务级验证并在 `sources/publish.go` 注释预留调用点）、历史 review 回填。
+
 ## 7. 修改确认与版本安全
 
 拟采用以下状态流，禁止让普通聊天工具绕过确认直接修改用户稿件：
@@ -181,7 +183,8 @@ wiki 是派生笔记，不是新出现的一份原始证据。每个用于生成
 > `TestProjectToolsHasNoWriteTool` 增加显式工具白名单，新增工具未登记即测试失败。
 >
 > **仍未做**：不可变文件快照与版本回退、批注（WritingComment）与文本锚点区间、
-> `deferred/needs_recheck` 的适用性生命周期、证据身份随来源撤权失效——这些仍属 §10 的 P0/P1 范围。
+> `deferred/needs_recheck` 的适用性生命周期（**产物/证据/wiki 已由 `HELE-13` 于 2026-11-26 落地确定性待复查标记，见 §6.3**；变更建议与稿件的适用性仍未做）、
+> 证据身份随来源撤权失效——这些仍属 §10 的 P0/P1 范围。
 
 ```text
 任务执行：queued → running → completed / failed / cancelled
