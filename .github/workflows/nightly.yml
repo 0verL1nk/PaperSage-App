@@ -1,0 +1,321 @@
+name: Nightly
+
+# 重型回归只在定时与手动触发：真实浏览器 WASM 编译、API 延迟基线、
+# Lighthouse、Go benchmark。产物保留 90 天，供毕设论文第 5 章引用。
+# 不参与发布门禁——失败只告警，不阻塞任何人。
+on:
+  schedule:
+    # 北京 02:37，避开整点
+    - cron: '37 18 * * *'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: '只跑某个任务（省额度）'
+        type: choice
+        default: all
+        options:
+          - all
+          - browser-latex
+          - api-perf
+          - lighthouse
+          - go-bench
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# 与 e2e.yml 同一套装配值：本地 fakes3 + fakesmtp + sqlite。
+env:
+  DATABASE_URL: sqlite:///./nightly.db
+  SECRET_KEY: ci-secret-not-for-prod
+  REDIS_URL: ''
+  LATEX_CLSI_ENABLED: 'false'
+  S3_ENDPOINT: http://localhost:9000
+  S3_ACCESS_KEY: ci-access
+  S3_SECRET_KEY: ci-secret
+  S3_BUCKET: papersage
+  S3_REGION: us-east-1
+  S3_PUBLIC_URL: http://localhost:9000
+  EMAIL_PROVIDER: smtp
+  SMTP_HOST: localhost:2525
+  SMTP_USER: e2e@example.com
+
+jobs:
+  browser-latex:
+    name: browser-latex
+    if: github.event_name == 'schedule' || inputs.job == 'all' || inputs.job == 'browser-latex'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      VITE_API_BASE_URL: http://localhost:5478
+      PLAYWRIGHT_BASE_URL: http://localhost:5188
+      RUN_BROWSER_LATEX_E2E: '1'
+      BROWSER_LATEX_RESOURCE_API: http://localhost:5478
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Start fake S3
+        working-directory: server
+        run: |
+          mkdir -p bin "$GITHUB_WORKSPACE/logs"
+          go build -o bin/fakes3 ./cmd/fakes3
+          nohup ./bin/fakes3 --addr :9000 --bucket papersage \
+            > "$GITHUB_WORKSPACE/logs/fakes3.log" 2>&1 &
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/ >/dev/null 2>&1; then
+              echo "Fake S3 ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "Fake S3 did not start in 30s"; cat "$GITHUB_WORKSPACE/logs/fakes3.log" || true; exit 1
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Write CI env file
+        working-directory: server
+        run: |
+          cat > .env <<'ENVEOF'
+          DATABASE_URL=sqlite:///./nightly.db
+          SECRET_KEY=ci-secret-not-for-prod
+          REDIS_URL=
+          LATEX_CLSI_ENABLED=false
+          S3_ENDPOINT=http://localhost:9000
+          S3_ACCESS_KEY=ci-access
+          S3_SECRET_KEY=ci-secret
+          S3_BUCKET=papersage
+          S3_REGION=us-east-1
+          S3_PUBLIC_URL=http://localhost:9000
+          EMAIL_PROVIDER=smtp
+          SMTP_HOST=localhost:2525
+          SMTP_USER=e2e@example.com
+          ENVEOF
+
+      - name: Build & seed backend
+        working-directory: server
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/logs"
+          go build -o bin/papersage ./cmd/papersage
+          go run ./cmd/seed 2>&1 | tee "$GITHUB_WORKSPACE/logs/seed.log"
+
+      - name: Start backend
+        working-directory: server
+        run: |
+          nohup ./bin/papersage > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:5478/health >/dev/null; then
+              echo "Backend ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          tail -100 "$GITHUB_WORKSPACE/logs/backend.log" || true; exit 1
+
+      # browser-compile.spec.ts 用 import('/src/lib/latex/...')，只有 dev server 能解析。
+      - name: Start vite dev server
+        working-directory: frontend
+        run: |
+          nohup pnpm dev --host 127.0.0.1 --port 5188 --strictPort \
+            > "$GITHUB_WORKSPACE/logs/frontend.log" 2>&1 &
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:5188/ >/dev/null; then
+              echo "Frontend ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          tail -100 "$GITHUB_WORKSPACE/logs/frontend.log" || true; exit 1
+
+      - name: Install Playwright chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      # template-compile.spec.ts 需要本地模板 ZIP，按 TEMPLATE-ACCEPTANCE.md
+      # 的约定不入库，因此不在这里跑。
+      - name: Browser WASM compile
+        working-directory: frontend
+        run: |
+          pnpm exec playwright test --config tests/e2e/latex/playwright.config.ts \
+            browser-compile.spec.ts bibtex-browser-compile.spec.ts
+
+      - name: Upload report and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-browser-latex
+          path: |
+            frontend/test-results
+            frontend/playwright-report
+            logs
+          retention-days: 90
+          if-no-files-found: warn
+
+  api-perf:
+    name: api-perf
+    if: github.event_name == 'schedule' || inputs.job == 'all' || inputs.job == 'api-perf'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - name: Start fake S3
+        working-directory: server
+        run: |
+          mkdir -p bin "$GITHUB_WORKSPACE/logs"
+          go build -o bin/fakes3 ./cmd/fakes3
+          nohup ./bin/fakes3 --addr :9000 --bucket papersage \
+            > "$GITHUB_WORKSPACE/logs/fakes3.log" 2>&1 &
+          for i in {1..30}; do
+            if curl -sf http://localhost:9000/ >/dev/null 2>&1; then
+              echo "Fake S3 ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          cat "$GITHUB_WORKSPACE/logs/fakes3.log" || true; exit 1
+
+      - name: Write CI env file
+        working-directory: server
+        run: |
+          cat > .env <<'ENVEOF'
+          DATABASE_URL=sqlite:///./nightly.db
+          SECRET_KEY=ci-secret-not-for-prod
+          REDIS_URL=
+          LATEX_CLSI_ENABLED=false
+          S3_ENDPOINT=http://localhost:9000
+          S3_ACCESS_KEY=ci-access
+          S3_SECRET_KEY=ci-secret
+          S3_BUCKET=papersage
+          S3_REGION=us-east-1
+          S3_PUBLIC_URL=http://localhost:9000
+          EMAIL_PROVIDER=smtp
+          SMTP_HOST=localhost:2525
+          SMTP_USER=e2e@example.com
+          ENVEOF
+
+      - name: Build & seed backend
+        working-directory: server
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/logs"
+          go build -o bin/papersage ./cmd/papersage
+          go run ./cmd/seed 2>&1 | tee "$GITHUB_WORKSPACE/logs/seed.log"
+
+      - name: Start backend
+        working-directory: server
+        run: |
+          nohup ./bin/papersage > "$GITHUB_WORKSPACE/logs/backend.log" 2>&1 &
+          for i in {1..60}; do
+            if curl -sf http://127.0.0.1:5478/health >/dev/null; then
+              echo "Backend ready after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          tail -100 "$GITHUB_WORKSPACE/logs/backend.log" || true; exit 1
+
+      - name: API latency baseline
+        run: bash scripts/perf/api-baseline.sh
+
+      - name: Upload baseline and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-api-perf
+          path: |
+            perf-results.json
+            logs
+          retention-days: 90
+          if-no-files-found: warn
+
+  lighthouse:
+    name: lighthouse
+    if: github.event_name == 'schedule' || inputs.job == 'all' || inputs.job == 'lighthouse'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Production build
+        working-directory: frontend
+        run: pnpm build
+
+      # 断言先全部设为 warn：前几次只收集真实分数，避免凭空的 0.90 门槛直接判红。
+      - name: Lighthouse audit
+        uses: treosh/lighthouse-ci-action@3e7e23fb74242897f95c0ba9cabad3d0227b9b18 # 12.6.2
+        with:
+          configPath: ./lighthouserc.json
+          uploadArtifacts: true
+
+      - name: Upload Lighthouse report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-lighthouse
+          path: frontend/lhci-report
+          retention-days: 90
+          if-no-files-found: warn
+
+  go-bench:
+    name: go-bench
+    if: github.event_name == 'schedule' || inputs.job == 'all' || inputs.job == 'go-bench'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      # 现状只有 extract 包有 Benchmark；本期只建立归档口径，不新写基准。
+      - name: Run benchmarks
+        working-directory: server
+        run: |
+          set -o pipefail
+          go test ./internal/... -bench . -benchmem -run '^$' 2>&1 | tee bench.txt
+
+      - name: Upload benchmark output
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-go-bench
+          path: server/bench.txt
+          retention-days: 90
+          if-no-files-found: warn
