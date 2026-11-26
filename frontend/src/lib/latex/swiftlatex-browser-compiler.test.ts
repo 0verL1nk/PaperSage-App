@@ -14,6 +14,15 @@ const backendError = '本地后端版本不匹配'
 const startWorker = vi.fn()
 const messages: Array<Record<string, unknown>> = []
 
+const resourceCache = vi.hoisted(() => ({
+  getCachedLatexFormat: vi.fn(),
+  putCachedLatexFormat: vi.fn(),
+  pruneSupersededProfileCache: vi.fn(),
+  downloadLatexResource: vi.fn(),
+  getLatexResourceStatus: vi.fn(),
+}))
+vi.mock('@/lib/latex-resource-cache', () => resourceCache)
+
 class TestWorker {
   onmessage: ((event: { data: { result: string } }) => void) | null = null
   onerror = null
@@ -36,6 +45,11 @@ describe('browser compiler resource origin', () => {
     localStorage.clear()
     messages.length = 0
     startWorker.mockClear()
+    resourceCache.getCachedLatexFormat.mockResolvedValue(null)
+    resourceCache.putCachedLatexFormat.mockResolvedValue(undefined)
+    resourceCache.pruneSupersededProfileCache.mockResolvedValue(undefined)
+    resourceCache.downloadLatexResource.mockResolvedValue(undefined)
+    resourceCache.getLatexResourceStatus.mockResolvedValue({ cached: false, downloaded: 0 })
     vi.stubGlobal('Worker', TestWorker)
     // Compilation starts by discovering the served profile from the backend.
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
@@ -95,6 +109,33 @@ describe('browser compiler resource origin', () => {
     await expect(compileLatexInBrowser(files, 'main.tex', 'pdflatex')).rejects.toThrow('worker stopped after URL inspection')
     expect(messages[0]).toMatchObject({ cmd: 'settexliveurl' })
     expect((messages[0].url as string).startsWith(`${appEnv.localApiBaseUrl}/texlive/`)).toBe(true)
+  })
+
+  it('stops the compile when a single resource download never answers', async () => {
+    vi.useFakeTimers()
+    class StalledWorker {
+      onmessage: ((event: { data: Record<string, unknown> }) => void) | null = null
+      onerror = null
+      constructor() {
+        startWorker()
+        queueMicrotask(() => this.onmessage?.({ data: { result: 'ok' } }))
+      }
+      postMessage(message: Record<string, unknown>) {
+        messages.push(message)
+        if (message.cmd === 'compileformat') {
+          queueMicrotask(() => this.onmessage?.({
+            data: { cmd: 'resource', kind: 'package', name: 'FandolSong-Regular.otf', state: 'loading' },
+          }))
+        }
+      }
+      terminate() {}
+    }
+    vi.stubGlobal('Worker', StalledWorker)
+
+    const compilation = compileLatexInBrowser(files, 'main.tex', 'xelatex')
+    const rejection = expect(compilation).rejects.toThrow('下载 FandolSong-Regular.otf 超过 2 分钟没有响应')
+    await vi.advanceTimersByTimeAsync(120_000)
+    await rejection
   })
 
   it('times out an engine that never reports ready instead of hanging the compile', async () => {

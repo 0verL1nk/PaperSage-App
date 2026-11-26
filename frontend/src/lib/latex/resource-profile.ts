@@ -18,15 +18,24 @@ export function browserResourceOrigin(): string {
  * The backend embeds the profile, so clients ask for it instead of baking it
  * into a build and having to redeploy the frontend on every profile upgrade.
  */
+const PROFILE_TIMEOUT_MS = 15_000
+
 export async function discoverResourceProfile(origin: string, signal?: AbortSignal): Promise<string> {
+  const timeout = AbortSignal.timeout(PROFILE_TIMEOUT_MS)
+  const requestSignal = signal && typeof AbortSignal.any === 'function'
+    ? AbortSignal.any([signal, timeout])
+    : timeout
   let response: Response
   try {
     response = await fetch(new URL('/texlive/profile', origin).href, {
       headers: { Accept: 'application/json' },
-      signal,
+      signal: requestSignal,
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error
+    if (error instanceof DOMException && error.name === 'TimeoutError') {
+      throw new Error('无法获取 LaTeX 资源目录版本：服务 15 秒内没有响应，请检查网络或资源服务状态后重试')
+    }
     throw new Error('无法获取 LaTeX 资源目录版本：网络不可用，请检查连接后重试')
   }
   if (!response.ok) {
