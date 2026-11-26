@@ -1,6 +1,9 @@
 import { toast } from 'sonner'
 
-import { notifyWhenBackground } from '@/lib/desktop'
+import { isDesktop, notifyWhenBackground } from '@/lib/desktop'
+import browserEngineManifest from '@/lib/latex/browser-engine-manifest.json'
+import { classifyCompileFailure } from '@/lib/latex/compile-error'
+import { redactDiagnosticLog, redactDiagnosticMessage } from '@/lib/latex/diagnostic-redaction'
 import { compileLatexInBrowser } from '@/lib/latex/swiftlatex-browser-compiler'
 import type { BrowserLatexFile, BrowserLatexProgress } from '@/lib/latex/swiftlatex-browser-compiler'
 import {
@@ -11,6 +14,12 @@ import {
   sendBrowserCompileHeartbeat,
   uploadBrowserCompileResult,
 } from '@/services/latex-api'
+import {
+  reportCompileDiagnostic,
+  type CompileDiagnosticPayload,
+  type DiagnosticFailureStage,
+} from '@/services/diagnostics-api'
+import { FrontendApiError } from '@/services/errors'
 import {
   hasUnfinishedCompile,
   useCompileStore,
@@ -79,16 +88,100 @@ function notifyAway(projectId: string, kind: 'success' | 'error', title: string,
   else toast.error(text, description ? { description } : undefined)
 }
 
+function nowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now()
+}
+
+function collectClientEnv(): CompileDiagnosticPayload['client_env'] {
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined
+  const deviceMemory = (nav as (Navigator & { deviceMemory?: number }) | undefined)?.deviceMemory
+  return {
+    user_agent: nav?.userAgent ?? '',
+    platform: nav?.platform ?? '',
+    language: nav?.language ?? '',
+    hardware_concurrency: nav?.hardwareConcurrency ?? 0,
+    device_memory_gb: typeof deviceMemory === 'number' ? Math.round(deviceMemory) : 0,
+    online: nav?.onLine !== false,
+  }
+}
+
+interface DiagnosticContext {
+  projectId: string
+  stage: DiagnosticFailureStage
+  startedAt: number
+  resourceProfile: string | null
+  projectFiles: string[]
+  isGuest: boolean
+  compiler: string
+  error: unknown
+  message: string
+}
+
+/**
+ * 异步上报脱敏诊断：不 await、失败静默，绝不干扰主编译错误展示。
+ * 用户主动取消不算故障，调用方不会走到这里。
+ */
+async function reportFailureDiagnostic(context: DiagnosticContext): Promise<void> {
+  const { projectId } = context
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    patch(projectId, { diagnosticStatus: 'failed', diagnosticId: null })
+    return
+  }
+  patch(projectId, { diagnosticStatus: 'pending', diagnosticId: null })
+
+  const state = useCompileStore.getState().projects[projectId]
+  const resources = Object.values(state?.resources ?? {})
+    .filter((resource) => resource.state === 'missing' || resource.state === 'failed' || resource.state === 'cacheWarning')
+    .slice(0, 20)
+    .map((resource) => ({
+      kind: resource.kind,
+      name: resource.name,
+      state: resource.state,
+      status: resource.status,
+      error: resource.error,
+    }))
+  const hasMissingResource = resources.some((resource) => resource.state === 'missing' || resource.status === 404)
+  const failureKind = classifyCompileFailure(context.message, context.message, hasMissingResource)
+  const payload: CompileDiagnosticPayload = {
+    compile_job_id: state?.jobId ?? undefined,
+    project_id: context.isGuest ? undefined : projectId,
+    client_kind: isDesktop() ? 'desktop' : 'web',
+    engine: context.compiler,
+    engine_version: browserEngineManifest.engineVersion,
+    resource_profile: context.resourceProfile ?? undefined,
+    failure_kind: failureKind,
+    failure_stage: context.stage,
+    duration_ms: Math.max(0, Math.round(nowMs() - context.startedAt)),
+    http_status: context.error instanceof FrontendApiError ? context.error.status ?? null : null,
+    error_message: redactDiagnosticMessage(failureKind, context.message),
+    log_excerpt: failureKind === 'latex' ? redactDiagnosticLog(context.message, context.projectFiles) : '',
+    failed_resources: resources,
+    client_env: collectClientEnv(),
+  }
+  try {
+    const created = await reportCompileDiagnostic(payload)
+    patch(projectId, { diagnosticStatus: 'sent', diagnosticId: created.id })
+  } catch {
+    patch(projectId, { diagnosticStatus: 'failed' })
+  }
+}
+
 async function runCompile(options: StartCompileOptions, controller: AbortController): Promise<void> {
   const { projectId, rootFile, compiler, isGuest } = options
   let jobId: string | null = null
   let compiled: PendingBrowserUpload | null = null
   let heartbeat: number | null = null
+  const startedAt = nowMs()
+  let stage: DiagnosticFailureStage = 'prepare'
+  let resourceProfile: string | null = null
+  let projectFiles: string[] = []
   try {
     const files = await waitForAbortable(options.prepare(controller.signal), controller.signal)
+    projectFiles = files.map((file) => file.path)
     if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
 
     if (!isGuest) {
+      stage = 'job_create'
       const request = createBrowserCompileJob(projectId, rootFile, compiler)
       let created: { job_id: string }
       try {
@@ -117,9 +210,11 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
     }
 
     patch(projectId, { phase: 'compiling' })
+    stage = 'compile'
 
     const result = await compileLatexInBrowser(files, rootFile, compiler, {
       signal: controller.signal,
+      onDiagnosticContext: (context) => { resourceProfile = context.resourceProfile },
       onProgress: (progress: BrowserLatexProgress) => {
         patch(projectId, { progressMessage: progress.message })
         if (progress.stage === 'convert' && progress.license) patch(projectId, { license: progress.license })
@@ -157,6 +252,7 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
       progressMessage: 'PDF 已生成，正在上传到对象存储并保存编译记录',
     })
     if (controller.signal.aborted) throw new DOMException('编译已取消', 'AbortError')
+    stage = 'upload'
     const uploaded = await uploadBrowserCompileResult(projectId, jobId, result.pdf, result.log)
     patch(projectId, {
       phase: 'success',
@@ -194,6 +290,9 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
         })
       }
     }
+    void reportFailureDiagnostic({
+      projectId, stage, startedAt, resourceProfile, projectFiles, isGuest, compiler, error, message,
+    })
     void notifyWhenBackground('编译失败', message)
     notifyAway(projectId, 'error', '编译失败', message)
   } finally {

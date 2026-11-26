@@ -128,7 +128,7 @@ export function MainLayout({ children }: MainLayoutProps) {
                       to="/app/admin"
                       className={cn(
                         "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
-                        location.pathname === '/app/admin'
+                        location.pathname.startsWith('/app/admin')
                           ? "bg-primary text-primary-foreground shadow-sm"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}

@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +18,7 @@ import (
 
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/ratelimit"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/syssettings"
 )
@@ -97,67 +97,24 @@ func emailAllowedFromDB(db *gorm.DB, email string) (bool, string) {
 
 // ── 登录/验证端点限速（OWASP/NIST 800-63B：5-10 次/分钟）────────
 //
-// 内存滑动窗口计数（单实例部署足够；多实例时换 Redis——与 cache 域
-// 的取舍一致）。键 = 类型 + 标识（IP 或账号）。窗口与阈值是常量：
-// 这是限速器自身的工程参数（如同 bcrypt cost），不是业务配置。
+// 实现复用 internal/ratelimit（同一份滑动窗口，供 compilediag 等域共用）；
+// 这里只保留域内短方法名与登录阈值。
 
-const (
-	rateWindow   = time.Minute
-	rateMaxLogin = 8 // 略宽于 OWASP 下限，兼顾多人共享校园出口 IP
-)
+const rateMaxLogin = 8 // 略宽于 OWASP 下限，兼顾多人共享校园出口 IP
 
-type rateEntry struct {
-	hits   []time.Time
-	window time.Duration
-}
+// rateLimiter 是 ratelimit.Limiter 的域内别名，保留既有短方法名。
+type rateLimiter struct{ *ratelimit.Limiter }
 
-type rateLimiter struct {
-	mu        sync.Mutex
-	hits      map[string]*rateEntry
-	lastSweep time.Time
-}
-
-func newRateLimiter() *rateLimiter {
-	return &rateLimiter{hits: map[string]*rateEntry{}}
-}
+func newRateLimiter() *rateLimiter { return &rateLimiter{ratelimit.New()} }
 
 // allow 记录一次尝试；返回 false 表示超出速率窗口限额。
 func (r *rateLimiter) allow(key string, max int) bool {
-	return r.allowWindow(key, max, rateWindow)
+	return r.Allow(key, max)
 }
 
 // allowWindow 是 allow 的通用形式：window 内最多 max 次。
-// 惰性清扫：键会按任意邮箱/IP 累积，过期条目在调用时删除，避免无界内存。
 func (r *rateLimiter) allowWindow(key string, max int, window time.Duration) bool {
-	now := time.Now()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if now.Sub(r.lastSweep) >= rateWindow {
-		for k, e := range r.hits {
-			if len(e.hits) == 0 || now.Sub(e.hits[len(e.hits)-1]) >= e.window {
-				delete(r.hits, k)
-			}
-		}
-		r.lastSweep = now
-	}
-	e := r.hits[key]
-	if e == nil {
-		e = &rateEntry{}
-		r.hits[key] = e
-	}
-	e.window = window
-	keep := e.hits[:0]
-	for _, t := range e.hits {
-		if now.Sub(t) < window {
-			keep = append(keep, t)
-		}
-	}
-	e.hits = keep
-	if len(keep) >= max {
-		return false
-	}
-	e.hits = append(e.hits, now)
-	return true
+	return r.AllowWindow(key, max, window)
 }
 
 // 邮箱验证 token TTL（24h：注册验证通行值；密码重置类高危动作应更短）

@@ -1,7 +1,9 @@
 import { VerifyEmailPage } from '@/views/auth/verify-email-page'
 import { ForgotPasswordPage } from '@/views/auth/forgot-password-page'
 import { ResetPasswordPage } from '@/views/auth/reset-password-page'
+import { AdminLayout } from '@/views/admin/AdminLayout'
 import { AdminPage } from '@/views/admin/AdminPage'
+import { CompileDiagnosticsPage } from '@/views/admin/CompileDiagnosticsPage'
 import type { QueryClient } from '@tanstack/react-query'
 import {
   Link,
@@ -138,11 +140,23 @@ const indexRoute = createRoute({
   },
 })
 
-// Auth route - public, redirects if already logged in
-const adminRoute = createRoute({
+// 管理后台：二级导航（系统设置 / 编译错误日志），权限由接口 403 兜底。
+const adminLayoutRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: '/app/admin',
+  component: AdminLayout,
+})
+
+const adminSettingsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/',
   component: AdminPage,
+})
+
+const adminCompileDiagnosticsRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/compile-diagnostics',
+  component: CompileDiagnosticsPage,
 })
 
 const authVerifyRoute = createRoute({
@@ -335,7 +349,7 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   authRoute,
   guestRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminRoute]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminLayoutRoute.addChildren([adminSettingsRoute, adminCompileDiagnosticsRoute])]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectPrepareRoute,

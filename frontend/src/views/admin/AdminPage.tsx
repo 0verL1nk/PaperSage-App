@@ -5,7 +5,7 @@
  */
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ShieldCheck, Plus, X, Loader2 } from 'lucide-react'
+import { Plus, X, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -50,12 +50,7 @@ export function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 p-6">
-      <div className="flex items-center gap-2">
-        <ShieldCheck className="size-5 text-primary/70" />
-        <h1 className="text-lg font-semibold">系统管理</h1>
-      </div>
-
+    <div className="max-w-2xl space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="text-sm">注册邮箱域白名单</CardTitle>

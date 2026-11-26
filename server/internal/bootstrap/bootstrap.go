@@ -16,6 +16,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
 	"github.com/0verL1nk/GraduateProject/server/internal/agent/modelregistry"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
+	"github.com/0verL1nk/GraduateProject/server/internal/compilediag"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/documents"
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
@@ -174,6 +175,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	recheck.Mount(v1, authSvc.AuthRequired(), recheckSvc)
 	sources.Mount(v1, authSvc.AuthRequired(), sourcesSvc)
 	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
+	compilediag.Mount(v1, authSvc, compilediag.NewService(db, cfg.CompileDiagnosticRetentionDays))
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
