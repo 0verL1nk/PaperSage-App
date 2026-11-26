@@ -296,3 +296,135 @@ PaperSage XeLaTeX browser smoke test.
   expect(result).toMatchObject({ prefix: '%PDF-' })
   expect(result.bytes).toBeGreaterThan(100)
 })
+
+test('XeLaTeX 中文二次编译零回源，并清理旧 profile 缓存', async ({ page }) => {
+  test.setTimeout(25 * 60_000)
+  const { workerLogs, resourceNetworkLogs } = await prepareCompilerPage(page)
+  // Optional fontconfig probes (.fontspec) legitimately 404 and are not cacheable;
+  // only HTTP 200 resource bytes must be served from IndexedDB on the second run.
+  const resolveResponses: Array<{ url: string; status: number }> = []
+  page.on('response', (response) => {
+    if (response.url().includes('/texlive/') && response.url().includes('/resolve/')) {
+      resolveResponses.push({ url: response.url(), status: response.status() })
+    }
+  })
+
+  const compileChinese = () => page.evaluate(async () => {
+    const { compileLatexInBrowser } = await import('/src/lib/latex/swiftlatex-browser-compiler.ts')
+    const events: Array<{ name: string; kind: string; state: string; cacheSource?: string; lookup?: { kind: string } }> = []
+    const source = String.raw`\documentclass[UTF8,a4paper]{ctexart}
+\begin{document}
+PaperSage 中文缓存验收：宏包、字体与 PDF 转换资源应命中本机缓存。
+\end{document}
+`
+    const compiled = await compileLatexInBrowser(
+      [{ path: 'main.tex', content: source }],
+      'main.tex',
+      'xelatex',
+      { onProgress: (event) => { if (event.stage === 'resource') events.push(event.resource) } },
+    )
+    return { prefix: new TextDecoder().decode(compiled.pdf.subarray(0, 5)), bytes: compiled.pdf.byteLength, events }
+  }).catch((error: unknown) => {
+    console.error(`Browser resource network:\n${resourceNetworkLogs.slice(-30).join('\n')}\nSwiftLaTeX worker logs:\n${workerLogs.slice(-30).join('\n')}`)
+    throw error
+  })
+
+  const readWorkerCache = () => page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('papersage-swiftlatex-worker-cache-v2', 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    try {
+      return await new Promise<Array<{ url: string; revision?: string; bytes: number; isFont: boolean }>>((resolve, reject) => {
+        const tx = db.transaction('resources', 'readonly')
+        const request = tx.objectStore('resources').getAll()
+        request.onsuccess = () => resolve(request.result.map((entry: {
+          url: string; revision?: string; fontid?: string; bytes?: ArrayBuffer
+        }) => ({
+          url: entry.url,
+          revision: entry.revision,
+          bytes: entry.bytes?.byteLength ?? 0,
+          isFont: Boolean(entry.fontid) || /\.(?:otf|ttf|ttc)(?:$|&)/i.test(entry.url),
+        })))
+        request.onerror = () => reject(request.error)
+      })
+    } finally {
+      db.close()
+    }
+  })
+
+  const firstStartedAt = Date.now()
+  const first = await compileChinese()
+  const firstMs = Date.now() - firstStartedAt
+  const firstOkCount = resolveResponses.filter((response) => response.status === 200).length
+  const secondStartedAt = Date.now()
+  const secondStartIndex = resolveResponses.length
+  const second = await compileChinese()
+  const secondMs = Date.now() - secondStartedAt
+  const secondSlice = resolveResponses.slice(secondStartIndex)
+  const secondOkCount = secondSlice.filter((response) => response.status === 200).length
+  const cacheAfterSecond = await readWorkerCache()
+
+  const runWarmup = () => page.evaluate(async () => {
+    const { warmupBrowserLatex, WARMUP_SAMPLES } = await import('/src/lib/latex/warmup.ts')
+    const stages = new Set<string>()
+    await warmupBrowserLatex(WARMUP_SAMPLES[0], { onProgress: (event) => stages.add(event.stage) })
+    return [...stages]
+  })
+  const warmupStartedAt = resolveResponses.length
+  const warmupStages = await runWarmup()
+  const warmupFirstOkCount = resolveResponses.slice(warmupStartedAt).filter((response) => response.status === 200).length
+  const secondWarmupStartedAt = resolveResponses.length
+  await runWarmup()
+  const warmupSecondOkCount = resolveResponses.slice(secondWarmupStartedAt).filter((response) => response.status === 200).length
+
+  await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open('papersage-swiftlatex-worker-cache-v2', 1)
+      request.onsuccess = () => resolve(request.result)
+      request.onerror = () => reject(request.error)
+    })
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction('resources', 'readwrite')
+      tx.objectStore('resources').put({
+        url: 'https://example.invalid/texlive/tl-old-profile/resolve/xetex?format=26&name=stale.sty',
+        bytes: new Uint8Array([1, 2, 3]).buffer,
+        fileid: '0'.repeat(64),
+        revision: 'tl-old-profile',
+        lastUsed: 1,
+      })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+      tx.onabort = () => reject(tx.error ?? new Error('旧 profile 缓存预置事务已中止'))
+    })
+    db.close()
+    localStorage.setItem('papersage_texlive_profile', 'tl-old-profile')
+  })
+  const third = await compileChinese()
+  const cacheAfterThird = await readWorkerCache()
+
+  const cacheBytes = cacheAfterSecond.reduce((total, entry) => total + entry.bytes, 0)
+  console.log(`[hele39] firstMs=${firstMs} secondMs=${secondMs} firstResolve200=${firstOkCount} secondResolve200=${secondOkCount} secondResolveNon200=${secondSlice.filter((response) => response.status !== 200).length} cacheEntries=${cacheAfterSecond.length} cacheBytes=${cacheBytes} fontEntries=${cacheAfterSecond.filter((entry) => entry.isFont).length} warmupFirst200=${warmupFirstOkCount} warmupSecond200=${warmupSecondOkCount}`)
+
+  expect(first.prefix).toBe('%PDF-')
+  expect(first.events.some((event) => event.state === 'loaded')).toBe(true)
+  expect(firstOkCount).toBeGreaterThan(0)
+  expect(second.prefix).toBe('%PDF-')
+  expect(second.events.every((event) => event.state !== 'loaded' || event.cacheSource === 'browser')).toBe(true)
+  expect(second.events.some((event) => event.state === 'loaded' && event.cacheSource === 'browser' && /\.(?:otf|ttf|ttc)$/i.test(event.name))).toBe(true)
+  expect(
+    secondOkCount,
+    `第二次编译仍回源 200 资源：\n${secondSlice.filter((response) => response.status === 200).slice(0, 10).map((response) => response.url).join('\n')}`,
+  ).toBe(0)
+  expect(warmupStages).toContain('compile')
+  expect(warmupStages).toContain('convert')
+  expect(warmupSecondOkCount, '第二次预热仍回源').toBe(0)
+  expect(cacheAfterSecond.some((entry) => entry.isFont)).toBe(true)
+  expect(cacheAfterSecond.every((entry) => !entry.url.includes('.fontspec'))).toBe(true)
+  if (first.events.some((event) => event.lookup?.kind === 'dvipdfmx')) {
+    expect(cacheAfterSecond.some((entry) => entry.url.includes('/resolve/dvipdfmx'))).toBe(true)
+  }
+  expect(third.prefix).toBe('%PDF-')
+  expect(cacheAfterThird.some((entry) => entry.revision === 'tl-old-profile')).toBe(false)
+})

@@ -22,6 +22,7 @@ import (
 	"github.com/ulikunitz/xz"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/latex/profile"
+	"github.com/0verL1nk/GraduateProject/server/internal/latex/texlive"
 )
 
 const testResourceProfile = "tl-test-profile"
@@ -86,6 +87,10 @@ func testTlpdbDocument(size int, checksum string) string {
 	document += tlpdbStanza("texinifiles", size, checksum, "tex/xetex/config/xelatex.ini")
 	document += tlpdbStanza("babel", size, checksum, "tex/generic/babel/hyphen.cfg")
 	document += tlpdbStanza("cslatex", size, checksum, "tex/cslatex/base/hyphen.cfg")
+	// TeX Live ships the same kernel file in both packages; kpathsea serves the
+	// production copy and the profile must not report an ambiguous lookup.
+	document += tlpdbStanza("latex", size, checksum, "tex/latex/base/glyphtounicode-cmex.tex")
+	document += tlpdbStanza("latex-base-dev", size, checksum, "tex/latex-dev/base/glyphtounicode-cmex.tex")
 	return document
 }
 
@@ -253,6 +258,32 @@ func TestResourceServiceRejectsUnknownAndAmbiguousNames(t *testing.T) {
 
 	wrongProfile := fixture.get(t, http.MethodGet, "/texlive/other/resolve/xetex/26/amsmath.sty")
 	require.Equal(t, http.StatusNotFound, wrongProfile.Code)
+}
+
+func TestResourceServicePrefersProductionKernelOverLatexDev(t *testing.T) {
+	content := []byte("% glyph unicode")
+	archive := makeTestArchiveFiles(t, map[string][]byte{
+		"tex/latex/base/glyphtounicode-cmex.tex":     content,
+		"tex/latex-dev/base/glyphtounicode-cmex.tex": content,
+	})
+	fixture := newTestResourceEngine(t, writeTestProfile(t, archive, nil, nil), archive)
+
+	response := fixture.get(t, http.MethodGet, "/texlive/"+testResourceProfile+"/resolve/pdftex/11/glyphtounicode-cmex.tex")
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Equal(t, string(content), response.Body.String())
+}
+
+func TestPreferProductionKernelOnlyDropsLatexDev(t *testing.T) {
+	production := texlive.TexliveProvenance{Package: "latex", SourcePath: "tex/latex/base/a.tex"}
+	development := texlive.TexliveProvenance{Package: "latex-base-dev", SourcePath: "tex/latex-dev/base/a.tex"}
+	legacyDevelopment := texlive.TexliveProvenance{Package: "latex-dev", SourcePath: "tex/latex-dev/base/a.tex"}
+	other := texlive.TexliveProvenance{Package: "other", SourcePath: "tex/latex/other/a.tex"}
+
+	require.Equal(t, []texlive.TexliveProvenance{production}, preferProductionKernel([]texlive.TexliveProvenance{development, production}))
+	require.Equal(t, []texlive.TexliveProvenance{production}, preferProductionKernel([]texlive.TexliveProvenance{legacyDevelopment, production}))
+	require.Len(t, preferProductionKernel([]texlive.TexliveProvenance{development}), 1)
+	require.Len(t, preferProductionKernel([]texlive.TexliveProvenance{production, other}), 2)
+	require.Len(t, preferProductionKernel([]texlive.TexliveProvenance{development, other}), 2)
 }
 
 func TestResourceServiceHeadAnswersWithoutBody(t *testing.T) {
