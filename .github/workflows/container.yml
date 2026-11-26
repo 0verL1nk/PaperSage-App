@@ -80,6 +80,10 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
           format: sarif
+          # trivy-action 在 SARIF 模式默认忽略 severity 过滤（日志明写
+          # "Building SARIF report with all severities"），exit-code 会把
+          # distroless 基础镜像的 UNKNOWN Debian LTS 通告也判成失败。
+          limit-severities-for-sarif: true
           output: trivy-server.sarif
       - name: Upload SARIF
         if: always()
