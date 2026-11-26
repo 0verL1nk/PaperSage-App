@@ -189,7 +189,7 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 			}
 			if strings.HasPrefix(step.Uses, "actions/upload-artifact@") {
 				serverArtifact = true
-				requireWorkflowText(t, step.With["path"], "dist/papersage_*_linux_amd64.tar.gz", "dist/checksums.txt", "dist/CHANGELOG.md")
+				requireWorkflowText(t, step.With["path"], "dist/papersage_*_linux_amd64.tar.gz", "dist/checksums.txt", "dist/CHANGELOG.md", "dist/*.sbom.json")
 				if step.With["if-no-files-found"] != "error" || step.With["overwrite"] != "true" {
 					t.Error("server artifact must require files and replace its own prior-attempt artifact")
 				}
@@ -236,13 +236,13 @@ func TestReleaseWorkflowSafety(t *testing.T) {
 		if !(verifyIndex < prepareIndex && prepareIndex < publishIndex) {
 			t.Error("asset verification must happen before draft preparation and publication")
 		}
-		requireWorkflowText(t, verify.Run, "papersage-windows-amd64-installer.exe", "SHA256SUMS", "checksums.txt", "linux_amd64.tar.gz")
+		requireWorkflowText(t, verify.Run, "papersage-windows-amd64-installer.exe", "SHA256SUMS", "checksums.txt", "linux_amd64.tar.gz", "sbom.json")
 		if strings.Count(verify.Run, "sha256sum --check --strict") < 2 {
 			t.Error("both installer and server checksums must be verified")
 		}
 		requireWorkflowText(t, prepare.Run, "--paginate", "draft=true", ".tag_name", ".draft", "RELEASE_COMMIT", "GITHUB_RUN_ID", "receipt.json")
 		requireWorkflowText(t, publish.Run,
-			"papersage-windows-amd64-installer.exe", "SHA256SUMS", "checksums.txt", "linux_amd64.tar.gz",
+			"papersage-windows-amd64-installer.exe", "SHA256SUMS", "checksums.txt", "linux_amd64.tar.gz", "sbom.json",
 			"draft=false", ".tag_name", ".draft", ".state", ".digest", "Content-Length", "RELEASE_COMMIT")
 		if regexp.MustCompile(`papersage-windows-amd64\.exe\b`).MatchString(prepare.Run + publish.Run) {
 			t.Error("standalone Windows executable must never be published")
@@ -499,9 +499,10 @@ func simulationStep(t *testing.T, root, url, script string) (string, error) {
 func simulationFiles(t *testing.T, root string) {
 	t.Helper()
 	files := map[string][]byte{
-		"bundle/server/papersage_1.2.3_linux_amd64.tar.gz":     []byte("server archive"),
-		"bundle/server/CHANGELOG.md":                           []byte("release notes"),
-		"bundle/desktop/papersage-windows-amd64-installer.exe": []byte("complete installer"),
+		"bundle/server/papersage_1.2.3_linux_amd64.tar.gz":           []byte("server archive"),
+		"bundle/server/papersage_1.2.3_linux_amd64.tar.gz.sbom.json": []byte(`{"bomFormat":"CycloneDX"}`),
+		"bundle/server/CHANGELOG.md":                                 []byte("release notes"),
+		"bundle/desktop/papersage-windows-amd64-installer.exe":       []byte("complete installer"),
 	}
 	for name, data := range files {
 		path := filepath.Join(root, filepath.FromSlash(name))
@@ -574,7 +575,7 @@ func TestReleaseDraftRecoverySimulation(t *testing.T) {
 		}
 		run(t, root, url, prepare, true)
 		run(t, root, url, publish, true)
-		if state.creates != 1 || state.uploads != 5 || state.patches != 1 || len(state.assets) != 4 || state.draft {
+		if state.creates != 1 || state.uploads != 5 || state.patches != 1 || len(state.assets) != 5 || state.draft {
 			t.Fatalf("unsafe partial retry: %+v", state)
 		}
 		// A repeated build with different bytes must not mutate the public release.
@@ -594,12 +595,12 @@ func TestReleaseDraftRecoverySimulation(t *testing.T) {
 		run(t, root, url, prepare, true)
 		state.losePatchResponse = true
 		output := run(t, root, url, publish, false)
-		if state.draft || state.patches != 1 || len(state.assets) != 4 {
+		if state.draft || state.patches != 1 || len(state.assets) != 5 {
 			t.Fatalf("fixture did not publish before response loss: %+v\n%s", state, output)
 		}
 		run(t, root, url, prepare, true)
 		run(t, root, url, publish, true)
-		if state.creates != 1 || state.uploads != 4 || state.patches != 1 {
+		if state.creates != 1 || state.uploads != 5 || state.patches != 1 {
 			t.Fatalf("public release was modified during recovery: %+v", state)
 		}
 	})
