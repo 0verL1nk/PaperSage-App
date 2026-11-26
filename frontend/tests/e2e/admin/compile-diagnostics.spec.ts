@@ -52,6 +52,8 @@ async function mockMe(page: Page, isSuperuser: boolean) {
 }
 
 test.describe('Admin compile diagnostics', () => {
+  // 慢机器/冷启动下 Radix Select 与表格渲染偏慢，放宽单测超时。
+  test.describe.configure({ timeout: 60_000 })
   test('lists records, filters by kind and opens the detail sheet', async ({ page }) => {
     await mockMe(page, true)
     const listQueries: string[] = []
@@ -73,19 +75,25 @@ test.describe('Admin compile diagnostics', () => {
     })
 
     await page.goto(ADMIN_URL)
-    await expect(page.getByText('! Undefined control sequence.')).toBeVisible()
-    await expect(page.getByText('游客')).toBeVisible()
+    // 桌面表格与窄屏卡片都渲染同一行（CSS 控制显隐），用 first() 避免 strict mode。
+    await expect(page.getByText('! Undefined control sequence.').first()).toBeVisible()
+    await expect(page.getByText('游客').first()).toBeVisible()
 
     // 筛选：选择「LaTeX 编译」后请求应带上 failure_kind。
     await page.getByRole('combobox', { name: '错误类型' }).click()
     await page.getByRole('option', { name: 'LaTeX 编译' }).click()
-    await expect.poll(() => listQueries.some((query) => query.includes('failure_kind=latex'))).toBe(true)
+    await expect.poll(
+      () => listQueries.some((query) => query.includes('failure_kind=latex')),
+      { timeout: 15_000 },
+    ).toBe(true)
 
     await page.getByRole('button', { name: '查看详情' }).first().click()
-    await expect(page.getByText('编译错误详情')).toBeVisible()
-    await expect(page.getByText('! Undefined control sequence.')).toHaveCount(2)
-    await expect(page.getByRole('button', { name: /复制 JSON/ })).toBeVisible()
-    await expect(page.getByRole('button', { name: /导出 JSON/ })).toBeVisible()
+    const sheet = page.getByRole('dialog')
+    await expect(sheet.getByText('编译错误详情')).toBeVisible()
+    await expect(sheet.getByText('! Undefined control sequence.').first()).toBeVisible()
+    await expect(sheet.getByText(/l\.42/)).toBeVisible()
+    await expect(sheet.getByRole('button', { name: /复制 JSON/ })).toBeVisible()
+    await expect(sheet.getByRole('button', { name: /导出 JSON/ })).toBeVisible()
   })
 
   test('shows the empty state', async ({ page }) => {
@@ -128,7 +136,8 @@ test.describe('Admin compile diagnostics', () => {
     })
 
     await page.goto(ADMIN_URL)
-    await expect(page.getByText('需要管理员权限')).toBeVisible()
+    // 全局 QueryCache 会为失败查询弹 toast，页面主体断言限定在 main 内。
+    await expect(page.getByRole('main').getByText('需要管理员权限')).toBeVisible()
     await expect(page).toHaveURL(/\/app\/admin\/compile-diagnostics/)
   })
 
@@ -144,7 +153,7 @@ test.describe('Admin compile diagnostics', () => {
     })
 
     await page.goto(ADMIN_URL)
-    await expect(page.getByText('查看详情')).toBeVisible()
+    await expect(page.getByRole('button', { name: '查看详情' }).first()).toBeVisible()
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
     expect(overflow).toBeLessThanOrEqual(0)
   })

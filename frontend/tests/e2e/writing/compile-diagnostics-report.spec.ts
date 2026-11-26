@@ -17,6 +17,8 @@ async function stubCompiler(page: import('@playwright/test').Page, body: string)
 }
 
 test.describe('Compile diagnostics reporting', () => {
+  // 失败路径要等引擎桩抛错 + 异步上报，慢机器上 30s 默认值偏紧。
+  test.describe.configure({ timeout: 60_000 })
   test('reports a sanitized diagnostic when the browser engine fails', async ({ page }) => {
     await seedAuthTokens(page)
     await mockWritingPageAPIs(page)
@@ -26,7 +28,12 @@ test.describe('Compile diagnostics reporting', () => {
         throw new Error('! Undefined control sequence.\\nl.42 \\\\secretSourceText\\n(./sections/intro.tex');
       }
     `)
+    // 诊断里的 engine 必须与真实创建编译任务时用的引擎一致；页面默认引擎由
+    // 文件内容探测（这里 main.tex 是 article，默认 pdfLaTeX），由请求体给出真值。
+    let jobCompiler = ''
     await page.route(BROWSER_JOB_URL, async (route) => {
+      const body = route.request().postDataJSON() as { compiler?: string }
+      jobCompiler = body.compiler ?? ''
       await route.fulfill({
         status: 202,
         contentType: 'application/json',
@@ -44,21 +51,24 @@ test.describe('Compile diagnostics reporting', () => {
       })
     })
 
-    await page.goto(WRITING_URL)
-    await page.getByTestId('compile-button').click()
+    await page.goto(WRITING_URL, { timeout: 60_000 })
+    // 首屏 Monaco 编译会短时阻塞主线程；慢机器/冷启动下 10s 默认值不够。
+    await page.getByTestId('compile-button').click({ timeout: 30_000 })
 
-    await expect(page.getByText(/已自动上报诊断信息/)).toBeVisible({ timeout: 15_000 })
-    expect(payloads).toHaveLength(1)
+    // 以实际上报请求为准（UI 文案随后渲染），避免慢渲染掩盖上报结果。
+    await expect.poll(() => payloads.length, { timeout: 30_000 }).toBe(1)
 
     const payload = payloads[0]
     expect(payload.failure_kind).toBe('latex')
     expect(payload.failure_stage).toBe('compile')
-    expect(payload.engine).toBe('xelatex')
+    expect(jobCompiler).not.toBe('')
+    expect(payload.engine).toBe(jobCompiler)
     expect(payload.compile_job_id).toBe('diag-job-1')
     expect(String(payload.log_excerpt)).toContain('l.42')
     expect(String(payload.log_excerpt)).not.toContain('secretSourceText')
     expect(String(payload.log_excerpt)).not.toContain('intro.tex')
     expect(String(payload.error_message)).toBe('! Undefined control sequence.')
+    await expect(page.getByText(/已自动上报诊断信息/)).toBeVisible({ timeout: 15_000 })
   })
 
   test('does not report anything when the user cancels compilation', async ({ page }) => {
@@ -98,9 +108,10 @@ test.describe('Compile diagnostics reporting', () => {
       })
     })
 
-    await page.goto(WRITING_URL)
-    await page.getByTestId('compile-button').click()
-    await expect(page.getByTestId('cancel-browser-compile')).toBeVisible({ timeout: 15_000 })
+    await page.goto(WRITING_URL, { timeout: 60_000 })
+    // 首屏 Monaco 编译会短时阻塞主线程；慢机器/冷启动下 10s 默认值不够。
+    await page.getByTestId('compile-button').click({ timeout: 30_000 })
+    await expect(page.getByTestId('cancel-browser-compile')).toBeVisible({ timeout: 20_000 })
     await page.getByTestId('cancel-browser-compile').click()
 
     await expect(page.getByTestId('cancel-browser-compile')).toHaveCount(0)

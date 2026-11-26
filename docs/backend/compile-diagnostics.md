@@ -88,3 +88,48 @@
 - 迁移：`TEST_PG_DSN=… go test -tags=integration ./internal/store/ -run TestMigrateUp`、
   `TEST_MYSQL_DSN=… go test -tags=integration ./internal/store/ -run TestMySQLMigrate`、
   `go test ./internal/store -run TestSchemaDrift`
+
+## 管理员验收环境（本地，可复现）
+
+黑盒走查必须在**运行本分支后端**的环境里做；只起 `pnpm dev` 而不起后端时，
+Vite 的 `/api` 代理会返回 502，页面会跳登录页——那不是功能缺陷。
+
+```bash
+# 1) 编译并启动后端 + 假 S3（SQLite 开发库）
+cd server
+mkdir -p /tmp/ps-admin/bin
+go build -o /tmp/ps-admin/bin/ ./cmd/papersage ./cmd/seed ./cmd/fakes3
+/tmp/ps-admin/bin/fakes3 -addr :9000 -bucket papersage &
+DATABASE_URL='sqlite:///./admin-verify.db' DATA_DIR=./data \
+  S3_ENDPOINT=http://localhost:9000 S3_ACCESS_KEY=test S3_SECRET_KEY=test \
+  S3_BUCKET=papersage S3_REGION=us-east-1 LATEX_CLSI_ENABLED=false \
+  EMAIL_PROVIDER=smtp SMTP_HOST=localhost:2525 SMTP_USER=e2e@example.com \
+  PORT=5478 /tmp/ps-admin/bin/papersage &
+
+# 2) 种子账号与项目（e2euser / e2epass1，幂等）
+DATABASE_URL='sqlite:///./admin-verify.db' S3_ENDPOINT=http://localhost:9000 \
+  S3_ACCESS_KEY=test S3_SECRET_KEY=test S3_BUCKET=papersage S3_REGION=us-east-1 \
+  /tmp/ps-admin/bin/seed
+
+# 3) 把 e2euser 提为 superuser（管理接口要求）
+python3 -c "import sqlite3;c=sqlite3.connect('admin-verify.db');c.execute(\"update users set is_superuser=1 where username='e2euser'\");c.commit()"
+
+# 4) 前端（必须指向刚起的后端）
+cd ../frontend && VITE_API_BASE_URL=http://localhost:5478 pnpm dev --port 5173
+```
+
+浏览器打开 `http://localhost:5173/app/admin/compile-diagnostics`，用 `e2euser / e2epass1` 登录。
+
+**造一条真实诊断**（等价于浏览器上报，验证后台可查）：
+
+```bash
+TOKEN=$(curl -s -X POST -d 'account=e2euser' -d "password=$(printf %s e2epass1 | sha256sum | cut -d' ' -f1)" \
+  http://localhost:5478/api/v1/auth/login | python3 -c 'import json,sys;print(json.load(sys.stdin)["data"]["accessToken"])')
+curl -s -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"engine":"xelatex","failure_kind":"latex","failure_stage":"compile","duration_ms":1234,
+       "error_message":"! Undefined control sequence.","log_excerpt":"! Undefined control sequence.\nl.42 \\secretSource\n(./main.tex",
+       "failed_resources":[],"client_env":{"platform":"Linux","online":true}}' \
+  http://localhost:5478/api/v1/compile-diagnostics
+```
+
+刷新管理页即可看到记录；详情里的日志片段不应包含 `secretSource` 或 `main.tex`。
