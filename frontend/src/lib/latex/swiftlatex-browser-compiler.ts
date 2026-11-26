@@ -111,6 +111,11 @@ const ENGINE_INIT_TIMEOUT_MS = 120_000
 /** The worker fetches TeX resources with synchronous XHR, which has no timeout
  * of its own: one silent request would block the engine forever. */
 const RESOURCE_STALL_TIMEOUT_MS = 120_000
+/** A CJK font is one 5–7 MB file; at the origin's measured ~40 KB/s that needs
+ * minutes, and cutting it off fails the whole document (fontspec: font not
+ * found). Text resources stay on the 2-minute budget. */
+const FONT_STALL_TIMEOUT_MS = 300_000
+const FONT_RESOURCE_NAME = /\.(?:otf|ttf|ttc|pfb|pfa)$/i
 
 const ENGINE_LABELS: Record<'pdftex' | 'xetex' | 'dvipdfmx' | 'bibtex', string> = {
   pdftex: 'pdfLaTeX',
@@ -181,10 +186,11 @@ function createEngineWorker(
       const resourceKey = `${resource.kind}\0${resource.name}`
       if (resource.state === 'loading' && !resource.cached) {
         if (!pendingResources.has(resourceKey)) {
+          const stallTimeout = FONT_RESOURCE_NAME.test(resource.name) ? FONT_STALL_TIMEOUT_MS : RESOURCE_STALL_TIMEOUT_MS
           const stallTimer = window.setTimeout(() => {
             pendingResources.delete(resourceKey)
             const stallError = new Error(
-              `下载 ${resource.name} 超过 ${RESOURCE_STALL_TIMEOUT_MS / 60_000} 分钟没有响应，已停止本次编译。请检查网络或资源服务状态后重试。`,
+              `下载 ${resource.name} 超过 ${stallTimeout / 60_000} 分钟没有响应，已停止本次编译。请检查网络或资源服务状态后重试。`,
             )
             worker.terminate()
             const command = activeCommand
@@ -194,7 +200,7 @@ function createEngineWorker(
               readySettled = true
               readyReject?.(stallError)
             }
-          }, RESOURCE_STALL_TIMEOUT_MS)
+          }, stallTimeout)
           pendingResources.set(resourceKey, stallTimer)
         }
       } else if (resource.state !== 'loading') {
