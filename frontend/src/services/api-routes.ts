@@ -125,6 +125,14 @@ export const NORMS = {
   adoption: (projectId: string, entryId: string) => `${V1}/projects/${projectId}/norms/${entryId}`,
 } as const
 
+// --- 资料变更后的待复查标记 ---
+export const RECHECK = {
+  list: (projectId: string, status: 'open' | 'resolved') =>
+    `${V1}/projects/${projectId}/recheck-marks?status=${status}`,
+  resolve: (projectId: string, markId: string) =>
+    `${V1}/projects/${projectId}/recheck-marks/${markId}/resolve`,
+} as const
+
 export const RESEARCH = {
   list: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,
   create: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,

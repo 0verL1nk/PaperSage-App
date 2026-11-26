@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { Link } from '@tanstack/react-router'
 import { ChevronDown, ChevronRight, ClipboardCheck } from 'lucide-react'
 
+import { Badge } from '@/components/ui/badge'
 import { useResearchArtifacts } from '@/services/research-api'
 import type { ChapterDigestPayload, ChapterPlanPayload, ResearchArtifact } from '@/types/research'
 
@@ -49,10 +51,30 @@ export function AdoptedResearchSummary({ projectId }: { projectId: string }) {
         <div className="max-h-48 space-y-2 overflow-y-auto px-4 pb-3">
           {adopted.map((artifact) => (
             <div key={artifact.id}>
-              <p className="text-[10px] font-medium text-muted-foreground">
+              <p className="flex flex-wrap items-center gap-1 text-[10px] font-medium text-muted-foreground">
                 {artifact.kind === 'chapter_plan' ? '章节计划' : '章节摘要'} · 已采用 v{artifact.adoptedRevision}
+                {artifact.needsRecheck ? (
+                  <Badge variant="outline" className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-400">待复查</Badge>
+                ) : null}
               </p>
               {adoptedBody(artifact)}
+              {artifact.needsRecheck ? (
+                <div role="status" className="mt-1 rounded-lg border border-amber-500/25 bg-amber-500/5 p-2 text-[11px] leading-5 text-amber-800 dark:text-amber-300">
+                  <p>所依据的资料发生变化，请确认原计划/摘要是否仍成立。</p>
+                  {(artifact.recheckReasons ?? []).length > 0 ? (
+                    <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                      {(artifact.recheckReasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}
+                    </ul>
+                  ) : null}
+                  <Link
+                    to="/project/$projectId/prepare"
+                    params={{ projectId }}
+                    className="mt-1 inline-flex min-h-[44px] items-center font-medium text-primary underline"
+                  >
+                    去准备页处理
+                  </Link>
+                </div>
+              ) : null}
             </div>
           ))}
         </div>

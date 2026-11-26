@@ -230,6 +230,9 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
               <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setExpanded(isOpen ? null : artifact.id)} aria-expanded={isOpen}>
                 {isOpen ? <ChevronDown className="size-3.5 shrink-0" /> : <ChevronRight className="size-3.5 shrink-0" />}
                 <span className="min-w-0 flex-1 truncate text-xs font-medium">{artifactTitle(artifact)}</span>
+                {artifact.needsRecheck ? (
+                  <Badge variant="outline" className="shrink-0 border-amber-500/40 font-normal text-amber-700 dark:text-amber-400">待复查</Badge>
+                ) : null}
                 <Badge variant="outline" className="shrink-0 font-normal">{RESEARCH_KIND_LABEL[artifact.kind]}</Badge>
                 <Badge variant={adopted ? 'default' : 'secondary'} className="shrink-0 font-normal">
                   {artifact.current ? RESEARCH_STATUS_LABEL[artifact.current.status] : '—'} v{artifact.currentRevision}
@@ -237,6 +240,14 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
               </button>
               {isOpen ? (
                 <div className="space-y-2 border-t border-border/40 px-3 py-2">
+                  {artifact.needsRecheck ? (
+                    <div role="status" className="rounded-lg border border-amber-500/25 bg-amber-500/5 p-2 text-[11px] leading-5 text-amber-800 dark:text-amber-300">
+                      <p className="font-medium">依据的资料已变化，请先在「待复查」里确认再采用</p>
+                      <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                        {(artifact.recheckReasons ?? []).map((reason) => <li key={reason}>{reason}</li>)}
+                      </ul>
+                    </div>
+                  ) : null}
                   {artifact.current ? <PayloadView payload={artifact.current.payload} kind={artifact.kind} /> : null}
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     {candidate ? (

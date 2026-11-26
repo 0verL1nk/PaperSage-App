@@ -54,6 +54,9 @@ vi.mock('./ai-panel', () => ({
 vi.mock('@/components/domain/ResearchArtifactsPanel', () => ({
   ResearchArtifactsPanel: () => <div data-testid="research-artifacts" />,
 }))
+vi.mock('@/components/domain/RecheckMarksPanel', () => ({
+  RecheckMarksPanel: () => <div data-testid="recheck-marks" />,
+}))
 
 import { PreparePage } from './PreparePage'
 
