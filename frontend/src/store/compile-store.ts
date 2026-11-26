@@ -5,6 +5,9 @@ import type { BrowserLatexProgress, BrowserLatexResourceEvent } from '@/lib/late
 /** Where a project's browser compile stands. success/failed/cancelled are terminal. */
 export type CompilePhase = 'preparing' | 'compiling' | 'uploading' | 'success' | 'failed' | 'cancelled'
 
+/** 失败诊断的异步上报状态；null = 本次编译没有触发上报（成功/取消）。 */
+export type DiagnosticStatus = 'pending' | 'sent' | 'failed'
+
 export type BrowserEngineLicense = NonNullable<Extract<BrowserLatexProgress, { stage: 'convert' }>['license']>
 
 /** A finished PDF whose server upload failed; kept so retry does not recompile. */
@@ -29,6 +32,9 @@ export interface ProjectCompileState {
   warning: string | null
   pendingUpload: PendingBrowserUpload | null
   retryingUpload: boolean
+  diagnosticStatus: DiagnosticStatus | null
+  /** 服务端返回的诊断编号；上报成功后展示给用户便于反馈。 */
+  diagnosticId: string | null
 }
 
 const ACTIVE_PHASES: ReadonlySet<CompilePhase> = new Set(['preparing', 'compiling', 'uploading'])
@@ -52,6 +58,8 @@ function freshCompileState(projectName: string): ProjectCompileState {
     warning: null,
     pendingUpload: null,
     retryingUpload: false,
+    diagnosticStatus: null,
+    diagnosticId: null,
   }
 }
 

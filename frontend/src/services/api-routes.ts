@@ -85,6 +85,11 @@ export const LATEX = {
     `${V1}/projects/${projectId}/latex/output/${buildId}/pdf`,
 } as const
 
+// --- Compile diagnostics（浏览器 WASM 编译失败诊断）---
+export const DIAGNOSTICS = {
+  report: `${V1}/compile-diagnostics`,
+} as const
+
 // --- Settings ---
 export const SETTINGS = {
   all: `${V1}/settings`,

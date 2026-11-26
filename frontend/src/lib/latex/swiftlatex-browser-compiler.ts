@@ -495,6 +495,8 @@ export async function compileLatexInBrowser(
   options: {
     signal?: AbortSignal
     onProgress?: (progress: BrowserLatexProgress) => void
+    /** 资源目录版本解析成功后回传，供失败诊断上报使用。 */
+    onDiagnosticContext?: (context: { resourceProfile: string }) => void
   } = {},
 ): Promise<BrowserLatexResult> {
   const onProgress = options.onProgress ?? (() => undefined)
@@ -554,6 +556,7 @@ export async function compileLatexInBrowser(
 
   const engineName = compiler === 'xelatex' ? 'xetex' : 'pdftex'
   const resourceProfile = await discoverResourceProfile(resourceOrigin, signal)
+  options.onDiagnosticContext?.({ resourceProfile })
   await pruneSupersededProfileCache(resourceProfile)
   const texLiveBaseUrl = new URL(`/texlive/${resourceProfile}/`, resourceOrigin).href
   const loadedPackages = new Set<string>()
