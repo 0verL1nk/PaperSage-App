@@ -122,4 +122,4 @@ curl -s -o /dev/null -w '%{http_code}\n' -L https://paper.overlink.top/
   - 探测时区分两种 404：`{"detail":"Not Found"}` 是路由不存在（路径拼错时出现）；带 token 请求正确路径返回信封 `{"code":404,"data":null,"info":"项目 not found"}`，说明路由存在、只是项目不存在。
 - 前端：Vercel 跟随 `main` 自动构建；后端版本以部署日志 `active:` 为准，两者仅在 Release 后对齐。
 - CLSI：未部署；`papersage-clsi` 镜像构建成功但不参与生产请求。
-- 学校论文模板（HIT hithesis）仍是手工导入/桌面端使用；浏览器 WASM 资源目录覆盖不足时需走桌面端完整 TeX 资源。
+- 学校论文模板（thesis 模板）仍是手工导入/桌面端使用；浏览器 WASM 资源目录覆盖不足时需走桌面端完整 TeX 资源。

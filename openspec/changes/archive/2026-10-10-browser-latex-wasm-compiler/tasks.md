@@ -9,7 +9,7 @@
 - [x] 1.7 Produce reproducible baseline builds for the existing SwiftLaTeX pdfTeX and XeTeX engines.
 - [x] 1.8 Build and smoke-test refreshed XeTeX plus XDV-to-PDF pipeline.
 - [x] 1.9 Complete LuaTeX WASM feasibility spike and record supported subset or rejection evidence.
-- [x] 1.10 Compare maintained WasmTex against the private SwiftLaTeX fork using the exact HIT template archive; record browser logs, CORS behavior, asset sizes, and unresolved gates.
+- [x] 1.10 Compare maintained WasmTex against the private SwiftLaTeX fork using the exact thesis template archive; record browser logs, CORS behavior, asset sizes, and unresolved gates.
 
 ## 2. Browser compilation foundation
 
