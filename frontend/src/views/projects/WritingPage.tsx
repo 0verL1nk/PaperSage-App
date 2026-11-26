@@ -265,6 +265,8 @@ export function WritingPage() {
   const compileError = compileState?.error ?? previewError
   const compileLogs = compileState?.logs ?? null
   const compileWarning = compileState?.warning ?? null
+  const diagnosticStatus = compileState?.diagnosticStatus ?? null
+  const diagnosticId = compileState?.diagnosticId ?? null
 
   // A compile that finished while the user was elsewhere becomes the preview
   // as soon as this page renders again.
@@ -1226,6 +1228,19 @@ export function WritingPage() {
                       </button>
                     </div>
                     <p className="text-sm leading-6 text-destructive/90">{compileFailureText}</p>
+                    {diagnosticStatus === 'pending' && (
+                      <p className="mt-2 text-[10px] text-muted-foreground">正在自动上报诊断信息…</p>
+                    )}
+                    {diagnosticStatus === 'sent' && (
+                      <p className="mt-2 text-[10px] text-muted-foreground">
+                        已自动上报诊断信息{diagnosticId ? `（编号 ${diagnosticId.slice(0, 8)}）` : ''}，管理员可据此排查。
+                      </p>
+                    )}
+                    {diagnosticStatus === 'failed' && (
+                      <p className="mt-2 text-[10px] text-muted-foreground">
+                        诊断信息上报失败，不影响本次编译；可复制日志反馈给管理员。
+                      </p>
+                    )}
                     <details className="mt-3">
                       <summary className="w-fit cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground transition-colors">
                         查看原始日志

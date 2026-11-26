@@ -8,12 +8,17 @@ const mocks = vi.hoisted(() => ({
   reportBrowserCompileFailure: vi.fn(),
   cancelCompile: vi.fn(),
   notifyWhenBackground: vi.fn(),
+  reportCompileDiagnostic: vi.fn(),
   toastSuccess: vi.fn(),
   toastError: vi.fn(),
 }))
 
 vi.mock('sonner', () => ({ toast: { success: mocks.toastSuccess, error: mocks.toastError } }))
-vi.mock('@/lib/desktop', () => ({ notifyWhenBackground: mocks.notifyWhenBackground }))
+vi.mock('@/lib/desktop', () => ({
+  notifyWhenBackground: mocks.notifyWhenBackground,
+  isDesktop: () => false,
+}))
+vi.mock('@/services/diagnostics-api', () => ({ reportCompileDiagnostic: mocks.reportCompileDiagnostic }))
 vi.mock('@/lib/latex/swiftlatex-browser-compiler', () => ({ compileLatexInBrowser: mocks.compileLatexInBrowser }))
 vi.mock('@/services/latex-api', () => ({
   BROWSER_COMPILE_HEARTBEAT_MS: 60_000,
@@ -65,6 +70,7 @@ describe('compile manager', () => {
     mocks.sendBrowserCompileHeartbeat.mockResolvedValue({ job_id: 'job-1', status: 'running' })
     mocks.uploadBrowserCompileResult.mockResolvedValue({ build_id: 'build-1', status: 'success' })
     mocks.reportBrowserCompileFailure.mockResolvedValue({ job_id: 'job-1', status: 'failed' })
+    mocks.reportCompileDiagnostic.mockResolvedValue({ id: 'diag-1' })
     mocks.cancelCompile.mockResolvedValue(undefined)
   })
 
@@ -223,6 +229,72 @@ describe('compile manager', () => {
     expect(projectState()?.phase).toBe('failed')
     expect(projectState()?.error).toBe('网络中断')
     expect(mocks.reportBrowserCompileFailure).not.toHaveBeenCalled()
+  })
+
+
+  it('reports a sanitized diagnostic when the browser compile fails', async () => {
+    mocks.compileLatexInBrowser.mockRejectedValue(
+      new Error('! Undefined control sequence.\nl.42 \\secretSourceText\n(./chapters/intro.tex'),
+    )
+
+    await started()
+
+    await vi.waitFor(() => expect(mocks.reportCompileDiagnostic).toHaveBeenCalledTimes(1))
+    const payload = mocks.reportCompileDiagnostic.mock.calls[0][0]
+    expect(payload).toMatchObject({
+      project_id: 'p1',
+      compile_job_id: 'job-1',
+      engine: 'xelatex',
+      failure_kind: 'latex',
+      failure_stage: 'compile',
+      client_kind: 'web',
+    })
+    expect(payload.log_excerpt).toContain('! Undefined control sequence.')
+    expect(payload.log_excerpt).toContain('l.42')
+    expect(payload.log_excerpt).not.toContain('secretSourceText')
+    expect(payload.log_excerpt).not.toContain('chapters/intro.tex')
+    expect(payload.error_message).toBe('! Undefined control sequence.')
+    await vi.waitFor(() => expect(projectState()?.diagnosticStatus).toBe('sent'))
+    expect(projectState()?.diagnosticId).toBe('diag-1')
+  })
+
+  it('does not report a diagnostic when the user cancels', async () => {
+    mocks.compileLatexInBrowser.mockImplementation((_files: unknown, _root: string, _compiler: string, opts: {
+      signal: AbortSignal
+    }) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+    }))
+
+    const done = started()
+    await vi.waitFor(() => expect(projectState()?.jobId).toBe('job-1'))
+    await cancelProjectCompile('p1')
+    await done
+
+    expect(mocks.reportCompileDiagnostic).not.toHaveBeenCalled()
+    expect(projectState()?.diagnosticStatus).toBeNull()
+  })
+
+  it('keeps the compile error visible when diagnostic reporting fails', async () => {
+    mocks.compileLatexInBrowser.mockRejectedValue(new Error('LaTeX 引擎没有生成输出文件'))
+    mocks.reportCompileDiagnostic.mockRejectedValue(new Error('诊断接口不可用'))
+
+    await started()
+
+    await vi.waitFor(() => expect(projectState()?.diagnosticStatus).toBe('failed'))
+    expect(projectState()?.phase).toBe('failed')
+    expect(projectState()?.error).toBe('LaTeX 引擎没有生成输出文件')
+  })
+
+  it('reports guest failures without project or job links', async () => {
+    mocks.compileLatexInBrowser.mockRejectedValue(new Error('HTTP 404'))
+
+    await started({ isGuest: true })
+
+    await vi.waitFor(() => expect(mocks.reportCompileDiagnostic).toHaveBeenCalledTimes(1))
+    const payload = mocks.reportCompileDiagnostic.mock.calls[0][0]
+    expect(payload.project_id).toBeUndefined()
+    expect(payload.compile_job_id).toBeUndefined()
+    expect(payload.failure_kind).toBe('resource')
   })
 
   it('guards tab close only while work is unfinished', async () => {

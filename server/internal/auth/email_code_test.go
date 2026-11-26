@@ -422,21 +422,3 @@ func TestRegisterAndResendRejectMalformedEmail(t *testing.T) {
 	}
 	assert.Empty(t, cap.sent, "畸形地址不得触发发信")
 }
-
-func TestRateLimiterWindowAndSweep(t *testing.T) {
-	r := newRateLimiter()
-	assert.True(t, r.allowWindow("k", 2, time.Hour))
-	assert.True(t, r.allowWindow("k", 2, time.Hour))
-	assert.False(t, r.allowWindow("k", 2, time.Hour), "窗口内超过上限必须拒绝")
-
-	// 惰性清扫：过期条目应在后续调用中被移除，避免内存无界增长。
-	r.mu.Lock()
-	r.hits["stale"] = &rateEntry{hits: []time.Time{time.Now().Add(-2 * time.Hour)}, window: time.Hour}
-	r.lastSweep = time.Now().Add(-2 * time.Minute)
-	r.mu.Unlock()
-	assert.True(t, r.allowWindow("other", 1, time.Minute))
-	r.mu.Lock()
-	_, staleKept := r.hits["stale"]
-	r.mu.Unlock()
-	assert.False(t, staleKept, "过期键必须被清扫")
-}

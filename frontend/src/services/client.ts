@@ -34,6 +34,7 @@ function unreachableDescription(): string {
 export type ApiRequestConfig<TData = unknown> = AxiosRequestConfig<TData> & {
   skipGlobalLoading?: boolean
   loadingText?: string
+  /** 本请求自行处理鉴权结果，不参与全局 token 刷新与登录跳转。 */
   skipAuthRefresh?: boolean
 }
 
@@ -249,12 +250,17 @@ apiClient.interceptors.response.use(
     const normalized = isTransportFailure(error)
       ? new FrontendApiError('Network request failed.', { kind: 'network', cause: error })
       : normalizeApiError(error)
-    // auth 端点的 401/403 是凭据问题，交给页面渲染错误提示；
-    // 这里若再整页跳转 /auth 会清空表单与错误状态（login wrong-password
-    // 用例曾因此永远看不到 alert）
-    if (!isCredentialAuthEndpoint(requestConfig?.url) && !useSessionStore.getState().isGuest && (normalized.status === 401 || normalized.status === 403)) {
+    // 401 = 会话过期：清 token 并跳登录。403 = 已登录但无权限，跳登录只会把
+    // 用户登出并丢掉当前页面（管理页自己渲染「需要管理员权限」）。
+    // 自行处理鉴权的请求（skipAuthRefresh）不参与全局跳转；auth 端点交给页面
+    // 渲染错误提示（login wrong-password 用例曾因整页跳转永远看不到 alert）。
+    if (
+      normalized.status === 401 &&
+      !isCredentialAuthEndpoint(requestConfig?.url) &&
+      !requestConfig?.skipAuthRefresh &&
+      !useSessionStore.getState().isGuest
+    ) {
       clearSessionTokens()
-      // Redirect to auth page
       if (typeof window !== 'undefined') {
         const currentPath = window.location.pathname
         window.location.href = `/auth?redirect=${encodeURIComponent(currentPath)}`

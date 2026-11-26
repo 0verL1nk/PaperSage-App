@@ -108,6 +108,38 @@ describe('credential auth endpoints skip token refresh', () => {
   })
 })
 
+describe('403 keeps the session', () => {
+  afterEach(() => {
+    setSessionTokens({ accessToken: '', refreshToken: '' })
+    window.history.replaceState(null, '', '/')
+    vi.restoreAllMocks()
+  })
+
+  // 403 = 已登录但无权限：跳登录会把用户登出并丢掉当前页面。
+  // 管理页要靠自身渲染「需要管理员权限」，所以这里绝不能清 token。
+  it('does not clear tokens or redirect when a request is forbidden', async () => {
+    window.history.replaceState(null, '', '/app/admin')
+    setApiTarget('online')
+    setSessionTokens({ accessToken: 'access', refreshToken: 'refresh' })
+    const adapter: AxiosAdapter = async (config) => {
+      throw new AxiosError('Forbidden', 'ERR_BAD_REQUEST', config, {}, {
+        config,
+        data: { code: 403, info: 'Admin access required' },
+        headers: {},
+        status: 403,
+        statusText: 'Forbidden',
+      })
+    }
+
+    await expect(
+      getJson('/api/v1/admin/compile-diagnostics', { adapter, skipGlobalLoading: true }),
+    ).rejects.toMatchObject({ status: 403 })
+
+    expect(getAccessToken()).toBe('access')
+    expect(getRefreshToken()).toBe('refresh')
+  })
+})
+
 describe('refresh with an unavailable local backend', () => {
   const backendError = '本地后端版本不匹配'
   const tokens = { accessToken: 'old-access', refreshToken: 'old-refresh' }

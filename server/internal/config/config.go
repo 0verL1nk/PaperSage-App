@@ -49,6 +49,8 @@ type Settings struct {
 	LatexBrowserJobStaleSeconds int `env:"LATEX_BROWSER_JOB_STALE_SECONDS" envDefault:"300"`
 	CompileJobMaxAgeHours       int `env:"COMPILE_JOB_MAX_AGE_HOURS" envDefault:"24"`
 	CompileHistoryLimit         int `env:"COMPILE_HISTORY_LIMIT" envDefault:"20"`
+	// 浏览器编译错误诊断的保留天数（clamp 1–365）：到期硬删，防止表膨胀。
+	CompileDiagnosticRetentionDays int `env:"COMPILE_DIAGNOSTIC_RETENTION_DAYS" envDefault:"30"`
 
 	S3Endpoint                 string `env:"S3_ENDPOINT"`
 	S3AccessKey                string `env:"S3_ACCESS_KEY"`
@@ -123,6 +125,12 @@ func Load() (*Settings, error) {
 	}
 	if s.LatexResourceCacheMaxBytes <= 0 {
 		return nil, fmt.Errorf("LATEX_RESOURCE_CACHE_MAX_BYTES must be positive")
+	}
+	if s.CompileDiagnosticRetentionDays < 1 {
+		s.CompileDiagnosticRetentionDays = 1
+	}
+	if s.CompileDiagnosticRetentionDays > 365 {
+		s.CompileDiagnosticRetentionDays = 365
 	}
 	// Python's parse_allowed_hosts strips whitespace and drops empty items.
 	s.AllowedHosts = normalizeHosts(s.AllowedHosts)

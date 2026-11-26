@@ -202,6 +202,41 @@ type CompileJob struct {
 	User    User    `gorm:"foreignKey:UserID;constraint:OnDelete:CASCADE"`
 }
 
+// CompileErrorReport：浏览器 WASM 编译失败诊断（运维用、admin 可见）。
+// 与 CompileJob（用户可见的编译历史）职责分离：本表只存脱敏诊断，
+// 严禁论文正文；靠保留期硬删，不做软删。
+type CompileErrorReport struct {
+	ID              UUID           `gorm:"column:id;primaryKey"`
+	UserID          *UUID          `gorm:"column:user_id;index:ix_cer_user,priority:1"`       // 游客为 NULL
+	ProjectID       *UUID          `gorm:"column:project_id;index:ix_cer_project,priority:1"` // 游客/校验失败为 NULL
+	CompileJobID    *UUID          `gorm:"column:compile_job_id"`                             // 任务可能被级联删，诊断要留存，故不建 FK
+	IsGuest         bool           `gorm:"column:is_guest;not null;default:false"`
+	ClientKind      string         `gorm:"column:client_kind;size:16;not null;default:web"`
+	Engine          string         `gorm:"column:engine;size:20;not null;index:ix_cer_engine,priority:1"`
+	EngineVersion   string         `gorm:"column:engine_version;size:64"`
+	ResourceProfile string         `gorm:"column:resource_profile;size:64"`
+	FailureKind     string         `gorm:"column:failure_kind;size:16;not null;index:ix_cer_kind,priority:1"`
+	FailureStage    string         `gorm:"column:failure_stage;size:24;not null"`
+	DurationMS      int            `gorm:"column:duration_ms;not null;default:0"`
+	HTTPStatus      *int16         `gorm:"column:http_status"`
+	ErrorMessage    string         `gorm:"column:error_message;size:512;not null"`
+	LogExcerpt      *string        `gorm:"column:log_excerpt;type:text"`
+	FailedResources datatypes.JSON `gorm:"column:failed_resources"`
+	ClientEnv       datatypes.JSON `gorm:"column:client_env"`
+	CreatedAt       time.Time      `gorm:"column:created_at;not null;autoCreateTime;index:ix_cer_created"`
+}
+
+func (CompileErrorReport) TableName() string { return "compile_error_reports" }
+
+// BeforeCreate 填充 uuid7 主键（本模型不复用 BaseModel：诊断表无 updated_at /
+// deleted_at，保留期到点硬删）。
+func (r *CompileErrorReport) BeforeCreate(*gorm.DB) error {
+	if r.ID.UUID == uuid.Nil {
+		r.ID = UUID{UUID: uuid.Must(uuid.NewV7())}
+	}
+	return nil
+}
+
 // AllModels returns every model for AutoMigrate (the Go counterpart of
 // Python's Base.metadata.create_all fallback).
 // VerificationToken：邮箱验证 token 注册表（一次性，hash 存储）。
@@ -296,7 +331,7 @@ func coreModels() []any {
 		&ProjectSource{}, &SourceVersion{}, &SourceExtraction{}, &SourceSegment{},
 		&ResearchArtifact{}, &ResearchArtifactRevision{}, &ResearchArtifactDependency{},
 		&ContentRecheckMark{},
-		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &RefreshToken{},
+		&Folder{}, &Document{}, &LatexFile{}, &CompileJob{}, &CompileErrorReport{}, &RefreshToken{},
 		&SystemSetting{}, &VerificationToken{}, &EmailLoginCode{}, &ImportReceipt{},
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
 		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},

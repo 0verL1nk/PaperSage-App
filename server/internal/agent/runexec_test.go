@@ -101,7 +101,10 @@ func TestTerminalTransactionIsIdempotentAndKeepsApproval(t *testing.T) {
 	require.NoError(t, db.Where("run_id = ?", root.ID).Find(&messages).Error)
 	require.Len(t, messages, 1)
 	assert.Equal(t, RunCancelled, messages[0].Status)
-	assert.WithinDuration(t, time.Now().UTC(), *root.CompletedAt, time.Second)
+	// 只校验「停机确实写了完成时间」：1 秒容差在 windows-latest 的 SQLite 上
+	// 实测 2.05s 而稳定失败，放宽到 1 分钟仍能抓住零值/错值。
+	assert.False(t, root.CompletedAt.IsZero())
+	assert.WithinDuration(t, time.Now().UTC(), *root.CompletedAt, time.Minute)
 
 	t.Run("assistant insert failure still terminates the Run", func(t *testing.T) {
 		failure := errors.New("message store unavailable")

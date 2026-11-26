@@ -96,6 +96,20 @@ func (s *Service) ChainMiddleware(next ...gin.HandlerFunc) gin.HandlerFunc {
 	}
 }
 
+// OptionalAuth 可选登录态：无 Authorization 头按游客放行；有头但无效则 401。
+// 不把坏 token 静默降级为游客——那会掩盖鉴权 bug（如前端 token 过期）。
+func (s *Service) OptionalAuth() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if c.GetHeader("Authorization") == "" {
+			c.Next()
+			return
+		}
+		if s.authCheck(c) {
+			c.Next()
+		}
+	}
+}
+
 // AdminRequired superuser 专属中间件（叠加在 AuthRequired 之后）。
 func AdminRequired() gin.HandlerFunc {
 	return func(c *gin.Context) {
