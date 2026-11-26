@@ -29,7 +29,12 @@ function formatTime(value: string) {
 /** 准备页：资料变更后受影响内容的逐条确认入口。系统只提醒，不自动改写任何内容。 */
 export function RecheckMarksPanel({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<RecheckStatus>('open')
-  const { data: marks = [], isLoading, error, refetch } = useRecheckMarks(projectId, status)
+  // 两个状态都读：待处理清零后仍要能让用户切到「已处理」回看记录。
+  const open = useRecheckMarks(projectId, 'open')
+  const resolved = useRecheckMarks(projectId, 'resolved')
+  const active = status === 'open' ? open : resolved
+  const marks = active.data ?? []
+  const { isLoading, error, refetch } = active
   const resolve = useResolveRecheckMark(projectId)
 
   const handle = (mark: RecheckMark, resolution: RecheckResolution) => {
@@ -38,8 +43,14 @@ export function RecheckMarksPanel({ projectId }: { projectId: string }) {
     })
   }
 
-  // 没有任何待复查项时不占准备页版面；全部处理完后面板自然消失。
-  if (!isLoading && !error && marks.length === 0 && status === 'open') return null
+  // 完全没有待处理、也没有处理记录时才不占准备页版面；
+  // 有历史记录（或读取出错）时保留面板，用户仍可切到「已处理」回看。
+  const hasAny =
+    (open.data ?? []).length > 0 ||
+    (resolved.data ?? []).length > 0 ||
+    Boolean(open.error) ||
+    Boolean(resolved.error)
+  if (!open.isLoading && !resolved.isLoading && !hasAny) return null
 
   return (
     <Card className="rounded-2xl border-amber-500/30 bg-amber-500/5 shadow-sm">
