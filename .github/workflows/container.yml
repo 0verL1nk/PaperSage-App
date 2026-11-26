@@ -1,6 +1,6 @@
 name: Container Security
 
-# PR：只构建 server 镜像，尽早暴露 Dockerfile/依赖断裂（render 镜像 1 GB+，不进 PR）。
+# PR：只构建 server 镜像（CLSI/render 服务已删除），尽早暴露 Dockerfile/依赖断裂。
 # push main / 定时：构建后跑 Trivy，结果进 Security 面板。
 # 门禁口径：只对「有修复版本」的 CRITICAL/HIGH 失败——distroless 基础镜像里
 # 大量 CVE 上游未修，ignore-unfixed 关掉会让门禁永久红。

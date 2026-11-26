@@ -2,8 +2,7 @@
 # 依赖许可证门禁：拒绝强传染性许可证（AGPL / GPL / SSPL / OSL / EUPL）。
 #
 # 范围只到依赖树，不含 vendored 源码：
-# - Go 只扫 server/ 模块。latex_render/ 是 vendored Overleaf（AGPL-3.0），
-#   它的许可证事实属 owner 决策（HELE-44 风险 6），不在本脚本范围。
+# - Go 只扫 server/ 模块。
 # - 前端只扫生产依赖（--prod）：devDependencies 不进产物。
 #
 # shortcut: go-licenses v2 在 Go 1.27 下无法为标准库包定位模块信息，

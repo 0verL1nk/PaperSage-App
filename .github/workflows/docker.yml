@@ -6,7 +6,6 @@ on:
     paths:
       - 'server/**'
       - '.dockerignore'
-      - 'latex_render/**'
       - '.github/workflows/docker.yml'
 
 env:
@@ -22,66 +21,15 @@ jobs:
       attestations: write
       id-token: write
 
-    strategy:
-      matrix:
-        include:
-          # API-only image; its Dockerfile copies server/ from the repository root.
-          - context: .
-            dockerfile: server/Dockerfile
-            image: papersage-server
-            filter: app
-          - context: latex_render
-            dockerfile: latex_render/Dockerfile
-            image: papersage-clsi
-            filter: render
-
-    # The production CLSI image imports a full TeX Live distribution. Free
-    # space consumed by unrelated preinstalled runner toolchains before BuildKit
-    # expands that image; the Go app image does not need this cleanup.
-    timeout-minutes: 60
+    # 只剩 API-only 镜像：CLSI/render 服务已删除，编译走浏览器 WASM。
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Detect changed image sources
-        id: image-changes
-        env:
-          BEFORE: ${{ github.event.before }}
-          SHA: ${{ github.sha }}
-        run: |
-          app=false
-          render=false
-          if [[ -z "$BEFORE" || "$BEFORE" =~ ^0+$ ]]; then
-            app=true
-            render=true
-          else
-            changed=$(git diff --name-only "$BEFORE" "$SHA")
-            if grep -qE '^(server/|\.dockerignore$)' <<< "$changed"; then app=true; fi
-            if grep -q '^latex_render/' <<< "$changed"; then render=true; fi
-          fi
-          echo "app=$app" >> "$GITHUB_OUTPUT"
-          echo "render=$render" >> "$GITHUB_OUTPUT"
-
-      - name: Free disk space for full TeX Live image
-        if: matrix.filter == 'render' && steps.image-changes.outputs.render == 'true'
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          tool-cache: false
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
-
-      - name: Check available disk space
-        if: matrix.filter == 'render' && steps.image-changes.outputs.render == 'true'
-        run: df -h /
-
       - name: Login to GitHub Container Registry
-        if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
@@ -89,23 +37,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
-        if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
         uses: docker/setup-buildx-action@v4
 
       - name: Lowercase owner
-        if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
         run: echo "OWNER=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
 
       - name: Build & Push
-        if: (matrix.filter == 'app' && steps.image-changes.outputs.app == 'true') || (matrix.filter == 'render' && steps.image-changes.outputs.render == 'true')
         uses: docker/build-push-action@v7
         with:
-          context: ./${{ matrix.context }}
-          file: ./${{ matrix.dockerfile }}
+          context: .
+          file: ./server/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ matrix.image }}:latest
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+          tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/papersage-server:latest
+          cache-from: type=gha,scope=papersage-server
+          cache-to: type=gha,scope=papersage-server,mode=max
           # 供应链证明：provenance（构建来源/SLSA）+ SBOM（组件清单）随镜像
           # 推送到 registry，docker buildx 原生 attestation
           provenance: mode=max

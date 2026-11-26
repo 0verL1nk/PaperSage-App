@@ -1,5 +1,7 @@
 # Overleaf 整体架构分析
 
+> **历史文档**：本文分析的是 Overleaf CLSI 的实现细节。该服务（`latex_render/`、`services/clsi/`）已从仓库删除，当前 LaTeX 编译在浏览器内用 WASM 完成；本文仅作技术参考。
+
 ## 1. 架构概述
 
 Overleaf 是一个开源的在线 LaTeX 编辑器，采用**微服务架构**，由多个独立的 Node.js 服务组成，通过 HTTP/REST、Socket.IO（WebSocket）和 Redis Pub/Sub 进行通信。

@@ -1,6 +1,6 @@
 .PHONY: help dev dev-attach run stop status backend frontend check test install \
-       install-frontend install-clsi check-clsi clsi-dev clean \
-       logs log-backend log-frontend log-clsi \
+       install-frontend clean \
+       logs log-backend log-frontend \
        docker-build docker-push docker-login \
        build-server build-server-obfuscated seed parity \
        desktop-dev desktop-build desktop-package
@@ -31,15 +31,13 @@ help:
 	@echo "  make stop          - Gracefully stop all running services"
 	@echo "  make status        - Show status of all services"
 	@echo "  make logs          - Tail logs from all services"
-	@echo "  make run           - Start frontend + backend (no CLSI)"
+	@echo "  make run           - Start frontend + backend"
 	@echo ""
 	@echo "$(GREEN)Individual services:$(NC)"
 	@echo "  make backend       - Start Go backend only (sqlite dev db)"
 	@echo "  make frontend      - Start frontend only"
-	@echo "  make clsi-dev      - Start CLSI LaTeX service only"
 	@echo "  make log-backend   - Tail backend logs"
 	@echo "  make log-frontend  - Tail frontend logs"
-	@echo "  make log-clsi      - Tail CLSI logs"
 	@echo ""
 	@echo "$(GREEN)Single binary:$(NC)"
 	@echo "  make build-server  - Build the standalone Go API binary"
@@ -57,8 +55,6 @@ help:
 	@echo ""
 	@echo "$(GREEN)Setup:$(NC)"
 	@echo "  make install       - Install all dependencies"
-	@echo "  make install-clsi  - Install CLSI prerequisites"
-	@echo "  make check-clsi    - Verify CLSI prerequisites"
 	@echo ""
 	@echo "$(GREEN)Maintenance:$(NC)"
 	@echo "  make clean         - Remove PID files, logs, and temp files"
@@ -72,8 +68,6 @@ help:
 # ─── Graceful dev lifecycle ───
 
 # Start the active browser-compile development stack (backend + frontend).
-# CLSI startup is intentionally disabled during the browser compiler migration;
-# the explicit clsi-dev/install-clsi targets remain available for reactivation.
 dev:
 	@$(PROC) start
 
@@ -97,9 +91,6 @@ frontend:
 	@echo "$(BLUE)Frontend running at http://0.0.0.0:5173$(NC)"
 	cd frontend && pnpm dev --host
 
-clsi-dev:
-	@./scripts/clsi/dev.sh
-
 # Legacy alias: frontend + backend without process management
 run:
 	@echo "$(GREEN)Starting PaperSage...$(NC)"
@@ -122,13 +113,10 @@ log-backend:
 log-frontend:
 	@tail -f $(LOG_DIR)/frontend.log 2>/dev/null || echo "$(YELLOW)No frontend log. Run 'make dev' first.$(NC)"
 
-log-clsi:
-	@tail -f $(LOG_DIR)/clsi.log 2>/dev/null || echo "$(YELLOW)No CLSI log. Run 'make dev' first.$(NC)"
-
 # ─── Install ───
 
 install: install-frontend
-	@echo "$(GREEN)Active PaperSage dependencies installed (CLSI is parked)$(NC)"
+	@echo "$(GREEN)PaperSage dependencies installed$(NC)"
 
 install-frontend:
 	@echo "$(YELLOW)Installing frontend dependencies...$(NC)"
@@ -162,16 +150,6 @@ test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
 	cd frontend && pnpm test
 
-# ─── CLSI (temporarily parked; explicit targets retained for future reuse) ───
-
-install-clsi:
-	@echo "$(YELLOW)Installing CLSI host-mode prerequisites...$(NC)"
-	./scripts/clsi/install.sh
-
-check-clsi:
-	@echo "$(YELLOW)Checking CLSI prerequisites...$(NC)"
-	./scripts/clsi/check.sh
-
 # ─── Maintenance ───
 
 clean:
@@ -195,16 +173,12 @@ docker-build:
 	fi
 	@echo "$(GREEN)Building Docker images...$(NC)"
 	docker build -t $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG) -f server/Dockerfile .
-	# CLSI image build is parked with the service; retain this command for reactivation:
-	# docker build -t $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG) latex_render/
 	@echo "$(GREEN)All images built:$(NC)"
 	@docker images --format "table {{.Repository}}:{{.Tag}}\t{{.Size}}" | grep papersage
 
 docker-push: docker-build
 	@echo "$(GREEN)Pushing images to Docker Hub...$(NC)"
 	docker push $(DOCKERHUB_USER)/papersage-app:$(IMAGE_TAG)
-	# CLSI image push is parked with the service; retain this command for reactivation:
-	# docker push $(DOCKERHUB_USER)/papersage-render:$(IMAGE_TAG)
 	@echo "$(GREEN)All images pushed to $(DOCKERHUB_USER)$(NC)"
 
 # ── Go server ─────────────────────────────────────────────────
