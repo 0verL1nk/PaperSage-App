@@ -104,7 +104,10 @@ export function UploadingPage() {
     }
   }, [importFiles])
 
-  useEffect(() => Events.On('menu:import-folder', () => void handleImportFolder()), [handleImportFolder])
+  useEffect(() => {
+    if (!isDesktop()) return
+    return Events.On('menu:import-folder', () => void handleImportFolder())
+  }, [handleImportFolder])
 
   const importRef = useRef(importFiles)
   importRef.current = importFiles

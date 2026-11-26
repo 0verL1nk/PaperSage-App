@@ -579,7 +579,11 @@ export function WritingPage() {
 
   const exportRef = useRef(handleExportProject)
   exportRef.current = handleExportProject
-  useEffect(() => Events.On('menu:export-project', () => void exportRef.current()), [])
+  useEffect(() => {
+    // In a plain browser @wailsio/runtime would POST /wails/runtime and 405.
+    if (!isDesktop()) return
+    return Events.On('menu:export-project', () => void exportRef.current())
+  }, [])
 
   useEffect(() => onDesktopFilesDropped((paths, target) => {
     if (target !== 'writing' || paths.length === 0) return

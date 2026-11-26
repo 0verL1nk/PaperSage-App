@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Trash2, Plus, FolderGit2 } from 'lucide-react'
 import { Events } from '@wailsio/runtime'
+import { isDesktop } from '@/lib/desktop'
 
 export function ProjectListPage() {
   const navigate = useNavigate()
@@ -24,6 +25,7 @@ export function ProjectListPage() {
       setIsCreateDialogOpen(true)
     }
     if (sessionStorage.getItem('papersage:open-create-project')) open()
+    if (!isDesktop()) return
     return Events.On('menu:new-project', open)
   }, [])
 

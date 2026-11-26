@@ -14,6 +14,7 @@ import { ShieldCheck,
 } from 'lucide-react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { Events } from '@wailsio/runtime'
+import { isDesktop } from '@/lib/desktop'
 import { useTranslation } from 'react-i18next'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -68,10 +69,13 @@ export function MainLayout({ children }: MainLayoutProps) {
   const [createProjectOpen, setCreateProjectOpen] = useState(false)
   const { data: groups = [] } = useGroups()
 
-  useEffect(() => Events.On('menu:new-project', () => {
-    sessionStorage.setItem('papersage:open-create-project', '1')
-    void navigate({ to: '/app/projects' })
-  }), [navigate])
+  useEffect(() => {
+    if (!isDesktop()) return
+    return Events.On('menu:new-project', () => {
+      sessionStorage.setItem('papersage:open-create-project', '1')
+      void navigate({ to: '/app/projects' })
+    })
+  }, [navigate])
 
   return (
     <div className="flex h-full flex-col bg-background font-sans tracking-tight overflow-hidden">
