@@ -131,6 +131,8 @@ describe('LatexEnvironmentSetup', () => {
     fireEvent.click(await screen.findByRole('button', { name: /预热中文论文环境/ }))
 
     expect(await screen.findByText('正在编译（第 1/5 遍）')).toBeInTheDocument()
+    expect(screen.getByText(/已加载 0 个资源 · 已用 0 秒/)).toBeInTheDocument()
+    expect(resourceCache.downloadLatexResource).toHaveBeenCalled()
     expect(warmup.warmupBrowserLatex).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'xelatex', compiler: 'xelatex' }),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
@@ -138,5 +140,26 @@ describe('LatexEnvironmentSetup', () => {
 
     finish()
     expect(await screen.findByText(/预热完成/)).toBeInTheDocument()
+  })
+
+  it('取消预热后立即恢复缓存操作并给出提示', async () => {
+    warmup.warmupBrowserLatex.mockImplementation((
+      _sample: unknown,
+      options: { signal?: AbortSignal },
+    ) => new Promise<void>((_resolve, reject) => {
+      const abort = () => reject(new DOMException('编译已取消', 'AbortError'))
+      if (options.signal?.aborted) {
+        abort()
+        return
+      }
+      options.signal?.addEventListener('abort', abort, { once: true })
+    }))
+
+    render(<LatexEnvironmentSetup open onOpenChange={vi.fn()} />)
+    fireEvent.click(await screen.findByRole('button', { name: /预热中文论文环境/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /取消预热/ }))
+
+    expect(await screen.findByText(/已取消预热/)).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: '清理全部缓存' })).toBeEnabled())
   })
 })

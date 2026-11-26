@@ -108,6 +108,9 @@ const PDFTEX_BANNER_COMPATIBILITY_SOURCE = '\\ifdefined\\pdftexbanner\\edef\\pdf
 /** A worker that never reports ready means its WASM fetch stalled; without
  * this bound the compile would sit in 「编译中」 forever. */
 const ENGINE_INIT_TIMEOUT_MS = 120_000
+/** The worker fetches TeX resources with synchronous XHR, which has no timeout
+ * of its own: one silent request would block the engine forever. */
+const RESOURCE_STALL_TIMEOUT_MS = 120_000
 
 const ENGINE_LABELS: Record<'pdftex' | 'xetex' | 'dvipdfmx' | 'bibtex', string> = {
   pdftex: 'pdfLaTeX',
@@ -140,6 +143,11 @@ function createEngineWorker(
   let readySettled = false
   let latestDiagnostics = ''
   let activeCommand: { responseCmd: string; resolve: (data: WorkerMessage) => void; reject: (error: Error) => void } | null = null
+  const pendingResources = new Map<string, number>()
+  const clearPendingResources = () => {
+    for (const timer of pendingResources.values()) window.clearTimeout(timer)
+    pendingResources.clear()
+  }
 
   const ready = new Promise<void>((resolve, reject) => {
     readyResolve = resolve
@@ -147,6 +155,7 @@ function createEngineWorker(
   })
 
   const abort = () => {
+    clearPendingResources()
     worker.terminate()
     activeCommand?.reject(abortError())
     if (!readySettled) readyReject?.(abortError())
@@ -168,6 +177,32 @@ function createEngineWorker(
         lookup: data.lookup,
         status: data.status,
         error: data.error,
+      }
+      const resourceKey = `${resource.kind}\0${resource.name}`
+      if (resource.state === 'loading' && !resource.cached) {
+        if (!pendingResources.has(resourceKey)) {
+          const stallTimer = window.setTimeout(() => {
+            pendingResources.delete(resourceKey)
+            const stallError = new Error(
+              `下载 ${resource.name} 超过 ${RESOURCE_STALL_TIMEOUT_MS / 60_000} 分钟没有响应，已停止本次编译。请检查网络或资源服务状态后重试。`,
+            )
+            worker.terminate()
+            const command = activeCommand
+            activeCommand = null
+            command?.reject(stallError)
+            if (!readySettled) {
+              readySettled = true
+              readyReject?.(stallError)
+            }
+          }, RESOURCE_STALL_TIMEOUT_MS)
+          pendingResources.set(resourceKey, stallTimer)
+        }
+      } else if (resource.state !== 'loading') {
+        const stallTimer = pendingResources.get(resourceKey)
+        if (stallTimer !== undefined) {
+          window.clearTimeout(stallTimer)
+          pendingResources.delete(resourceKey)
+        }
       }
       const label = resource.kind === 'font' ? '字体' : '宏包/引擎资源'
       const message = resource.state === 'loading'
@@ -201,6 +236,7 @@ function createEngineWorker(
   }
 
   worker.onerror = (event) => {
+    clearPendingResources()
     const error = new Error(event.message || `${engine} Worker 加载失败`)
     if (!readySettled) {
       readySettled = true
@@ -231,6 +267,7 @@ function createEngineWorker(
       adapter.cancel()
     },
     cancel() {
+      clearPendingResources()
       worker.terminate()
       activeCommand?.reject(abortError())
       activeCommand = null
