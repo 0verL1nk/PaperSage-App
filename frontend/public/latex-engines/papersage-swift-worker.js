@@ -19,6 +19,10 @@ const RESOURCE_DB_VERSION = 1
 const RESOURCE_STORE = 'resources'
 const RESOURCE_CACHE_LIMIT = 128 * 1024 * 1024
 const RESOURCE_MAX_ENTRY = 32 * 1024 * 1024
+/** The engine caps every resource at 150 s (swiftlatexxetex.js: xhr.timeout=15e4).
+ * A 5–7 MB CJK font cannot finish that on a slow uplink; the compile command
+ * budget is the real bound, so a slow-but-progressing transfer gets more time. */
+const RESOURCE_TIMEOUT_FLOOR_MS = 300_000
 const BUILTIN_RESOURCES = new Map([
   ['pdftex/11/pdftex.map', {
     url: '/latex-engines/pdftex.map?sha256=8299e9bd08ec7f02462a6cced838de5c16c6797a4b481a921bc3f0f10e043b59',
@@ -454,6 +458,14 @@ self.XMLHttpRequest = class PaperSageXMLHttpRequest extends NativeXMLHttpRequest
       }
     }
     return ''
+  }
+
+  get timeout() {
+    return super.timeout
+  }
+
+  set timeout(value) {
+    super.timeout = Math.max(Number(value) || 0, RESOURCE_TIMEOUT_FLOOR_MS)
   }
 
   get status() {

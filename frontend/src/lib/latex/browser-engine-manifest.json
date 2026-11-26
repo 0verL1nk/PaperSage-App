@@ -45,10 +45,10 @@
     {
       "id": "papersage-swift-worker",
       "name": "SwiftLaTeX \u8d44\u6e90\u9002\u914d\u5668",
-      "url": "/latex-engines/papersage-swift-worker.js?v=15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
+      "url": "/latex-engines/papersage-swift-worker.js?v=bf3c282f35b2bda6d906e4488648efd86a61dd941bf836bb2a4bc0b12e62a3d2",
       "version": "papersage-swiftlatex-2026-10-10-3",
-      "size": 22462,
-      "sha256": "15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
+      "size": 22903,
+      "sha256": "bf3c282f35b2bda6d906e4488648efd86a61dd941bf836bb2a4bc0b12e62a3d2",
       "license": "AGPL-3.0",
       "notice": "/latex-engines/LICENSE"
     },
@@ -124,7 +124,7 @@
     },
     {
       "id": "papersage-dvipdfmx-entry",
-      "name": "Dvipdfmx 缓存适配器入口",
+      "name": "Dvipdfmx \u7f13\u5b58\u9002\u914d\u5668\u5165\u53e3",
       "url": "/latex-engines/wasmtex-dvipdfmx-2026/papersage-dvipdfmx-worker.js?v=1610b3dbf7f30768c7835a08d57864483aeedd2124c21457fb13ee284d23688d",
       "version": "wasmtex-engine-2026-9147f5703951082b-papersage-2",
       "size": 243,

@@ -113,7 +113,7 @@ describe('browser compiler resource origin', () => {
 
   it('stops the compile when a single resource download never answers', async () => {
     vi.useFakeTimers()
-    class StalledWorker {
+    const stallingWorker = (name: string) => class StalledWorker {
       onmessage: ((event: { data: Record<string, unknown> }) => void) | null = null
       onerror = null
       constructor() {
@@ -124,18 +124,26 @@ describe('browser compiler resource origin', () => {
         messages.push(message)
         if (message.cmd === 'compileformat') {
           queueMicrotask(() => this.onmessage?.({
-            data: { cmd: 'resource', kind: 'package', name: 'FandolSong-Regular.otf', state: 'loading' },
+            data: { cmd: 'resource', kind: 'package', name, state: 'loading' },
           }))
         }
       }
       terminate() {}
     }
-    vi.stubGlobal('Worker', StalledWorker)
 
-    const compilation = compileLatexInBrowser(files, 'main.tex', 'xelatex')
-    const rejection = expect(compilation).rejects.toThrow('下载 FandolSong-Regular.otf 超过 2 分钟没有响应')
+    vi.stubGlobal('Worker', stallingWorker('geometry.sty'))
+    const stalledText = compileLatexInBrowser(files, 'main.tex', 'xelatex')
+    const textRejection = expect(stalledText).rejects.toThrow('下载 geometry.sty 超过 2 分钟没有响应')
     await vi.advanceTimersByTimeAsync(120_000)
-    await rejection
+    await textRejection
+
+    // A 5–7 MB CJK font needs minutes on a slow uplink; cutting it off at two
+    // minutes is what produced fontspec's "font cannot be found".
+    vi.stubGlobal('Worker', stallingWorker('FandolSong-Regular.otf'))
+    const stalledFont = compileLatexInBrowser(files, 'main.tex', 'xelatex')
+    const fontRejection = expect(stalledFont).rejects.toThrow('下载 FandolSong-Regular.otf 超过 5 分钟没有响应')
+    await vi.advanceTimersByTimeAsync(300_000)
+    await fontRejection
   })
 
   it('times out an engine that never reports ready instead of hanging the compile', async () => {
