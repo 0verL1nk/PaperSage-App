@@ -33,6 +33,9 @@ func Run() error {
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
+	if cfg.DevLogEmailCode {
+		logger.Warn("DEV_LOG_EMAIL_CODE is enabled: development mode prints email login verification codes to the server log; disable it in production")
+	}
 
 	app, err := bootstrap.Build(context.Background(), cfg)
 	if err != nil {

@@ -64,6 +64,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "", s.SMTPUser)
 	assert.Equal(t, "", s.SMTPPassword)
 	assert.True(t, s.SMTPTLS)
+	assert.False(t, s.DevLogEmailCode)
 }
 
 func TestLoadDocumentReadLimit(t *testing.T) {
@@ -99,6 +100,7 @@ func TestLoadOverrides(t *testing.T) {
 	t.Setenv("EMAIL_PROVIDER", "smtp")
 	t.Setenv("SMTP_HOST", "localhost")
 	t.Setenv("SMTP_TLS", "false")
+	t.Setenv("DEV_LOG_EMAIL_CODE", "true")
 
 	s, err := Load()
 	require.NoError(t, err)
@@ -121,6 +123,7 @@ func TestLoadOverrides(t *testing.T) {
 	assert.Equal(t, "smtp", s.EmailProvider)
 	assert.Equal(t, "localhost", s.SMTPHost)
 	assert.False(t, s.SMTPTLS)
+	assert.True(t, s.DevLogEmailCode)
 }
 
 // SQLAlchemy 风格连接串 → Go 驱动风格（design.md D3/D10）
