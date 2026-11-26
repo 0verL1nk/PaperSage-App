@@ -1,6 +1,6 @@
 # PaperSage Frontend Migration Todo
 
-关联计划文档: [2026-03-27-frontend-migration-plan.md](/home/ling/GraduateProject/docs/2026-03-27-frontend-migration-plan.md)
+关联计划文档：`2026-03-27-frontend-migration-plan.md`（原私有仓文档，未随公开仓发布）
 
 ## 状态约定
 

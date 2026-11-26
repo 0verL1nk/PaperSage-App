@@ -47,7 +47,7 @@ jobs:
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
-            --no-progress --offline --exclude 'docs/agents/handoff-.*'
+            --config .lychee.toml --no-progress --offline --exclude 'docs/agents/handoff-.*'
             README.md AGENTS.md CONTRIBUTING.md SECURITY.md docs
       # 定时/手动才跑全量外链；失败不阻塞任何 PR。
       - name: Check links (external)
@@ -55,7 +55,7 @@ jobs:
         uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
         with:
           args: >-
-            --no-progress --max-retries 2 --accept 200,206,429
+            --config .lychee.toml --no-progress --max-retries 2 --accept 200,206,429
             --exclude 'docs/agents/handoff-.*'
             README.md AGENTS.md CONTRIBUTING.md SECURITY.md docs
 
@@ -88,7 +88,7 @@ jobs:
 
       - name: Install go-licenses
         run: |
-          go install github.com/google/go-licenses@v2.0.1
+          go install github.com/google/go-licenses/v2@v2.0.1
           echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
       - name: Check dependency licenses

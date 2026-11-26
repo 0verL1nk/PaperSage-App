@@ -113,6 +113,7 @@ jobs:
         if: always()
         working-directory: frontend
         run: |
+          # shellcheck disable=SC2016 # 单引号里是 JS 模板字符串，故意不让 shell 展开
           node -e '
             const fs = require("node:fs");
             const path = "coverage/coverage-summary.json";
