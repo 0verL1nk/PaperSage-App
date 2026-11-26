@@ -267,6 +267,21 @@ async function clearDatabaseStores(db: IDBDatabase): Promise<void> {
   })
 }
 
+const WORKER_DB_NAME = 'papersage-swiftlatex-worker-cache-v2'
+
+function openWorkerDb(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(WORKER_DB_NAME, 1)
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains('resources')) {
+        request.result.createObjectStore('resources', { keyPath: 'url' })
+      }
+    }
+    request.onsuccess = () => resolve(request.result)
+    request.onerror = () => reject(request.error ?? new Error('无法打开 TeX 宏包缓存'))
+  })
+}
+
 export async function clearLatexResourceCache(): Promise<void> {
   if (liveDownloads.size > 0) throw new Error('资源正在下载；请先暂停下载，再清理缓存')
   const appDb = await openDb()
@@ -276,16 +291,7 @@ export async function clearLatexResourceCache(): Promise<void> {
     appDb.close()
   }
 
-  const workerDb = await new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open('papersage-swiftlatex-worker-cache-v2', 1)
-    request.onupgradeneeded = () => {
-      if (!request.result.objectStoreNames.contains('resources')) {
-        request.result.createObjectStore('resources', { keyPath: 'url' })
-      }
-    }
-    request.onsuccess = () => resolve(request.result)
-    request.onerror = () => reject(request.error ?? new Error('无法打开 TeX 宏包缓存'))
-  })
+  const workerDb = await openWorkerDb()
   try {
     await clearDatabaseStores(workerDb)
   } finally {
@@ -391,5 +397,218 @@ export async function downloadLatexResource(
     return blob
   } finally {
     liveDownloads.delete(resource.id)
+  }
+}
+
+/** TeX Live bytes as the engine worker adapter persists them. */
+export interface TexliveCacheEntry {
+  url: string
+  bytes?: ArrayBuffer
+  fileid?: string
+  fontid?: string
+  package?: string
+  revision?: string
+  lastUsed?: number
+}
+
+export interface ProfileCacheUsage {
+  profile: string
+  entries: number
+  bytes: number
+}
+
+export interface PackageCacheUsage {
+  package: string
+  entries: number
+  bytes: number
+}
+
+export interface TexliveCacheSummary {
+  entries: number
+  bytes: number
+  packages: number
+  fonts: number
+  byProfile: ProfileCacheUsage[]
+  topPackages: PackageCacheUsage[]
+  lastUsed: number | null
+}
+
+const TEXLIVE_PROFILE_KEY = 'papersage_texlive_profile'
+
+const FONT_FILE_PATTERN = /\.(?:otf|ttf|ttc|pfb|afm)(?:$|&)/i
+
+function isFontEntry(entry: TexliveCacheEntry): boolean {
+  // XeTeX requests OpenType fonts as kind `xetex`, so the backend reports a
+  // fileid and only the lookup name identifies them as fonts.
+  return Boolean(entry.fontid)
+    || /\/resolve\/font(?:$|\?)/.test(entry.url)
+    || FONT_FILE_PATTERN.test(entry.url)
+}
+
+const BUILTIN_PROFILE = '内置资源'
+
+function entryProfile(entry: TexliveCacheEntry): string {
+  // Bundled engine assets (e.g. the base pdftex.map) are not profile-scoped.
+  if (/\/latex-engines\//.test(entry.url)) return BUILTIN_PROFILE
+  if (entry.revision) return entry.revision
+  const match = /\/texlive\/([^/]+)\//.exec(entry.url)
+  return match ? decodeURIComponent(match[1]) : ''
+}
+
+/** Pure projection of adapter entries; exported for unit tests. */
+export function summarizeTexliveEntries(entries: readonly TexliveCacheEntry[]): TexliveCacheSummary {
+  const profiles = new Map<string, ProfileCacheUsage>()
+  const packages = new Map<string, PackageCacheUsage>()
+  let bytes = 0
+  let fonts = 0
+  let lastUsed: number | null = null
+  for (const entry of entries) {
+    const size = entry.bytes?.byteLength ?? 0
+    bytes += size
+    if (isFontEntry(entry)) fonts++
+    const profile = entryProfile(entry) || '未知版本'
+    const profileUsage = profiles.get(profile) ?? { profile, entries: 0, bytes: 0 }
+    profileUsage.entries++
+    profileUsage.bytes += size
+    profiles.set(profile, profileUsage)
+    if (entry.package) {
+      const packageUsage = packages.get(entry.package) ?? { package: entry.package, entries: 0, bytes: 0 }
+      packageUsage.entries++
+      packageUsage.bytes += size
+      packages.set(entry.package, packageUsage)
+    }
+    if (typeof entry.lastUsed === 'number' && (lastUsed === null || entry.lastUsed > lastUsed)) {
+      lastUsed = entry.lastUsed
+    }
+  }
+  return {
+    entries: entries.length,
+    bytes,
+    packages: entries.length - fonts,
+    fonts,
+    byProfile: [...profiles.values()].sort((left, right) => right.bytes - left.bytes),
+    topPackages: [...packages.values()].sort((left, right) => right.bytes - left.bytes).slice(0, 5),
+    lastUsed,
+  }
+}
+
+export function selectSupersededTexliveEntries(
+  entries: readonly TexliveCacheEntry[],
+  profile: string,
+): TexliveCacheEntry[] {
+  return entries.filter((entry) => entryProfile(entry) !== profile && entryProfile(entry) !== BUILTIN_PROFILE)
+}
+
+async function readTexliveEntries(): Promise<TexliveCacheEntry[]> {
+  const db = await openWorkerDb()
+  try {
+    return await new Promise<TexliveCacheEntry[]>((resolve, reject) => {
+      const tx = db.transaction('resources', 'readonly')
+      const request = tx.objectStore('resources').getAll()
+      request.onsuccess = () => resolve(request.result as TexliveCacheEntry[])
+      request.onerror = () => reject(request.error ?? new Error('无法读取 TeX 宏包缓存'))
+    })
+  } finally {
+    db.close()
+  }
+}
+
+export async function readTexliveCacheSummary(): Promise<TexliveCacheSummary> {
+  return summarizeTexliveEntries(await readTexliveEntries())
+}
+
+export interface PrunedTexliveCache {
+  entries: number
+  bytes: number
+}
+
+export async function pruneTexliveCacheExcept(profile: string): Promise<PrunedTexliveCache> {
+  const db = await openWorkerDb()
+  try {
+    return await new Promise<PrunedTexliveCache>((resolve, reject) => {
+      const tx = db.transaction('resources', 'readwrite')
+      const store = tx.objectStore('resources')
+      const request = store.getAll()
+      let entries = 0
+      let bytes = 0
+      request.onsuccess = () => {
+        for (const entry of request.result as TexliveCacheEntry[]) {
+          if (entryProfile(entry) === profile) continue
+          entries++
+          bytes += entry.bytes?.byteLength ?? 0
+          store.delete(entry.url)
+        }
+      }
+      tx.oncomplete = () => resolve({ entries, bytes })
+      tx.onerror = () => reject(tx.error ?? new Error('清理旧版本 TeX 缓存失败'))
+      tx.onabort = () => reject(tx.error ?? new Error('清理旧版本 TeX 缓存已中止'))
+    })
+  } finally {
+    db.close()
+  }
+}
+
+/** Remembers the served profile and drops bytes from earlier versions. */
+export async function pruneSupersededProfileCache(profile: string): Promise<void> {
+  if (typeof localStorage === 'undefined') return
+  try {
+    const previous = localStorage.getItem(TEXLIVE_PROFILE_KEY)
+    if (previous && previous !== profile) await pruneTexliveCacheExcept(profile)
+    localStorage.setItem(TEXLIVE_PROFILE_KEY, profile)
+  } catch (error) {
+    // Cache maintenance is an optimization; the compile itself must continue.
+    console.warn('旧版本 TeX 资源缓存未能清理；本次编译继续', error)
+  }
+}
+
+export interface CachedFormatSummary {
+  id: string
+  engineVersion: string
+  bytes: number
+  savedAt: number
+}
+
+export async function readLatexFormatSummary(): Promise<CachedFormatSummary[]> {
+  const entries = await requestValue<CachedFormat[]>('formats', 'readonly', (store) => store.getAll())
+  return entries
+    .filter((entry) => entry.bytes instanceof ArrayBuffer)
+    .map((entry) => ({
+      id: entry.id,
+      engineVersion: entry.engineVersion,
+      bytes: entry.bytes.byteLength,
+      savedAt: entry.savedAt,
+    }))
+    .sort((left, right) => left.id.localeCompare(right.id))
+}
+
+export interface BrowserStorageStatus {
+  available: boolean
+  unavailableReason: string | null
+  persisted: boolean | null
+  usage: number
+  quota: number
+}
+
+export async function getBrowserStorageStatus(): Promise<BrowserStorageStatus> {
+  const unavailable = (unavailableReason: string): BrowserStorageStatus => ({
+    available: false, unavailableReason, persisted: null, usage: 0, quota: 0,
+  })
+  if (typeof indexedDB === 'undefined') {
+    return unavailable('当前浏览器禁用了站点数据存储，编译资源无法缓存在本机')
+  }
+  try {
+    const db = await openDb()
+    db.close()
+  } catch {
+    return unavailable('浏览器拒绝打开本机缓存（可能处于无痕模式或站点数据被禁用），编译资源将每次重新下载')
+  }
+  const persisted = navigator.storage?.persisted ? await navigator.storage.persisted().catch(() => null) : null
+  const estimate = navigator.storage?.estimate ? await navigator.storage.estimate().catch(() => null) : null
+  return {
+    available: true,
+    unavailableReason: null,
+    persisted,
+    usage: estimate?.usage ?? 0,
+    quota: estimate?.quota ?? 0,
   }
 }

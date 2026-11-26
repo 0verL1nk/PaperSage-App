@@ -249,7 +249,7 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 	// list does not mention the extension; the list only decides lookups that
 	// arrive without one.
 	if suffix != "" && lookup.Kind != "font" {
-		records := s.exactIndexMatches(lookup.Name, suffix)
+		records := preferProductionKernel(s.exactIndexMatches(lookup.Name, suffix))
 		if len(records) == 1 {
 			s.serveProvenance(c, lookup, records[0])
 			return
@@ -307,6 +307,7 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 			break
 		}
 	}
+	filtered = preferProductionKernel(filtered)
 	if len(filtered) == 0 {
 		c.Header("Cache-Control", "public, max-age=300")
 		c.String(http.StatusNotFound, "TeX Live filename %q is not present in this profile", lookup.Name)
@@ -322,6 +323,33 @@ func (s *resourceService) serveIndexed(c *gin.Context, lookup resourceLookup) {
 		return
 	}
 	s.serveProvenance(c, lookup, filtered[0])
+}
+
+// preferProductionKernel resolves the only expected duplicate: TeX Live ships
+// the same kernel file in both `latex` and `latex-dev`. Kpathsea picks the
+// production tree; returning 409 here would break every document that loads the
+// file. Any other multi-package match stays ambiguous.
+func preferProductionKernel(records []texlive.TexliveProvenance) []texlive.TexliveProvenance {
+	if len(records) < 2 {
+		return records
+	}
+	hasProduction := false
+	for _, record := range records {
+		if record.Package == "latex" {
+			hasProduction = true
+			break
+		}
+	}
+	if !hasProduction {
+		return records
+	}
+	kept := make([]texlive.TexliveProvenance, 0, len(records))
+	for _, record := range records {
+		if record.Package != "latex-base-dev" && record.Package != "latex-dev" {
+			kept = append(kept, record)
+		}
+	}
+	return kept
 }
 
 // exactIndexMatches returns every indexed file whose basename and extension match
@@ -640,6 +668,7 @@ func (s *resourceService) getPackageMaps(c *gin.Context) {
 					matched = append(matched, provenance)
 				}
 			}
+			matched = preferProductionKernel(matched)
 			if len(matched) > 1 {
 				c.Header("Cache-Control", "no-store")
 				c.String(http.StatusConflict, "ambiguous TeX resource lookup %q in font map request", lookup.Name)

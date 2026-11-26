@@ -45,10 +45,10 @@
     {
       "id": "papersage-swift-worker",
       "name": "SwiftLaTeX \u8d44\u6e90\u9002\u914d\u5668",
-      "url": "/latex-engines/papersage-swift-worker.js?v=a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
-      "version": "papersage-swiftlatex-2026-10-10-2",
-      "size": 21989,
-      "sha256": "a62f9aa8e013624ebd4e9cb24d9ba802b07bf1732626177e410ab13bbc75daef",
+      "url": "/latex-engines/papersage-swift-worker.js?v=15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
+      "version": "papersage-swiftlatex-2026-10-10-3",
+      "size": 22462,
+      "sha256": "15267d56ded76d3d06608d63e94c0d781a1ea0061de0d802263205b8f7860a67",
       "license": "AGPL-3.0",
       "notice": "/latex-engines/LICENSE"
     },
@@ -119,6 +119,16 @@
       "version": "wasmtex-engine-2026-9147f5703951082b",
       "size": 834985,
       "sha256": "d43b768b3900afe001d901313eb12c2ac0db7addbe8297a2108c35f26dcf2fea",
+      "license": "GPL-2.0-or-later",
+      "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
+    },
+    {
+      "id": "papersage-dvipdfmx-entry",
+      "name": "Dvipdfmx 缓存适配器入口",
+      "url": "/latex-engines/wasmtex-dvipdfmx-2026/papersage-dvipdfmx-worker.js?v=1610b3dbf7f30768c7835a08d57864483aeedd2124c21457fb13ee284d23688d",
+      "version": "wasmtex-engine-2026-9147f5703951082b-papersage-2",
+      "size": 243,
+      "sha256": "1610b3dbf7f30768c7835a08d57864483aeedd2124c21457fb13ee284d23688d",
       "license": "GPL-2.0-or-later",
       "notice": "/latex-engines/wasmtex-dvipdfmx-2026/THIRD-PARTY-NOTICES.md"
     },
@@ -194,6 +204,7 @@
       "description": "\u652f\u6301 Unicode\u3001\u4e2d\u6587\u548c OpenType \u5b57\u4f53",
       "resourceIds": [
         "papersage-swift-worker",
+        "papersage-dvipdfmx-entry",
         "swiftlatex-xetex-js",
         "swiftlatex-xetex-wasm",
         "texlive2026-dvipdfmx-worker",

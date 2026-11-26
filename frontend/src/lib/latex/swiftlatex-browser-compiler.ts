@@ -1,6 +1,6 @@
-import { getCachedLatexFormat, putCachedLatexFormat } from '@/lib/latex-resource-cache'
+import { getCachedLatexFormat, pruneSupersededProfileCache, putCachedLatexFormat } from '@/lib/latex-resource-cache'
 import { isDesktop } from '@/lib/desktop'
-import { getApiTarget, getRequiredApiBaseUrl } from '@/lib/env'
+import { browserResourceOrigin, discoverResourceProfile } from '@/lib/latex/resource-profile'
 import { preprocessEpsFiles, type EpsPreprocessProgress } from '@/lib/latex/eps-preprocessor'
 import browserEngineManifest from '@/lib/latex/browser-engine-manifest.json'
 
@@ -90,30 +90,9 @@ const engineResourceUrl = (id: string): string => {
 }
 const ENGINE_VERSION = browserEngineManifest.engineVersion
 
-/**
- * The backend embeds the profile, so clients ask for it instead of baking it
- * into a build and having to redeploy the frontend on every profile upgrade.
- */
-async function discoverResourceProfile(origin: string): Promise<string> {
-  let response: Response
-  try {
-    response = await fetch(new URL('/texlive/profile', origin).href, { headers: { Accept: 'application/json' } })
-  } catch {
-    throw new Error('无法获取 LaTeX 资源目录版本：网络不可用，请检查连接后重试')
-  }
-  if (!response.ok) {
-    throw new Error(`无法获取 LaTeX 资源目录版本：服务返回 ${response.status}`)
-  }
-  const payload: unknown = await response.json().catch(() => null)
-  const profile = payload && typeof payload === 'object' ? (payload as { profile?: unknown }).profile : undefined
-  if (typeof profile !== 'string' || profile === '') {
-    throw new Error('无法获取 LaTeX 资源目录版本：服务响应缺少 profile')
-  }
-  return profile
-}
 const ENGINE_URL = engineResourceUrl('papersage-swift-worker')
 const BIBTEX_WORKER_ENTRY_URL = engineResourceUrl('wasmtex-bibtex-entry')
-const DVIPDFMX_WORKER_URL = engineResourceUrl('texlive2026-dvipdfmx-worker')
+const DVIPDFMX_WORKER_ENTRY_URL = engineResourceUrl('papersage-dvipdfmx-entry')
 const DVIPDFMX_LICENSE: NonNullable<EpsPreprocessProgress['license']> = {
   name: 'TeX Live 2026 Dvipdfmx',
   spdx: 'GPL-2.0-or-later',
@@ -148,11 +127,13 @@ function createEngineWorker(
 ): EngineWorker {
   if (signal?.aborted) throw abortError()
 
-  const url = new URL(
-    engine === 'dvipdfmx' ? DVIPDFMX_WORKER_URL : engine === 'bibtex' ? BIBTEX_WORKER_ENTRY_URL : ENGINE_URL,
-    window.location.origin,
-  )
-  if (engine !== 'dvipdfmx') url.searchParams.set('engine', engine)
+  // Every engine runs behind the shared cache adapter. Engine entries live in
+  // their own asset directory so sibling-relative runtime imports still resolve.
+  const entryUrl = engine === 'bibtex' ? BIBTEX_WORKER_ENTRY_URL
+    : engine === 'dvipdfmx' ? DVIPDFMX_WORKER_ENTRY_URL
+      : ENGINE_URL
+  const url = new URL(entryUrl, window.location.origin)
+  url.searchParams.set('engine', engine)
   const worker = new Worker(url, { type: 'classic' })
   let readyResolve: (() => void) | undefined
   let readyReject: ((reason: Error) => void) | undefined
@@ -484,7 +465,7 @@ export async function compileLatexInBrowser(
   if (!files.some((file) => file.path === rootFile)) {
     throw new Error(`主文件 ${rootFile} 不在当前项目文件列表中`)
   }
-  const apiBaseUrl = getRequiredApiBaseUrl()
+  const resourceOrigin = browserResourceOrigin()
   if (!('serviceWorker' in navigator)) {
     throw new Error('此浏览器不支持 Service Worker，无法缓存 TeX Live 资源')
   }
@@ -529,12 +510,9 @@ export async function compileLatexInBrowser(
   }
 
   const engineName = compiler === 'xelatex' ? 'xetex' : 'pdftex'
-  // In desktop local mode the asset handler proxies /texlive on the app
-  // origin; worker XHRs to 127.0.0.1 are blocked as a private-network request.
-  const resourceOrigin = isDesktop() && getApiTarget() === 'local'
-    ? window.location.origin
-    : apiBaseUrl || window.location.origin
-  const texLiveBaseUrl = new URL(`/texlive/${await discoverResourceProfile(resourceOrigin)}/`, resourceOrigin).href
+  const resourceProfile = await discoverResourceProfile(resourceOrigin, signal)
+  await pruneSupersededProfileCache(resourceProfile)
+  const texLiveBaseUrl = new URL(`/texlive/${resourceProfile}/`, resourceOrigin).href
   const loadedPackages = new Set<string>()
   const loadedLookups = new Map<string, BrowserLatexResourceLookup>()
   const failedResources = new Map<string, BrowserLatexResourceEvent>()
