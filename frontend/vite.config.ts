@@ -104,6 +104,14 @@ const config = defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text-summary', 'json-summary'],
+      // 棘轮门槛：CI 实测（2026-11-26）lines 57.56 / statements 55.15 /
+      // functions 47.95 / branches 53.16。向下取整再减 1，只许升不许降。
+      thresholds: {
+        lines: 56,
+        statements: 54,
+        functions: 46,
+        branches: 52,
+      },
     },
   },
   resolve: {
