@@ -19,6 +19,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
 
@@ -522,6 +523,10 @@ func TestChapterReviewRejectsUnknownNormBasis(t *testing.T) {
 	planID := seedAdoptedPlan(t, svc, uid, pid)
 
 	payload := reviewPayload(planID, 1)
+	svc.Norms = fakeNormProvider{entries: []norms.Entry{{
+		ID: "entry-1", Code: "GBT7714", Version: 2,
+		Title: "类型标识", Rule: "用 [J] 标注。", Source: "GB/T 7714—2015",
+	}}}
 	payload["input"].(map[string]any)["normsAvailable"] = true
 	payload["input"].(map[string]any)["normsNote"] = ""
 	payload["input"].(map[string]any)["norms"] = []map[string]any{{
@@ -648,4 +653,54 @@ func TestCrossProjectDocumentEvidenceRejected(t *testing.T) {
 	var apiErr *httpapi.APIError
 	require.ErrorAs(t, err, &apiErr)
 	assert.Equal(t, 400, apiErr.Code, "跨项目 documentId 必须拒绝")
+}
+
+type fakeNormProvider struct{ entries []norms.Entry }
+
+func (f fakeNormProvider) AdoptedForProject(context.Context, store.UUID) ([]norms.Entry, error) {
+	return f.entries, nil
+}
+
+// 报告里列的规范可能是模型自造的：服务端以已采用集合为准，不能只跟 input.norms 自洽。
+func TestChapterReviewRejectsNormNotAdopted(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+	svc.Norms = fakeNormProvider{entries: []norms.Entry{{
+		ID: "entry-1", Code: "GBT7714", Version: 2, Title: "类型标识", Rule: "用 [J] 标注。", Source: "GB/T 7714—2015",
+	}}}
+
+	payload := reviewPayload(planID, 1)
+	payload["input"].(map[string]any)["normsAvailable"] = true
+	payload["input"].(map[string]any)["normsNote"] = ""
+	payload["input"].(map[string]any)["norms"] = []map[string]any{{
+		"id": "made-up", "code": "MADE-UP", "version": 1, "title": "模型自造的规范", "rule": "……", "source": "……",
+	}}
+	_, err := svc.Create(context.Background(), uid, pid, createRequest{Kind: store.ResearchArtifactChapterReview, Payload: mustJSON(t, payload)})
+	if err == nil {
+		t.Fatal("报告列出的规范不在已采用集合时必须被拒绝")
+	}
+	if !strings.Contains(err.Error(), "不在本项目已采用的规范中") {
+		t.Fatalf("错误信息应指明规范不在已采用集合：%v", err)
+	}
+}
+
+// 模型引用真实已采用条款、即使 input.norms 少列也应能落库（这正是生产上卡住的场景）。
+func TestChapterReviewAcceptsAdoptedNormBasis(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+	svc.Norms = fakeNormProvider{entries: []norms.Entry{{
+		ID: "entry-1", Code: "GBT7714", Version: 2, Title: "类型标识", Rule: "用 [J] 标注。", Source: "GB/T 7714—2015",
+	}}}
+
+	payload := reviewPayload(planID, 1)
+	payload["input"].(map[string]any)["normsAvailable"] = true
+	payload["input"].(map[string]any)["normsNote"] = ""
+	payload["input"].(map[string]any)["norms"] = []map[string]any{}
+	finding := payload["findings"].([]map[string]any)[0]
+	finding["basis"] = []map[string]any{{"kind": "norm", "ref": "N-GBT7714@v2", "quote": "用 [J] 标注。"}}
+	if _, err := svc.Create(context.Background(), uid, pid, createRequest{Kind: store.ResearchArtifactChapterReview, Payload: mustJSON(t, payload)}); err != nil {
+		t.Fatalf("引用真实已采用条款的报告应能落库：%v", err)
+	}
 }

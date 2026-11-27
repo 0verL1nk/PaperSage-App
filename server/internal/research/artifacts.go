@@ -26,6 +26,9 @@ import (
 
 type Service struct {
 	DB *gorm.DB
+	// Norms 是校验规范依据的权威来源：模型写下的规范条目必须能在项目已采用集合里
+	// 找到，不能只跟模型自己填的 input.norms 自洽。
+	Norms norms.Provider
 }
 
 func NewService(db *gorm.DB) *Service { return &Service{DB: db} }
@@ -777,6 +780,65 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 	return datatypes.JSON(raw), allDeps, nil
 }
 
+// validateNormRefs 把报告的规范依据与「项目已采用集合」对齐。
+//
+// 只和模型自己填的 input.norms 比对是自证：模型少列几条，就能既声称用了规范、
+// 又引用未采用的条款。这里以服务端 Provider（采用时锁定的版本）为准。
+func (s *Service) validateNormRefs(ctx context.Context, projectID store.UUID, p ChapterReview) error {
+	claimsNorms := p.Input.NormsAvailable || len(p.Input.Norms) > 0 || hasNormBasis(p.Findings)
+	if s.Norms == nil {
+		if claimsNorms {
+			return httpapi.BadRequest("学术规范库未接入，检查报告不能声称使用了规范依据")
+		}
+		return nil
+	}
+	entries, err := s.Norms.AdoptedForProject(ctx, projectID)
+	if errors.Is(err, norms.ErrUnavailable) {
+		if claimsNorms {
+			return httpapi.BadRequest("学术规范库不可用，检查报告不能声称使用了规范依据")
+		}
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	known := make(map[string]bool, len(entries)*3)
+	for _, entry := range entries {
+		known[entry.Cite()] = true
+		known[entry.ID] = true
+		if entry.Title != "" {
+			known[entry.Title] = true
+		}
+	}
+	for _, entry := range p.Input.Norms {
+		if !known[entry.Cite()] && !known[entry.ID] && (entry.Title == "" || !known[entry.Title]) {
+			return httpapi.BadRequest("检查报告列出的规范条目不在本项目已采用的规范中：" + entry.Title)
+		}
+	}
+	for _, finding := range p.Findings {
+		for _, basis := range finding.Basis {
+			if basis.Kind != "norm" {
+				continue
+			}
+			if !known[strings.TrimSpace(basis.Ref)] {
+				return httpapi.BadRequest("依据引用的规范条目不在本项目已采用的规范中：" + basis.Ref)
+			}
+		}
+	}
+	return nil
+}
+
+func hasNormBasis(findings []ReviewFinding) bool {
+	for _, finding := range findings {
+		for _, basis := range finding.Basis {
+			if basis.Kind == "norm" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // validateChapterReview 只校验结构与诚实边界；语义判断由模型完成。
 // 这里刻意拒绝「规范库不可用却声称已完成规范符合度检查」这类伪通过。
 func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUID, p ChapterReview, plan *reviewPlanRef) error {
@@ -969,19 +1031,12 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 					return httpapi.BadRequest("依据引用的章节不在章节计划中")
 				}
 			case "norm":
-				found := false
-				for _, entry := range p.Input.Norms {
-					// 提示词要求模型用 Cite() 的引用号；同时保留 ID/标题兼容历史报告。
-					if entry.ID == b.Ref || entry.Title == b.Ref || entry.Cite() == b.Ref {
-						found = true
-						break
-					}
-				}
-				if !found {
-					return httpapi.BadRequest("依据引用的规范条目不在已采用规范中")
-				}
+				// 统一由 validateNormRefs 按项目已采用集合校验。
 			}
 		}
+	}
+	if err := s.validateNormRefs(ctx, projectID, p); err != nil {
+		return err
 	}
 	findingsPerDimension := map[string]int{}
 	for _, f := range p.Findings {

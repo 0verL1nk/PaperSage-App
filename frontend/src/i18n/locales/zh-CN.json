@@ -188,6 +188,10 @@
   },
   "common": {
     "loadingSettings": "正在加载设置…",
-    "recoverableError": "可恢复的错误"
+    "recoverableError": "可恢复的错误",
+    "confirm": "确认",
+    "cancel": "取消",
+    "processing": "处理中…",
+    "retry": "重试"
   }
 }

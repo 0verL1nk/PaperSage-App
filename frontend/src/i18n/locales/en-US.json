@@ -188,6 +188,10 @@
   },
   "common": {
     "loadingSettings": "Loading settings…",
-    "recoverableError": "Recoverable error"
+    "recoverableError": "Recoverable error",
+    "confirm": "Confirm",
+    "cancel": "Cancel",
+    "processing": "Processing…",
+    "retry": "Retry"
   }
 }

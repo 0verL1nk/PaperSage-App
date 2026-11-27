@@ -27,7 +27,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```
 frontend/src/
-├── app/                # Router (router.tsx), providers, shell.tsx (main layout)
+├── app/                # Router (router.tsx), providers, theme
 ├── components/
 │   ├── domain/         # Domain-specific components (ProjectCard, CreateProjectDialog)
 │   ├── shared/         # Shared components
