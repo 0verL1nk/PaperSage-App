@@ -224,6 +224,9 @@ docs/proposal/.build-preview/
 /server/test-results/
 /test-results/
 
+# Persistent Chromium profile used by budget-sized LaTeX acceptance runs.
+/frontend/.latex-e2e-profile/
+
 # Desktop embedded frontend build output; the placeholder keeps go:embed valid
 # on a clean checkout before the frontend build runs.
 desktop/internal/assets/dist/*
