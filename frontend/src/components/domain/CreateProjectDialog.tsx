@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from '@tanstack/react-router'
 import { useCreateProject } from '@/services/projects-api'
 import type { ProjectGroup } from '@/types/projects'
 import {
@@ -38,6 +39,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
 
   const createProject = useCreateProject()
   const isPending = createProject.isPending
+  const navigate = useNavigate()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -46,7 +48,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
     setError(null)
 
     try {
-      await createProject.mutateAsync({
+      const project = await createProject.mutateAsync({
         name: name.trim(),
         description: description.trim() || undefined,
         group_id: groupId ?? undefined,
@@ -58,6 +60,8 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
       setGroupId(null)
       setScenario('undergraduate_thesis')
       onOpenChange(false)
+      // 建完直接进工作台，省掉回列表再找卡片这一步。
+      void navigate({ to: '/project/$projectId/prepare', params: { projectId: project.id } })
     } catch (err) {
       setError(err instanceof Error ? err.message : '创建项目失败')
     }

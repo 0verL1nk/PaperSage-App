@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import { BookMarked, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -36,6 +37,7 @@ import {
   type NormScenario,
 } from '@/types/norms'
 import { cn } from '@/lib/utils'
+import { useSessionStore } from '@/store'
 
 const SCENARIOS: NormScenario[] = ['undergraduate_thesis', 'intro_paper', 'all']
 const BINDINGS: NormBinding[] = ['must', 'should', 'recommended']
@@ -55,7 +57,53 @@ const emptyDraft = (packId: string, scenario: NormScenario): NormEntryInput => (
   sourceQuote: '',
 })
 
+/** 游客不挂载规范查询：规范库是账号能力，未登录时只给登录引导。 */
 export function NormsPage() {
+  const isGuest = useSessionStore((state) => state.isGuest)
+  return isGuest ? <GuestNormsGate /> : <NormsLibrary />
+}
+
+function GuestNormsGate() {
+  return (
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-3 sm:p-5">
+      <NormsPageHeader
+        action={
+          <Button className="min-h-11" disabled title="登录后可新建规范包">
+            <Plus className="size-4" />新建规范包
+          </Button>
+        }
+      />
+
+      <Card className="rounded-2xl border-border/50 shadow-sm">
+        <CardContent className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+          <BookMarked className="size-8 text-primary" />
+          <h2 className="text-lg font-semibold">登录后使用学术规范库</h2>
+          <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+            规范库保存在云端账号里。登录后可以查看内置规范、创建自己的规范包，并在写作准备与检查完善中采用。
+          </p>
+          <Button asChild className="min-h-11">
+            <Link to="/auth">去登录</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function NormsPageHeader({ action }: { action: ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">学术规范</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">规范库</h1>
+        <p className="mt-1 text-sm text-muted-foreground">内置规范开箱可用；自建包里的条目可以自己增删改。</p>
+      </div>
+      {action}
+    </header>
+  )
+}
+
+function NormsLibrary() {
   const packs = useNormPacks()
   const [packId, setPackId] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -125,16 +173,13 @@ export function NormsPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 overflow-y-auto p-3 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">学术规范</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">规范库</h1>
-          <p className="mt-1 text-sm text-muted-foreground">内置规范开箱可用；自建包里的条目可以自己增删改。</p>
-        </div>
-        <Button className="min-h-11" onClick={() => setPackDraft({ key: '', name: '', scenario: 'undergraduate_thesis' })}>
-          <Plus className="size-4" />新建规范包
-        </Button>
-      </header>
+      <NormsPageHeader
+        action={
+          <Button className="min-h-11" onClick={() => setPackDraft({ key: '', name: '', scenario: 'undergraduate_thesis' })}>
+            <Plus className="size-4" />新建规范包
+          </Button>
+        }
+      />
 
       {mutationError && (
         <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">

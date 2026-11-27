@@ -297,7 +297,7 @@ export function AuthPage() {
               PaperSage
             </h1>
             <p className="mt-3 text-[13.5px] leading-6 text-muted-foreground">
-              智能化科研文献管理工作台
+              科研论文写作 AI 辅助工作台
             </p>
           </div>
         </aside>
@@ -313,7 +313,7 @@ export function AuthPage() {
               />
               <div>
                 <h1 className="text-[17px] font-semibold leading-none tracking-tight text-foreground">PaperSage</h1>
-                <p className="mt-1 text-[11.5px] text-muted-foreground">智能化科研文献管理工作台</p>
+                <p className="mt-1 text-[11.5px] text-muted-foreground">科研论文写作 AI 辅助工作台</p>
               </div>
             </div>
 

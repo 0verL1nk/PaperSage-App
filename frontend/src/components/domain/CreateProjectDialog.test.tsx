@@ -3,12 +3,17 @@ import userEvent from '@testing-library/user-event'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mutateAsync = vi.fn()
+const navigate = vi.fn()
 vi.mock('@/services/projects-api', () => ({ useCreateProject: () => ({ mutateAsync, isPending: false }) }))
+vi.mock('@tanstack/react-router', () => ({ useNavigate: () => navigate }))
 
 import { CreateProjectDialog } from './CreateProjectDialog'
 
 describe('CreateProjectDialog scenario selection', () => {
-  beforeEach(() => mutateAsync.mockReset().mockResolvedValue({}))
+  beforeEach(() => {
+    mutateAsync.mockReset().mockResolvedValue({ id: 'project-1' })
+    navigate.mockReset()
+  })
 
   it('submits the selected research scenario with the project', async () => {
     const user = userEvent.setup()
@@ -20,6 +25,9 @@ describe('CreateProjectDialog scenario selection', () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalledWith({
       name: '入门论文项目', description: undefined, group_id: undefined, scenario: 'intro_paper',
+    }))
+    await waitFor(() => expect(navigate).toHaveBeenCalledWith({
+      to: '/project/$projectId/prepare', params: { projectId: 'project-1' },
     }))
   })
 })

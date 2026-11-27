@@ -23,7 +23,12 @@ test.describe('Project lifecycle (golden path)', () => {
     await page.getByRole('textbox', { name: '名称' }).fill(name)
     await page.getByRole('button', { name: /创建|确定/ }).click()
 
-    // Card should now appear in the grid
+    // 创建成功直接进工作台准备页，不再回列表点卡片
+    await expect(page).toHaveURL(/\/project\/[^/]+\/prepare$/, { timeout: 10_000 })
+    await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 })
+
+    // 回到列表仍能看到刚建的项目
+    await page.goto('/app/projects')
     await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 })
   })
 
@@ -44,6 +49,9 @@ test.describe('Project lifecycle (golden path)', () => {
     await page.getByRole('button', { name: /新建项目|创建第一个项目/ }).first().click()
     await page.getByRole('textbox', { name: '名称' }).fill(name)
     await page.getByRole('button', { name: /创建|确定/ }).click()
+    // 创建后自动进入工作台，回列表再删除
+    await expect(page).toHaveURL(/\/project\/[^/]+\/prepare$/, { timeout: 10_000 })
+    await page.goto('/app/projects')
     await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 })
 
     // Find the project card and trigger delete

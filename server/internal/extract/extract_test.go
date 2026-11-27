@@ -157,3 +157,10 @@ func TestExtractDOCX(t *testing.T) {
 	assert.ErrorIs(t, err, extract.ErrLimitExceeded)
 	assert.Empty(t, limited)
 }
+
+func TestTextMarkdownFallsBackToPlainText(t *testing.T) {
+	source := "# 标题\n\n正文 evidence 😀"
+	got, err := extract.Text(context.Background(), []byte(source), "notes.md", "text/markdown", 0)
+	require.NoError(t, err)
+	assert.Equal(t, source, got)
+}

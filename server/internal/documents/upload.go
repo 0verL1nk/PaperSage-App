@@ -31,10 +31,24 @@ import (
 var allowedMimetypes = map[string]bool{
 	"application/pdf": true,
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": true,
-	"text/plain": true,
+	"text/plain":    true,
+	"text/markdown": true,
 }
 
 const maxFileSizeBytes = 50 * 1024 * 1024 // 50 MB
+
+// normalizeMarkdownContentType：部分系统未给 .md 注册 MIME，浏览器会传空
+// 或 application/octet-stream；按扩展名归一，否则会被白名单拒绝，预览与
+// 类型筛选也认不出。其它扩展名一律不改写。
+func normalizeMarkdownContentType(fileName, contentType string) string {
+	if !strings.EqualFold(path.Ext(fileName), ".md") {
+		return contentType
+	}
+	if contentType == "application/octet-stream" || contentType == "text/x-markdown" {
+		return "text/markdown"
+	}
+	return contentType
+}
 
 func allowedMimeList() string {
 	ms := make([]string, 0, len(allowedMimetypes))
@@ -73,6 +87,7 @@ func (s *Service) upload(c *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
+	contentType = normalizeMarkdownContentType(fileName, contentType)
 	remark := c.PostForm("remark")
 	var remarkPtr *string
 	if remark != "" {

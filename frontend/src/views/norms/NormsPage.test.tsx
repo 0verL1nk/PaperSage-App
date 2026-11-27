@@ -4,7 +4,12 @@ import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { NormsPage } from './NormsPage'
+import { useSessionStore } from '@/store'
 import type { NormEntryPage, NormPack } from '@/types/norms'
+
+vi.mock('@tanstack/react-router', () => ({
+  Link: ({ to, children, ...props }: { to: string; children: ReactNode; className?: string }) => <a href={to} {...props}>{children}</a>,
+}))
 
 const builtinPack: NormPack = {
   id: 'p-builtin',
@@ -64,6 +69,18 @@ describe('NormsPage', () => {
   beforeEach(() => {
     packs.data = [builtinPack, ownPack]
     entries.data = emptyPage
+    useSessionStore.setState({ isGuest: false })
+  })
+
+  it('游客只看到登录引导，不显示读取失败与重试', () => {
+    useSessionStore.setState({ isGuest: true })
+    render(wrap(<NormsPage />))
+
+    expect(screen.getByRole('heading', { name: '登录后使用学术规范库' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去登录' })).toHaveAttribute('href', '/auth')
+    expect(screen.getByRole('button', { name: /新建规范包/ })).toBeDisabled()
+    expect(screen.queryByText(/读取失败/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '重试' })).not.toBeInTheDocument()
   })
 
   it('列出规范包并说明内置只读', () => {

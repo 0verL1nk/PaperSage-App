@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { useUploadDocument, useDeleteDocument, useConfirmDocument } from '@/services/files-api'
 import { useUploadStore } from '@/store/upload-store'
-import { ACCEPTED_FILE_TYPES, MAX_FILE_SIZE_BYTES } from './constants'
+import { ACCEPTED_FILE_TYPES, ACCEPTED_FORMATS_LABEL, MAX_FILE_SIZE_BYTES } from './constants'
 import { FileTypeIcon } from '../projects/file-tree-icons'
 
 interface UploadDropzoneProps {
@@ -91,7 +91,7 @@ export function UploadDropzone({ projectId, folderId, onClose }: UploadDropzoneP
         const reason = code === 'file-too-large'
           ? `文件过大，单个文件最大 ${fmtSize(MAX_FILE_SIZE_BYTES)}`
           : code === 'file-invalid-type'
-            ? '不支持的文件类型，仅支持 PDF、DOCX、TXT'
+            ? `不支持的文件类型，仅支持 ${ACCEPTED_FORMATS_LABEL}`
             : errors[0]?.message ?? '无法添加'
         toast.error(`未添加 ${file.name}`, { description: reason })
       }
@@ -215,7 +215,7 @@ export function UploadDropzone({ projectId, folderId, onClose }: UploadDropzoneP
               {isDragActive ? '松开以上传文件...' : '拖拽文件到此处，或点击选择'}
             </p>
             <p className="text-[10px] text-muted-foreground/50 mt-1.5">
-              支持 PDF、DOCX、TXT — 最大 50 MB
+              支持 {ACCEPTED_FORMATS_LABEL} — 最大 50 MB
             </p>
           </div>
         )}
