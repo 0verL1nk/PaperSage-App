@@ -279,7 +279,7 @@ func (s *Service) ownsProject(ctx context.Context, uid, projectID store.UUID) er
 		return err
 	}
 	if count == 0 {
-		return httpapi.NotFound("项目")
+		return httpapi.NotFound("Project")
 	}
 	return nil
 }
@@ -391,7 +391,7 @@ func (s *Service) Adopt(ctx context.Context, uid, projectID, artifactID store.UU
 	}
 	var rev store.ResearchArtifactRevision
 	if err := s.DB.WithContext(ctx).Where("artifact_id = ? AND revision = ?", artifact.ID, req.Revision).First(&rev).Error; err != nil {
-		return nil, httpapi.NotFound("版本")
+		return nil, httpapi.NotFound("Revision")
 	}
 	if rev.Status == store.ResearchArtifactRevisionRejected {
 		return nil, httpapi.BadRequest("已拒绝的修订不能采用")
@@ -511,7 +511,7 @@ func (s *Service) GetRevision(ctx context.Context, uid, projectID, artifactID st
 	}
 	var rev store.ResearchArtifactRevision
 	if err := s.DB.WithContext(ctx).Where("artifact_id = ? AND revision = ?", artifact.ID, revision).First(&rev).Error; err != nil {
-		return nil, httpapi.NotFound("版本")
+		return nil, httpapi.NotFound("Revision")
 	}
 	r := toRevisionResponse(&rev)
 	return &r, nil
@@ -525,7 +525,7 @@ func (s *Service) loadOwnedArtifact(ctx context.Context, uid, projectID, artifac
 			artifactID, projectID, uid).
 		First(&artifact).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, httpapi.NotFound("产物")
+		return nil, httpapi.NotFound("Artifact")
 	}
 	return &artifact, err
 }
@@ -1173,7 +1173,7 @@ func conflict(info string) error { return &httpapi.APIError{Code: http.StatusCon
 func (s *Service) parseIDs(c *gin.Context) (store.UUID, store.UUID, bool) {
 	aid, err := uuid.Parse(c.Param("artifact_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("产物"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Artifact"))
 		return store.UUID{}, store.UUID{}, false
 	}
 	artifactID := store.UUID{UUID: aid}
@@ -1183,7 +1183,7 @@ func (s *Service) parseIDs(c *gin.Context) (store.UUID, store.UUID, bool) {
 		Where("research_artifacts.id = ? AND projects.owner_id = ?", artifactID, auth.CurrentUser(c).ID).
 		First(&artifact).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("产物"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Artifact"))
 		return store.UUID{}, store.UUID{}, false
 	}
 	if err != nil {
@@ -1196,7 +1196,7 @@ func (s *Service) parseIDs(c *gin.Context) (store.UUID, store.UUID, bool) {
 func (s *Service) list(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	items, err := s.List(c.Request.Context(), auth.CurrentUser(c).ID, store.UUID{UUID: pid}, c.Query("kind"))
@@ -1210,7 +1210,7 @@ func (s *Service) list(c *gin.Context) {
 func (s *Service) create(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	var req createRequest
@@ -1287,7 +1287,7 @@ func (s *Service) getRevision(c *gin.Context) {
 	}
 	revision, err := strconv.Atoi(c.Param("revision"))
 	if err != nil || revision <= 0 {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("版本"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Revision"))
 		return
 	}
 	item, err := s.GetRevision(c.Request.Context(), auth.CurrentUser(c).ID, pid, aid, revision)

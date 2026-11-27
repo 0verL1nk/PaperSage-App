@@ -14,8 +14,22 @@ type APIError struct {
 func (e *APIError) Error() string { return e.Info }
 
 // NotFound mirrors NotFoundException: 404 "<resource> not found".
+// 契约串保持英文，由前端 errors.ts 统一翻译；传入非英文资源名会退化为
+// 通用串，避免出现「项目 not found」这类中英混杂文案（HELE-22）。
 func NotFound(resource string) *APIError {
+	if resource == "" || !isASCII(resource) {
+		resource = "Resource"
+	}
 	return &APIError{Code: http.StatusNotFound, Info: resource + " not found"}
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 // Unauthorized mirrors UnauthorizedException: 401.

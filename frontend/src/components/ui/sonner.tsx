@@ -5,6 +5,8 @@ import { Toaster as Sonner, type ToasterProps } from "sonner"
 import { CircleCheckIcon, InfoIcon, TriangleAlertIcon, OctagonXIcon, Loader2Icon } from "lucide-react"
 
 const MOBILE_QUERY = "(max-width: 639px)"
+// 顶栏 56px + 移动端主导航 48px，再留 8px：顶部居中的 toast 不遮挡导航（HELE-22）。
+const MOBILE_TOP_OFFSET = 112
 
 // sonner 的 position 不支持响应式：窄屏顶部居中，桌面右下角，避免挡住顶部导航与右上角主操作。
 function subscribeViewportChange(onChange: () => void) {
@@ -28,7 +30,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
       closeButton
       position={isMobileViewport ? "top-center" : "bottom-right"}
       offset={16}
-      mobileOffset={16}
+      mobileOffset={{ top: MOBILE_TOP_OFFSET }}
       richColors
       className="toaster group"
       icons={{

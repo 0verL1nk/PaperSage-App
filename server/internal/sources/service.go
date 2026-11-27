@@ -44,7 +44,7 @@ func (s *Service) ownedVersion(ctx context.Context, uid, projectID, versionID st
 			versionID, projectID, uid).
 		First(&ver).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, httpapi.NotFound("来源版本")
+		return nil, httpapi.NotFound("Source version")
 	}
 	return &ver, err
 }
@@ -216,12 +216,12 @@ func ptr[T any](v T) *T { return &v }
 func (s *Service) getVersion(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	vid, err := uuid.Parse(c.Param("version_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("来源版本"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Source version"))
 		return
 	}
 	ver, err := s.ownedVersion(c.Request.Context(), auth.CurrentUser(c).ID, store.UUID{UUID: pid}, store.UUID{UUID: vid})
@@ -235,12 +235,12 @@ func (s *Service) getVersion(c *gin.Context) {
 func (s *Service) readText(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	vid, err := uuid.Parse(c.Param("version_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("来源版本"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Source version"))
 		return
 	}
 	offset, _ := strconv.ParseInt(c.Query("offset"), 10, 64)

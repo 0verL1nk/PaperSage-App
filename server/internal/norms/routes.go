@@ -45,7 +45,7 @@ func (s *Service) createPack(c *gin.Context) {
 }
 
 func (s *Service) updatePack(c *gin.Context) {
-	packID, ok := pathUUID(c, "pack_id", "规范包")
+	packID, ok := pathUUID(c, "pack_id", "Norm pack")
 	if !ok {
 		return
 	}
@@ -63,7 +63,7 @@ func (s *Service) updatePack(c *gin.Context) {
 }
 
 func (s *Service) deletePack(c *gin.Context) {
-	packID, ok := pathUUID(c, "pack_id", "规范包")
+	packID, ok := pathUUID(c, "pack_id", "Norm pack")
 	if !ok {
 		return
 	}
@@ -121,7 +121,7 @@ func (s *Service) createEntry(c *gin.Context) {
 }
 
 func (s *Service) getEntry(c *gin.Context) {
-	entryID, ok := pathUUID(c, "entry_id", "规范条目")
+	entryID, ok := pathUUID(c, "entry_id", "Norm entry")
 	if !ok {
 		return
 	}
@@ -134,7 +134,7 @@ func (s *Service) getEntry(c *gin.Context) {
 }
 
 func (s *Service) updateEntry(c *gin.Context) {
-	entryID, ok := pathUUID(c, "entry_id", "规范条目")
+	entryID, ok := pathUUID(c, "entry_id", "Norm entry")
 	if !ok {
 		return
 	}
@@ -152,7 +152,7 @@ func (s *Service) updateEntry(c *gin.Context) {
 }
 
 func (s *Service) deleteEntry(c *gin.Context) {
-	entryID, ok := pathUUID(c, "entry_id", "规范条目")
+	entryID, ok := pathUUID(c, "entry_id", "Norm entry")
 	if !ok {
 		return
 	}
@@ -164,7 +164,7 @@ func (s *Service) deleteEntry(c *gin.Context) {
 }
 
 func (s *Service) listProjectNorms(c *gin.Context) {
-	projectID, ok := pathUUID(c, "project_id", "项目")
+	projectID, ok := pathUUID(c, "project_id", "Project")
 	if !ok {
 		return
 	}
@@ -177,7 +177,7 @@ func (s *Service) listProjectNorms(c *gin.Context) {
 }
 
 func (s *Service) adopt(c *gin.Context) {
-	projectID, ok := pathUUID(c, "project_id", "项目")
+	projectID, ok := pathUUID(c, "project_id", "Project")
 	if !ok {
 		return
 	}
@@ -195,11 +195,11 @@ func (s *Service) adopt(c *gin.Context) {
 }
 
 func (s *Service) updateAdoption(c *gin.Context) {
-	projectID, ok := pathUUID(c, "project_id", "项目")
+	projectID, ok := pathUUID(c, "project_id", "Project")
 	if !ok {
 		return
 	}
-	entryID, ok := pathUUID(c, "entry_id", "规范条目")
+	entryID, ok := pathUUID(c, "entry_id", "Norm entry")
 	if !ok {
 		return
 	}
@@ -217,11 +217,11 @@ func (s *Service) updateAdoption(c *gin.Context) {
 }
 
 func (s *Service) unadopt(c *gin.Context) {
-	projectID, ok := pathUUID(c, "project_id", "项目")
+	projectID, ok := pathUUID(c, "project_id", "Project")
 	if !ok {
 		return
 	}
-	entryID, ok := pathUUID(c, "entry_id", "规范条目")
+	entryID, ok := pathUUID(c, "entry_id", "Norm entry")
 	if !ok {
 		return
 	}

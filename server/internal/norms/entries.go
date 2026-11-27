@@ -122,7 +122,7 @@ func (s *Service) GetEntry(ctx context.Context, uid, entryID store.UUID) (*entry
 	}
 	row, ok := rows[entryID]
 	if !ok {
-		return nil, httpapi.NotFound("规范条目")
+		return nil, httpapi.NotFound("Norm entry")
 	}
 	tags, err := s.loadTags(ctx, []store.UUID{entryID})
 	if err != nil {
@@ -337,13 +337,13 @@ func (s *Service) loadEntryForWrite(ctx context.Context, uid, entryID store.UUID
 	}
 	row, ok := rows[entryID]
 	if !ok {
-		return entryRow{}, httpapi.NotFound("规范条目")
+		return entryRow{}, httpapi.NotFound("Norm entry")
 	}
 	if row.Pack.IsBuiltin {
 		return entryRow{}, httpapi.Forbidden("内置规范条目只读，请复制为自建包后再修改")
 	}
 	if row.Pack.OwnerID == nil || *row.Pack.OwnerID != uid {
-		return entryRow{}, httpapi.NotFound("规范条目")
+		return entryRow{}, httpapi.NotFound("Norm entry")
 	}
 	return row, nil
 }

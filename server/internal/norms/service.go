@@ -225,7 +225,7 @@ func (s *Service) loadVisiblePack(ctx context.Context, uid, packID store.UUID) (
 	var pack store.NormPack
 	err := visiblePacks(s.DB.WithContext(ctx), uid).Where("id = ?", packID).First(&pack).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, httpapi.NotFound("规范包")
+		return nil, httpapi.NotFound("Norm pack")
 	}
 	if err != nil {
 		return nil, err
@@ -243,7 +243,7 @@ func (s *Service) loadWritablePack(ctx context.Context, uid, packID store.UUID) 
 		return nil, httpapi.Forbidden("内置规范包只读，请复制为自建包后再修改")
 	}
 	if pack.OwnerID == nil || *pack.OwnerID != uid {
-		return nil, httpapi.NotFound("规范包")
+		return nil, httpapi.NotFound("Norm pack")
 	}
 	return pack, nil
 }
@@ -325,7 +325,7 @@ func (s *Service) ownsProject(ctx context.Context, uid, projectID store.UUID) er
 		return err
 	}
 	if count == 0 {
-		return httpapi.NotFound("项目")
+		return httpapi.NotFound("Project")
 	}
 	return nil
 }

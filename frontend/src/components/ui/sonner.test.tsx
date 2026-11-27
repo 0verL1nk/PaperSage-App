@@ -59,14 +59,23 @@ describe('Toaster 全局定位', () => {
     expect(toaster.style.getPropertyValue('--offset-right')).toBe('16px')
   })
 
-  it('窄屏显示在顶部居中，移动端留白 16px', async () => {
+  it('窄屏显示在顶部居中，并下移到顶栏与主导航之下', async () => {
     stubViewport(true)
     const toaster = await renderToaster()
 
     expect(toaster).toHaveAttribute('data-y-position', 'top')
     expect(toaster).toHaveAttribute('data-x-position', 'center')
-    expect(toaster.style.getPropertyValue('--mobile-offset-top')).toBe('16px')
+    expect(toaster.style.getPropertyValue('--mobile-offset-top')).toBe('112px')
     expect(toaster.style.getPropertyValue('--mobile-offset-left')).toBe('16px')
+  })
+
+  it('每条 toast 都带手动关闭按钮', async () => {
+    stubViewport(false)
+    const toaster = await renderToaster()
+
+    await waitFor(() => {
+      expect(toaster.querySelector('[data-sonner-toast] [data-close-button]')).not.toBeNull()
+    })
   })
 
   it('运行环境没有 matchMedia 时按桌面端渲染', async () => {

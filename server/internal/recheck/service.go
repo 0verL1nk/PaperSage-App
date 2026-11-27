@@ -157,7 +157,7 @@ func (s *Service) ownsProject(ctx context.Context, uid, projectID store.UUID) er
 		return err
 	}
 	if count == 0 {
-		return httpapi.NotFound("项目")
+		return httpapi.NotFound("Project")
 	}
 	return nil
 }
@@ -389,7 +389,7 @@ func conflict(info string) error { return &httpapi.APIError{Code: http.StatusCon
 func (s *Service) list(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	limit, _ := strconv.Atoi(c.Query("limit"))
@@ -404,7 +404,7 @@ func (s *Service) list(c *gin.Context) {
 func (s *Service) resolve(c *gin.Context) {
 	pid, err := uuid.Parse(c.Param("project_id"))
 	if err != nil {
-		httpapi.WriteError(c.Writer, httpapi.NotFound("项目"))
+		httpapi.WriteError(c.Writer, httpapi.NotFound("Project"))
 		return
 	}
 	mid, err := uuid.Parse(c.Param("mark_id"))

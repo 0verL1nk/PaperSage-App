@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronRight, FileText, Plus, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, FileText, Loader2, Plus, Trash2 } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLatexFiles } from '@/hooks/use-latex'
+import { friendlyErrorMessage } from '@/services/errors'
 import {
   useAddResearchRevision,
   useAdoptResearchRevision,
@@ -28,6 +29,14 @@ import { RESEARCH_KIND_LABEL, RESEARCH_STATUS_LABEL } from '@/types/research'
 const KINDS: Array<ResearchArtifactKind | 'all'> = [
   'all', 'literature_note', 'literature_comparison', 'chapter_plan', 'chapter_digest',
 ]
+
+type ActionKind = 'adopt' | 'reject' | 'delete' | 'save'
+
+/** 同一操作重复失败时按「标题 + 文案」合并，避免连续点击把 toast 堆满（HELE-22 S6）。 */
+function showActionError(title: string, error: unknown) {
+  const description = friendlyErrorMessage(error)
+  toast.error(title, { id: `${title}:${description}`, description })
+}
 
 function artifactTitle(artifact: ResearchArtifact): string {
   const payload = artifact.current?.payload as unknown as Record<string, unknown> | undefined
@@ -118,11 +127,12 @@ function PayloadView({ payload, kind }: { payload: ResearchPayload; kind: Resear
 }
 
 function PlanEditor({
-  artifact, projectId, busy, onSave,
+  artifact, projectId, busy, saving, onSave,
 }: {
   artifact: ResearchArtifact
   projectId: string
   busy: boolean
+  saving: boolean
   onSave: (payload: ChapterPlanPayload, expectedRevision: number) => void
 }) {
   const current = artifact.current?.payload as unknown as ChapterPlanPayload | undefined
@@ -159,7 +169,9 @@ function PlanEditor({
       ))}
       <div className="flex justify-end gap-2">
         <Button size="sm" variant="outline" onClick={add} disabled={busy}><Plus className="mr-1 size-3" />添加章节</Button>
-        <Button size="sm" disabled={busy || sections.length === 0} onClick={() => onSave({ sections }, artifact.currentRevision)}>保存新修订</Button>
+        <Button size="sm" disabled={busy || sections.length === 0} onClick={() => onSave({ sections }, artifact.currentRevision)}>
+          {saving ? <><Loader2 className="mr-1 size-3 animate-spin" />保存中…</> : '保存新修订'}
+        </Button>
       </div>
     </div>
   )
@@ -169,7 +181,8 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
   const [kind, setKind] = useState<ResearchArtifactKind | 'all'>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
-  const { data: artifacts = [], isLoading, error } = useResearchArtifacts(projectId)
+  const [pending, setPending] = useState<{ id: string; action: ActionKind } | null>(null)
+  const { data: artifacts = [], isLoading, error, refetch } = useResearchArtifacts(projectId)
   const create = useCreateResearchArtifact(projectId)
   const addRevision = useAddResearchRevision(projectId)
   const adopt = useAdoptResearchRevision(projectId)
@@ -187,8 +200,30 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
       const artifact = await create.mutateAsync({ kind: 'chapter_plan', payload, origin: 'user' })
       setExpanded(artifact.id)
       setEditing(artifact.id)
+      toast.success('已创建章节计划')
     } catch (err) {
-      toast.error('创建章节计划失败', { description: err instanceof Error ? err.message : String(err) })
+      showActionError('创建章节计划失败', err)
+    }
+  }
+
+  // 统一处理失败提示与成功反馈：失败时编辑器保持打开，用户未保存的修改不丢。
+  const runAction = async (
+    artifactId: string,
+    action: ActionKind,
+    failTitle: string,
+    successTitle: string,
+    task: () => Promise<unknown>,
+  ) => {
+    setPending({ id: artifactId, action })
+    try {
+      await task()
+      toast.success(successTitle)
+      return true
+    } catch (err) {
+      showActionError(failTitle, err)
+      return false
+    } finally {
+      setPending(null)
     }
   }
 
@@ -198,7 +233,7 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
         <div className="flex items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-sm"><FileText className="size-4 text-primary" />资料组织</CardTitle>
           <Button size="sm" variant="outline" onClick={onCreatePlan} disabled={create.isPending}>
-            <Plus className="mr-1 size-3" />新建章节计划
+            {create.isPending ? <><Loader2 className="mr-1 size-3 animate-spin" />创建中…</> : <><Plus className="mr-1 size-3" />新建章节计划</>}
           </Button>
         </div>
         <div className="flex flex-wrap gap-1 pt-2" role="tablist" aria-label="产物类型">
@@ -217,7 +252,12 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
       </CardHeader>
       <CardContent className="space-y-2 px-4 pb-4">
         {isLoading ? <p className="text-xs text-muted-foreground">正在加载…</p> : null}
-        {error ? <p role="alert" className="text-xs text-destructive">产物加载失败：{error.message}</p> : null}
+        {error ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 text-xs text-destructive">
+            <span>产物加载失败：{friendlyErrorMessage(error)}</span>
+            <Button size="sm" variant="outline" onClick={() => void refetch()}>重试</Button>
+          </div>
+        ) : null}
         {!isLoading && !error && filtered.length === 0 ? (
           <p className="text-xs text-muted-foreground">还没有组织产物。可以先让助手整理，或手动新建章节计划。</p>
         ) : null}
@@ -225,6 +265,8 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
           const isOpen = expanded === artifact.id
           const adopted = artifact.adoptedRevision != null && artifact.adopted?.status === 'adopted'
           const candidate = artifact.current?.status === 'candidate'
+          const busy = pending !== null
+          const rowAction = pending?.id === artifact.id ? pending.action : null
           return (
             <div key={artifact.id} className="rounded-xl border border-border/50">
               <button className="flex w-full items-center gap-2 px-3 py-2 text-left" onClick={() => setExpanded(isOpen ? null : artifact.id)} aria-expanded={isOpen}>
@@ -252,8 +294,25 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
                   <div className="flex flex-wrap items-center gap-2 pt-1">
                     {candidate ? (
                       <>
-                        <Button size="sm" disabled={adopt.isPending} onClick={() => adopt.mutateAsync({ artifactId: artifact.id, revision: artifact.currentRevision, expectedRevision: artifact.currentRevision }).catch((err) => toast.error('采用失败', { description: String(err) }))}>采用</Button>
-                        <Button size="sm" variant="outline" disabled={reject.isPending} onClick={() => reject.mutateAsync({ artifactId: artifact.id, revision: artifact.currentRevision, expectedRevision: artifact.currentRevision }).catch((err) => toast.error('拒绝失败', { description: String(err) }))}>拒绝</Button>
+                        <Button
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void runAction(artifact.id, 'adopt', '采用失败', '已采用该修订', () =>
+                            adopt.mutateAsync({ artifactId: artifact.id, revision: artifact.currentRevision, expectedRevision: artifact.currentRevision }),
+                          )}
+                        >
+                          {rowAction === 'adopt' ? <><Loader2 className="mr-1 size-3 animate-spin" />采用中…</> : '采用'}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={busy}
+                          onClick={() => void runAction(artifact.id, 'reject', '拒绝失败', '已拒绝该修订', () =>
+                            reject.mutateAsync({ artifactId: artifact.id, revision: artifact.currentRevision, expectedRevision: artifact.currentRevision }),
+                          )}
+                        >
+                          {rowAction === 'reject' ? <><Loader2 className="mr-1 size-3 animate-spin" />拒绝中…</> : '拒绝'}
+                        </Button>
                       </>
                     ) : null}
                     {artifact.kind === 'chapter_plan' ? (
@@ -261,19 +320,31 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
                         {editing === artifact.id ? '收起编辑' : '编辑计划'}
                       </Button>
                     ) : null}
-                    <Button size="sm" variant="ghost" className="ml-auto text-destructive" aria-label="删除产物" disabled={remove.isPending} onClick={() => remove.mutateAsync(artifact.id).catch((err) => toast.error('删除失败', { description: String(err) }))}>
-                      <Trash2 className="size-3.5" />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="ml-auto text-destructive"
+                      aria-label="删除产物"
+                      disabled={busy}
+                      onClick={() => {
+                        if (!window.confirm('删除这个研究产物？删除后将不再出现在资料组织中。')) return
+                        void runAction(artifact.id, 'delete', '删除失败', '已删除产物', () => remove.mutateAsync(artifact.id))
+                      }}
+                    >
+                      {rowAction === 'delete' ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
                     </Button>
                   </div>
                   {editing === artifact.id && artifact.kind === 'chapter_plan' ? (
                     <PlanEditor
                       artifact={artifact}
                       projectId={projectId}
-                      busy={addRevision.isPending}
-                      onSave={(payload, expectedRevision) => {
-                        addRevision.mutateAsync({ artifactId: artifact.id, input: { expectedRevision, payload, origin: 'user' } })
-                          .then(() => { setEditing(null); toast.success('已保存新修订') })
-                          .catch((err) => toast.error('保存失败', { description: err instanceof Error ? err.message : String(err) }))
+                      busy={busy}
+                      saving={rowAction === 'save'}
+                      onSave={async (payload, expectedRevision) => {
+                        const saved = await runAction(artifact.id, 'save', '保存修订失败', '已保存新修订', () =>
+                          addRevision.mutateAsync({ artifactId: artifact.id, input: { expectedRevision, payload, origin: 'user' } }),
+                        )
+                        if (saved) setEditing(null)
                       }}
                     />
                   ) : null}

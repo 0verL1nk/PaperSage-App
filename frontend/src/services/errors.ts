@@ -1,5 +1,9 @@
 import axios from 'axios'
 
+/** 传输层失败的用户文案：client.ts 的全局 toast 与 normalizeApiError 共用。 */
+export const NETWORK_ERROR_MESSAGE = '网络连接失败，请检查网络后重试。'
+export const UNKNOWN_ERROR_MESSAGE = '发生未知错误，请稍后重试。'
+
 export type ApiErrorKind = 'backend' | 'http' | 'network' | 'unknown'
 
 export type FrontendApiErrorOptions = {
@@ -90,6 +94,42 @@ const INFO_ZH: Record<string, string> = {
   'Account is disabled': '账号已被停用',
   'This email is linked to an unavailable account. Please contact support.': '该邮箱关联的账号不可用，请联系管理员。',
   'Current password is incorrect': '当前密码不正确',
+  'Username already exists': '该账号已被注册，请换一个账号名',
+  'Too many requests': '操作过于频繁，请稍后再试',
+  'Too many attempts, try later': '尝试次数过多，请稍后再试',
+  'Invalid refresh token': '登录已失效，请重新登录',
+  'Payload too large': '提交的内容过大，请精简后重试',
+  // 资源不存在：后端 NotFound 的英文契约串（HELE-22）
+  'Resource not found': '请求的内容不存在或已被删除',
+  'Source version not found': '来源版本不存在或已被删除',
+  'Revision not found': '修订版本不存在，请刷新后重试',
+  'Artifact not found': '研究产物不存在或已被删除',
+  'Norm pack not found': '规范包不存在或已被删除',
+  'Norm entry not found': '规范条目不存在或已被删除',
+  'Adopted norm not found': '该规范尚未被采用或已移除',
+  'Compile diagnostic not found': '编译诊断记录不存在或已过期',
+  'Conversation not found': '会话不存在或已被删除，请新建会话',
+  'Run not found': '运行记录不存在或已失效',
+  'Turn not found': '对话记录不存在或已失效',
+  'Proposal not found': '这条写作建议不存在或已失效',
+  'Tool call not found': '工具调用记录不存在或已失效',
+  'Group not found or does not belong to user': '分组不存在或不属于当前账号',
+  'Not Found': '请求的接口不存在，请刷新页面或升级客户端后重试',
+  'Method Not Allowed': '当前客户端不支持该请求方式，请刷新页面后重试',
+  // 设置 / 同步 / 编译
+  'Failed to load settings': '设置加载失败，请稍后重试',
+  'Failed to reset settings': '设置重置失败，请稍后重试',
+  'base_url and api_key are required': '请填写服务地址和 API Key',
+  'streaming unsupported': '当前环境不支持流式输出，请稍后重试',
+  'Import key conflicts with existing content or resource': '导入内容与现有文件或资料冲突',
+  'Compile job is already complete or cancelled': '编译任务已结束，无法再操作',
+  'Compile job is no longer running': '编译任务已结束',
+  'Unable to cancel compile job': '取消编译失败，请稍后重试',
+  'Unable to save the browser PDF to object storage; retry the upload': '编译结果保存失败，请重试',
+  'PDF was uploaded but compile status could not be confirmed; retry the same result': '编译结果已上传，但状态确认失败，请重试同一结果',
+  'Server-side LaTeX compilation is disabled. Start compilation from the project editor to use the browser engine.': '服务端编译已停用，请在项目编辑器中用浏览器编译。',
+  'Browser compilation supports only pdflatex and xelatex': '浏览器编译仅支持 pdflatex 和 xelatex 两种编译器',
+  'Requested range not satisfiable': '请求的文件范围无效，请刷新后重试',
 }
 
 /** 后端带动态剩余次数的错误（逐条翻译整句，避免中英混排） */
@@ -135,6 +175,23 @@ export function friendlyErrorMessage(error: unknown): string {
   return '暂时无法读取数据，请稍后重试。'
 }
 
+/** 后端没给 info/detail 时的兜底文案，避免把 axios 的英文错误直接甩给用户。 */
+const HTTP_STATUS_ZH: Record<number, string> = {
+  400: '请求参数有误，请检查后重试。',
+  401: '请先登录后再操作。',
+  403: '没有执行该操作的权限。',
+  404: '请求的内容不存在或已被删除。',
+  405: '当前版本不支持该操作，请刷新页面后重试。',
+  409: '数据已在其他位置更新，请刷新后重试。',
+  413: '提交的内容过大，请精简后重试。',
+  422: '请求参数验证失败，请检查输入。',
+  429: '操作过于频繁，请稍后再试。',
+}
+
+function statusFallback(status: number): string {
+  return HTTP_STATUS_ZH[status] ?? (status >= 500 ? '服务开小差了，请稍后重试。' : '请求失败，请稍后重试。')
+}
+
 export function normalizeApiError(error: unknown) {
   if (isFrontendApiError(error)) {
     return error
@@ -142,24 +199,29 @@ export function normalizeApiError(error: unknown) {
 
   if (axios.isAxiosError(error)) {
     if (error.response) {
-      const info =
-        typeof error.response.data === 'object' &&
-        error.response.data !== null &&
-        'info' in error.response.data
-          ? String(error.response.data.info)
-          : error.message
+      const data = error.response.data
+      // 信封错误用 info；路由级 404/405 是 FastAPI 风格的 { detail }，同样要翻译。
+      const raw =
+        typeof data === 'object' && data !== null
+          ? 'info' in data
+            ? data.info
+            : 'detail' in data
+              ? data.detail
+              : undefined
+          : undefined
+      const info = raw == null ? undefined : String(raw)
 
-      return new FrontendApiError(translateBackendInfo(info) || '请求失败，请稍后重试。', {
+      return new FrontendApiError(translateBackendInfo(info) || statusFallback(error.response.status), {
         kind: 'http',
         status: error.response.status,
         info,
-        details: error.response.data,
+        details: data,
         cause: error,
       })
     }
 
     if (error.request) {
-      return new FrontendApiError('Network request failed.', {
+      return new FrontendApiError(NETWORK_ERROR_MESSAGE, {
         kind: 'network',
         cause: error,
       })
@@ -173,7 +235,7 @@ export function normalizeApiError(error: unknown) {
     })
   }
 
-  return new FrontendApiError('Unexpected API error.', {
+  return new FrontendApiError(UNKNOWN_ERROR_MESSAGE, {
     kind: 'unknown',
     details: error,
   })
