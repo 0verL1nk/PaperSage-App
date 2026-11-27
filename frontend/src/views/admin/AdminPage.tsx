@@ -5,12 +5,12 @@
  */
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, X, Loader2 } from 'lucide-react'
+import { Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { LoadingState, SectionCard } from '@/components/shared'
 import { getSystemSettings, putSystemSettings } from '@/services/admin-api'
 
 export function AdminPage() {
@@ -46,16 +46,12 @@ export function AdminPage() {
   }
 
   if (isLoading) {
-    return <div className="flex h-full items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+    return <LoadingState title="正在加载系统设置" variant="spinner" compact />
   }
 
   return (
-    <div className="max-w-2xl space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-sm">注册邮箱域白名单</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <SectionCard title="注册邮箱域白名单" className="max-w-2xl">
+      <div className="space-y-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
             限制新用户注册使用的邮箱域名。<span className="font-medium">example.edu.cn</span> 允许该域及全部子域；
             <span className="font-medium">*.example.edu.cn</span> 仅允许子域。列表为空 = 不限制。
@@ -100,8 +96,7 @@ export function AdminPage() {
               {save.isPending ? '保存中…' : '保存'}
             </Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+      </div>
+    </SectionCard>
   )
 }

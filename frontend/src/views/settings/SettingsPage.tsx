@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { LoadingState, PageContainer, PageHeader } from '@/components/shared'
 import { useSettingsStore } from '@/store/settings-store'
 import { GeneralSettings } from './GeneralSettings'
 import { EditorSettings } from './EditorSettings'
@@ -20,15 +21,15 @@ export function SettingsPage() {
 
   if (loading && !settings) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <p className="text-muted-foreground">{t('common.loadingSettings')}</p>
-      </div>
+      <PageContainer size="narrow">
+        <LoadingState title={t('common.loadingSettings')} variant="spinner" compact />
+      </PageContainer>
     )
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl p-8 md:p-12">
-      <h1 className="text-2xl font-bold mb-6">{t('settings.pageTitle')}</h1>
+    <PageContainer size="narrow" className="space-y-6">
+      <PageHeader title={t('settings.pageTitle')} />
       <Tabs defaultValue="ui" className="w-full">
         <TabsList className="mb-4">
           <TabsTrigger value="ui">{t('settings.tabGeneral')}</TabsTrigger>
@@ -53,6 +54,6 @@ export function SettingsPage() {
           <AboutSettings />
         </TabsContent>
       </Tabs>
-    </div>
+    </PageContainer>
   )
 }

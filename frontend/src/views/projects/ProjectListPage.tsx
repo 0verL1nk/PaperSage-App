@@ -1,14 +1,21 @@
-import { cn } from '@/lib/utils'
 import { useEffect, useState } from 'react'
-import { Link, useNavigate } from '@tanstack/react-router'
-import { useProjects, useGroups } from '@/services/projects-api'
-import { friendlyErrorMessage } from '@/services/errors'
+import { useNavigate } from '@tanstack/react-router'
+import { Plus } from 'lucide-react'
+import { Events } from '@wailsio/runtime'
+
 import { ProjectCard } from '@/components/domain/ProjectCard'
 import { CreateProjectDialog } from '@/components/domain/CreateProjectDialog'
 import { Button } from '@/components/ui/button'
-import { Skeleton } from '@/components/ui/skeleton'
-import { Trash2, Plus, FolderGit2 } from 'lucide-react'
-import { Events } from '@wailsio/runtime'
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+  PageContainer,
+  PageHeader,
+  SegmentedControl,
+} from '@/components/shared'
+import { friendlyErrorMessage } from '@/services/errors'
+import { useProjects, useGroups } from '@/services/projects-api'
 import { isDesktop } from '@/lib/desktop'
 
 export function ProjectListPage() {
@@ -31,118 +38,68 @@ export function ProjectListPage() {
 
   if (isLoading) {
     return (
-      <div className="p-8 md:p-12 max-w-7xl mx-auto space-y-8">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div className="space-y-3">
-            <Skeleton className="h-10 w-40 rounded-lg" />
-            <Skeleton className="h-4 w-64 rounded-md" />
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-9 w-20 rounded-full" />
-          <Skeleton className="h-9 w-24 rounded-full" />
-        </div>
-        <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-          {[1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-44 w-full rounded-2xl" />
-          ))}
-        </div>
-      </div>
+      <PageContainer size="wide" className="max-w-[100rem]">
+        <LoadingState title="正在加载项目" description="稍候即可继续写作" rows={4} />
+      </PageContainer>
     )
   }
 
   if (error) {
     return (
-      <div className="flex h-[50vh] items-center justify-center p-8">
-        <div className="text-center space-y-4">
-          <div className="inline-flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10 text-destructive">
-            <FolderGit2 className="h-6 w-6" />
-          </div>
-          <p className="text-sm font-medium text-destructive">项目加载失败</p>
-          <p className="text-xs text-muted-foreground">{friendlyErrorMessage(error)}</p>
-          <Button variant="outline" size="sm" onClick={() => void refetch()}>
-            重试
-          </Button>
-        </div>
-      </div>
+      <PageContainer size="wide" className="max-w-[100rem]">
+        <ErrorState
+          title="项目加载失败"
+          description={friendlyErrorMessage(error)}
+          onRetry={() => void refetch()}
+        />
+      </PageContainer>
     )
   }
 
   return (
-    <div className="p-8 md:p-12 max-w-7xl mx-auto space-y-10 pb-24">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
-        <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">所有项目</h1>
-          <p className="text-sm text-muted-foreground">管理并组织您的研究文献与分析工作区</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" asChild className="min-h-11 px-3 text-muted-foreground hover:text-foreground">
-            <Link to="/app/trash">
-              <Trash2 className="mr-2 h-4 w-4" />
-              回收站
-            </Link>
-          </Button>
-          <Button variant="default" size="sm" onClick={() => setIsCreateDialogOpen(true)} className="min-h-11 px-4">
+    <PageContainer size="wide" className="max-w-[100rem] space-y-8 pb-24">
+      <PageHeader
+        title="所有项目"
+        description="从选题准备到成稿检查，继续你的论文写作"
+        actions={
+          <Button onClick={() => setIsCreateDialogOpen(true)} className="min-h-11 px-4">
             <Plus className="mr-2 h-4 w-4" />
             新建项目
           </Button>
-        </div>
-      </div>
+        }
+      />
 
-      {/* Filter - Segmented Control Style */}
-      {groups.length > 0 && (
-        <div className="flex w-fit max-w-full items-center gap-1 overflow-x-auto no-scrollbar p-1 bg-muted/40 rounded-full border border-border/40">
-          <button
-            onClick={() => setSelectedGroupId(null)}
-            className={cn(
-              "flex-none px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
-              selectedGroupId === null
-                ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
-                : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-            )}
-          >
-            全部
-          </button>
-          {groups.map((group) => (
-            <button
-              key={group.id}
-              onClick={() => setSelectedGroupId(group.id)}
-              className={cn(
-                "flex-none px-4 py-1.5 text-sm font-medium rounded-full transition-all duration-200 outline-none",
-                selectedGroupId === group.id
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/50"
-                  : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-              )}
-            >
-              {group.name}
-            </button>
-          ))}
-        </div>
-      )}
+      {groups.length > 0 ? (
+        <SegmentedControl
+          ariaLabel="按分组筛选项目"
+          value={selectedGroupId ?? 'all'}
+          onValueChange={(value) => setSelectedGroupId(value === 'all' ? null : value)}
+          items={[
+            { value: 'all', label: '全部' },
+            ...groups.map((group) => ({ value: group.id, label: group.name })),
+          ]}
+        />
+      ) : null}
 
-      {/* Project List */}
       {projects.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 text-center">
-          <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-muted/30">
-            <FolderGit2 className="h-8 w-8 text-muted-foreground/40 stroke-[1.5]" />
-          </div>
-          <h3 className="mb-2 text-lg font-medium text-foreground">暂无项目</h3>
-          <p className="mb-8 max-w-[280px] text-sm text-muted-foreground leading-relaxed">
-            您还没有创建任何项目，新建一个项目开始您的研究之旅。
-          </p>
-          <Button variant="default" onClick={() => setIsCreateDialogOpen(true)} className="min-h-11">
-            <Plus className="mr-2 h-4 w-4" />
-            创建第一个项目
-          </Button>
-        </div>
+        <EmptyState
+          title="暂无项目"
+          description="您还没有创建任何项目，新建一个项目开始您的研究之旅。"
+          action={
+            <Button onClick={() => setIsCreateDialogOpen(true)} className="min-h-11">
+              <Plus className="mr-2 h-4 w-4" />
+              创建第一个项目
+            </Button>
+          }
+        />
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-in fade-in duration-500">
+        <div className="grid items-stretch gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {projects.map((project) => (
             <ProjectCard
               key={project.id}
               project={project}
               onClick={() => navigate({ to: '/project/$projectId', params: { projectId: project.id } })}
+              onContinue={() => navigate({ to: '/project/$projectId/writing', params: { projectId: project.id } })}
             />
           ))}
         </div>
@@ -153,6 +110,6 @@ export function ProjectListPage() {
         onOpenChange={setIsCreateDialogOpen}
         groups={groups}
       />
-    </div>
+    </PageContainer>
   )
 }
