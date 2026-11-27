@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { classifyCompileFailure, compileFailureMessage } from './compile-error'
+import { classifyCompileFailure, compileFailureMessage, compileRawLogText } from './compile-error'
 
 describe('classifyCompileFailure', () => {
   it('把 catalog/S3 404 归为资源缺失', () => {
@@ -31,6 +31,25 @@ describe('classifyCompileFailure', () => {
   it('日志里的 catalog/timeout 字样不能把 LaTeX 错误误判为资源或服务问题', () => {
     expect(classifyCompileFailure('LaTeX Error: Undefined control sequence.', 'loading catalog timeout')).toBe('latex')
     expect(classifyCompileFailure('engine crashed', '! Emergency stop.')).toBe('latex')
+  })
+})
+
+describe('compileRawLogText', () => {
+  it('错误与日志相同时只保留一份', () => {
+    const message = 'pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪'
+    expect(compileRawLogText(message, message)).toBe(message)
+    expect(compileRawLogText(message, `前置日志\n${message}`)).toBe(`前置日志\n${message}`)
+  })
+
+  it('日志不同时用中文分隔拼出完整内容', () => {
+    expect(compileRawLogText('编译失败', '! Undefined control sequence.'))
+      .toBe('编译失败\n\n—— 完整日志 ——\n! Undefined control sequence.')
+  })
+
+  it('缺一边时返回另一边', () => {
+    expect(compileRawLogText(null, 'only log')).toBe('only log')
+    expect(compileRawLogText('only error', null)).toBe('only error')
+    expect(compileRawLogText(null, null)).toBe('')
   })
 })
 

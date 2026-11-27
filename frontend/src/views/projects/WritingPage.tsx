@@ -46,7 +46,7 @@ import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
-import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
+import { classifyCompileFailure, compileFailureMessage, compileRawLogText } from '@/lib/latex/compile-error'
 import { createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, uploadLatexFile } from '@/services/latex-api'
 import { cancelProjectCompile, retryBrowserUpload, startCompile } from '@/lib/compile-manager'
 import { isCompileActive, useCompileStore, type ProjectCompileState } from '@/store/compile-store'
@@ -802,6 +802,22 @@ export function WritingPage() {
   const hasMissingResource = resourceList.some((resource) => resource.state === 'missing' || resource.status === 404)
   const compileFailureKind = classifyCompileFailure(compileError, compileLogs, hasMissingResource)
   const compileFailureText = compileFailureMessage(compileFailureKind)
+  const compileRawLog = compileRawLogText(compileError, compileLogs)
+
+  // 手机端默认停在「编辑」页，失败卡片在「预览」面板里；不提示的话学生看不到任何变化。
+  const compileFailureVisible = !isMobile || mobilePane === 'preview'
+  const showCompileFailureBadge = Boolean(compileError) && !isCompiling && !compileFailureVisible
+  const notifiedCompileErrorRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!compileError || isCompiling || compileFailureVisible) return
+    if (notifiedCompileErrorRef.current === compileError) return
+    notifiedCompileErrorRef.current = compileError
+    toast.error('编译失败', {
+      description: compileFailureText,
+      duration: 10_000,
+      action: { label: '查看原因', onClick: () => setMobilePane('preview') },
+    })
+  }, [compileError, compileFailureText, isCompiling, compileFailureVisible])
 
   const compileToolbar = (
     <>
@@ -867,7 +883,7 @@ export function WritingPage() {
         data-testid="compile-button"
         aria-label={isCompiling ? '编译中' : '编译'}
         title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
-        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-9' : 'h-8')}
+        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-11' : 'h-8')}
         onClick={() => void handleCompile()}
         disabled={isCompiling || !compilerSupported}
       >
@@ -881,7 +897,7 @@ export function WritingPage() {
           data-testid="cancel-browser-compile"
           aria-label="取消浏览器编译"
           title="停止浏览器引擎并取消编译任务"
-          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
+          className={cn('gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive', isMobile ? 'h-11' : 'h-7')}
           onClick={() => void cancelProjectCompile(projectId)}
         >
           <Square size={12} className="fill-current" />
@@ -975,15 +991,15 @@ export function WritingPage() {
 
       <div className="flex-1 min-w-0 flex flex-col">
         {isMobile && (
-          <div className="h-11 flex-none flex items-center justify-between gap-2 border-b border-border/40 bg-muted/10 px-2">
-            <div role="tablist" aria-label="写作视图" className="flex rounded-lg bg-muted/60 p-0.5">
+          <div className="min-h-11 flex-none flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-border/40 bg-muted/10 px-2 py-1">
+            <div role="tablist" aria-label="写作视图" className="flex shrink-0 rounded-lg bg-muted/60 p-0.5">
               <button
                 type="button"
                 role="tab"
                 aria-selected={mobilePane === 'editor'}
                 data-testid="writing-pane-editor"
                 onClick={() => setMobilePane('editor')}
-                className={cn('min-h-9 rounded-md px-2 text-xs font-medium transition-colors', mobilePane === 'editor' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
+                className={cn('inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors', mobilePane === 'editor' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
               >
                 编辑
               </button>
@@ -993,12 +1009,18 @@ export function WritingPage() {
                 aria-selected={mobilePane === 'preview'}
                 data-testid="writing-pane-preview"
                 onClick={() => setMobilePane('preview')}
-                className={cn('min-h-9 rounded-md px-2 text-xs font-medium transition-colors', mobilePane === 'preview' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
+                className={cn('inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors', mobilePane === 'preview' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
               >
                 预览
+                {showCompileFailureBadge && (
+                  <>
+                    <span className="ml-1 inline-block size-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
+                    <span className="sr-only">（编译失败，点此查看原因）</span>
+                  </>
+                )}
               </button>
             </div>
-            <div className="flex items-center gap-1">{compileToolbar}</div>
+            <div className="flex shrink-0 items-center gap-1">{compileToolbar}</div>
           </div>
         )}
         <div className="flex-1 min-h-0">
@@ -1197,7 +1219,7 @@ export function WritingPage() {
                       variant="outline"
                       size="sm"
                       data-testid="retry-browser-upload"
-                      className="mt-3 h-8 gap-2"
+                      className={cn('mt-3 gap-2', isMobile ? 'h-11' : 'h-8')}
                       onClick={() => void retryBrowserUpload(projectId)}
                       disabled={isRetryingBrowserUpload}
                     >
@@ -1216,10 +1238,9 @@ export function WritingPage() {
                         <h4 className="text-sm font-bold">编译错误</h4>
                       </div>
                       <button
-                        className="inline-flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded hover:bg-muted/50"
+                        className={cn('inline-flex items-center gap-1 rounded text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground', isMobile ? 'min-h-11 px-3' : 'px-2 py-1')}
                         onClick={() => {
-                          const text = compileLogs ? `${compileError}\n\n--- Full Logs ---\n${compileLogs}` : compileError || ''
-                          navigator.clipboard.writeText(text)
+                          navigator.clipboard.writeText(compileRawLog)
                           toast.success('已复制到剪贴板')
                         }}
                       >
@@ -1233,7 +1254,7 @@ export function WritingPage() {
                     )}
                     {diagnosticStatus === 'sent' && (
                       <p className="mt-2 text-[10px] text-muted-foreground">
-                        已自动上报诊断信息{diagnosticId ? `（编号 ${diagnosticId.slice(0, 8)}）` : ''}，管理员可据此排查。
+                        已自动上报诊断信息；如需反馈，请提供编号 {diagnosticId ? diagnosticId.slice(0, 8) : '—'}。
                       </p>
                     )}
                     {diagnosticStatus === 'failed' && (
@@ -1242,11 +1263,11 @@ export function WritingPage() {
                       </p>
                     )}
                     <details className="mt-3">
-                      <summary className="w-fit cursor-pointer select-none text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                      <summary className={cn('w-fit cursor-pointer select-none text-[10px] text-muted-foreground transition-colors hover:text-foreground', isMobile && 'inline-flex min-h-11 items-center')}>
                         查看原始日志
                       </summary>
                       <pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70">
-                        {compileLogs ? `${compileError}\n\n--- Full Logs ---\n${compileLogs}` : compileError}
+                        {compileRawLog}
                       </pre>
                     </details>
                     {compileFailureKind === 'resource' ? (
@@ -1254,7 +1275,7 @@ export function WritingPage() {
                         variant="outline"
                         size="sm"
                         data-testid="reinit-latex-resources"
-                        className="mt-3 h-8 gap-2"
+                        className={cn('mt-3 gap-2', isMobile ? 'h-11' : 'h-8')}
                         onClick={() => setIsLatexSetupOpen(true)}
                         disabled={isCompiling}
                       >
@@ -1266,7 +1287,7 @@ export function WritingPage() {
                         variant="outline"
                         size="sm"
                         data-testid="retry-browser-compile"
-                        className="mt-3 h-8 gap-2"
+                        className={cn('mt-3 gap-2', isMobile ? 'h-11' : 'h-8')}
                         onClick={() => void handleCompile()}
                         disabled={isCompiling}
                       >
