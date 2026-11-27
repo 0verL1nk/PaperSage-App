@@ -49,7 +49,12 @@ describe('CompileProgress', () => {
     expect(screen.getByText('排版并生成 PDF')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(5)
 
-    fireEvent.click(screen.getByRole('button', { name: '取消编译' }))
+    // 取消按钮必须排在阶段列表之前：320px 首屏要能直接看到带文字的操作。
+    const cancelButton = screen.getByRole('button', { name: '取消编译' })
+    const stageList = screen.getByRole('list', { name: '编译阶段' })
+    expect(cancelButton.compareDocumentPosition(stageList) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.click(cancelButton)
 
     expect(onCancel).toHaveBeenCalledTimes(1)
   })
@@ -115,5 +120,7 @@ describe('CompileProgress', () => {
 
     expect(screen.getByText('保存编译结果')).toBeInTheDocument()
     expect(screen.getByText(/编译完成后会自动替换当前预览/)).toBeInTheDocument()
+    // 上传阶段无法取消，不给出点了没反应的按钮。
+    expect(screen.queryByRole('button', { name: '取消编译' })).not.toBeInTheDocument()
   })
 })

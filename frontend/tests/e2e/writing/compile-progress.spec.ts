@@ -68,18 +68,34 @@ async function installHangingCompile(page: Page, options: { cached: boolean }) {
   )
 }
 
+/** 冷启动时 Vite 首次转换 Monaco 会阻塞主线程：先拿到 DOM，再单独等按钮可用。 */
+async function openWriting(page: Page) {
+  await page.goto(WRITING_URL, { timeout: 90_000, waitUntil: 'domcontentloaded' })
+}
+
+/** 冷启动时 Monaco 首次编译会阻塞主线程，先等按钮真正可用再点，避免默认 10s 动作超时。 */
+async function startCompile(page: Page) {
+  const compileButton = page.getByTestId('compile-button')
+  await expect(compileButton).toBeEnabled({ timeout: 60_000 })
+  await compileButton.click()
+}
+
 test.describe('Compile progress view', () => {
+  // 冷启动时 Vite 首次转换 Monaco 会阻塞主线程数十秒，单用例给到 3 分钟。
+  test.setTimeout(180_000)
+
   test('switches the preview pane to live stages and cancels on demand (1440×900)', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await seedAuthTokens(page)
     await mockWritingPageAPIs(page)
     await installHangingCompile(page, { cached: false })
 
-    await page.goto(WRITING_URL)
-    await page.getByTestId('compile-button').click()
+    await openWriting(page)
+    await startCompile(page)
 
     const cancel = page.getByTestId('preview-cancel-compile')
-    await expect(cancel).toBeVisible({ timeout: 15_000 })
+    await expect(cancel).toBeVisible({ timeout: 60_000 })
+    await expect(cancel).toBeInViewport()
     await expect(page.getByText('还没有生成预览')).toHaveCount(0)
     await expect(page.getByText(/首次冷编译/)).toBeVisible()
     await expect(page.getByText('下载宏包与字体', { exact: true })).toBeVisible()
@@ -102,10 +118,10 @@ test.describe('Compile progress view', () => {
     await mockWritingPageAPIs(page)
     await installHangingCompile(page, { cached: true })
 
-    await page.goto(WRITING_URL)
-    await page.getByTestId('compile-button').click()
+    await openWriting(page)
+    await startCompile(page)
 
-    await expect(page.getByText(/已命中浏览器格式缓存/)).toBeVisible({ timeout: 15_000 })
+    await expect(page.getByText(/已命中浏览器格式缓存/)).toBeVisible({ timeout: 60_000 })
     await expect(page.getByText(/首次冷编译/)).toHaveCount(0)
     await page.getByTestId('preview-cancel-compile').click()
   })
@@ -117,12 +133,15 @@ test.describe('Compile progress view', () => {
       await mockWritingPageAPIs(page)
       await installHangingCompile(page, { cached: false })
 
-      await page.goto(WRITING_URL)
-      await page.getByTestId('compile-button').click()
+      await openWriting(page)
+      await startCompile(page)
 
       await expect(page.getByTestId('writing-pane-preview')).toHaveAttribute('aria-selected', 'true')
       const cancel = page.getByTestId('preview-cancel-compile')
-      await expect(cancel).toBeVisible({ timeout: 15_000 })
+      await expect(cancel).toBeVisible({ timeout: 60_000 })
+      // 必须完整落在首屏内，而不是靠预览区滚动才能看到。
+      await expect(cancel).toBeInViewport({ ratio: 1 })
+      await expect(cancel).toContainText('取消编译')
       await expect(page.getByText(/已用时/)).toBeVisible()
 
       const box = await cancel.boundingBox()

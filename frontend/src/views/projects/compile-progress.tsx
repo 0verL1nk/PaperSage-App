@@ -76,23 +76,26 @@ export function CompileProgress({ state, hasPreviousPdf, onCancel }: CompileProg
       title="正在编译论文"
       description={state.progressMessage ?? '正在准备编译环境…'}
       icon={Loader2}
-      className="mx-auto min-h-[480px] w-full max-w-[460px] py-10"
-      action={state.phase === 'uploading' ? undefined : (
-        <Button
-          variant="outline"
-          size="sm"
-          data-testid="preview-cancel-compile"
-          className="h-[44px] gap-2 px-5 text-sm"
-          onClick={onCancel}
-        >
-          <Square size={13} className="fill-current" />
-          取消编译
-        </Button>
-      )}
+      className="mx-auto min-h-[480px] w-full max-w-[460px] px-4 py-8 sm:px-6 sm:py-10"
     >
-      <p className="mt-1 text-xs text-muted-foreground" role="timer">
-        已用时 <span className="font-medium tabular-nums text-foreground">{formatElapsed(elapsedSeconds)}</span>
-      </p>
+      {/* 取消入口放在首屏：320px 下卡片其余内容可滚动，但带文字的按钮必须立刻可见。 */}
+      <div className="mt-4 flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-3">
+        {state.phase !== 'uploading' && (
+          <Button
+            variant="outline"
+            size="sm"
+            data-testid="preview-cancel-compile"
+            className="h-[44px] gap-2 px-5 text-sm"
+            onClick={onCancel}
+          >
+            <Square size={13} className="fill-current" />
+            取消编译
+          </Button>
+        )}
+        <p className="text-xs text-muted-foreground" role="timer">
+          已用时 <span className="font-medium tabular-nums text-foreground">{formatElapsed(elapsedSeconds)}</span>
+        </p>
+      </div>
 
       {state.formatCacheHit === false && (
         <p className="mt-4 w-full rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-left text-xs leading-5 text-amber-700 dark:text-amber-400">
