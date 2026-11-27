@@ -115,7 +115,7 @@ func (s *Service) createConversation(c *gin.Context) {
 		title = string(r[:40]) + "…"
 	}
 
-	conv := store.AgentConversation{ID: store.MustNewUUID(), ProjectID: pid, UserID: uid, Title: title}
+	conv := store.AgentConversation{ID: store.MustNewUUID(), ProjectID: pid, UserID: uid, Title: title, Kind: "chat"}
 	if err := s.DB.WithContext(ctx).Create(&conv).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return
