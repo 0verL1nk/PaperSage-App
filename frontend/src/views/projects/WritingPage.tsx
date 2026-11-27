@@ -15,6 +15,9 @@ import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import Editor, { useMonaco } from '@monaco-editor/react'
+import type { editor as MonacoEditor } from 'monaco-editor'
+import { paragraphAt } from '@/lib/latex/paragraph'
+import { useWritingSuggestion } from '@/hooks/use-writing-suggestion'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import * as Resizable from 'react-resizable-panels'
@@ -174,8 +177,24 @@ export function WritingPage() {
     })
   }, [writingState, saveWritingState])
 
-  // UI state
-  const [activeTab, setActiveTab] = useState<SidebarTab>('files')
+  // UI state：tab 与面板布局持久化，切回写作页仍停在原处。
+  const [activeTab, setActiveTab] = useState<SidebarTab>(() => {
+    if (typeof window === 'undefined') return 'files'
+    return window.localStorage.getItem('papersage.writing-tab') === 'ai' ? 'ai' : 'files'
+  })
+  useEffect(() => {
+    window.localStorage.setItem('papersage.writing-tab', activeTab)
+  }, [activeTab])
+  // 面板布局持久化：库 v4 移除了 autoSaveId，用 defaultLayout + onLayoutChanged 等价实现。
+  const [savedLayout] = useState<Resizable.Layout | null>(() => {
+    if (typeof window === 'undefined') return null
+    try {
+      const raw = window.localStorage.getItem('papersage.writing-panels')
+      return raw ? (JSON.parse(raw) as Resizable.Layout) : null
+    } catch {
+      return null
+    }
+  })
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor')
   const sidebarPanel = Resizable.usePanelRef()
@@ -192,6 +211,8 @@ export function WritingPage() {
 
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
+  const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const cursorOffsetRef = useRef(0)
   const mobileSidebarRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
@@ -216,6 +237,23 @@ export function WritingPage() {
   const { data: files = [], error: filesError, refetch: refetchFiles } = useLatexFiles(projectId)
   const isEditable = activeFilePath ? isEditableFile(activeFilePath) : false
   const { data: fileContent, isPending: isContentLoading, refetch: refetchFileContent } = useLatexFileContent(projectId, isEditable ? activeFilePath : null)
+
+  // 动态写作建议：只在登录、有可编辑文件时启用；默认手动触发。
+  const getSuggestionFocus = useCallback(() => {
+    const path = activeFilePathRef.current
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!path || !model) return null
+    const position = editor?.getPosition()
+    const offset = position ? model.getOffsetAt(position) : cursorOffsetRef.current
+    const focus = paragraphAt(model.getValue(), offset)
+    return focus ? { filePath: path, focus } : null
+  }, [])
+  const writingSuggestion = useWritingSuggestion(
+    projectId,
+    getSuggestionFocus,
+    !isGuest && isEditable && !!activeFilePath,
+  )
   const saveMutation = useSaveLatexFile(projectId)
   const autoSave = useAutoSave(saveMutation)
   const { saveNow: saveBeforeUpdate } = autoSave
@@ -411,6 +449,8 @@ export function WritingPage() {
     // remounts it from this value, and compile reads it for the active file.
     setEditorContent(value)
     autoSave.onChange(value)
+    // 只有用户开启「停顿后自动检查」时才会真正排延迟检查。
+    writingSuggestion.notifyActivity()
   }
 
   const handleSelectFile = useCallback((filePath: string) => {
@@ -959,7 +999,7 @@ export function WritingPage() {
   ) : (
     <div className="flex h-full min-h-0 flex-col">
       <AdoptedResearchSummary projectId={projectId} />
-      <div className="min-h-0 flex-1"><AiPanel projectId={projectId} /></div>
+      <div className="min-h-0 flex-1"><AiPanel projectId={projectId} suggestion={writingSuggestion} /></div>
     </div>
   )
 
@@ -968,7 +1008,7 @@ export function WritingPage() {
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
         <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
+        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} badge={writingSuggestion.pendingCount} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
       </aside>
 
       {isMobile && mobileSidebarOpen && (
@@ -1024,10 +1064,19 @@ export function WritingPage() {
           </div>
         )}
         <div className="flex-1 min-h-0">
-        <Resizable.Group orientation="horizontal" id={isMobile ? 'writing-layout-mobile' : 'writing-layout-v9'}>
+        <Resizable.Group
+          orientation="horizontal"
+          id={isMobile ? 'writing-layout-mobile' : 'writing-layout-v9'}
+          defaultLayout={!isMobile && savedLayout ? savedLayout : undefined}
+          onLayoutChanged={
+            isMobile
+              ? undefined
+              : (layout) => window.localStorage.setItem('papersage.writing-panels', JSON.stringify(layout))
+          }
+        >
           {!isMobile && (
             <>
-              <Resizable.Panel defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
+              <Resizable.Panel id="sidebar" defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
                   {sidebarBody}
                 </aside>
@@ -1038,7 +1087,7 @@ export function WritingPage() {
 
           {/* Editor Panel */}
           {(!isMobile || mobilePane === 'editor') && (
-          <Resizable.Panel defaultSize={isMobile ? 100 : 42} minSize={25}>
+          <Resizable.Panel id="editor" defaultSize={isMobile ? 100 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1051,6 +1100,20 @@ export function WritingPage() {
                 </div>
                 {!isMobile && (
                   <div className="flex shrink-0 items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 gap-1 text-[11px] text-muted-foreground"
+                      disabled={!isEditable || writingSuggestion.checking}
+                      onClick={() => {
+                        setActiveTab('ai')
+                        void writingSuggestion.checkNow()
+                      }}
+                      title="检查光标所在段落，建议会出现在右侧「建议」里"
+                    >
+                      {writingSuggestion.checking ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
+                      检查本段
+                    </Button>
                     {compileToolbar}
                   </div>
                 )}
@@ -1066,6 +1129,18 @@ export function WritingPage() {
                   <Editor
                     height="100%" language={getLanguageByExt(activeFilePath)} theme={editorDark ? 'vs-dark' : 'vs'}
                     value={editorContent} onChange={handleEditorChange}
+                    onMount={(editor) => {
+                      editorRef.current = editor
+                      const position = editor.getPosition()
+                      if (position) cursorOffsetRef.current = editor.getModel()?.getOffsetAt(position) ?? 0
+                      const subscription = editor.onDidChangeCursorPosition((event) => {
+                        cursorOffsetRef.current = editor.getModel()?.getOffsetAt(event.position) ?? 0
+                      })
+                      editor.onDidDispose(() => {
+                        subscription.dispose()
+                        if (editorRef.current === editor) editorRef.current = null
+                      })
+                    }}
                     options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
                 ) : (
@@ -1078,7 +1153,7 @@ export function WritingPage() {
 
           {/* Preview Panel */}
           {(!isMobile || mobilePane === 'preview') && (
-          <Resizable.Panel defaultSize={isMobile ? 100 : 40} minSize={20}>
+          <Resizable.Panel id="preview" defaultSize={isMobile ? 100 : 40} minSize={20}>
             <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
                 <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">预览</span>
@@ -1353,15 +1428,20 @@ function ResizeHandle() {
   )
 }
 
-function TabButton({ icon, active, onClick, testId, label }: { icon: React.ReactNode; active: boolean; onClick: () => void; testId?: string; label?: string }) {
+function TabButton({ icon, active, onClick, testId, label, badge = 0 }: { icon: React.ReactNode; active: boolean; onClick: () => void; testId?: string; label?: string; badge?: number }) {
   return (
     <button
       data-testid={testId}
-      aria-label={label}
+      aria-label={label ? (badge > 0 ? `${label}，${badge} 条待处理建议` : label) : undefined}
       onClick={onClick}
-      className={cn("flex h-11 w-11 items-center justify-center rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
+      className={cn("relative flex h-11 w-11 items-center justify-center rounded-xl transition-all hover:scale-110", active ? "bg-background text-primary shadow-sm ring-1 ring-border/50" : "text-muted-foreground hover:text-foreground")}
     >
       {icon}
+      {badge > 0 && (
+        <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[9px] font-bold leading-none text-primary-foreground">
+          {badge > 9 ? '9+' : badge}
+        </span>
+      )}
     </button>
   )
 }

@@ -111,10 +111,12 @@ export const AGENT = {
   runEvidence: (runId: string) => `${V1}/agent/runs/${runId}/evidence`,
   cancelRun: (runId: string) => `${V1}/agent/runs/${runId}/cancel`,
   retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
+  suggestions: (projectId: string) => `${V1}/projects/${projectId}/agent/suggestions`,
   proposals: (projectId: string, status?: string) =>
     `${V1}/projects/${projectId}/agent/proposals${status ? `?status=${status}` : ''}`,
   applyProposal: (id: string) => `${V1}/agent/change-proposals/${id}/apply`,
   rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
+  undoProposal: (id: string) => `${V1}/agent/change-proposals/${id}/undo`,
   artifact: (id: string) => `${V1}/agent/artifacts/${id}`,
 } as const
 

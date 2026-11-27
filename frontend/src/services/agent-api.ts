@@ -62,6 +62,38 @@ export interface ProposalNormRef {
   source: string
 }
 
+/** 三源依据：evidence（材料原文）/norm（已采用规范）/plan（已采用章节计划缺口）。 */
+export interface ProposalBasis {
+  type: 'evidence' | 'norm' | 'plan'
+  stance: 'supports' | 'uncertain'
+  note?: string
+  evidenceId?: string
+  sourceName?: string
+  sourceVersion?: string
+  locator?: string
+  quote?: string
+  cite?: string
+  normVersion?: number
+  normTitle?: string
+  normRule?: string
+  normSource?: string
+  sectionId?: string
+  sectionTitle?: string
+  gap?: string
+  planArtifactId?: string
+  planRevision?: number
+}
+
+export type AgentSuggestionKind =
+  | 'evidence_gap'
+  | 'logic_gap'
+  | 'norm'
+  | 'citation'
+  | 'language'
+  | 'structure'
+
+export type AgentProposalStatus = 'pending' | 'applied' | 'rejected' | 'stale' | 'reverted' | 'dropped'
+
 export interface AgentChangeProposal {
   id: string
   filePath: string
@@ -69,7 +101,16 @@ export interface AgentChangeProposal {
   newText: string
   reason?: string
   normRefs?: ProposalNormRef[]
-  status: 'pending' | 'applied' | 'rejected' | 'stale'
+  basis?: ProposalBasis[]
+  suggestionKind?: AgentSuggestionKind
+  sectionPath?: string
+  origin?: 'chat' | 'auto' | 'manual'
+  confidence?: 'high' | 'medium' | 'low' | ''
+  confidenceReason?: string
+  rejectReason?: string
+  rejectNote?: string
+  createdAt?: string
+  status: AgentProposalStatus
 }
 
 export interface AgentRunHandle {
@@ -254,9 +295,53 @@ export function applyProposal(id: string, config?: ApiRequestConfig) {
   return postJson<{ status: string }>(AGENT.applyProposal(id), {}, config)
 }
 
-export function rejectProposal(id: string, config?: ApiRequestConfig) {
+/** 忽略原因可选（用于持续评测）；空串表示未选原因。 */
+export function rejectProposal(
+  id: string,
+  reasonCode?: string,
+  note?: string,
+  config?: ApiRequestConfig,
+) {
   requireSignedInForAI()
-  return postJson<{ status: string }>(AGENT.rejectProposal(id), {}, config)
+  return postJson<{ status: string }>(AGENT.rejectProposal(id), { reasonCode: reasonCode ?? '', note: note ?? '' }, config)
+}
+
+export function undoProposal(id: string, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<{ status: string }>(AGENT.undoProposal(id), {}, config)
+}
+
+// --- 动态写作建议 ---
+
+export type SuggestionTrigger = 'auto' | 'manual'
+export type SuggestionSkipReason = 'pending' | 'duplicate' | 'running' | 'rate_limited' | 'too_short'
+
+export interface SuggestionRunHandle {
+  runId: string
+  conversationId: string
+  streamUrl: string
+  trigger: SuggestionTrigger
+}
+
+export interface CreateSuggestionInput {
+  filePath: string
+  paragraphText: string
+  sectionPath: string
+  trigger: SuggestionTrigger
+  clientRequestId: string
+}
+
+export function createSuggestion(
+  projectId: string,
+  input: CreateSuggestionInput,
+  config?: ApiRequestConfig,
+) {
+  requireSignedInForAI()
+  return postJson<SuggestionRunHandle | { skipped: SuggestionSkipReason }>(
+    AGENT.suggestions(projectId),
+    input,
+    config,
+  )
 }
 
 export function artifactUrl(id: string) {
