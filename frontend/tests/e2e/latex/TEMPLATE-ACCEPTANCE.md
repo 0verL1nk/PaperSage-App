@@ -65,6 +65,31 @@ copied into this repository. Keep source page, exact archive version, ZIP
 SHA-256, `mainFile`, and engine together in the local manifest or an acceptance
 record so a result can be reproduced without publishing the archive.
 
+## Runs longer than the command budget
+
+A cold browser downloads the whole format and package tree before the first
+page comes out; on a slow link that takes far longer than one command's budget.
+Set `BROWSER_LATEX_PROFILE_DIR` to keep a Chromium profile (IndexedDB resource
+cache included) across runs, then run the same command repeatedly with a budget
+that fits your environment:
+
+```bash
+export RUN_BROWSER_LATEX_E2E=1
+export PLAYWRIGHT_BASE_URL=http://127.0.0.1:5188
+export BROWSER_LATEX_RESOURCE_API=https://<resource-api>
+export BROWSER_LATEX_TEMPLATE_CASES="$(cat ./template-cases.local.json)"
+export BROWSER_LATEX_PROFILE_DIR=./.latex-e2e-profile
+
+# Each run continues from the resources the previous one stored; the 15 s
+# progress line separates real failures from the engine's .fontspec probes.
+pnpm exec playwright test --config tests/e2e/latex/playwright.config.ts \
+  tests/e2e/latex/template-compile.spec.ts --timeout 8m
+```
+
+Repeat until a run reports the compiled PDF and its PDF.js page count; once the
+cache is warm that run finishes in minutes. The profile directory is local test
+state — do not commit it.
+
 ## Official template source pages
 
 Use the publisher or CTAN package page to obtain the template. If the page
