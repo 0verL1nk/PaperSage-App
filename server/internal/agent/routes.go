@@ -25,6 +25,8 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g.GET("/projects/:project_id/agent/conversations", s.listConversations)
 	g.POST("/projects/:project_id/agent/conversations", s.createConversation)
 	g.GET("/projects/:project_id/agent/proposals", s.listProposals)
+	// 一次性真模型调用：编译报错根因 + 可确认修复 Diff（与 Agent Run 分属两条路径）。
+	g.POST("/projects/:project_id/agent/compile-diagnosis", s.compileDiagnosis)
 	g.GET("/agent/conversations/:conversation_id", s.getConversation)
 	g.GET("/agent/conversations/:conversation_id/messages", s.listMessages)
 	g.GET("/agent/conversations/:conversation_id/runs/active", s.activeRun)

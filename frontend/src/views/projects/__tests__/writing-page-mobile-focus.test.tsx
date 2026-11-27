@@ -1,6 +1,7 @@
 import JSZip from 'jszip'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import userEvent from '@testing-library/user-event'
 import type { ReactNode } from 'react'
@@ -107,11 +108,21 @@ import { compileLatexInBrowser } from '@/lib/latex/swiftlatex-browser-compiler'
 import { createBrowserCompileJob, fetchLatexFileContent, reportBrowserCompileFailure } from '@/services/latex-api'
 import { useCompileStore } from '@/store/compile-store'
 
+// 写作页是路由页面，真实环境始终在 QueryClientProvider 下渲染。
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+  return render(
+    <QueryClientProvider client={client}>
+      <WritingPage />
+    </QueryClientProvider>,
+  )
+}
+
 describe('WritingPage update preparation', () => {
   it('reports a Ctrl+S failure instead of leaving a rejected promise unhandled', async () => {
     mocks.autoSave.saveNow.mockClear().mockRejectedValueOnce(new Error('save failed'))
     const toastError = vi.spyOn(toast, 'error')
-    const { unmount } = render(<WritingPage />)
+    const { unmount } = renderPage()
     try {
       fireEvent.keyDown(window, { key: 's', ctrlKey: true })
       await waitFor(() => expect(toastError).toHaveBeenCalledWith('保存失败', { description: 'save failed' }))
@@ -123,7 +134,7 @@ describe('WritingPage update preparation', () => {
 
   it('propagates save failures through the update bridge', async () => {
     mocks.autoSave.saveNow.mockClear().mockRejectedValueOnce(new Error('save failed'))
-    const { unmount } = render(<WritingPage />)
+    const { unmount } = renderPage()
 
     await expect(prepareForUpdate()).rejects.toThrow('save failed')
     expect(mocks.autoSave.saveNow).toHaveBeenCalledTimes(1)
@@ -134,7 +145,7 @@ describe('WritingPage update preparation', () => {
   it('registers its save promise while mounted and unregisters on unmount', () => {
     const pending = new Promise<void>(() => {})
     mocks.autoSave.saveNow.mockClear().mockReturnValueOnce(pending)
-    const { unmount } = render(<WritingPage />)
+    const { unmount } = renderPage()
     const waitUntil = vi.fn()
 
     window.dispatchEvent(new CustomEvent('papersage:prepare-update', { detail: { waitUntil } }))
@@ -156,7 +167,7 @@ describe('WritingPage mobile sidebar focus', () => {
 
   it('moves focus into the panel, closes on Escape, and returns focus to the trigger', async () => {
     const user = userEvent.setup()
-    render(<WritingPage />)
+    renderPage()
 
     const trigger = screen.getByTestId('writing-tab-files')
     await user.click(trigger)
@@ -172,7 +183,7 @@ describe('WritingPage mobile sidebar focus', () => {
 
   it('traps Tab and Shift+Tab inside the panel', async () => {
     const user = userEvent.setup()
-    render(<WritingPage />)
+    renderPage()
     await user.click(screen.getByTestId('writing-tab-files'))
 
     const close = screen.getByRole('button', { name: '关闭侧栏' })
@@ -189,7 +200,7 @@ describe('WritingPage mobile sidebar focus', () => {
 
   it('does not close the panel when Escape is handled by an inline editor', async () => {
     const user = userEvent.setup()
-    render(<WritingPage />)
+    renderPage()
     await user.click(screen.getByTestId('writing-tab-files'))
 
     screen.getByLabelText('重命名').focus()
@@ -226,7 +237,7 @@ describe('WritingPage compile recovery', () => {
     vi.mocked(compileLatexInBrowser).mockRejectedValue(
       new Error('pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪，已停止本次编译。'),
     )
-    const { unmount } = render(<WritingPage />)
+    const { unmount } = renderPage()
 
     fireEvent.click(screen.getByTestId('compile-button'))
 
@@ -245,7 +256,7 @@ describe('WritingPage compile recovery', () => {
       new Error('pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪，已停止本次编译。'),
     )
     const toastError = vi.spyOn(toast, 'error')
-    const { unmount } = render(<WritingPage />)
+    const { unmount } = renderPage()
     try {
       await waitFor(() => expect(screen.getByTestId('writing-pane-preview')).toBeInTheDocument())
       fireEvent.click(screen.getByTestId('compile-button'))
@@ -282,7 +293,7 @@ describe('WritingPage LaTeX project import', () => {
       type: 'application/zip',
     })
 
-    render(<WritingPage />)
+    renderPage()
     fireEvent.change(screen.getByLabelText('上传文件或导入 ZIP 工程', { selector: 'input' }), {
       target: { files: [file] },
     })

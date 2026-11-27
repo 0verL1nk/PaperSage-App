@@ -2,11 +2,12 @@ import '@/lib/monaco-setup'
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams } from '@tanstack/react-router'
+import { useQueryClient } from '@tanstack/react-query'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import {
   Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
-  Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
+  Check, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
   HardDrive, ExternalLink, X,
 } from 'lucide-react'
 import { EmptyPreview } from './empty-preview'
@@ -28,6 +29,9 @@ import {
   useDeleteLatexFolder, useRenameLatexFile, useRenameLatexFolder,
   useMoveLatexFile, useLatexOutputPdf,
 } from '@/hooks/use-latex'
+import { useLatexEditor } from '@/hooks/use-latex-editor'
+import type { CompileIssue } from '@/lib/latex/compile-log'
+import { latexKeys } from '@/lib/query-keys'
 import { useProjectCompile } from '@/hooks/use-project-compile'
 import { useAutoSave } from '@/hooks/use-auto-save'
 import { PREPARE_UPDATE_EVENT } from '@/lib/update-prepare'
@@ -41,12 +45,13 @@ import { LATEX } from '@/services/api-routes'
 import { LoadingSpinner } from '@/components/shared/loading-spinner'
 import { downloadBlob } from '@/services/client'
 import { AiPanel } from './ai-panel'
+import { CompileFailurePanel, CompileWarningSummary } from './compile-failure-panel'
 import { AdoptedResearchSummary } from '@/components/domain/AdoptedResearchSummary'
 import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
-import { classifyCompileFailure, compileFailureMessage, compileRawLogText } from '@/lib/latex/compile-error'
+import { classifyCompileFailure, compileFailureMessage } from '@/lib/latex/compile-error'
 import { createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, uploadLatexFile } from '@/services/latex-api'
 import { cancelProjectCompile, retryBrowserUpload, startCompile } from '@/lib/compile-manager'
 import { isCompileActive, useCompileStore, type ProjectCompileState } from '@/store/compile-store'
@@ -151,6 +156,7 @@ function isPdfFile(path: string): boolean {
 type SidebarTab = 'files' | 'ai'
 
 const NO_RESOURCES: ProjectCompileState['resources'] = {}
+const NO_ISSUES: CompileIssue[] = []
 
 // --- Main Component ---
 
@@ -197,6 +203,8 @@ export function WritingPage() {
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeFilePathRef = useRef<string | null>(null)
+  const pendingRevealRef = useRef<{ filePath: string; line: number } | null>(null)
+  const pendingRevealTimerRef = useRef<number | null>(null)
 
   const monaco = useMonaco()
   // 编辑器主题跟随应用主题（Monaco 不吃 CSS token，需显式切换）
@@ -245,6 +253,11 @@ export function WritingPage() {
   const browserProgressMessage = compileState?.progressMessage ?? null
   const browserThirdPartyLicense = compileState?.license ?? null
   const browserResources = compileState?.resources ?? NO_RESOURCES
+  const compileIssues = compileState?.issues ?? NO_ISSUES
+  const compileRootFile = compileState?.rootFile ?? null
+  const compileCompiler = compileState?.compiler ?? null
+  const latexEditor = useLatexEditor({ activeFilePath, issues: compileIssues })
+  const queryClient = useQueryClient()
 
   // Agent compile requests are handed to the browser compiler below.
   const pendingBrowserCompileRequest = useChatStore((s) => s.pendingBrowserCompileRequest)
@@ -414,12 +427,64 @@ export function WritingPage() {
   }
 
   const handleSelectFile = useCallback((filePath: string) => {
+    // 手动切文件时取消尚未完成的报错跳行，避免稍后把用户强行拉回别的文件。
+    pendingRevealRef.current = null
+    if (pendingRevealTimerRef.current !== null) {
+      window.clearTimeout(pendingRevealTimerRef.current)
+      pendingRevealTimerRef.current = null
+    }
     autoSave.switchFile(filePath)
     activeFilePathRef.current = filePath
     setActiveFilePath(filePath)
     setEditorContent(autoSave.getContent())
     if (isMobile) setMobilePane('editor')
   }, [autoSave, isMobile])
+
+  const openFileAtLine = useCallback((issue: CompileIssue) => {
+    const filePath = issue.filePath
+    if (!filePath || issue.line === null) return
+    const line = issue.line
+    if (!files.some((file) => file.file_path === filePath)) {
+      toast.error('该文件不在当前项目中，无法跳转', {
+        description: `${filePath} 可能在编译后被删除或重命名。`,
+      })
+      return
+    }
+    if (filePath === activeFilePathRef.current) {
+      latexEditor.reveal(line)
+      return
+    }
+    handleSelectFile(filePath)
+    pendingRevealRef.current = { filePath, line }
+    if (pendingRevealTimerRef.current !== null) window.clearTimeout(pendingRevealTimerRef.current)
+    pendingRevealTimerRef.current = window.setTimeout(() => {
+      pendingRevealTimerRef.current = null
+      if (pendingRevealRef.current?.filePath !== filePath) return
+      pendingRevealRef.current = null
+      toast.error('文件内容加载超时，暂时无法跳转到报错行，请重试')
+    }, 5000)
+  }, [files, handleSelectFile, latexEditor])
+
+  // 跨文件跳行要等内容真正进入编辑器后再 reveal，否则会跳到旧文件。
+  useEffect(() => {
+    const pending = pendingRevealRef.current
+    if (!pending || activeFilePath !== pending.filePath || fileContent?.path !== pending.filePath) return
+    const timer = window.setTimeout(() => {
+      if (pendingRevealRef.current !== pending) return
+      pendingRevealRef.current = null
+      if (pendingRevealTimerRef.current !== null) {
+        window.clearTimeout(pendingRevealTimerRef.current)
+        pendingRevealTimerRef.current = null
+      }
+      if (!latexEditor.reveal(pending.line)) toast.error('编辑器尚未准备好，无法跳转到报错行')
+    }, 50)
+    return () => window.clearTimeout(timer)
+  }, [fileContent, activeFilePath, editorContent, latexEditor])
+
+  const handleFixApplied = useCallback((filePath: string) => {
+    void queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    void queryClient.invalidateQueries({ queryKey: latexKeys.content(projectId, filePath) })
+  }, [queryClient, projectId])
 
   const filesRef = useRef(files)
   filesRef.current = files
@@ -689,7 +754,7 @@ export function WritingPage() {
 
   const handleSelectCompileHistory = (item: CompileJobListItem) => {
     if (item.status !== 'success' || !item.build_id) return
-    useCompileStore.getState().patch(projectId, { error: null, logs: null })
+    useCompileStore.getState().patch(projectId, { error: null, logs: null, issues: [] })
     setPreviewError(null)
     setPdfBuildId(item.build_id)
     outputPdfMutation.mutate(
@@ -802,7 +867,6 @@ export function WritingPage() {
   const hasMissingResource = resourceList.some((resource) => resource.state === 'missing' || resource.status === 404)
   const compileFailureKind = classifyCompileFailure(compileError, compileLogs, hasMissingResource)
   const compileFailureText = compileFailureMessage(compileFailureKind)
-  const compileRawLog = compileRawLogText(compileError, compileLogs)
 
   // 手机端默认停在「编辑」页，失败卡片在「预览」面板里；不提示的话学生看不到任何变化。
   const compileFailureVisible = !isMobile || mobilePane === 'preview'
@@ -1066,7 +1130,8 @@ export function WritingPage() {
                   <Editor
                     height="100%" language={getLanguageByExt(activeFilePath)} theme={editorDark ? 'vs-dark' : 'vs'}
                     value={editorContent} onChange={handleEditorChange}
-                    options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
+                    onMount={latexEditor.onMount}
+                    options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', glyphMargin: true, scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
                 ) : (
                   <BinaryFilePlaceholder path={activeFilePath} projectId={projectId} />
@@ -1157,6 +1222,11 @@ export function WritingPage() {
               </div>
 
               <div ref={previewContainerRef} className="flex-1 select-text overflow-auto p-3 sm:p-8 bg-[#525659]/10 scrollbar-thin scrollbar-thumb-muted-foreground/20">
+                {!compileError && compileIssues.length > 0 && (
+                  <div className="mb-3">
+                    <CompileWarningSummary issues={compileIssues} onSelectIssue={openFileAtLine} />
+                  </div>
+                )}
                 {(compileWarning || (!compilerSupported && !compileError) || (isCompiling && browserProgressMessage) || (compileError && pendingBrowserResult)) && (
                 <div className="sticky top-0 z-10 mb-5 space-y-3">
                 {compileWarning && (
@@ -1231,71 +1301,25 @@ export function WritingPage() {
                 </div>
                 )}
                 {compileError && !pendingBrowserResult ? (
-                  <div className="max-w-lg mx-auto mt-16 rounded-xl bg-destructive/5 border border-destructive/20 p-6 select-text">
-                    <div className="flex items-center justify-between mb-3 text-destructive">
-                      <div className="flex items-center gap-2">
-                        <AlertCircle size={16} />
-                        <h4 className="text-sm font-bold">编译错误</h4>
-                      </div>
-                      <button
-                        className={cn('inline-flex items-center gap-1 rounded text-[10px] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground', isMobile ? 'min-h-11 px-3' : 'px-2 py-1')}
-                        onClick={() => {
-                          navigator.clipboard.writeText(compileRawLog)
-                          toast.success('已复制到剪贴板')
-                        }}
-                      >
-                        <Copy size={10} />
-                        复制
-                      </button>
-                    </div>
-                    <p className="text-sm leading-6 text-destructive/90">{compileFailureText}</p>
-                    {diagnosticStatus === 'pending' && (
-                      <p className="mt-2 text-[10px] text-muted-foreground">正在自动上报诊断信息…</p>
-                    )}
-                    {diagnosticStatus === 'sent' && (
-                      <p className="mt-2 text-[10px] text-muted-foreground">
-                        已自动上报诊断信息；如需反馈，请提供编号 {diagnosticId ? diagnosticId.slice(0, 8) : '—'}。
-                      </p>
-                    )}
-                    {diagnosticStatus === 'failed' && (
-                      <p className="mt-2 text-[10px] text-muted-foreground">
-                        诊断信息上报失败，不影响本次编译；可复制日志反馈给管理员。
-                      </p>
-                    )}
-                    <details className="mt-3">
-                      <summary className={cn('w-fit cursor-pointer select-none text-[10px] text-muted-foreground transition-colors hover:text-foreground', isMobile && 'inline-flex min-h-11 items-center')}>
-                        查看原始日志
-                      </summary>
-                      <pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-muted/30 p-3 font-mono text-[10px] leading-relaxed text-muted-foreground/70">
-                        {compileRawLog}
-                      </pre>
-                    </details>
-                    {compileFailureKind === 'resource' ? (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        data-testid="reinit-latex-resources"
-                        className={cn('mt-3 gap-2', isMobile ? 'h-11' : 'h-8')}
-                        onClick={() => setIsLatexSetupOpen(true)}
-                        disabled={isCompiling}
-                      >
-                        <HardDrive size={13} />
-                        重新初始化资源
-                      </Button>
-                    ) : (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        data-testid="retry-browser-compile"
-                        className={cn('mt-3 gap-2', isMobile ? 'h-11' : 'h-8')}
-                        onClick={() => void handleCompile()}
-                        disabled={isCompiling}
-                      >
-                        {isCompiling && <Loader2 size={13} className="animate-spin" />}
-                        {isCompiling ? '正在重试编译' : '重试编译'}
-                      </Button>
-                    )}
-                  </div>
+                  <CompileFailurePanel
+                    projectId={projectId}
+                    error={compileError}
+                    logs={compileLogs}
+                    issues={compileIssues}
+                    rootFile={compileRootFile}
+                    compiler={compileCompiler}
+                    failureKind={compileFailureKind}
+                    diagnosticStatus={diagnosticStatus}
+                    diagnosticId={diagnosticId}
+                    isMobile={isMobile}
+                    isCompiling={isCompiling}
+                    isGuest={isGuest}
+                    onRetryCompile={() => void handleCompile()}
+                    onReinitResources={() => setIsLatexSetupOpen(true)}
+                    onSelectIssue={openFileAtLine}
+                    onBeforeApply={() => autoSave.saveNow()}
+                    onApplied={handleFixApplied}
+                  />
                 ) : pdfFileSource ? (
                   <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
                     <Document
