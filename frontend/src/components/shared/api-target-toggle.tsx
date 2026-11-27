@@ -108,7 +108,7 @@ function ApiTargetToggleMenu({ prominent = false }: { prominent?: boolean }) {
           ) : (
             <span aria-hidden="true" className={cn(
               'absolute bottom-1 right-1 size-1.5 rounded-full ring-2 ring-background',
-              isLocal ? 'bg-amber-500' : isCustom ? 'bg-sky-500' : 'bg-emerald-500',
+              isLocal ? 'bg-warning' : isCustom ? 'bg-info' : 'bg-success',
             )} />
           )}
         </Button>

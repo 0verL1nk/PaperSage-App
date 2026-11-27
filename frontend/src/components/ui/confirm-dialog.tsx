@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { useTranslation } from "react-i18next"
 import { AlertTriangle } from "lucide-react"
 import {
   Dialog,
@@ -29,12 +30,13 @@ export function ConfirmDialog({
   onOpenChange,
   title,
   description,
-  confirmText = "Confirm",
-  cancelText = "Cancel",
+  confirmText,
+  cancelText,
   variant = "default",
   onConfirm,
   isPending = false,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation()
   const handleConfirm = async () => {
     await onConfirm()
     onOpenChange(false)
@@ -58,14 +60,14 @@ export function ConfirmDialog({
             onClick={() => onOpenChange(false)}
             disabled={isPending}
           >
-            {cancelText}
+            {cancelText ?? t('common.cancel')}
           </Button>
           <Button
             variant={variant === "destructive" ? "destructive" : "default"}
             onClick={handleConfirm}
             disabled={isPending}
           >
-            {isPending ? "..." : confirmText}
+            {isPending ? t('common.processing') : confirmText ?? t('common.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
