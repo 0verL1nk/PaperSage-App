@@ -42,7 +42,7 @@ test.describe('Email code login (real backend)', () => {
   test.use({ storageState: { cookies: [], origins: [] } })
 
   test('new email logs in, auto-registers and the code cannot be replayed', async ({ page, request }) => {
-    const email = `e2e_code_${Date.now()}@hit.edu.cn`
+    const email = `e2e_code_${Date.now()}@example.edu.cn`
     await loginWithCode(page, request, email)
 
     // 一次性核销：同一验证码重放必须 401。
@@ -58,7 +58,7 @@ test.describe('Email code login (real backend)', () => {
 
   // B1 回归：错码必须留在当前页、保留邮箱、给出中文错误（不能整页刷新）。
   test('wrong code keeps the form and shows a Chinese error', async ({ page }) => {
-    const email = `e2e_wrong_${Date.now()}@hit.edu.cn`
+    const email = `e2e_wrong_${Date.now()}@example.edu.cn`
     await page.goto('/auth')
     await page.getByLabel('邮箱', { exact: true }).fill(email)
     await page.getByRole('button', { name: '获取验证码' }).click()
@@ -73,7 +73,7 @@ test.describe('Email code login (real backend)', () => {
   })
 
   test('code-registered user can set a password and then sign in with it', async ({ page, request }) => {
-    const email = `e2e_setpw_${Date.now()}@hit.edu.cn`
+    const email = `e2e_setpw_${Date.now()}@example.edu.cn`
     const password = 'NewPass123'
     await loginWithCode(page, request, email)
 

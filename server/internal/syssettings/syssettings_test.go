@@ -20,7 +20,7 @@ func TestAdminCanReadWriteSettings(t *testing.T) {
 	ts.MakeSuperuser(t)
 
 	resp := ts.Do(t, http.MethodPut, "/api/v1/admin/settings",
-		mustJSON(t, map[string]any{"allowed_email_domains": []string{"hit.edu.cn", "*.hit.edu.cn"}}))
+		mustJSON(t, map[string]any{"allowed_email_domains": []string{"example.edu.cn", "*.example.edu.cn"}}))
 	require.Equal(t, 200, resp.StatusCode)
 
 	resp = ts.Do(t, http.MethodGet, "/api/v1/admin/settings", nil)
@@ -28,7 +28,7 @@ func TestAdminCanReadWriteSettings(t *testing.T) {
 	var m map[string]any
 	require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
 	domains := m["data"].(map[string]any)["allowed_email_domains"].([]any)
-	assert.Equal(t, "hit.edu.cn", domains[0])
+	assert.Equal(t, "example.edu.cn", domains[0])
 }
 
 func TestNormalUserForbidden(t *testing.T) {

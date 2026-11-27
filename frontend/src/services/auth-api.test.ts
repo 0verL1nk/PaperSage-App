@@ -40,10 +40,10 @@ describe('auth api', () => {
 
   it('gives the email-code send a bounded timeout so the button cannot spin forever', async () => {
     vi.mocked(postJson).mockResolvedValue({ message: '验证码已发送' })
-    await sendEmailCode('student@hit.edu.cn')
+    await sendEmailCode('student@example.edu.cn')
     expect(postJson).toHaveBeenCalledWith(
       '/api/v1/auth/email-code/send',
-      { email: 'student@hit.edu.cn' },
+      { email: 'student@example.edu.cn' },
       { skipGlobalLoading: true, timeout: 15_000 },
     )
   })
@@ -123,7 +123,7 @@ describe('auth api', () => {
     vi.mocked(postMultipart).mockResolvedValue(null)
 
     await expect(
-      registerWithEmail('alice@hit.edu.cn', 'Pass1234'),
+      registerWithEmail('alice@example.edu.cn', 'Pass1234'),
     ).resolves.toBeNull()
 
     expect(postMultipart).toHaveBeenCalledTimes(1)
@@ -137,7 +137,7 @@ describe('auth api', () => {
 
     const formData = vi.mocked(postMultipart).mock.calls[0]?.[1]
 
-    expect(formData?.get('email')).toBe('alice@hit.edu.cn')
+    expect(formData?.get('email')).toBe('alice@example.edu.cn')
     expect(formData?.get('password')).toBe(await sha256WebCrypto('Pass1234'))
   })
 })
@@ -197,7 +197,7 @@ describe('auth api — Web Crypto fallback', () => {
     vi.mocked(postMultipart).mockReset()
     vi.mocked(postMultipart).mockResolvedValue(null)
     await expect(
-      registerWithEmail('eve@hit.edu.cn', 'pw'),
+      registerWithEmail('eve@example.edu.cn', 'pw'),
     ).resolves.toBeNull()
   })
 })

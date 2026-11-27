@@ -124,7 +124,7 @@ export function NormsPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-3 sm:p-5">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 overflow-y-auto p-3 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">学术规范</p>
@@ -142,8 +142,8 @@ export function NormsPage() {
         </p>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <Card className="min-h-0 overflow-y-auto rounded-2xl border-border/50 shadow-sm">
+      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <Card className="max-h-64 overflow-y-auto rounded-2xl border-border/50 shadow-sm lg:max-h-none lg:min-h-0">
           <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex items-center gap-2 text-sm"><BookMarked className="size-4 text-primary" />规范包</CardTitle>
           </CardHeader>
@@ -174,7 +174,7 @@ export function NormsPage() {
           </CardContent>
         </Card>
 
-        <Card className="flex min-h-0 flex-col rounded-2xl border-border/50 shadow-sm">
+        <Card className="flex flex-col rounded-2xl border-border/50 shadow-sm lg:min-h-0">
           <CardHeader className="gap-3 px-4 pb-2 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-sm">{selectedPack ? selectedPack.name : '全部条目'}</CardTitle>
@@ -227,7 +227,7 @@ export function NormsPage() {
             </div>
           </CardHeader>
 
-          <CardContent className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <CardContent className="px-4 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {entries.isLoading ? (
               <p role="status" className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                 <LoaderCircle className="size-4 animate-spin" />正在读取规范条目…
@@ -241,7 +241,11 @@ export function NormsPage() {
               </div>
             ) : (entries.data?.items.length ?? 0) === 0 ? (
               <p className="py-8 text-center text-sm leading-6 text-muted-foreground">
-                没有匹配的规范条目。换个关键词或筛选条件试试。
+                {keyword.trim() || scenario
+                  ? '没有匹配的规范条目。换个关键词或筛选条件试试。'
+                  : selectedPack
+                    ? '这个包还没有条目。点「新增条目」开始添加。'
+                    : '这个库里还没有条目。'}
               </p>
             ) : (
               <ul className="space-y-2">
@@ -307,7 +311,14 @@ export function NormsPage() {
           onSubmit={() =>
             createPack.mutate(
               { key: packDraft.key.trim(), name: packDraft.name.trim(), scenario: packDraft.scenario },
-              { onSuccess: () => setPackDraft(null) },
+              {
+                onSuccess: (created) => {
+                  setPackDraft(null)
+                  // 建完立刻切到新包：否则停在「全部规范包」，「新增条目」仍是禁用的，
+                  // 用户会以为刚建的包不能加条目。
+                  setPackId(created.id)
+                },
+              },
             )
           }
         />

@@ -627,9 +627,10 @@ function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId
               {proposal.normRefs.map((ref) => (
                 <span
                   key={ref.cite}
+                  title={ref.cite}
                   className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
                 >
-                  {ref.cite}
+                  {ref.title}
                 </span>
               ))}
             </div>

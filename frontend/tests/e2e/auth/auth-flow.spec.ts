@@ -54,7 +54,7 @@ test.describe('Auth flow (real backend)', () => {
   })
 
   test('a fresh user can register (email-gated) and is blocked until verified', async ({ page }) => {
-    const email = `e2e_reg_${Date.now()}@hit.edu.cn`
+    const email = `e2e_reg_${Date.now()}@example.edu.cn`
     const password = 'e2epass1'
 
     await page.goto('/auth')

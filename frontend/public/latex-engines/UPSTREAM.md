@@ -35,8 +35,8 @@ size, and offsets the drawing to the page origin before conversion.
 
 The current v7 resource profile passed browser compilation for six
 representative archives: IEEEtran, Springer Nature, Nature preprint, Elsevier,
-ACM, and the supplied HIT thesis. The PDFs were opened with the product PDF.js;
-the HIT output also contained the expected Chinese title text. The tested HIT
+ACM, and the supplied university thesis. The PDFs were opened with the product PDF.js;
+the thesis output also contained the expected Chinese title text. The tested thesis
 archive produced an 18-page PDF with the browser XeTeX + Dvipdfmx pipeline, and
 the EPS corpus passed the browser converter checks. See the
 [`acceptance matrix`](../../../openspec/changes/browser-latex-wasm-compiler/acceptance-matrix.md)

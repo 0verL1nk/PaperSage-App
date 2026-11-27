@@ -45,7 +45,7 @@ func TestEmailRegistrationFlow(t *testing.T) {
 
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
 	// 非学校邮箱 → 400
 	resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
@@ -56,17 +56,17 @@ func TestEmailRegistrationFlow(t *testing.T) {
 
 	// 学校邮箱注册成功 → 发验证邮件、未验证状态
 	resp = postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
-		"email": {"s001@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+		"email": {"s001@example.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	})
 	require.Equal(t, 200, resp.StatusCode, bodyJSON(t, resp)["info"])
 
 	require.Len(t, cap.sent, 1)
-	assert.Equal(t, "s001@hit.edu.cn", cap.sent[0].to)
+	assert.Equal(t, "s001@example.edu.cn", cap.sent[0].to)
 	assert.Contains(t, cap.sent[0].html, "/auth/verify?token=")
 
 	// 未验证登录 → 403
 	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{
-		"account": {"s001@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+		"account": {"s001@example.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	})
 	assert.Equal(t, 403, resp.StatusCode)
 	assert.Contains(t, bodyJSON(t, resp)["info"], "verify your email")
@@ -78,7 +78,7 @@ func TestEmailRegistrationFlow(t *testing.T) {
 
 	// 验证后可登录（email 或自动生成的 username 均可）
 	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{
-		"account": {"s001@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+		"account": {"s001@example.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	})
 	assert.Equal(t, 200, resp.StatusCode)
 
@@ -94,14 +94,14 @@ func TestResendVerification(t *testing.T) {
 	defer srv.Close()
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
 	postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
-		"email": {"s002@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+		"email": {"s002@example.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	})
 	require.Len(t, cap.sent, 1)
 
-	resp := postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "s002@hit.edu.cn"})
+	resp := postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "s002@example.edu.cn"})
 	require.Equal(t, 200, resp.StatusCode)
 	assert.Len(t, cap.sent, 2, "应重发验证邮件")
 }
@@ -110,10 +110,10 @@ func TestVerificationEmailFailureIsReported(t *testing.T) {
 	srv := newAuthTestServer(t)
 	defer srv.Close()
 	srv.setEmailSender(t, failingSender{err: errors.New("provider rejected request")})
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
 	form := url.Values{
-		"email":    {"failure@hit.edu.cn"},
+		"email":    {"failure@example.edu.cn"},
 		"password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	}
 	resp := postForm(t, srv.URL+"/api/v1/auth/register", form)
@@ -134,15 +134,15 @@ func TestResendVerificationFailureIsReported(t *testing.T) {
 	defer srv.Close()
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
 	resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
-		"email": {"retry@hit.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
+		"email": {"retry@example.edu.cn"}, "password": {"a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6"},
 	})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	srv.setEmailSender(t, failingSender{err: errors.New("provider rejected request")})
-	resp = postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "retry@hit.edu.cn"})
+	resp = postJSON(t, srv.URL+"/api/v1/auth/resend-verification", map[string]string{"email": "retry@example.edu.cn"})
 	require.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	assert.Contains(t, bodyJSON(t, resp)["info"], "could not be sent")
 }

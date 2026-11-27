@@ -170,7 +170,7 @@ func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, i
 		title = string([]rune(title)[:40]) + "…"
 	}
 	conv := store.AgentConversation{
-		ID: store.MustNewUUID(), ProjectID: pid, UserID: uid, Title: title,
+		ID: store.MustNewUUID(), ProjectID: pid, UserID: uid, Title: title, Kind: "chat",
 	}
 	if err := s.DB.WithContext(ctx).Create(&conv).Error; err != nil {
 		return nil, err
