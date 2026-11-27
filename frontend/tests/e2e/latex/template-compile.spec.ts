@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import JSZip from 'jszip'
-import { chromium, devices, expect, test as base, type Page } from '@playwright/test'
+import { chromium, expect, test as base, type Page } from '@playwright/test'
 import { scopeVercelAccessToOrigin } from './helpers/vercel-origin-auth'
 
 /**
@@ -13,16 +13,15 @@ import { scopeVercelAccessToOrigin } from './helpers/vercel-origin-auth'
  * run compiles from cache.
  */
 const profileDir = process.env.BROWSER_LATEX_PROFILE_DIR
-const { defaultBrowserType: _desktopBrowser, ...desktopChrome } = devices['Desktop Chrome']
 const test = profileDir
   ? base.extend<{ page: Page }>({
-      page: async ({}, use) => {
+      page: async ({ baseURL }, provide) => {
         const context = await chromium.launchPersistentContext(profileDir, {
-          ...desktopChrome,
-          baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5188',
+          baseURL: baseURL ?? 'http://127.0.0.1:5188',
+          viewport: { width: 1280, height: 720 },
         })
         const page = context.pages()[0] ?? (await context.newPage())
-        await use(page)
+        await provide(page)
         await context.close()
       },
     })
