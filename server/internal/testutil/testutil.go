@@ -48,7 +48,8 @@ type TestServer struct {
 	ProjectService  *projects.Service
 	DocumentService *documents.Service
 	DB              *gorm.DB
-	Token           string // 预置用户的 access token
+	Storage         *MemStorage // 与各域服务共用，基准测试可观测对象存储读写
+	Token           string      // 预置用户的 access token
 	UID             uuid.UUID
 }
 
@@ -86,13 +87,14 @@ func (ts *TestServer) MakeSuperuser(t *testing.T) {
 func (ts *TestServer) UserID() store.UUID { return store.UUID{UUID: ts.UID} }
 
 // New 装配全套域路由 + sqlite 内存库 + 预置用户（CLSI 指向不可达端口）。
-func New(t *testing.T) *TestServer {
+// 接受 testing.TB：基准测试也要复用同一套装配。
+func New(t testing.TB) *TestServer {
 	t.Helper()
 	return NewWithClsi(t, "http://127.0.0.1:9")
 }
 
 // NewWithClsi 指定 CLSI 基址（编译测试注入 httptest 假服务）。
-func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
+func NewWithClsi(t testing.TB, clsiURL string) *TestServer {
 	t.Helper()
 	// :memory: 每个连接是独立空库；编译队列等并发路径会打开新连接，
 	// 必须用共享内存库（file:...?mode=memory&cache=shared，测试间用唯一名隔离）
@@ -160,17 +162,18 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	ts.Engine = api.Engine
 	ts.CompileQueue = compileQueue
 	ts.DB = db
+	ts.Storage = mem
 	ts.Token = token
 	ts.UID = uid
 	return ts
 }
 
 // Do 发带认证的请求（body 非 nil 时按 JSON）。
-func (ts *TestServer) Do(t *testing.T, method, path string, body []byte) *http.Response {
+func (ts *TestServer) Do(t testing.TB, method, path string, body []byte) *http.Response {
 	return ts.DoWithHeaders(t, method, path, body, nil)
 }
 
-func (ts *TestServer) DoWithHeaders(t *testing.T, method, path string, body []byte, headers map[string]string) *http.Response {
+func (ts *TestServer) DoWithHeaders(t testing.TB, method, path string, body []byte, headers map[string]string) *http.Response {
 	t.Helper()
 	req, err := http.NewRequest(method, ts.URL+path, bytes.NewReader(body))
 	require.NoError(t, err)
