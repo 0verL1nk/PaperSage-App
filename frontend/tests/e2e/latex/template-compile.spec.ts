@@ -2,8 +2,31 @@ import { readFile, writeFile, mkdir } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import path from 'node:path'
 import JSZip from 'jszip'
-import { expect, test } from '@playwright/test'
+import { chromium, devices, expect, test as base, type Page } from '@playwright/test'
 import { scopeVercelAccessToOrigin } from './helpers/vercel-origin-auth'
+
+/**
+ * A cold browser downloads the whole format and package tree before it can
+ * compile, which outlives a single command's time budget. With a profile
+ * directory the IndexedDB resource cache survives between runs, so repeated
+ * budget-sized runs make progress instead of starting from zero and the final
+ * run compiles from cache.
+ */
+const profileDir = process.env.BROWSER_LATEX_PROFILE_DIR
+const { defaultBrowserType: _desktopBrowser, ...desktopChrome } = devices['Desktop Chrome']
+const test = profileDir
+  ? base.extend<{ page: Page }>({
+      page: async ({}, use) => {
+        const context = await chromium.launchPersistentContext(profileDir, {
+          ...desktopChrome,
+          baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://127.0.0.1:5188',
+        })
+        const page = context.pages()[0] ?? (await context.newPage())
+        await use(page)
+        await context.close()
+      },
+    })
+  : base
 
 interface TemplateCase {
   name: string
@@ -77,8 +100,13 @@ for (const template of cases) {
     // log live progress so a timeout is diagnosable instead of silent.
     const compileStartedAt = Date.now()
     const progress = setInterval(() => {
-      const failures = networkLogs.filter((line) => line.startsWith('FAILED') || /^HTTP 5|^HTTP 4/.test(line)).length
-      console.log(`[template-e2e] ${template.name}: ${Math.round((Date.now() - compileStartedAt) / 1000)}s elapsed, texlive requests=${networkLogs.length}, failures=${failures}`)
+      // The engine probes "<font>.fontspec" before every font; a 404 there is
+      // its normal fallback to the font file, not a broken resource.
+      const fontspecProbe = (line: string) => /\.fontspec(?:\s|$)/.test(line)
+      const failures = networkLogs
+        .filter((line) => (line.startsWith('FAILED') || /^HTTP 5|^HTTP 4/.test(line)) && !fontspecProbe(line)).length
+      const probes = networkLogs.filter((line) => line.startsWith('HTTP 404') && fontspecProbe(line)).length
+      console.log(`[template-e2e] ${template.name}: ${Math.round((Date.now() - compileStartedAt) / 1000)}s elapsed, texlive requests=${networkLogs.length}, failures=${failures}, fontspec-probes=${probes}`)
     }, 15_000)
     let result: { pdfBase64?: string; log?: string; error?: string }
     try {
