@@ -113,6 +113,8 @@ export const AGENT = {
   retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
   proposals: (projectId: string, status?: string) =>
     `${V1}/projects/${projectId}/agent/proposals${status ? `?status=${status}` : ''}`,
+  /** 一次性真模型调用：编译报错根因 + 可确认修复 Diff（不是 Agent Run） */
+  compileDiagnosis: (projectId: string) => `${V1}/projects/${projectId}/agent/compile-diagnosis`,
   applyProposal: (id: string) => `${V1}/agent/change-proposals/${id}/apply`,
   rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
   artifact: (id: string) => `${V1}/agent/artifacts/${id}`,

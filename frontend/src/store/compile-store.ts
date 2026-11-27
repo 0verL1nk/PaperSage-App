@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 
+import type { CompileIssue } from '@/lib/latex/compile-log'
 import type { BrowserLatexProgress, BrowserLatexResourceEvent } from '@/lib/latex/swiftlatex-browser-compiler'
 
 /** Where a project's browser compile stands. success/failed/cancelled are terminal. */
@@ -30,6 +31,11 @@ export interface ProjectCompileState {
   error: string | null
   logs: string | null
   warning: string | null
+  /** 解析出的错误/警告（只定位，不解读）；解析失败时为空数组。 */
+  issues: CompileIssue[]
+  /** 本次编译的入口文件与编译器；AI 诊断必须带上编译当时的取值。 */
+  rootFile: string | null
+  compiler: string | null
   pendingUpload: PendingBrowserUpload | null
   retryingUpload: boolean
   diagnosticStatus: DiagnosticStatus | null
@@ -56,6 +62,9 @@ function freshCompileState(projectName: string): ProjectCompileState {
     error: null,
     logs: null,
     warning: null,
+    issues: [],
+    rootFile: null,
+    compiler: null,
     pendingUpload: null,
     retryingUpload: false,
     diagnosticStatus: null,

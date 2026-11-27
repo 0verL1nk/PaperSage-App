@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import { isDesktop, notifyWhenBackground } from '@/lib/desktop'
 import browserEngineManifest from '@/lib/latex/browser-engine-manifest.json'
 import { classifyCompileFailure } from '@/lib/latex/compile-error'
+import { parseLatexLog, type CompileIssue } from '@/lib/latex/compile-log'
 import { redactDiagnosticLog, redactDiagnosticMessage } from '@/lib/latex/diagnostic-redaction'
 import { compileLatexInBrowser } from '@/lib/latex/swiftlatex-browser-compiler'
 import type { BrowserLatexFile, BrowserLatexProgress } from '@/lib/latex/swiftlatex-browser-compiler'
@@ -60,6 +61,16 @@ function errorMessage(error: unknown): string {
 
 function isAbort(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError'
+}
+
+/** 解析失败不得影响编译结果展示：退化为空列表，原始日志仍然可看。 */
+function parseIssues(logs: string | null, projectFiles: string[], rootFile: string): CompileIssue[] {
+  if (!logs) return []
+  try {
+    return parseLatexLog({ log: logs, projectFiles, rootFile })
+  } catch {
+    return []
+  }
 }
 
 function waitForAbortable<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
@@ -230,6 +241,7 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
     patch(projectId, {
       pdf: result.pdf,
       logs: result.log,
+      issues: parseIssues(result.log, projectFiles, rootFile),
       warning: result.log.includes('did not stabilize')
         ? '编译已达到既有多遍上限，参考文献或交叉引用可能尚未稳定；请检查 PDF 中的引用编号。'
         : null,
@@ -269,17 +281,20 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
         progressMessage: '编译已取消',
         error: null,
         logs: null,
+        issues: [],
         pendingUpload: null,
       })
       return
     }
     const message = errorMessage(error) || '浏览器编译失败'
+    const failureLogs = compiled?.logs ?? message
     patch(projectId, {
       phase: 'failed',
       error: compiled
         ? `PDF 已在浏览器生成，但上传或保存编译记录失败：${message}`
         : message,
-      logs: compiled?.logs ?? message,
+      logs: failureLogs,
+      issues: parseIssues(failureLogs, projectFiles, rootFile),
     })
     if (jobId && !compiled) {
       try {
@@ -306,6 +321,8 @@ export function startCompile(options: StartCompileOptions): StartCompileResult {
   const controller = new AbortController()
   running = { projectId: options.projectId, controller }
   useCompileStore.getState().begin(options.projectId, options.projectName)
+  // AI 诊断要带上「编译当时」的入口与编译器：用户随后切换下拉框不应改变请求含义。
+  patch(options.projectId, { rootFile: options.rootFile, compiler: options.compiler })
   return { ok: true, done: runCompile(options, controller) }
 }
 
@@ -336,6 +353,7 @@ export async function retryBrowserUpload(projectId: string): Promise<void> {
       buildId: uploaded.build_id,
       progressMessage: 'PDF 已保存',
       retryingUpload: false,
+      // issues 在生成 PDF 那一步已按同一份日志解析过，重试上传不改变结果。
     })
     void notifyWhenBackground('编译完成', 'PDF 已生成')
     notifyAway(projectId, 'success', 'PDF 编译完成', '打开撰写页即可查看和下载。')

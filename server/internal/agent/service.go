@@ -21,6 +21,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
 	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
+	"github.com/0verL1nk/GraduateProject/server/internal/ratelimit"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -69,6 +70,8 @@ type Service struct {
 	// Norms 提供项目已采用的学术规范；未注入时按「规范库不可用」显式呈现，
 	// 不允许假装「已接入但没有采用」。
 	Norms norms.Provider
+	// diagnosisLimiter 限制编译报错 AI 诊断（一次性真模型调用，成本敏感）。
+	diagnosisLimiter *ratelimit.Limiter
 }
 
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
@@ -79,6 +82,7 @@ func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
 		hub: newRunHub(), cancels: map[store.UUID]context.CancelFunc{},
 		retries: map[string]store.UUID{}, startedAt: time.Now().UTC(),
 		runCtx: runCtx, stopRuns: stopRuns,
+		diagnosisLimiter: ratelimit.New(),
 	}
 	_ = s.ReconcileOrphanRuns(context.Background())
 	return s

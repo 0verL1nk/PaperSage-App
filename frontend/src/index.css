@@ -504,6 +504,43 @@ html.desktop-client body {
   }
 }
 
+/* 编译报错行内标记（Monaco decorations，见 hooks/use-latex-editor.ts）。 */
+.latex-issue-line-error {
+  background-color: color-mix(in oklab, var(--destructive) 10%, transparent);
+}
+
+.latex-issue-line-warning {
+  background-color: color-mix(in oklab, #d97706 8%, transparent);
+}
+
+.latex-issue-inline-error {
+  text-decoration: underline wavy var(--destructive);
+  text-underline-offset: 3px;
+}
+
+.latex-issue-inline-warning {
+  text-decoration: underline wavy #d97706;
+  text-underline-offset: 3px;
+}
+
+.latex-issue-glyph-error::before,
+.latex-issue-glyph-warning::before {
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 6px auto 0;
+  border-radius: 9999px;
+}
+
+.latex-issue-glyph-error::before {
+  background: var(--destructive);
+}
+
+.latex-issue-glyph-warning::before {
+  background: #d97706;
+}
+
 /* 独立滚动的窄栏需要让用户看见「下面还有内容」（如写作准备页左栏）。 */
 @utility scroll-visible {
   scrollbar-color: color-mix(in oklab, var(--muted-foreground) 55%, transparent) transparent;

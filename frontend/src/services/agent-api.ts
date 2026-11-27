@@ -259,6 +259,38 @@ export function rejectProposal(id: string, config?: ApiRequestConfig) {
   return postJson<{ status: string }>(AGENT.rejectProposal(id), {}, config)
 }
 
+// --- 编译报错 AI 诊断（一次性真模型调用）---
+
+export interface CompileDiagnosisPatch {
+  proposalId: string
+  filePath: string
+  oldText: string
+  newText: string
+  note: string
+  status: string
+}
+
+export interface CompileDiagnosis {
+  rootCause: string
+  patch: CompileDiagnosisPatch | null
+  /** patch 为空时说明原因（例如模型给出的锚点与当前稿件不一致）。 */
+  notice: string | null
+}
+
+export interface CompileDiagnosisInput {
+  filePath: string
+  line: number
+  errorMessage: string
+  logExcerpt: string
+  compiler: string
+  rootFile: string
+}
+
+export function diagnoseCompileError(projectId: string, input: CompileDiagnosisInput, config?: ApiRequestConfig) {
+  requireSignedInForAI()
+  return postJson<CompileDiagnosis>(AGENT.compileDiagnosis(projectId), input, config)
+}
+
 export function artifactUrl(id: string) {
   return AGENT.artifact(id)
 }
