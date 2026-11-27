@@ -79,12 +79,12 @@ func TestEmailCodeNewUserLogin(t *testing.T) {
 	defer srv.Close()
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
-	resp := sendLoginCode(t, srv, "S001@HIT.EDU.CN")
+	resp := sendLoginCode(t, srv, "S001@EXAMPLE.EDU.CN")
 	require.Equal(t, 200, resp.StatusCode, bodyJSON(t, resp)["info"])
 	require.Len(t, cap.sent, 1)
-	assert.Equal(t, "s001@hit.edu.cn", cap.sent[0].to, "邮箱应整串小写后发送")
+	assert.Equal(t, "s001@example.edu.cn", cap.sent[0].to, "邮箱应整串小写后发送")
 
 	code := latestLoginCode(t, cap)
 	var rows []store.EmailLoginCode
@@ -95,12 +95,12 @@ func TestEmailCodeNewUserLogin(t *testing.T) {
 	assert.WithinDuration(t, time.Now().UTC().Add(emailCodeTTL), rows[0].ExpiresAt, 5*time.Second)
 
 	// 错码 → 401 且带剩余次数
-	resp = verifyLoginCode(t, srv, "s001@hit.edu.cn", wrongCode(code))
+	resp = verifyLoginCode(t, srv, "s001@example.edu.cn", wrongCode(code))
 	require.Equal(t, 401, resp.StatusCode)
 	assert.Contains(t, bodyJSON(t, resp)["info"], "4 attempts left")
 
 	// 正确码 → token + isNewUser
-	resp = verifyLoginCode(t, srv, "s001@hit.edu.cn", code)
+	resp = verifyLoginCode(t, srv, "s001@example.edu.cn", code)
 	verified := bodyJSON(t, resp)
 	require.Equal(t, 200, resp.StatusCode, verified["info"])
 	data := verified["data"].(map[string]any)
@@ -109,7 +109,7 @@ func TestEmailCodeNewUserLogin(t *testing.T) {
 	require.NotEmpty(t, access)
 
 	var user store.User
-	require.NoError(t, srv.db.Where("email = ?", "s001@hit.edu.cn").First(&user).Error)
+	require.NoError(t, srv.db.Where("email = ?", "s001@example.edu.cn").First(&user).Error)
 	assert.True(t, user.EmailVerified)
 	assert.True(t, user.IsEmailRegistered)
 	assert.True(t, user.IsActive)
@@ -123,11 +123,11 @@ func TestEmailCodeNewUserLogin(t *testing.T) {
 	assert.Equal(t, true, me["emailVerified"])
 
 	// 占位密码不可登录
-	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{"account": {"s001@hit.edu.cn"}, "password": {"whatever1"}})
+	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{"account": {"s001@example.edu.cn"}, "password": {"whatever1"}})
 	assert.Equal(t, 401, resp.StatusCode)
 
 	// 同一码重放 → 401（一次性核销）
-	resp = verifyLoginCode(t, srv, "s001@hit.edu.cn", code)
+	resp = verifyLoginCode(t, srv, "s001@example.edu.cn", code)
 	assert.Equal(t, 401, resp.StatusCode)
 }
 
@@ -136,8 +136,8 @@ func TestEmailCodeSendCooldown(t *testing.T) {
 	defer srv.Close()
 	srv.setEmailSender(t, &captureSender{})
 
-	require.Equal(t, 200, sendLoginCode(t, srv, "cool@hit.edu.cn").StatusCode)
-	resp := sendLoginCode(t, srv, "cool@hit.edu.cn")
+	require.Equal(t, 200, sendLoginCode(t, srv, "cool@example.edu.cn").StatusCode)
+	resp := sendLoginCode(t, srv, "cool@example.edu.cn")
 	require.Equal(t, 429, resp.StatusCode)
 	assert.Equal(t, "60", resp.Header.Get("Retry-After"))
 }
@@ -151,7 +151,7 @@ func TestEmailCodeSendIPLimit(t *testing.T) {
 	for i := 0; i < emailCodePerIPHour; i++ {
 		require.True(t, srv.svc.limiter.allowWindow("email-code-ip:127.0.0.1", emailCodePerIPHour, time.Hour))
 	}
-	resp := sendLoginCode(t, srv, "limited@hit.edu.cn")
+	resp := sendLoginCode(t, srv, "limited@example.edu.cn")
 	assert.Equal(t, 429, resp.StatusCode)
 }
 
@@ -160,7 +160,7 @@ func TestEmailCodeWhitelistRejected(t *testing.T) {
 	defer srv.Close()
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
-	srv.setupWhitelist(t, "hit.edu.cn")
+	srv.setupWhitelist(t, "example.edu.cn")
 
 	resp := sendLoginCode(t, srv, "someone@gmail.com")
 	require.Equal(t, 400, resp.StatusCode)
@@ -174,19 +174,19 @@ func TestEmailCodeResendInvalidatesOldCode(t *testing.T) {
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
 
-	require.Equal(t, 200, sendLoginCode(t, srv, "resend@hit.edu.cn").StatusCode)
+	require.Equal(t, 200, sendLoginCode(t, srv, "resend@example.edu.cn").StatusCode)
 	oldCode := latestLoginCode(t, cap)
 
 	srv.svc.limiter = newRateLimiter() // 跳过 60s 冷却，模拟冷却后重发
-	require.Equal(t, 200, sendLoginCode(t, srv, "resend@hit.edu.cn").StatusCode)
+	require.Equal(t, 200, sendLoginCode(t, srv, "resend@example.edu.cn").StatusCode)
 	newCode := latestLoginCode(t, cap)
 	require.NotEqual(t, oldCode, newCode)
 
-	assert.Equal(t, 401, verifyLoginCode(t, srv, "resend@hit.edu.cn", oldCode).StatusCode, "旧码必须作废")
-	assert.Equal(t, 200, verifyLoginCode(t, srv, "resend@hit.edu.cn", newCode).StatusCode)
+	assert.Equal(t, 401, verifyLoginCode(t, srv, "resend@example.edu.cn", oldCode).StatusCode, "旧码必须作废")
+	assert.Equal(t, 200, verifyLoginCode(t, srv, "resend@example.edu.cn", newCode).StatusCode)
 
 	var count int64
-	require.NoError(t, srv.db.Model(&store.EmailLoginCode{}).Where("email = ?", "resend@hit.edu.cn").Count(&count).Error)
+	require.NoError(t, srv.db.Model(&store.EmailLoginCode{}).Where("email = ?", "resend@example.edu.cn").Count(&count).Error)
 	assert.Equal(t, int64(1), count, "已用/过期行应被清理，表不随发送次数增长")
 }
 
@@ -196,13 +196,13 @@ func TestEmailCodeExpired(t *testing.T) {
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
 
-	require.Equal(t, 200, sendLoginCode(t, srv, "expire@hit.edu.cn").StatusCode)
+	require.Equal(t, 200, sendLoginCode(t, srv, "expire@example.edu.cn").StatusCode)
 	code := latestLoginCode(t, cap)
 	require.NoError(t, srv.db.Model(&store.EmailLoginCode{}).
-		Where("email = ?", "expire@hit.edu.cn").
+		Where("email = ?", "expire@example.edu.cn").
 		Update("expires_at", time.Now().UTC().Add(-time.Second)).Error)
 
-	resp := verifyLoginCode(t, srv, "expire@hit.edu.cn", code)
+	resp := verifyLoginCode(t, srv, "expire@example.edu.cn", code)
 	require.Equal(t, 401, resp.StatusCode)
 	assert.Equal(t, "Invalid or expired verification code", bodyJSON(t, resp)["info"])
 }
@@ -213,20 +213,20 @@ func TestEmailCodeLocksAfterFiveWrongAttempts(t *testing.T) {
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
 
-	require.Equal(t, 200, sendLoginCode(t, srv, "lock@hit.edu.cn").StatusCode)
+	require.Equal(t, 200, sendLoginCode(t, srv, "lock@example.edu.cn").StatusCode)
 	code := latestLoginCode(t, cap)
 	wrong := wrongCode(code)
 
 	for i := 1; i < emailCodeMaxAttempts; i++ {
-		resp := verifyLoginCode(t, srv, "lock@hit.edu.cn", wrong)
+		resp := verifyLoginCode(t, srv, "lock@example.edu.cn", wrong)
 		require.Equal(t, 401, resp.StatusCode)
 		assert.Contains(t, bodyJSON(t, resp)["info"], "attempts left")
 	}
-	resp := verifyLoginCode(t, srv, "lock@hit.edu.cn", wrong)
+	resp := verifyLoginCode(t, srv, "lock@example.edu.cn", wrong)
 	require.Equal(t, 401, resp.StatusCode)
 	assert.Contains(t, bodyJSON(t, resp)["info"], "Too many incorrect")
 
-	assert.Equal(t, 401, verifyLoginCode(t, srv, "lock@hit.edu.cn", code).StatusCode, "错满 5 次后正确码也不能用")
+	assert.Equal(t, 401, verifyLoginCode(t, srv, "lock@example.edu.cn", code).StatusCode, "错满 5 次后正确码也不能用")
 }
 
 func TestEmailCodeSendFailureInvalidatesCode(t *testing.T) {
@@ -234,11 +234,11 @@ func TestEmailCodeSendFailureInvalidatesCode(t *testing.T) {
 	defer srv.Close()
 	srv.setEmailSender(t, failingSender{err: errors.New("smtp down")})
 
-	resp := sendLoginCode(t, srv, "down@hit.edu.cn")
+	resp := sendLoginCode(t, srv, "down@example.edu.cn")
 	require.Equal(t, 503, resp.StatusCode)
 
 	var row store.EmailLoginCode
-	require.NoError(t, srv.db.Where("email = ?", "down@hit.edu.cn").First(&row).Error)
+	require.NoError(t, srv.db.Where("email = ?", "down@example.edu.cn").First(&row).Error)
 	assert.NotNil(t, row.UsedAt, "发信失败必须作废，避免没收到却能猜")
 }
 
@@ -250,28 +250,28 @@ func TestEmailCodeActivatesExistingUnverifiedAccount(t *testing.T) {
 
 	// 邮箱密码注册（未验证）
 	resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
-		"email": {"old@hit.edu.cn"}, "password": {"OldPass123"},
+		"email": {"old@example.edu.cn"}, "password": {"OldPass123"},
 	})
 	require.Equal(t, 200, resp.StatusCode)
 
 	srv.svc.limiter = newRateLimiter()
-	require.Equal(t, 200, sendLoginCode(t, srv, "old@hit.edu.cn").StatusCode)
+	require.Equal(t, 200, sendLoginCode(t, srv, "old@example.edu.cn").StatusCode)
 	code := latestLoginCode(t, cap)
 
-	resp = verifyLoginCode(t, srv, "old@hit.edu.cn", code)
+	resp = verifyLoginCode(t, srv, "old@example.edu.cn", code)
 	verified := bodyJSON(t, resp)
 	require.Equal(t, 200, resp.StatusCode, verified["info"])
 	data := verified["data"].(map[string]any)
 	assert.Equal(t, false, data["isNewUser"], "已存在账号不应重复建号")
 
 	var user store.User
-	require.NoError(t, srv.db.Where("email = ?", "old@hit.edu.cn").First(&user).Error)
+	require.NoError(t, srv.db.Where("email = ?", "old@example.edu.cn").First(&user).Error)
 	assert.True(t, user.EmailVerified, "验证码核销应激活未验证账号")
 	assert.True(t, hasPassword(user.PasswordHash))
 
 	// 激活后原密码可登录
 	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{
-		"account": {"old@hit.edu.cn"}, "password": {"OldPass123"},
+		"account": {"old@example.edu.cn"}, "password": {"OldPass123"},
 	})
 	assert.Equal(t, 200, resp.StatusCode)
 }
@@ -284,17 +284,17 @@ func TestEmailCodeCaseInsensitiveMatchesExistingAccount(t *testing.T) {
 
 	// 存量账号邮箱保留大小写
 	resp := postForm(t, srv.URL+"/api/v1/auth/register", url.Values{
-		"account": {"Zhang"}, "password": {"OldPass123"}, "email": {"Zhang@hit.edu.cn"},
+		"account": {"Zhang"}, "password": {"OldPass123"}, "email": {"Zhang@example.edu.cn"},
 	})
 	require.Equal(t, 200, resp.StatusCode)
 
 	srv.svc.limiter = newRateLimiter()
-	require.Equal(t, 200, sendLoginCode(t, srv, "zhang@hit.edu.cn").StatusCode)
-	resp = verifyLoginCode(t, srv, "zhang@hit.edu.cn", latestLoginCode(t, cap))
+	require.Equal(t, 200, sendLoginCode(t, srv, "zhang@example.edu.cn").StatusCode)
+	resp = verifyLoginCode(t, srv, "zhang@example.edu.cn", latestLoginCode(t, cap))
 	require.Equal(t, 200, resp.StatusCode)
 
 	var count int64
-	require.NoError(t, srv.db.Model(&store.User{}).Where("LOWER(email) = ?", "zhang@hit.edu.cn").Count(&count).Error)
+	require.NoError(t, srv.db.Model(&store.User{}).Where("LOWER(email) = ?", "zhang@example.edu.cn").Count(&count).Error)
 	assert.Equal(t, int64(1), count, "大小写不同不应分裂出第二个账号")
 }
 
@@ -304,7 +304,7 @@ func TestEmailCodeDisabledAccount(t *testing.T) {
 	cap := &captureSender{}
 	srv.setEmailSender(t, cap)
 
-	email := "off@hit.edu.cn"
+	email := "off@example.edu.cn"
 	hash, err := HashPassword("OldPass123")
 	require.NoError(t, err)
 	off := store.User{
@@ -325,9 +325,9 @@ func TestEmailCodeVerifyRejectsMalformedInput(t *testing.T) {
 	srv := newAuthTestServer(t)
 	defer srv.Close()
 
-	resp := postJSON(t, srv.URL+"/api/v1/auth/email-code/verify", map[string]string{"email": "a@hit.edu.cn", "code": "12345"})
+	resp := postJSON(t, srv.URL+"/api/v1/auth/email-code/verify", map[string]string{"email": "a@example.edu.cn", "code": "12345"})
 	assert.Equal(t, 422, resp.StatusCode)
-	resp = postJSON(t, srv.URL+"/api/v1/auth/email-code/verify", map[string]string{"email": "a@hit.edu.cn", "code": "abcdef"})
+	resp = postJSON(t, srv.URL+"/api/v1/auth/email-code/verify", map[string]string{"email": "a@example.edu.cn", "code": "abcdef"})
 	assert.Equal(t, 422, resp.StatusCode)
 }
 
@@ -338,8 +338,8 @@ func TestSetPasswordForAutoRegisteredUser(t *testing.T) {
 	srv.setEmailSender(t, cap)
 
 	// 验证码登录自动注册
-	require.Equal(t, 200, sendLoginCode(t, srv, "setpw@hit.edu.cn").StatusCode)
-	resp := verifyLoginCode(t, srv, "setpw@hit.edu.cn", latestLoginCode(t, cap))
+	require.Equal(t, 200, sendLoginCode(t, srv, "setpw@example.edu.cn").StatusCode)
+	resp := verifyLoginCode(t, srv, "setpw@example.edu.cn", latestLoginCode(t, cap))
 	require.Equal(t, 200, resp.StatusCode)
 	access := bodyJSON(t, resp)["data"].(map[string]any)["accessToken"].(string)
 
@@ -354,7 +354,7 @@ func TestSetPasswordForAutoRegisteredUser(t *testing.T) {
 	assert.Equal(t, true, bodyJSON(t, resp)["data"].(map[string]any)["hasPassword"])
 
 	// 新密码可登录
-	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{"account": {"setpw@hit.edu.cn"}, "password": {"NewPass123"}})
+	resp = postForm(t, srv.URL+"/api/v1/auth/login", url.Values{"account": {"setpw@example.edu.cn"}, "password": {"NewPass123"}})
 	require.Equal(t, 200, resp.StatusCode)
 
 	// 已设密码后修改必须校验旧密码
@@ -370,10 +370,10 @@ func TestSetPasswordForAutoRegisteredUser(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 
 	assert.Equal(t, 401, postForm(t, srv.URL+"/api/v1/auth/login", url.Values{
-		"account": {"setpw@hit.edu.cn"}, "password": {"NewPass123"},
+		"account": {"setpw@example.edu.cn"}, "password": {"NewPass123"},
 	}).StatusCode)
 	assert.Equal(t, 200, postForm(t, srv.URL+"/api/v1/auth/login", url.Values{
-		"account": {"setpw@hit.edu.cn"}, "password": {"Another123"},
+		"account": {"setpw@example.edu.cn"}, "password": {"Another123"},
 	}).StatusCode)
 }
 
@@ -397,7 +397,7 @@ func TestEmailCodeSendRejectsMalformedAddresses(t *testing.T) {
 		"   ",
 		"no-at-sign",
 		"a@b.com\r\nBcc: evil@example.com",
-		"a b@hit.edu.cn",
+		"a b@example.edu.cn",
 	} {
 		resp := postJSON(t, srv.URL+"/api/v1/auth/email-code/send", map[string]string{"email": email})
 		assert.Equal(t, 400, resp.StatusCode, "邮箱 %q 必须被拒绝", email)

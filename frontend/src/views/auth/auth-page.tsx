@@ -411,7 +411,7 @@ export function AuthPage() {
                                   autoCapitalize="none"
                                   spellCheck={false}
                                   {...codeForm.register('email')}
-                                  placeholder="your-id@hit.edu.cn"
+                                  placeholder="your-id@example.edu.cn"
                                   className={cn(fieldInputClass, 'min-h-12')}
                                 />
                                 {codeForm.formState.errors.email && (
@@ -556,7 +556,7 @@ export function AuthPage() {
                               autoCapitalize="none"
                               spellCheck={false}
                               {...registerForm.register('email')}
-                              placeholder="your-id@hit.edu.cn"
+                              placeholder="your-id@example.edu.cn"
                               className={fieldInputClass}
                             />
                             {registerForm.formState.errors.email && (

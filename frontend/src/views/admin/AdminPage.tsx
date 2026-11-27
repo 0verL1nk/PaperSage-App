@@ -38,7 +38,7 @@ export function AdminPage() {
     const v = draft.trim().toLowerCase().replace(/^\*\./, '*.')
     if (!v || domains.includes(v)) return
     if (!/^(\*\.)?[a-z0-9.-]+\.[a-z]{2,}$/.test(v)) {
-      toast.error('格式不正确', { description: '示例：hit.edu.cn 或 *.hit.edu.cn' })
+      toast.error('格式不正确', { description: '示例：example.edu.cn 或 *.example.edu.cn' })
       return
     }
     setEditDomains([...domains, v])
@@ -57,8 +57,8 @@ export function AdminPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            限制新用户注册使用的邮箱域名。<span className="font-medium">hit.edu.cn</span> 允许该域及全部子域；
-            <span className="font-medium">*.hit.edu.cn</span> 仅允许子域。列表为空 = 不限制。
+            限制新用户注册使用的邮箱域名。<span className="font-medium">example.edu.cn</span> 允许该域及全部子域；
+            <span className="font-medium">*.example.edu.cn</span> 仅允许子域。列表为空 = 不限制。
           </p>
 
           <div className="flex gap-2">
@@ -66,7 +66,7 @@ export function AdminPage() {
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && addDomain()}
-              placeholder="hit.edu.cn"
+              placeholder="example.edu.cn"
               className="h-9"
             />
             <Button size="sm" variant="outline" className="h-9 rounded-lg" onClick={addDomain}>

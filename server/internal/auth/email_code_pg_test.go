@@ -65,7 +65,7 @@ func TestEmailCodeConcurrentVerifyConsumesOnce(t *testing.T) {
 	srv := httptest.NewServer(api)
 	defer srv.Close()
 
-	email := fmt.Sprintf("race-%d@hit.edu.cn", time.Now().UnixNano())
+	email := fmt.Sprintf("race-%d@example.edu.cn", time.Now().UnixNano())
 	payload, err := json.Marshal(map[string]string{"email": email})
 	require.NoError(t, err)
 	sendResp, err := http.Post(srv.URL+"/api/v1/auth/email-code/send", "application/json", bytes.NewReader(payload))

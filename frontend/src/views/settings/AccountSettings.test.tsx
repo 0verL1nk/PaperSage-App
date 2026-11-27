@@ -43,7 +43,7 @@ describe('AccountSettings', () => {
     const user = userEvent.setup()
     vi.mocked(getCurrentUser).mockResolvedValue({
       username: 's001',
-      email: 's001@hit.edu.cn',
+      email: 's001@example.edu.cn',
       emailVerified: true,
       hasPassword: false,
       isGuest: false,
@@ -69,7 +69,7 @@ describe('AccountSettings', () => {
     const user = userEvent.setup()
     vi.mocked(getCurrentUser).mockResolvedValue({
       username: 'alice',
-      email: 'alice@hit.edu.cn',
+      email: 'alice@example.edu.cn',
       emailVerified: true,
       hasPassword: true,
       isGuest: false,
