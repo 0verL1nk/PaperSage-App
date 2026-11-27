@@ -4,6 +4,7 @@
 import { Link, Outlet, useLocation } from '@tanstack/react-router'
 import { ShieldCheck } from 'lucide-react'
 
+import { PageContainer } from '@/components/shared'
 import { cn } from '@/lib/utils'
 
 const TABS = [
@@ -15,13 +16,13 @@ export function AdminLayout() {
   const location = useLocation()
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 p-4 sm:p-6">
+    <PageContainer size="wide" className="space-y-6 py-4 sm:py-6">
       <div className="flex items-center gap-2">
-        <ShieldCheck className="size-5 text-primary/70" />
-        <h1 className="text-lg font-semibold">管理后台</h1>
+        <ShieldCheck className="size-5 text-primary" />
+        <h1 className="text-h1">管理后台</h1>
       </div>
 
-      <nav aria-label="管理后台导航" className="-mx-1 flex gap-1 overflow-x-auto px-1 pb-1">
+      <nav aria-label="管理后台导航" className="flex gap-1 overflow-x-auto pb-1">
         {TABS.map((tab) => {
           const isActive = tab.to === '/app/admin'
             ? location.pathname === '/app/admin' || location.pathname === '/app/admin/'
@@ -33,7 +34,7 @@ export function AdminLayout() {
               className={cn(
                 'shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
                 isActive
-                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  ? 'bg-muted text-foreground'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
               )}
             >
@@ -44,6 +45,6 @@ export function AdminLayout() {
       </nav>
 
       <Outlet />
-    </div>
+    </PageContainer>
   )
 }

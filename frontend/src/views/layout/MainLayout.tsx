@@ -6,8 +6,6 @@ import { ShieldCheck,
   User,
   FolderOpen,
   LogOut,
-  Search,
-  Bell,
   Settings,
   Plus,
   Menu,
@@ -16,7 +14,6 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { Events } from '@wailsio/runtime'
 import { isDesktop } from '@/lib/desktop'
 import { useTranslation } from 'react-i18next'
-import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -80,7 +77,7 @@ export function MainLayout({ children }: MainLayoutProps) {
   return (
     <div className="flex h-full flex-col bg-background font-sans tracking-tight overflow-hidden">
       {/* Header: Fixed height */}
-      <header className="apple-glass desktop-drag relative z-50 flex h-12 flex-none select-none items-center justify-between border-b border-border pl-4">
+      <header className="desktop-drag relative z-50 flex h-12 flex-none select-none items-center justify-between border-b border-border pl-4">
         {/* Left: Logo and Mobile Menu */}
         <div className="desktop-no-drag flex items-center lg:w-64">
           <DesktopAppMenu className="mr-1" />
@@ -112,13 +109,13 @@ export function MainLayout({ children }: MainLayoutProps) {
                         to={item.path}
                         onClick={() => setMobileMenuOpen(false)}
                         className={cn(
-                          "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                          "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                           isActive
-                            ? "bg-primary text-primary-foreground shadow-sm"
+                            ? "bg-muted text-foreground"
                             : "text-muted-foreground hover:bg-muted hover:text-foreground"
                         )}
                       >
-                        <Icon className={cn("size-4", isActive ? "text-inherit" : "opacity-60")} />
+                        <Icon className={cn("size-4", isActive ? "text-primary" : "opacity-60")} />
                         {t(item.labelKey)}
                       </Link>
                     )
@@ -127,13 +124,13 @@ export function MainLayout({ children }: MainLayoutProps) {
                     <Link
                       to="/app/admin"
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                        "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                         location.pathname.startsWith('/app/admin')
-                          ? "bg-primary text-primary-foreground shadow-sm"
+                          ? "bg-muted text-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       )}
                     >
-                      <ShieldCheck className="size-4 opacity-60" />
+                      <ShieldCheck className="size-4 text-primary" />
                       Admin
                     </Link>
                   )}
@@ -161,27 +158,12 @@ export function MainLayout({ children }: MainLayoutProps) {
           </Link>
         </div>
 
-        {/* Center: Search */}
-        <div className="desktop-no-drag relative hidden max-w-xl flex-1 px-4 md:block">
-          <Search className="absolute left-7 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            aria-label={t('layout.search')}
-            placeholder={t('layout.searchPlaceholder')}
-            className="h-8 w-full bg-muted border-none text-sm rounded-lg pl-9 focus-visible:ring-1 focus-visible:ring-ring"
-          />
-        </div>
+        <div className="flex-1" />
 
         {/* Right: Actions */}
         <div className="desktop-no-drag flex items-center justify-end gap-1 lg:w-64">
-          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted md:hidden" aria-label={t('layout.search')}>
-            <Search className="size-4 text-muted-foreground" />
-          </Button>
           <GuestModeChip className="rounded-full" />
           {!isGuest && <ApiTargetToggle />}
-          <Button variant="ghost" size="icon-sm" className="rounded-full hover:bg-muted" aria-label={t('layout.notifications')}>
-            <Bell className="size-4 text-muted-foreground" />
-          </Button>
           <div className="h-4 w-px bg-border mx-1 md:mx-2" />
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -256,13 +238,13 @@ export function MainLayout({ children }: MainLayoutProps) {
                   key={item.path}
                   to={item.path}
                   className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-all duration-200",
+                    "flex min-h-11 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                     isActive
-                      ? "bg-primary text-primary-foreground shadow-sm"
+                      ? "bg-muted text-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
                   )}
                 >
-                  <Icon className={cn("size-4", isActive ? "text-inherit" : "opacity-60")} />
+                  <Icon className={cn("size-4", isActive ? "text-primary" : "opacity-60")} />
                   {t(item.labelKey)}
                 </Link>
               )

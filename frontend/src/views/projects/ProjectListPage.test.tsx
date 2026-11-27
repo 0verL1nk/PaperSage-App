@@ -40,6 +40,10 @@ vi.mock('lucide-react', () => ({
   AlertTriangle: () => <span>AlertTriangle</span>,
   XIcon: () => <span>XIcon</span>,
   ChevronRight: () => <span>ChevronRight</span>,
+  Inbox: () => <span>Inbox</span>,
+  TriangleAlert: () => <span>TriangleAlert</span>,
+  LoaderCircle: () => <span>LoaderCircle</span>,
+  PenLine: () => <span>PenLine</span>,
 }))
 
 // Mock ConfirmDialog

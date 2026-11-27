@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import '@/i18n'
 import { CompileDiagnosticsPage } from './CompileDiagnosticsPage'
 import { FrontendApiError } from '@/services/errors'
 import type { CompileDiagnosticDetail, CompileDiagnosticItem, CompileDiagnosticPage } from '@/services/admin-api'

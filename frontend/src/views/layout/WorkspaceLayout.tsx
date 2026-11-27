@@ -45,7 +45,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   return (
     <div className="flex h-full flex-col bg-background overflow-hidden">
       {/* Ultra-clean Top Navigation Bar */}
-      <header className="desktop-drag relative z-50 flex h-14 flex-none select-none items-center gap-4 border-b border-border/40 bg-background/80 pl-4 backdrop-blur-xl">
+      <header className="desktop-drag relative z-50 flex h-14 flex-none select-none items-center gap-4 border-b border-border bg-background/80 pl-4 backdrop-blur-xl">
 
         {/* Left: Branding & Breadcrumbs */}
         <div className="desktop-no-drag flex min-w-0 flex-1 items-center gap-3">
@@ -62,7 +62,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
           <div className="h-4 w-px bg-border/50 mx-1" />
 
           <Link to="/" className="flex items-center gap-2 hover:opacity-70 transition-all hover:scale-105 active:scale-95">
-            <div className="flex size-5 items-center justify-center rounded-[4px] bg-foreground shadow-sm">
+            <div className="flex size-5 items-center justify-center rounded-sm bg-foreground shadow-sm">
               <span className="text-[10px] font-bold text-background italic">S</span>
             </div>
           </Link>
@@ -73,10 +73,10 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
             <Skeleton className="h-4 w-24 rounded" />
           ) : projectFailed ? (
             // 读取失败时不要用「未知项目」冒充项目名：等页面自己的错误态给出重试入口。
-            <span className="text-[13px] text-muted-foreground">项目信息暂不可用</span>
+            <span className="text-body-sm text-muted-foreground">项目信息暂不可用</span>
           ) : (
             <div className="flex min-w-0 items-center gap-2">
-              <h2 className="max-w-[240px] truncate text-[13px] font-medium text-foreground">
+              <h2 className="max-w-[240px] truncate text-body-sm font-medium text-foreground">
                 {project?.name || '项目'}
               </h2>
             </div>
@@ -84,7 +84,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
         </div>
 
         {/* Center: Clean Pill Tabs with improved Hover */}
-        <div className="desktop-no-drag hidden flex-none items-center rounded-full border border-border/50 bg-muted/60 p-1 shadow-sm lg:flex">
+        <div className="desktop-no-drag hidden flex-none items-center rounded-full border border-border bg-muted p-1 shadow-sm lg:flex">
           {projectTabs.map((tab) => {
             const Icon = tab.icon
             const isActive = activeTab === tab.key
@@ -94,9 +94,9 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavigate(tab.path)}
                 className={cn(
-                  "group relative flex min-h-12 items-center gap-1.5 overflow-hidden rounded-full px-4 py-2 text-[13px] font-medium outline-none transition-all duration-300",
+                  "group relative flex min-h-12 items-center gap-1.5 overflow-hidden rounded-full px-4 py-2 text-body-sm font-medium outline-none transition-all duration-300",
                   isActive
-                    ? "bg-background text-primary shadow-[0_2px_10px_-3px_rgba(0,0,0,0.1)] ring-1 ring-border/50"
+                    ? "bg-background text-primary shadow-sm ring-1 ring-border"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
@@ -129,13 +129,13 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
       </header>
 
       {!isGuest && guestImportPending && (
-        <div className="flex-none border-b border-amber-500/20 bg-amber-500/[0.04] px-4 py-2">
+        <div className="flex-none border-b border-warning/20 bg-warning/5 px-4 py-2">
           <GuestSessionBadge compact />
         </div>
       )}
 
       {/* Mobile Tabs Fallback（<1024 横向滚动，不换行也不压标题） */}
-      <nav className="lg:hidden flex-none sticky top-14 z-40 bg-background/80 backdrop-blur-xl border-b border-border/40 px-2">
+      <nav className="lg:hidden flex-none sticky top-14 z-40 bg-background/80 backdrop-blur-xl border-b border-border px-2">
         <div className="flex h-12 items-center gap-1 overflow-x-auto no-scrollbar">
           {projectTabs.map((tab) => {
             const isActive = activeTab === tab.key
@@ -145,9 +145,9 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavigate(tab.path)}
                 className={cn(
-                  "flex-none min-h-11 px-4 h-full text-[13px] font-medium transition-all outline-none whitespace-nowrap border-b-2",
-                  isActive 
-                    ? "text-primary border-primary bg-primary/5" 
+                  "flex-none min-h-11 px-4 h-full text-body-sm font-medium transition-all outline-none whitespace-nowrap border-b-2",
+                  isActive
+                    ? "text-primary border-primary bg-muted"
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
                 )}
               >
@@ -159,7 +159,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
       </nav>
 
       {/* Main Content Area: Now using flex-1 and overflow-hidden for 3-pane internal scroll */}
-      <main className="flex-1 bg-muted/5 overflow-hidden relative">
+      <main className="flex-1 bg-background overflow-hidden relative">
         {children}
       </main>
     </div>

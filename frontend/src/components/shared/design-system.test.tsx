@@ -123,6 +123,7 @@ describe('SegmentedControl', () => {
         ariaLabel="项目筛选"
       />,
     )
+    expect(screen.getByRole('group', { name: '项目筛选' })).toBeInTheDocument()
     expect(screen.getByRole('radio', { name: '全部' })).toHaveAttribute('aria-checked', 'true')
     await user.click(screen.getByRole('radio', { name: '我的' }))
     expect(onValueChange).toHaveBeenCalledWith('mine')

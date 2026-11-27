@@ -6,7 +6,7 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
-import { ClipboardCopy, Download, RefreshCw, ShieldAlert, TriangleAlert } from 'lucide-react'
+import { ClipboardCopy, Download, ShieldAlert } from 'lucide-react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -15,8 +15,8 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { Skeleton } from '@/components/ui/skeleton'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { EmptyState, ErrorState, LoadingState } from '@/components/shared'
 import {
   getCompileDiagnostic,
   listCompileDiagnostics,
@@ -178,76 +178,64 @@ export function CompileDiagnosticsPage() {
       </div>
 
       {listQuery.isLoading ? (
-        <Card>
-          <CardContent className="space-y-3 p-4">
-            <span className="sr-only">正在加载编译错误日志</span>
-            {[0, 1, 2].map((row) => <Skeleton key={row} className="h-10 w-full" />)}
-          </CardContent>
-        </Card>
+        <LoadingState title="正在加载编译错误日志" rows={3} />
       ) : forbidden ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
-            <ShieldAlert className="size-8 text-muted-foreground" />
-            <p className="text-sm font-medium">需要管理员权限</p>
-            <p className="text-xs text-muted-foreground">当前账号没有查看编译错误日志的权限，请联系管理员。</p>
+        <EmptyState
+          icon={ShieldAlert}
+          title="需要管理员权限"
+          description="当前账号没有查看编译错误日志的权限，请联系管理员。"
+          action={
             <Button size="sm" variant="outline" asChild>
               <Link to="/app/projects">返回项目列表</Link>
             </Button>
-          </CardContent>
-        </Card>
+          }
+        />
       ) : listQuery.isError ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
-            <TriangleAlert className="size-8 text-destructive" />
-            <p className="text-sm font-medium">无法加载编译错误日志</p>
-            <p className="text-xs text-muted-foreground">{friendlyErrorMessage(listQuery.error)}</p>
-            <Button size="sm" variant="outline" onClick={() => void listQuery.refetch()}>
-              <RefreshCw className="mr-1 size-3.5" />重试
-            </Button>
-          </CardContent>
-        </Card>
+        <ErrorState
+          title="无法加载编译错误日志"
+          description={friendlyErrorMessage(listQuery.error)}
+          onRetry={() => void listQuery.refetch()}
+        />
       ) : items.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 p-8 text-center">
-            <p className="text-sm font-medium">暂无编译错误记录</p>
-            <p className="text-xs text-muted-foreground">
-              {Object.values(filters).every((value) => value === 'all' || value === '')
-                ? '编译器目前没有报错记录。用户编译失败后，脱敏诊断会自动出现在这里。'
-                : '当前筛选条件下没有记录，可尝试放宽筛选条件。'}
-            </p>
-          </CardContent>
-        </Card>
+        <EmptyState
+          title="暂无编译错误记录"
+          description={
+            Object.values(filters).every((value) => value === 'all' || value === '')
+              ? '编译器目前没有报错记录。用户编译失败后，脱敏诊断会自动出现在这里。'
+              : '当前筛选条件下没有记录，可尝试放宽筛选条件。'
+          }
+        />
       ) : (
         <>
           <div className="hidden md:block">
-            <Card>
-              <Table>
+            <Card className="overflow-x-auto">
+              <Table className="min-w-[1080px] table-fixed">
                 <TableHeader>
                   <TableRow>
-                    <TableHead>时间</TableHead>
-                    <TableHead>身份</TableHead>
-                    <TableHead>项目</TableHead>
-                    <TableHead>类型</TableHead>
-                    <TableHead>引擎</TableHead>
-                    <TableHead>耗时</TableHead>
+                    <TableHead className="w-[150px]">时间</TableHead>
+                    <TableHead className="w-[80px]">身份</TableHead>
+                    <TableHead className="w-[150px]">项目</TableHead>
+                    <TableHead className="w-[100px]">类型</TableHead>
+                    <TableHead className="w-[90px]">引擎</TableHead>
+                    <TableHead className="w-[90px]">耗时</TableHead>
                     <TableHead>摘要</TableHead>
-                    <TableHead className="text-right">操作</TableHead>
+                    <TableHead className="w-[100px] text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell className="whitespace-nowrap text-xs">{formatTime(item.created_at)}</TableCell>
-                      <TableCell className="text-xs">{identityLabel(item)}</TableCell>
-                      <TableCell className="max-w-[160px] truncate text-xs">{projectLabel(item)}</TableCell>
+                      <TableCell className="truncate text-xs">{formatTime(item.created_at)}</TableCell>
+                      <TableCell className="truncate text-xs">{identityLabel(item)}</TableCell>
+                      <TableCell className="truncate text-xs" title={projectLabel(item)}>{projectLabel(item)}</TableCell>
                       <TableCell>
                         <Badge variant={failureKindVariant(item.failure_kind)}>
                           {FAILURE_KIND_LABELS[item.failure_kind] ?? item.failure_kind}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-xs">{item.engine}</TableCell>
-                      <TableCell className="whitespace-nowrap text-xs">{formatDuration(item.duration_ms)}</TableCell>
-                      <TableCell className="max-w-[240px] truncate text-xs" title={item.error_message}>
+                      <TableCell className="truncate text-xs">{item.engine}</TableCell>
+                      <TableCell className="truncate text-xs">{formatDuration(item.duration_ms)}</TableCell>
+                      <TableCell className="truncate text-xs" title={item.error_message}>
                         {item.error_message}
                       </TableCell>
                       <TableCell className="text-right">
@@ -384,19 +372,14 @@ function DiagnosticDetailSheet({ detailId, onClose }: { detailId: string | null;
         </SheetHeader>
 
         {detailQuery.isLoading ? (
-          <div className="space-y-3 px-4 pb-4">
-            <Skeleton className="h-6 w-2/3" />
-            <Skeleton className="h-24 w-full" />
-          </div>
+          <LoadingState title="正在加载诊断详情" rows={2} compact />
         ) : detailQuery.isError ? (
-          <div className="flex flex-col items-center gap-3 px-4 pb-8 text-center">
-            <TriangleAlert className="size-8 text-destructive" />
-            <p className="text-sm font-medium">无法加载诊断详情</p>
-            <p className="text-xs text-muted-foreground">{friendlyErrorMessage(detailQuery.error)}</p>
-            <Button size="sm" variant="outline" onClick={() => void detailQuery.refetch()}>
-              <RefreshCw className="mr-1 size-3.5" />重试
-            </Button>
-          </div>
+          <ErrorState
+            title="无法加载诊断详情"
+            description={friendlyErrorMessage(detailQuery.error)}
+            onRetry={() => void detailQuery.refetch()}
+            compact
+          />
         ) : detail ? (
           <div className="space-y-4 px-4 pb-6">
             <div className="flex flex-wrap gap-2">
