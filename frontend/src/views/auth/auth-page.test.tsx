@@ -21,7 +21,7 @@ vi.mock('@/services/auth-api', () => ({
   registerWithEmail: vi.fn(),
   sendEmailCode: vi.fn(),
   verifyEmailCode: vi.fn(),
-  getEmailDomains: vi.fn().mockResolvedValue(['hit.edu.cn']),
+  getEmailDomains: vi.fn().mockResolvedValue(['example.edu.cn']),
   resendVerification: vi.fn(),
 }))
 vi.mock('@/services/guest-local-workspace', () => ({ initializeGuestWorkspace: vi.fn() }))
@@ -102,11 +102,11 @@ describe('AuthPage', () => {
     vi.mocked(sendEmailCode).mockResolvedValue({ message: '验证码已发送，请查收邮件。' })
     renderAuthPage()
 
-    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('邮箱'), 'student@example.edu.cn')
     await user.click(screen.getByRole('button', { name: '获取验证码' }))
 
     // TanStack Query v5 会把 mutation context 作为第二个参数传给 mutationFn。
-    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', expect.anything()))
+    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@example.edu.cn', expect.anything()))
     const countdown = await screen.findByRole('button', { name: /重新发送（\d+s）/ })
     expect(countdown).toBeDisabled()
   })
@@ -120,12 +120,12 @@ describe('AuthPage', () => {
     })
     renderAuthPage()
 
-    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('邮箱'), 'student@example.edu.cn')
     await user.type(screen.getByLabelText('验证码'), '123456')
     await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
 
     await waitFor(() => {
-      expect(verifyEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', '123456')
+      expect(verifyEmailCode).toHaveBeenCalledWith('student@example.edu.cn', '123456')
     })
     expect(useSessionStore.getState().accessToken).toBe('access-token')
     expect(useSessionStore.getState().refreshToken).toBe('refresh-token')
@@ -142,7 +142,7 @@ describe('AuthPage', () => {
     })
     renderAuthPage()
 
-    await user.type(screen.getByLabelText('邮箱'), 'new@hit.edu.cn')
+    await user.type(screen.getByLabelText('邮箱'), 'new@example.edu.cn')
     await user.type(screen.getByLabelText('验证码'), '123456')
     await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
 
@@ -160,10 +160,10 @@ describe('AuthPage', () => {
     await user.click(screen.getByRole('button', { name: '获取验证码' }))
     expect(await screen.findByText('请输入邮箱')).toBeVisible()
 
-    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('邮箱'), 'student@example.edu.cn')
     await user.click(screen.getByRole('button', { name: '获取验证码' }))
 
-    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@hit.edu.cn', expect.anything()))
+    await waitFor(() => expect(sendEmailCode).toHaveBeenCalledWith('student@example.edu.cn', expect.anything()))
     await waitFor(() => expect(screen.queryByText('请输入邮箱')).not.toBeInTheDocument())
   })
 
@@ -182,7 +182,7 @@ describe('AuthPage', () => {
     vi.mocked(verifyEmailCode).mockRejectedValue(new Error('验证码错误或已过期，请重新获取。'))
     renderAuthPage()
 
-    await user.type(screen.getByLabelText('邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('邮箱'), 'student@example.edu.cn')
     await user.type(screen.getByLabelText('验证码'), '000000')
     await user.click(screen.getByRole('button', { name: '登录 / 自动注册' }))
 
@@ -230,7 +230,7 @@ describe('AuthPage', () => {
 
     renderAuthPage()
     await user.click(screen.getByRole('tab', { name: '注册新账号' }))
-    await user.type(screen.getByLabelText('学校邮箱'), 'student@hit.edu.cn')
+    await user.type(screen.getByLabelText('学校邮箱'), 'student@example.edu.cn')
     await user.type(screen.getByLabelText('设置密码'), 'PaperSage123')
     await user.type(screen.getByLabelText('确认密码'), 'PaperSage123')
     await user.click(screen.getByRole('button', { name: '创建我的账号' }))

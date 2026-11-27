@@ -121,7 +121,7 @@ describe('credential auth endpoints skip token refresh', () => {
     }
 
     await expect(
-      apiClient.post('/api/v1/auth/email-code/verify', { email: 'a@hit.edu.cn', code: '000000' }, { adapter }),
+      apiClient.post('/api/v1/auth/email-code/verify', { email: 'a@example.edu.cn', code: '000000' }, { adapter }),
     ).rejects.toMatchObject({ status: 401, message: '验证码错误或已过期，请重新获取。' })
 
     expect(create).not.toHaveBeenCalled()

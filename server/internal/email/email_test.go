@@ -83,7 +83,7 @@ func TestSMTPSenderRejectsHeaderInjection(t *testing.T) {
 func TestSMTPSenderAcceptsDisplayAddressSyntax(t *testing.T) {
 	// 只验证地址归一化，不真的建连：无效 Host 会在解析之后才失败。
 	s := &email.SMTP{Host: "127.0.0.1:1", From: "PaperSage <noreply@example.com>"}
-	err := s.Send(context.Background(), "Student <student@hit.edu.cn>", "s", "b")
+	err := s.Send(context.Background(), "Student <student@example.edu.cn>", "s", "b")
 	require.Error(t, err)
 	assert.NotContains(t, err.Error(), "invalid address")
 }

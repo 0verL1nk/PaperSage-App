@@ -105,7 +105,7 @@ identify the bytes tested.
 | Elsevier elsarticle | [CTAN: elsarticle](https://ctan.org/pkg/elsarticle) | Some CTAN downloads are source bundles; run the included installer if the `.cls` is generated from `.ins`, then record what the tested ZIP contains. |
 | ACM acmart | [CTAN: acmart](https://ctan.org/pkg/acmart) | Some source bundles require the documented `.ins` installation step before a compilable fixture has `acmart.cls`. |
 | Nature preprint class | [CTAN: nature](https://ctan.org/pkg/nature) | This is a CTAN preprint class, not evidence that Nature accepts that class for submissions. |
-| HIT thesis archive | User-provided local ZIP | Not an official journal template source; keep the user's archive outside the repository and record its exact digest locally. |
+| University thesis archive | User-provided local ZIP | Not an official journal template source; keep the user's archive outside the repository and record its exact digest locally. |
 
 ## Result interpretation and current known evidence
 
@@ -119,7 +119,7 @@ The existing acceptance record in
 case passing on resource profile `tl2026-swift-ef78b612-r80534-v4`; Springer
 Nature and the CTAN Nature preprint case stopped at missing packages; Elsevier
 and ACM stopped because their generated class files were absent; and the user
-HIT archive stopped at a missing TeX Gyre font. Its later v6 rerun was blocked
+thesis archive stopped at a missing TeX Gyre font. Its later v6 rerun was blocked
 by Vercel Deployment Protection returning HTML instead of TeX resources, so it
 is neither a v6 pass nor a template failure. Those archives are not stored in
 this repository. Consult the acceptance record for exact historical details.
