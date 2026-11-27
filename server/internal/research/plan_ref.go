@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -17,6 +18,19 @@ type LoadedChapterPlan struct {
 	Revision   int
 	Status     string // adopted | candidate
 	Plan       *ChapterPlan
+}
+
+// PlanSectionText 把计划中的一节拼成可逐字核对的文本（标题/职责/问题/论断及证据）。
+func PlanSectionText(sec ChapterSection) string {
+	parts := []string{sec.Title, sec.Responsibility}
+	parts = append(parts, sec.Questions...)
+	for _, claim := range sec.Claims {
+		parts = append(parts, claim.Text)
+		for _, evidence := range claim.Evidence {
+			parts = append(parts, evidence.Quote)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 // LoadAdoptedChapterPlan 只读，不做语义判断；没有可用计划时返回 nil。

@@ -123,7 +123,6 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
 	researchSvc := research.NewService(db)
-	reviewSvc := review.NewService(db, latexFiles)
 	recheckSvc := recheck.NewService(db)
 	sourcesSvc := sources.NewService(db, s3)
 
@@ -145,6 +144,15 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 	agentSvc.Norms = normSvc
+
+	// 检查域：确定性结构入口 + 范围化检查引擎（单元 Run 复用 agent 底座）。
+	reviewSvc := review.NewService(db, latexFiles)
+	reviewSvc.Agent = agentSvc
+	reviewSvc.Research = researchSvc
+	reviewSvc.Norms = normSvc
+	reviewSvc.Cfg = cfg
+	// agent 已先收敛遗留 agent_runs；这里把遗留检查任务一并置为失败。
+	reviewSvc.ReconcileOrphaned(ctx)
 
 	// ── HTTP ──
 	engine := httpapi.New(nil)

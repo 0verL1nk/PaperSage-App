@@ -63,7 +63,7 @@ func (s *Service) listConversations(c *gin.Context) {
 	if err := s.DB.WithContext(ctx).
 		Model(&store.AgentConversation{}).
 		Select("id", "title").
-		Where("project_id = ? AND user_id = ?", pid, uid).
+		Where("project_id = ? AND user_id = ? AND kind = ?", pid, uid, "chat").
 		Order("updated_at DESC").Find(&convs).Error; err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
 		return

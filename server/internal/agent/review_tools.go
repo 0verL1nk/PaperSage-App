@@ -451,6 +451,9 @@ func verifyReviewSourceBasis(ctx context.Context, db *gorm.DB, projectID store.U
 	return nil
 }
 
+// LocateQuote 暴露逐字引文定位，供 review 域复用同一实现，避免两套匹配规则。
+func LocateQuote(content, quote string) (int, int, bool) { return locateQuote(content, quote) }
+
 // locateQuote 在原文中定位引文（空白归一化），返回 1 起始的行号区间。
 func locateQuote(content, quote string) (int, int, bool) {
 	fields := strings.Fields(quote)
@@ -474,14 +477,4 @@ func locateQuote(content, quote string) (int, int, bool) {
 	return startLine, endLine, true
 }
 
-func planSectionText(sec research.ChapterSection) string {
-	parts := []string{sec.Title, sec.Responsibility}
-	parts = append(parts, sec.Questions...)
-	for _, claim := range sec.Claims {
-		parts = append(parts, claim.Text)
-		for _, evidence := range claim.Evidence {
-			parts = append(parts, evidence.Quote)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
+func planSectionText(sec research.ChapterSection) string { return research.PlanSectionText(sec) }

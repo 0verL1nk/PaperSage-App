@@ -7,10 +7,15 @@ import (
 	"path"
 	"sort"
 	"strings"
+	"sync"
 
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/agent"
+	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
+	"github.com/0verL1nk/GraduateProject/server/internal/ratelimit"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 )
@@ -28,15 +33,22 @@ const (
 // ErrProjectNotFound 表示项目不存在或不属于当前用户。
 var ErrProjectNotFound = errors.New("project not found")
 
-// Service 是检查域服务。引擎（review runs）落地前，先提供确定性的项目结构入口。
+// Service 是检查域服务：确定性结构入口 + 范围化检查引擎。
 type Service struct {
-	DB    *gorm.DB
-	Files *latex.FilesService
+	DB       *gorm.DB
+	Files    *latex.FilesService
+	Agent    *agent.Service
+	Research *research.Service
+	Norms    norms.Provider
+	Cfg      *config.Settings
+
+	limiter   *ratelimit.Limiter
+	executors sync.Map // map[store.UUID]*runExecutor
 }
 
 // NewService 构造检查域服务。
 func NewService(db *gorm.DB, files *latex.FilesService) *Service {
-	return &Service{DB: db, Files: files}
+	return &Service{DB: db, Files: files, limiter: ratelimit.New()}
 }
 
 // Limits 告诉前端一次检查的硬上限，超限时由用户缩小范围而不是静默截断。
