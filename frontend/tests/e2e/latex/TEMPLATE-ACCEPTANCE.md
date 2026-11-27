@@ -81,9 +81,10 @@ export BROWSER_LATEX_TEMPLATE_CASES="$(cat ./template-cases.local.json)"
 export BROWSER_LATEX_PROFILE_DIR=./.latex-e2e-profile
 
 # Each run continues from the resources the previous one stored; the 15 s
-# progress line separates real failures from the engine's .fontspec probes.
+# progress line separates real failures (transport / 5xx / 409) from ordinary
+# missing-file 404s. --timeout is in milliseconds, so "8m" means 8 ms.
 pnpm exec playwright test --config tests/e2e/latex/playwright.config.ts \
-  tests/e2e/latex/template-compile.spec.ts --timeout 8m
+  tests/e2e/latex/template-compile.spec.ts --timeout 480000
 ```
 
 Repeat until a run reports the compiled PDF and its PDF.js page count; once the
