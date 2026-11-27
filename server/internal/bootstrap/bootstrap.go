@@ -128,6 +128,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	// 学术规范资源库：内置种子随二进制分发，启动时幂等写入。
 	// 种子校验不通过时启动失败——不允许无出处的规范进库。
 	normSvc := norms.NewService(db)
+	researchSvc.Norms = normSvc
 	if err := norms.EnsureBuiltins(ctx, db); err != nil {
 		return nil, fmt.Errorf("academic norms seed: %w", err)
 	}
