@@ -133,6 +133,15 @@ func newResearchService(db *gorm.DB, provider norms.Provider) *research.Service 
 	return svc
 }
 
+// researchClientRequestID 生成 create_research_artifact 的幂等键。
+// 列宽是 varchar(64)：早期用 "runID:md5" 拼出 69 字符，生产 PG 直接报
+// "value too long for type character varying(64)"。这里把 runID 一起哈希，固定 32 字符。
+func researchClientRequestID(runID store.UUID, payload []byte) string {
+	seed := append([]byte(runID.String()), payload...)
+	sum := md5.Sum(seed)
+	return hex.EncodeToString(sum[:])
+}
+
 func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider,
 	projectID, ownerID, runID store.UUID, documentReadLimitBytes int) ([]tool.BaseTool, error) {
 
@@ -533,8 +542,7 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 				}
 				payload = verified
 			}
-			sum := md5.Sum(payload)
-			clientID := runID.String() + ":" + hex.EncodeToString(sum[:])
+			clientID := researchClientRequestID(runID, payload)
 			out, err := researchSvc.Create(ctx, ownerID, projectID, research.CreateInput{
 				Kind: in.Kind, Payload: payload, Origin: "agent", RunID: &runID, ClientRequestID: &clientID,
 			})

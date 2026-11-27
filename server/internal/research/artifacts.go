@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strconv"
@@ -815,6 +816,11 @@ func (s *Service) validatePayload(ctx context.Context, projectID store.UUID, kin
 	return datatypes.JSON(raw), allDeps, nil
 }
 
+// normalizeNormRef 统一引用号写法：去掉空白与方括号，统一小写。
+func normalizeNormRef(ref string) string {
+	return strings.ToLower(strings.Trim(strings.TrimSpace(ref), "[]【】 "))
+}
+
 // validateNormRefs 把报告的规范依据与「项目已采用集合」对齐。
 //
 // 只和模型自己填的 input.norms 比对是自证：模型少列几条，就能既声称用了规范、
@@ -837,16 +843,21 @@ func (s *Service) validateNormRefs(ctx context.Context, projectID store.UUID, p 
 	if err != nil {
 		return err
 	}
-	known := make(map[string]bool, len(entries)*3)
+	known := make(map[string]bool, len(entries)*5)
+	allowed := make([]string, 0, len(entries))
 	for _, entry := range entries {
-		known[entry.Cite()] = true
-		known[entry.ID] = true
-		if entry.Title != "" {
-			known[entry.Title] = true
+		allowed = append(allowed, entry.Cite())
+		// 模型可能写成 [N-x@v1]、N-x、x 或直接写标题；统一规范化后比对，
+		// 避免因为格式差异把真实已采用条款判成伪造。
+		for _, form := range []string{entry.Cite(), "N-" + entry.Code, entry.Code, entry.ID, entry.Title} {
+			if key := normalizeNormRef(form); key != "" {
+				known[key] = true
+			}
 		}
 	}
 	for _, entry := range p.Input.Norms {
-		if !known[entry.Cite()] && !known[entry.ID] && (entry.Title == "" || !known[entry.Title]) {
+		if !known[normalizeNormRef(entry.Cite())] && !known[normalizeNormRef(entry.ID)] &&
+			!known[normalizeNormRef("N-"+entry.Code)] && (entry.Title == "" || !known[normalizeNormRef(entry.Title)]) {
 			return httpapi.BadRequest("检查报告列出的规范条目不在本项目已采用的规范中：" + entry.Title)
 		}
 	}
@@ -855,8 +866,10 @@ func (s *Service) validateNormRefs(ctx context.Context, projectID store.UUID, p 
 			if basis.Kind != "norm" {
 				continue
 			}
-			if !known[strings.TrimSpace(basis.Ref)] {
-				return httpapi.BadRequest("依据引用的规范条目不在本项目已采用的规范中：" + basis.Ref)
+			if !known[normalizeNormRef(basis.Ref)] {
+				return httpapi.BadRequest(fmt.Sprintf(
+					"依据引用的规范条目不在本项目已采用的规范中：%s。可用引用号：%s",
+					basis.Ref, strings.Join(allowed, "、")))
 			}
 		}
 	}

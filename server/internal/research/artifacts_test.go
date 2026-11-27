@@ -704,3 +704,26 @@ func TestChapterReviewAcceptsAdoptedNormBasis(t *testing.T) {
 		t.Fatalf("引用真实已采用条款的报告应能落库：%v", err)
 	}
 }
+
+// 引用号写法不统一（带方括号、大小写、省版本号）都是真实模型会写出的形态，
+// 只要指向已采用条款就应接受——否则报告会被格式差异卡死。
+func TestChapterReviewAcceptsNormRefVariants(t *testing.T) {
+	svc, db, uid, _, pid := setup(t)
+	seedLatexFile(t, db, pid, "chapters/method.tex")
+	planID := seedAdoptedPlan(t, svc, uid, pid)
+	svc.Norms = fakeNormProvider{entries: []norms.Entry{{
+		ID: "entry-1", Code: "GBT7714", Version: 2, Title: "类型标识", Rule: "用 [J] 标注。", Source: "GB/T 7714—2015",
+	}}}
+
+	for _, ref := range []string{"[N-GBT7714@v2]", "n-gbt7714@v2", "N-GBT7714", "GBT7714"} {
+		payload := reviewPayload(planID, 1)
+		payload["input"].(map[string]any)["normsAvailable"] = true
+		payload["input"].(map[string]any)["normsNote"] = ""
+		payload["input"].(map[string]any)["norms"] = []map[string]any{}
+		finding := payload["findings"].([]map[string]any)[0]
+		finding["basis"] = []map[string]any{{"kind": "norm", "ref": ref, "quote": "用 [J] 标注。"}}
+		if _, err := svc.Create(context.Background(), uid, pid, createRequest{Kind: store.ResearchArtifactChapterReview, Payload: mustJSON(t, payload)}); err != nil {
+			t.Fatalf("引用号 %q 指向已采用条款，应被接受：%v", ref, err)
+		}
+	}
+}
