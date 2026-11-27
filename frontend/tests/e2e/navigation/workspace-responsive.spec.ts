@@ -116,6 +116,17 @@ test('project workspace stages, writing editor, and reference library fit phone/
         await expect(activeTab).toBeVisible()
         await expect(activeTab).toHaveAttribute('aria-current', 'page')
         expect(await activeTab.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+        if (viewport.width === 320) {
+          // 四个阶段入口必须在 320px 一屏内全部可见（HELE-66 阻断项）
+          for (const label of ['写作准备', '论文撰写', '检查完善', '上传资料']) {
+            const tab = page.locator('nav.lg\\:hidden').getByRole('button', { name: label })
+            await expect(tab).toBeVisible()
+            expect(
+              await tab.evaluate((element) => element.getBoundingClientRect().right),
+              `${label} must fit within the 320px viewport`,
+            ).toBeLessThanOrEqual(320)
+          }
+        }
         if (route.path === 'prepare' && viewport.width === 320) {
           await activeTab.focus()
           await page.keyboard.press('Enter')
