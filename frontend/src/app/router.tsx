@@ -126,18 +126,6 @@ const indexRoute = createRoute({
       throw redirect({ to: '/auth' })
     }
   },
-  component: function Index() {
-    return (
-      <MainLayout>
-        <div className="flex h-full items-center justify-center">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold">Welcome to PaperSage</h1>
-            <p className="mt-2 text-muted-foreground">Please login to continue</p>
-          </div>
-        </div>
-      </MainLayout>
-    )
-  },
 })
 
 // 管理后台：二级导航（系统设置 / 编译错误日志），权限由接口 403 兜底。

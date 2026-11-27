@@ -25,10 +25,21 @@ shadcn/ui component library with Tailwind CSS 4, 19 ready-to-use components.
 | Skeleton | `skeleton.tsx` | Loading placeholder |
 | Sonner | `sonner.tsx` | Toast notifications |
 
+## SHARED COMPOSITIONS
+
+Cross-domain compositions live in `components/shared/`; do not rebuild them here:
+
+- Page shell: `PageContainer`, `PageHeader`, `SectionCard`, `PanelToolbar`
+- States: `StateBlock`, `EmptyState`, `ErrorState`, `LoadingState`
+- Status & filters: `StatusBadge`, `SegmentedControl`
+- Full spec: `docs/frontend/design-system.md`
+
 ## ANTI-PATTERNS
 
 - **Manual Tailwind classes** - Use existing component props instead of adding custom classes
 - **Hardcoded colors** - Use semantic tokens (primary, secondary, muted) from index.css, not raw hex/oklch values
+- **Raw status palette** - Status colors use `success` / `warning` / `info` / `destructive`; never `amber` / `emerald` / `green` / `sky`
+- **Arbitrary radius** - Use `rounded-sm/md/lg/xl/2xl`; `--radius` is the single source of truth
 - **Missing data-slot** - Always include data-slot attribute for parent styling hooks
 - **Skipping dark mode** - Test both light and dark themes; use dark: prefix for dark-specific styles
 - **Inline icons** - Use lucide-react icons, match existing size patterns (size-3, size-4, etc.)
