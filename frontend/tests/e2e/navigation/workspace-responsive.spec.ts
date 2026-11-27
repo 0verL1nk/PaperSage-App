@@ -176,12 +176,17 @@ test('browser-local guest can create and save a real project across mobile, tabl
   expect(dialogGeometry.scrollWidth).toBeLessThanOrEqual(dialogGeometry.width + 1)
   await nameInput.fill('Local Guest Research')
   await createButton.click()
+  // 创建成功直接进工作台，不再回列表点卡片
+  await expect(page).toHaveURL(/\/project\/[^/]+\/prepare$/)
+  await expect(page.getByText('研究顾问需要登录后使用')).toBeVisible()
+  const projectId = new URL(page.url()).pathname.split('/')[2]
+
+  // 项目仍持久化在列表中
+  await page.goto('/app/projects')
   const projectCard = page.getByRole('button', { name: 'Local Guest Research', exact: true })
   await expect(projectCard).toBeVisible()
   await projectCard.click()
   await expect(page).toHaveURL(/\/project\/.+\/prepare$/)
-  await expect(page.getByText('研究顾问需要登录后使用')).toBeVisible()
-  const projectId = new URL(page.url()).pathname.split('/')[2]
   await page.evaluate(async (id) => {
     const local = await import('/src/services/guest-local-workspace.ts')
     const state = await local.getGuestWritingState(id)

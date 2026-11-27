@@ -420,7 +420,7 @@ function PanelHeader({ right, model }: { right?: React.ReactNode; model?: React.
     <div className="@container flex min-h-14 flex-none items-center justify-between gap-2 overflow-hidden border-b border-border/40 bg-card/50 px-4">
       <h3 className="flex shrink-0 items-center gap-2 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
         <Sparkles size={14} className="text-primary" />
-        <span className="hidden @min-[340px]:inline">AI Assistant</span>
+        <span className="hidden @min-[340px]:inline">AI 助手</span>
       </h3>
       <div className="flex min-w-0 items-center justify-end gap-1">
         {model ? <div className="min-w-0 overflow-hidden">{model}</div> : null}

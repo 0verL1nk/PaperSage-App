@@ -11,6 +11,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ProjectDocument } from '@/types/files'
+import { ACCEPTED_FORMATS_LABEL } from './constants'
 import { createColumns, type DocumentActions } from './columns'
 
 interface DataTableProps {
@@ -112,7 +113,7 @@ export function DataTable({ data, actions, totalCount, onClearFilters, onRowSele
               <TableRow>
                 <TableCell colSpan={columns.length} className="h-32 text-center text-muted-foreground">
                   {totalCount === 0 ? (
-                    <span>还没有资料，点击右上角「上传」添加 PDF、DOCX 或 TXT。</span>
+                    <span>还没有资料，点击右上角「上传」添加 {ACCEPTED_FORMATS_LABEL} 文件。</span>
                   ) : (
                     <div className="flex flex-col items-center gap-1.5">
                       <span>没有匹配的结果</span>
