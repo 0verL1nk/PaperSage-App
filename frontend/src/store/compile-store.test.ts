@@ -38,23 +38,32 @@ describe('compile store', () => {
 
   it('starts a new compile from a clean slate', () => {
     const store = useCompileStore.getState()
+    const before = Date.now()
     store.begin('p1', '论文一')
     store.patch('p1', {
       phase: 'failed',
       error: '旧错误',
       pendingUpload: { jobId: 'job-old', pdf: emptyPdf, logs: 'old' },
       resources: { 'font:x': { name: 'x', kind: 'font', state: 'missing' } },
+      stage: 'compile',
+      formatCacheHit: false,
     })
     store.begin('p1', '论文一')
 
-    expect(useCompileStore.getState().projects.p1).toMatchObject({
+    const fresh = useCompileStore.getState().projects.p1
+    expect(fresh).toMatchObject({
       phase: 'preparing',
       error: null,
       logs: null,
       pendingUpload: null,
       pdf: null,
       resources: {},
+      stage: 'prepare',
+      formatCacheHit: null,
     })
+    // 进度视图按开始时间实时算耗时，新的编译必须重置计时起点。
+    expect(fresh.startedAt).toBeGreaterThanOrEqual(before)
+    expect(fresh.startedAt).toBeLessThanOrEqual(Date.now())
   })
 
   it('ignores patches for projects that never started', () => {

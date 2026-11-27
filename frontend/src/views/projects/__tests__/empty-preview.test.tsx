@@ -18,4 +18,12 @@ describe('EmptyPreview', () => {
 
     expect(screen.getByRole('button', { name: '编译当前项目' })).toBeDisabled()
   })
+
+  it('sets a realistic first-compile expectation instead of promising tens of seconds', () => {
+    render(<EmptyPreview onCompile={vi.fn()} disabled={false} />)
+
+    expect(screen.getByText(/1–3 分钟/)).toBeInTheDocument()
+    expect(screen.getByText(/几秒/)).toBeInTheDocument()
+    expect(screen.queryByText(/几十秒/)).not.toBeInTheDocument()
+  })
 })

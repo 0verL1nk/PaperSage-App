@@ -21,7 +21,7 @@ export type BrowserLatexResourceEvent = {
 
 export type BrowserLatexProgress =
   | { stage: 'engine'; message: string }
-  | { stage: 'format'; message: string }
+  | { stage: 'format'; message: string; cached: boolean }
   | { stage: 'resource'; message: string; resource: BrowserLatexResourceEvent }
   | { stage: 'compile'; message: string; pass: number; totalPasses: number }
   | { stage: 'convert'; message: string; license?: EpsPreprocessProgress['license'] }
@@ -458,16 +458,16 @@ async function ensureFormat(
   const cached = await getCachedLatexFormat(formatId, ENGINE_VERSION)
   if (cached) {
     engine.writeFile(engineName === 'pdftex' ? 'swiftlatexpdftex.fmt' : 'swiftlatexxetex.fmt', cached)
-    onProgress({ stage: 'format', message: '已从浏览器缓存载入 LaTeX 格式文件' })
+    onProgress({ stage: 'format', message: '已从浏览器缓存载入 LaTeX 格式文件', cached: true })
     return
   }
 
-  onProgress({ stage: 'format', message: '正在首次生成 LaTeX 格式文件；宏包会边下载边显示并缓存' })
+  onProgress({ stage: 'format', message: '正在首次生成 LaTeX 格式文件；宏包会边下载边显示并缓存', cached: false })
   const result = await engine.runPass<WorkerMessage>({ cmd: 'compileformat', responseCmd: 'compileformat' }, signal)
   if (!result.format) throw new Error(result.log || '格式文件生成成功，但没有返回格式数据')
   const format = new Uint8Array(result.format)
   await putCachedLatexFormat(formatId, ENGINE_VERSION, format)
-  onProgress({ stage: 'format', message: `LaTeX 格式文件已生成并缓存（${format.byteLength.toLocaleString()} bytes）` })
+  onProgress({ stage: 'format', message: `LaTeX 格式文件已生成并缓存（${format.byteLength.toLocaleString()} bytes）`, cached: false })
 }
 
 async function ensureResourceCache(): Promise<void> {

@@ -209,15 +209,17 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
       }, BROWSER_COMPILE_HEARTBEAT_MS)
     }
 
-    patch(projectId, { phase: 'compiling' })
+    patch(projectId, { phase: 'compiling', stage: 'engine' })
     stage = 'compile'
 
     const result = await compileLatexInBrowser(files, rootFile, compiler, {
       signal: controller.signal,
       onDiagnosticContext: (context) => { resourceProfile = context.resourceProfile },
       onProgress: (progress: BrowserLatexProgress) => {
-        patch(projectId, { progressMessage: progress.message })
-        if (progress.stage === 'convert' && progress.license) patch(projectId, { license: progress.license })
+        const next: Partial<ProjectCompileState> = { progressMessage: progress.message, stage: progress.stage }
+        if (progress.stage === 'format') next.formatCacheHit = progress.cached
+        if (progress.stage === 'convert' && progress.license) next.license = progress.license
+        patch(projectId, next)
         if (progress.stage === 'resource') {
           const resources = useCompileStore.getState().projects[projectId]?.resources ?? {}
           patch(projectId, {
@@ -248,6 +250,7 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
     compiled = { jobId, pdf: result.pdf, logs: result.log }
     patch(projectId, {
       phase: 'uploading',
+      stage: 'upload',
       pendingUpload: compiled,
       progressMessage: 'PDF 已生成，正在上传到对象存储并保存编译记录',
     })

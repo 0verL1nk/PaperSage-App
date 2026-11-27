@@ -239,7 +239,7 @@ describe('WritingPage compile recovery', () => {
     unmount()
   })
 
-  it('手机端编辑页会提示编译失败，并可切到失败卡片', async () => {
+  it('手机端编译后自动切到预览进度，失败就地显示原因', async () => {
     window.innerWidth = 390
     vi.mocked(compileLatexInBrowser).mockRejectedValue(
       new Error('pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪，已停止本次编译。'),
@@ -250,15 +250,12 @@ describe('WritingPage compile recovery', () => {
       await waitFor(() => expect(screen.getByTestId('writing-pane-preview')).toBeInTheDocument())
       fireEvent.click(screen.getByTestId('compile-button'))
 
-      await waitFor(() => expect(toastError).toHaveBeenCalledWith('编译失败', expect.objectContaining({
-        description: expect.stringContaining('编译超过预期时间仍未完成'),
-      })))
-      const previewTab = screen.getByTestId('writing-pane-preview')
-      expect(previewTab).toHaveTextContent('（编译失败，点此查看原因）')
-
-      fireEvent.click(previewTab)
+      // 编译一开始就停在预览页，用户立即看到进度而不是留在编辑页猜。
+      await waitFor(() => expect(screen.getByTestId('writing-pane-preview')).toHaveAttribute('aria-selected', 'true'))
       await waitFor(() => expect(screen.getByTestId('retry-browser-compile')).toBeInTheDocument())
       expect(screen.getByText(/编译超过预期时间仍未完成/)).toBeInTheDocument()
+      // 失败卡片已在当前预览页可见，不再弹「查看原因」提示。
+      expect(toastError).not.toHaveBeenCalledWith('编译失败', expect.anything())
     } finally {
       toastError.mockRestore()
       unmount()
