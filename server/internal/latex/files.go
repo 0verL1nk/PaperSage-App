@@ -111,6 +111,26 @@ func (s *FilesService) findByPath(ctx context.Context, projectID uuid.UUID, file
 	return &f, nil
 }
 
+// findOwnedFile 一次查询取出「属于该用户的文件」（归属校验与取文件合并）。
+// 未命中时再区分项目不存在 / 文件不存在——错误文案与两次查询的旧路径保持一致。
+func (s *FilesService) findOwnedFile(ctx context.Context, projectID uuid.UUID, filePath string, userID uuid.UUID) (*store.LatexFile, error) {
+	var f store.LatexFile
+	err := s.DB.WithContext(ctx).
+		Model(&store.LatexFile{}).
+		Select("latex_files.*").
+		Joins("JOIN projects ON projects.id = latex_files.project_id").
+		Where("latex_files.project_id = ? AND latex_files.file_path = ? AND projects.owner_id = ? AND projects.deleted_at IS NULL",
+			store.UUID{UUID: projectID}, filePath, store.UUID{UUID: userID}).
+		First(&f).Error
+	if err == nil {
+		return &f, nil
+	}
+	if aerr := s.verifyProjectAccess(ctx, projectID, userID); aerr != nil {
+		return nil, aerr
+	}
+	return nil, fmt.Errorf("File not found") //nolint:staticcheck // ST1005: python 契约文案
+}
+
 // ListFiles 列出项目全部文件（按 file_path 排序）。
 func (s *FilesService) ListFiles(ctx context.Context, projectID, userID uuid.UUID) ([]store.LatexFile, error) {
 	if err := s.verifyProjectAccess(ctx, projectID, userID); err != nil {
@@ -125,10 +145,7 @@ func (s *FilesService) ListFiles(ctx context.Context, projectID, userID uuid.UUI
 
 // GetFileRaw 返回原始字节与 content-type（文本走缓存）。
 func (s *FilesService) GetFileRaw(ctx context.Context, projectID uuid.UUID, filePath string, userID uuid.UUID) ([]byte, string, error) {
-	if err := s.verifyProjectAccess(ctx, projectID, userID); err != nil {
-		return nil, "", err
-	}
-	f, err := s.findByPath(ctx, projectID, filePath)
+	f, err := s.findOwnedFile(ctx, projectID, filePath, userID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -282,13 +299,16 @@ func (s *FilesService) CreateFileWithImport(ctx context.Context, projectID uuid.
 
 // UpdateFile 更新内容（md5 相同则跳过上传）。
 func (s *FilesService) UpdateFile(ctx context.Context, projectID uuid.UUID, filePath, content string, userID uuid.UUID) (*store.LatexFile, error) {
-	if err := s.verifyProjectAccess(ctx, projectID, userID); err != nil {
-		return nil, err
-	}
-	f, err := s.findByPath(ctx, projectID, filePath)
+	f, err := s.findOwnedFile(ctx, projectID, filePath, userID)
 	if err != nil {
 		return nil, err
 	}
+	return s.UpdateFileRecord(ctx, f, content)
+}
+
+// UpdateFileRecord 写入一条调用方已校验归属并读出的文件记录（提案 apply 等热路径复用，
+// 免去 verify + find 两次串行查询）。调用方必须保证 f 来自本服务按用户归属读出的记录。
+func (s *FilesService) UpdateFileRecord(ctx context.Context, f *store.LatexFile, content string) (*store.LatexFile, error) {
 	contentBytes := []byte(content)
 	sum := md5.Sum(contentBytes)
 	newHash := hex.EncodeToString(sum[:])

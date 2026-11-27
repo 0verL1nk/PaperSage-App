@@ -64,14 +64,9 @@ func (s *Service) latestPendingProposal(ctx context.Context, runID store.UUID) (
 // 应用前必须**重新**校验（参考架构 §7：服务端应用时重新校验权限、基准版本与幂等键）：
 //   - 建议仍处于 pending（幂等：重复应用被拒）
 //   - 基准内容哈希与稿件当前内容一致（稿件变了则旧建议失效，不得用旧基准覆盖新内容）
-func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposalID store.UUID, approve bool) (*store.AgentChangeProposal, int, error) {
-	var p store.AgentChangeProposal
-	if err := s.DB.WithContext(ctx).
-		Where("id = ? AND project_id = ?", proposalID, projectID).First(&p).Error; err != nil {
-		return nil, http.StatusNotFound, err
-	}
+func (s *Service) decideProposal(ctx context.Context, p *store.AgentChangeProposal, userID store.UUID, approve bool) (*store.AgentChangeProposal, int, error) {
 	if p.Status != ProposalPending {
-		return &p, http.StatusConflict, errors.New("proposal is not pending")
+		return p, http.StatusConflict, errors.New("proposal is not pending")
 	}
 
 	now := time.Now().UTC()
@@ -82,16 +77,15 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 			return nil, http.StatusInternalServerError, err
 		}
 		p.Status = ProposalRejected
-		s.closeToolCallOf(ctx, p)
-		return &p, http.StatusOK, nil
+		s.closeToolCallOf(ctx, *p)
+		return p, http.StatusOK, nil
 	}
 
 	// 读当前稿件并比对基准版本
-	f, content, err := s.readLatexForProposal(ctx, projectID, p.FilePath)
+	f, content, err := s.readLatexForProposal(ctx, p.ProjectID, p.FilePath)
 	if err != nil {
 		return nil, http.StatusNotFound, err
 	}
-	_ = f
 	sum := md5.Sum([]byte(content))
 	// PostgreSQL 的 CHAR 会补空格到列宽；不 trim 会让所有建议在 PG 上恒为 stale。
 	if hex.EncodeToString(sum[:]) != strings.TrimSpace(p.BaseContentHash) {
@@ -100,17 +94,18 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 			Where("id = ? AND status = ?", p.ID, ProposalPending).
 			Update("status", ProposalStale).Error
 		p.Status = ProposalStale
-		return &p, http.StatusConflict, errors.New("base content changed")
+		return p, http.StatusConflict, errors.New("base content changed")
 	}
 	if !strings.Contains(content, p.OldText) {
-		return &p, http.StatusConflict, errors.New("anchor no longer present")
+		return p, http.StatusConflict, errors.New("anchor no longer present")
 	}
 	newContent := strings.Replace(content, p.OldText, p.NewText, 1)
 	if s.files == nil {
 		// 不能静默跳过写入后仍标记为已应用——那会让"应用成功"成为谎报。
 		return nil, http.StatusInternalServerError, errors.New("files service unavailable")
 	}
-	if _, err := s.files.UpdateFile(ctx, projectID.UUID, p.FilePath, newContent, userID.UUID); err != nil {
+	// 稿件已由归属链路读出：按记录直接写，省掉 verify + find 两次串行查询。
+	if _, err := s.files.UpdateFileRecord(ctx, f, newContent); err != nil {
 		return nil, http.StatusInternalServerError, err
 	}
 
@@ -120,8 +115,8 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 		return nil, http.StatusInternalServerError, err
 	}
 	p.Status = ProposalApplied
-	s.closeToolCallOf(ctx, p)
-	return &p, http.StatusOK, nil
+	s.closeToolCallOf(ctx, *p)
+	return p, http.StatusOK, nil
 }
 
 // closeToolCallOf 建议决策后收敛其工具调用的状态机。
@@ -219,21 +214,18 @@ func (s *Service) listProposals(c *gin.Context) {
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(out, ""))
 }
 
-// ownedProposalProject 校验建议归属（经项目 owner）。
-func (s *Service) ownedProposalProject(ctx context.Context, proposalID, uid store.UUID) (store.UUID, error) {
+// loadOwnedProposal 一次查询取出提案并校验项目归属（提案表无软删，项目表排除已删）。
+func (s *Service) loadOwnedProposal(ctx context.Context, proposalID, uid store.UUID) (*store.AgentChangeProposal, error) {
 	var p store.AgentChangeProposal
-	if err := s.DB.WithContext(ctx).Where("id = ?", proposalID).First(&p).Error; err != nil {
-		return store.UUID{}, err
+	if err := s.DB.WithContext(ctx).
+		Model(&store.AgentChangeProposal{}).
+		Select("agent_change_proposals.*").
+		Joins("JOIN projects ON projects.id = agent_change_proposals.project_id").
+		Where("agent_change_proposals.id = ? AND projects.owner_id = ? AND projects.deleted_at IS NULL", proposalID, uid).
+		First(&p).Error; err != nil {
+		return nil, err
 	}
-	var n int64
-	if err := s.DB.WithContext(ctx).Model(&store.Project{}).
-		Where("id = ? AND owner_id = ?", p.ProjectID, uid).Count(&n).Error; err != nil {
-		return store.UUID{}, err
-	}
-	if n == 0 {
-		return store.UUID{}, errors.New("not owned")
-	}
-	return p.ProjectID, nil
+	return &p, nil
 }
 
 // decideProposalHandler 供 apply / reject 两个路由复用。
@@ -246,13 +238,12 @@ func (s *Service) decideProposalHandler(approve bool) gin.HandlerFunc {
 			httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 			return
 		}
-		proposalID := store.UUID{UUID: pid}
-		projectID, err := s.ownedProposalProject(ctx, proposalID, uid)
+		p, err := s.loadOwnedProposal(ctx, store.UUID{UUID: pid}, uid)
 		if err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Proposal not found"})
 			return
 		}
-		p, code, derr := s.decideProposal(ctx, uid, projectID, proposalID, approve)
+		decided, code, derr := s.decideProposal(ctx, p, uid, approve)
 		if derr != nil && code != http.StatusConflict {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: code, Info: "Internal server error"})
 			return
@@ -262,7 +253,7 @@ func (s *Service) decideProposalHandler(approve bool) gin.HandlerFunc {
 			info = "建议已失效（稿件已变化或已处理），请重新生成"
 		}
 		_ = httpapi.WriteEnvelope(c.Writer, code, httpapi.Envelope{
-			Code: code, Data: gin.H{"status": p.Status}, Info: info,
+			Code: code, Data: gin.H{"status": decided.Status}, Info: info,
 		})
 	}
 }
@@ -327,7 +318,7 @@ func (s *Service) approveToolCall(c *gin.Context) {
 
 	var p store.AgentChangeProposal
 	if err := s.DB.WithContext(ctx).Where("tool_call_id = ?", tc.ID).First(&p).Error; err == nil {
-		_, code, derr := s.decideProposal(ctx, uid, p.ProjectID, p.ID, approve)
+		_, code, derr := s.decideProposal(ctx, &p, uid, approve)
 		if derr != nil && code == http.StatusConflict {
 			_ = httpapi.WriteEnvelope(c.Writer, http.StatusConflict, httpapi.Envelope{
 				Code: http.StatusConflict, Data: gin.H{"status": ProposalStale},

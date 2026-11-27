@@ -146,6 +146,11 @@ test-backend:
 	@echo "$(YELLOW)Running backend tests...$(NC)"
 	cd server && go test ./internal/...
 
+# 高频主操作基准（/health、24 KB 写入、提案 apply）：ns/op 与 queries/op 可直接进论文实测表。
+bench-backend:
+	@echo "$(YELLOW)Running backend hot-path benchmarks...$(NC)"
+	cd server && go test ./internal/testutil/ -run '^$$' -bench 'BenchmarkHotPath' -benchtime=20x -count=3
+
 test-frontend:
 	@echo "$(YELLOW)Running frontend tests...$(NC)"
 	cd frontend && pnpm test
