@@ -7,6 +7,8 @@ CREATE TABLE `agent_conversations` (
   `project_id` char(32) NOT NULL,
   `user_id` char(32) NOT NULL,
   `title` varchar(200) NOT NULL DEFAULT '新对话',
+  -- chat：用户可见会话；review：检查任务的隐藏会话（不出现在会话列表）。
+  `kind` varchar(20) NOT NULL DEFAULT 'chat',
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   `updated_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
   `deleted_at` datetime(6) DEFAULT NULL,

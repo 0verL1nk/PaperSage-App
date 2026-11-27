@@ -63,15 +63,19 @@ type Settings struct {
 
 	CompileIncrementalSyncEnabled bool `env:"COMPILE_INCREMENTAL_SYNC_ENABLED" envDefault:"true"`
 
-	AppURL                      string        `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
-	NeonDatabaseURL             string        `env:"NEON_DATABASE_URL"`
-	AgentAPIKey                 string        `env:"AGENT_API_KEY"`
-	AgentBaseURL                string        `env:"AGENT_BASE_URL"`
-	AgentModel                  string        `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
-	AgentDocumentReadLimitBytes int           `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
-	AgentMaxIterations          int           `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
-	AgentModelTimeout           time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`            // 模型响应头超时，防止连接悬挂
-	AgentModelIdleTimeout       time.Duration `env:"AGENT_MODEL_IDLE_TIMEOUT" envDefault:"5m"`       // 流式空闲超时；0 关闭
+	AppURL                      string `env:"APP_URL" envDefault:"http://localhost:5173"` // 验证邮件链接前缀
+	NeonDatabaseURL             string `env:"NEON_DATABASE_URL"`
+	AgentAPIKey                 string `env:"AGENT_API_KEY"`
+	AgentBaseURL                string `env:"AGENT_BASE_URL"`
+	AgentModel                  string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
+	AgentDocumentReadLimitBytes int    `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
+	AgentMaxIterations          int    `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
+	// 跨章节检查：单元并发、单次检查总超时、单元迭代上限。
+	ReviewUnitConcurrency   int           `env:"REVIEW_UNIT_CONCURRENCY" envDefault:"3"`
+	ReviewRunTimeout        time.Duration `env:"REVIEW_RUN_TIMEOUT" envDefault:"20m"`
+	ReviewUnitMaxIterations int           `env:"REVIEW_UNIT_MAX_ITERATIONS" envDefault:"12"`
+	AgentModelTimeout       time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`      // 模型响应头超时，防止连接悬挂
+	AgentModelIdleTimeout   time.Duration `env:"AGENT_MODEL_IDLE_TIMEOUT" envDefault:"5m"` // 流式空闲超时；0 关闭
 	// 允许用户配置的 provider base_url 指向回环/私网（ollama、LM Studio 等本地模型）。
 	// 默认关闭：生产环境里 base_url 由普通用户填写，开放后等于允许访问服务端所在网络。
 	AgentAllowPrivateProviderURLs bool `env:"AGENT_ALLOW_PRIVATE_PROVIDER_URLS" envDefault:"false"`
@@ -116,6 +120,15 @@ func Load() (*Settings, error) {
 	}
 	if s.AgentMaxIterations <= 0 {
 		return nil, fmt.Errorf("AGENT_MAX_ITERATIONS must be positive: Eino treats non-positive values as its built-in default")
+	}
+	if s.ReviewUnitConcurrency < 1 || s.ReviewUnitConcurrency > 4 {
+		return nil, fmt.Errorf("REVIEW_UNIT_CONCURRENCY must be between 1 and 4")
+	}
+	if s.ReviewRunTimeout <= 0 {
+		return nil, fmt.Errorf("REVIEW_RUN_TIMEOUT must be positive")
+	}
+	if s.ReviewUnitMaxIterations <= 0 {
+		return nil, fmt.Errorf("REVIEW_UNIT_MAX_ITERATIONS must be positive")
 	}
 	if s.AgentModelTimeout <= 0 {
 		return nil, fmt.Errorf("AGENT_MODEL_TIMEOUT must be positive")

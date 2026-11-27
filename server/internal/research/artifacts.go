@@ -124,15 +124,25 @@ type ChapterDigest struct {
 // 四个语义维度只能由模型基于三源上下文推理得出；本文件只校验结构、
 // 归属与诚实边界（例如规范库不可用时不得声称完成规范符合度检查）。
 
-const reviewMaxFindings = 50
+const (
+	reviewMaxFindings       = 50
+	reviewMaxScopedFindings = 200
+)
 
 var (
-	reviewDimensionSet = map[string]bool{"goal_conclusion": true, "evidence_support": true, "cross_section": true, "norm_compliance": true}
-	reviewStatuses     = map[string]bool{"checked": true, "findings": true, "insufficient": true, "not_checked": true, "failed": true}
-	reviewSeverities   = map[string]bool{"high": true, "medium": true, "low": true}
-	reviewBasisKinds   = map[string]bool{"norm": true, "plan": true, "text": true, "source": true}
-	reviewSourceKinds  = map[string]bool{"latex": true, "plan": true, "document": true, "source": true, "norm": true}
-	reviewPlanStatuses = map[string]bool{"adopted": true, "candidate": true, "missing": true}
+	// 旧四维整书报告（scope 缺省）允许的维度集合。
+	reviewLegacyDimensionSet = map[string]bool{"goal_conclusion": true, "evidence_support": true, "cross_section": true, "norm_compliance": true}
+	// 范围化报告允许的全部维度（新增术语一致与双场景闭环）。
+	reviewDimensionSet = map[string]bool{
+		"goal_conclusion": true, "evidence_support": true, "cross_section": true, "norm_compliance": true,
+		"terminology_consistency": true, "thesis_engineering_closure": true, "paper_contribution_closure": true,
+	}
+	reviewClaimStatuses = map[string]bool{"overclaimed": true, "orphaned": true}
+	reviewStatuses      = map[string]bool{"checked": true, "findings": true, "insufficient": true, "not_checked": true, "failed": true}
+	reviewSeverities    = map[string]bool{"high": true, "medium": true, "low": true}
+	reviewBasisKinds    = map[string]bool{"norm": true, "plan": true, "text": true, "source": true}
+	reviewSourceKinds   = map[string]bool{"latex": true, "plan": true, "document": true, "source": true, "norm": true}
+	reviewPlanStatuses  = map[string]bool{"adopted": true, "candidate": true, "missing": true}
 )
 
 type ReviewPlanSection struct {
@@ -166,20 +176,44 @@ type ReviewBasis struct {
 }
 
 type ReviewFinding struct {
-	ID             string        `json:"id"`
-	Dimension      string        `json:"dimension"`
-	Severity       string        `json:"severity"`
-	SectionID      string        `json:"sectionId,omitempty"`
-	SectionTitle   string        `json:"sectionTitle,omitempty"`
-	FilePath       string        `json:"filePath,omitempty"`
-	Quote          string        `json:"quote,omitempty"`
-	LineStart      int           `json:"lineStart,omitempty"`
-	LineEnd        int           `json:"lineEnd,omitempty"`
-	Problem        string        `json:"problem"`
-	Basis          []ReviewBasis `json:"basis"`
-	NextStep       string        `json:"nextStep"`
-	Confidence     string        `json:"confidence,omitempty"`
-	AnchorVerified bool          `json:"anchorVerified,omitempty"`
+	ID           string        `json:"id"`
+	Dimension    string        `json:"dimension"`
+	Severity     string        `json:"severity"`
+	SectionID    string        `json:"sectionId,omitempty"`
+	SectionTitle string        `json:"sectionTitle,omitempty"`
+	FilePath     string        `json:"filePath,omitempty"`
+	Quote        string        `json:"quote,omitempty"`
+	LineStart    int           `json:"lineStart,omitempty"`
+	LineEnd      int           `json:"lineEnd,omitempty"`
+	Problem      string        `json:"problem"`
+	Basis        []ReviewBasis `json:"basis"`
+	NextStep     string        `json:"nextStep"`
+	// ClaimStatus 仅在 evidence_support 维度使用：overclaimed / orphaned。
+	ClaimStatus string `json:"claimStatus,omitempty"`
+	// Fingerprint 由服务端计算，用于跨报告收敛与处置账本。
+	Fingerprint    string `json:"fingerprint,omitempty"`
+	Confidence     string `json:"confidence,omitempty"`
+	AnchorVerified bool   `json:"anchorVerified,omitempty"`
+}
+
+// ChapterReviewScope 是范围化检查报告的范围快照；缺省表示旧的四维整书报告。
+type ChapterReviewScope struct {
+	Dimensions  []string          `json:"dimensions"`
+	Files       []string          `json:"files"`
+	SectionIDs  []string          `json:"sectionIds,omitempty"`
+	Incremental bool              `json:"incremental"`
+	Warnings    []string          `json:"warnings,omitempty"`
+	Units       []ReviewScopeUnit `json:"units,omitempty"`
+}
+
+// ReviewScopeUnit 是报告中每个检查单元的执行概述。
+type ReviewScopeUnit struct {
+	ID          string `json:"id"`
+	Label       string `json:"label"`
+	Kind        string `json:"kind"`
+	Status      string `json:"status"`
+	Source      string `json:"source"`
+	Fingerprint string `json:"fingerprint"`
 }
 
 type ReviewSource struct {
@@ -188,10 +222,11 @@ type ReviewSource struct {
 }
 
 type ChapterReview struct {
-	Input       ChapterReviewInput `json:"input"`
-	Dimensions  []ReviewDimension  `json:"dimensions"`
-	Findings    []ReviewFinding    `json:"findings"`
-	SourcesRead []ReviewSource     `json:"sourcesRead"`
+	Input       ChapterReviewInput  `json:"input"`
+	Scope       *ChapterReviewScope `json:"scope,omitempty"`
+	Dimensions  []ReviewDimension   `json:"dimensions"`
+	Findings    []ReviewFinding     `json:"findings"`
+	SourcesRead []ReviewSource      `json:"sourcesRead"`
 }
 
 // reviewPlanRef 记录检查报告实际依据的计划产物与修订号（未引用计划时为空）。
@@ -842,8 +877,8 @@ func hasNormBasis(findings []ReviewFinding) bool {
 // validateChapterReview 只校验结构与诚实边界；语义判断由模型完成。
 // 这里刻意拒绝「规范库不可用却声称已完成规范符合度检查」这类伪通过。
 func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUID, p ChapterReview, plan *reviewPlanRef) error {
-	if len(p.Dimensions) != len(reviewDimensionSet) {
-		return httpapi.BadRequest("检查报告必须覆盖四个语义维度")
+	if err := validateReviewDimensionSet(p); err != nil {
+		return err
 	}
 	statusByKey := map[string]string{}
 	for _, d := range p.Dimensions {
@@ -888,7 +923,11 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 	} else if p.Input.PlanStatus == "missing" {
 		return httpapi.BadRequest("章节计划状态与引用不一致")
 	}
-	if len(p.Findings) > reviewMaxFindings {
+	maxFindings := reviewMaxFindings
+	if p.Scope != nil {
+		maxFindings = reviewMaxScopedFindings
+	}
+	if len(p.Findings) > maxFindings {
 		return httpapi.BadRequest("检查问题数量超过上限")
 	}
 	if len(p.SourcesRead) > 200 {
@@ -958,6 +997,24 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 		return nil
 	}
 
+	scopeFiles := map[string]bool{}
+	scopeDims := map[string]bool{}
+	scopeSections := map[string]bool{}
+	if p.Scope != nil {
+		for _, f := range p.Scope.Files {
+			if err := checkFile(f); err != nil {
+				return err
+			}
+			scopeFiles[f] = true
+		}
+		for _, d := range p.Scope.Dimensions {
+			scopeDims[d] = true
+		}
+		for _, s := range p.Scope.SectionIDs {
+			scopeSections[s] = true
+		}
+	}
+
 	findingIDs := map[string]bool{}
 	for _, f := range p.Findings {
 		if strings.TrimSpace(f.ID) == "" || findingIDs[f.ID] {
@@ -966,6 +1023,23 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 		findingIDs[f.ID] = true
 		if !reviewDimensionSet[f.Dimension] {
 			return httpapi.BadRequest("检查问题维度不合法")
+		}
+		if p.Scope != nil {
+			if !scopeDims[f.Dimension] {
+				return httpapi.BadRequest("检查问题维度超出本次范围")
+			}
+			if f.FilePath == "" || !scopeFiles[f.FilePath] {
+				return httpapi.BadRequest("检查问题定位超出本次范围：" + f.FilePath)
+			}
+			if strings.TrimSpace(f.Fingerprint) == "" {
+				return httpapi.BadRequest("检查问题缺少服务端指纹")
+			}
+			if f.SectionID != "" && !scopeSections[f.SectionID] {
+				return httpapi.BadRequest("检查问题章节超出本次范围")
+			}
+			if err := validateClaimEvidence(f); err != nil {
+				return err
+			}
 		}
 		if !reviewSeverities[f.Severity] {
 			return httpapi.BadRequest("检查问题严重程度不合法")
@@ -1020,6 +1094,9 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 				if path == "" {
 					path = b.Ref
 				}
+				if p.Scope != nil && !scopeFiles[path] {
+					return httpapi.BadRequest("检查依据超出本次范围：" + path)
+				}
 				if err := checkFile(path); err != nil {
 					return err
 				}
@@ -1052,6 +1129,83 @@ func (s *Service) validateChapterReview(ctx context.Context, projectID store.UUI
 			if findingsPerDimension[d.Key] > 0 {
 				return httpapi.BadRequest("维度标记为已检查时不能包含问题")
 			}
+		}
+	}
+	return nil
+}
+
+// validateReviewDimensionSet 区分旧的四维整书报告与范围化报告：
+// scope 缺省时必须恰好四维；scope 存在时维度必须与 scope 完全一致。
+func validateReviewDimensionSet(p ChapterReview) error {
+	if p.Scope == nil {
+		if len(p.Dimensions) != len(reviewLegacyDimensionSet) {
+			return httpapi.BadRequest("检查报告必须覆盖四个语义维度")
+		}
+		seen := map[string]bool{}
+		for _, d := range p.Dimensions {
+			if !reviewLegacyDimensionSet[d.Key] || seen[d.Key] {
+				return httpapi.BadRequest("检查维度不合法")
+			}
+			seen[d.Key] = true
+		}
+		return nil
+	}
+	if len(p.Scope.Dimensions) == 0 || len(p.Scope.Files) == 0 {
+		return httpapi.BadRequest("范围化检查报告必须包含维度与文件范围")
+	}
+	allowed := map[string]bool{}
+	for _, key := range p.Scope.Dimensions {
+		if !reviewDimensionSet[key] || allowed[key] {
+			return httpapi.BadRequest("检查维度不合法")
+		}
+		allowed[key] = true
+	}
+	if len(p.Dimensions) != len(allowed) {
+		return httpapi.BadRequest("检查报告的维度必须与范围一致")
+	}
+	for _, d := range p.Dimensions {
+		if !allowed[d.Key] {
+			return httpapi.BadRequest("检查维度超出本次范围")
+		}
+	}
+	if len(p.Scope.Units) == 0 {
+		return httpapi.BadRequest("范围化检查报告必须包含单元执行记录")
+	}
+	for _, u := range p.Scope.Units {
+		if strings.TrimSpace(u.ID) == "" || strings.TrimSpace(u.Label) == "" || strings.TrimSpace(u.Fingerprint) == "" {
+			return httpapi.BadRequest("检查单元执行记录不完整")
+		}
+		if u.Kind != "chapter" && u.Kind != "collection" {
+			return httpapi.BadRequest("检查单元类型不合法")
+		}
+	}
+	return nil
+}
+
+// validateClaimEvidence 落实 Claim–Evidence 的硬约束：证据支撑必须标注状态，
+// 过度断言必须有对照依据，跨章矛盾必须给出双方原文。
+func validateClaimEvidence(f ReviewFinding) error {
+	switch f.Dimension {
+	case "evidence_support":
+		if !reviewClaimStatuses[f.ClaimStatus] {
+			return httpapi.BadRequest("证据支撑问题必须标注过度断言或无据孤立")
+		}
+		if f.ClaimStatus == "overclaimed" && len(f.Basis) == 0 {
+			return httpapi.BadRequest("过度断言必须给出对照依据")
+		}
+	case "cross_section":
+		files := map[string]bool{}
+		for _, b := range f.Basis {
+			if b.Kind == "text" {
+				p := b.FilePath
+				if p == "" {
+					p = b.Ref
+				}
+				files[p] = true
+			}
+		}
+		if len(files) < 2 {
+			return httpapi.BadRequest("跨章矛盾必须给出冲突双方原文")
 		}
 	}
 	return nil

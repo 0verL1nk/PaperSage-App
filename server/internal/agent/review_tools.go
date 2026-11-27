@@ -221,25 +221,25 @@ func buildChapterReviewContext(ctx context.Context, db *gorm.DB, stg storage.Sto
 	out.Norms.Entries = reviewState.norms
 
 	sources := []research.ReviewSource{}
-	plan, planSources, planWarnings := loadAdoptedReviewPlan(ctx, db, projectID)
+	plan, planSources, planWarnings := research.LoadAdoptedChapterPlan(ctx, db, projectID)
 	if plan == nil {
 		reviewState.planStatus = "missing"
 		out.Warnings = append(out.Warnings, "项目还没有可用的章节计划，目标—结论与章节间对照只能标记为证据不足")
 	} else {
-		reviewState.plan = plan.plan
-		reviewState.planStatus = plan.status
-		for _, sec := range plan.plan.Sections {
+		reviewState.plan = plan.Plan
+		reviewState.planStatus = plan.Status
+		for _, sec := range plan.Plan.Sections {
 			reviewState.planSections = append(reviewState.planSections, research.ReviewPlanSection{ID: sec.ID, Title: sec.Title})
 		}
-		artifactID := plan.artifactID
-		revision := plan.revision
+		artifactID := plan.ArtifactID
+		revision := plan.Revision
 		reviewState.planArtifactID = &artifactID
 		reviewState.planRevision = &revision
 		out.Plan = &reviewPlanContext{
-			Status: plan.status, ArtifactID: artifactID.String(), Revision: revision, Sections: plan.plan.Sections,
+			Status: plan.Status, ArtifactID: artifactID.String(), Revision: revision, Sections: plan.Plan.Sections,
 		}
 		sources = append(sources, planSources...)
-		if plan.status == "candidate" {
+		if plan.Status == "candidate" {
 			out.Warnings = append(out.Warnings, "章节计划尚未采用，本次以当前候选修订为参考")
 		}
 	}
@@ -252,7 +252,7 @@ func buildChapterReviewContext(ctx context.Context, db *gorm.DB, stg storage.Sto
 	mappedFiles := map[string]bool{}
 	total := 0
 	if plan != nil {
-		for _, sec := range plan.plan.Sections {
+		for _, sec := range plan.Plan.Sections {
 			if sec.FilePath == nil || strings.TrimSpace(*sec.FilePath) == "" {
 				continue
 			}
@@ -298,53 +298,6 @@ func buildChapterReviewContext(ctx context.Context, db *gorm.DB, stg storage.Sto
 		out.Warnings = append(out.Warnings, "项目还没有已入库的参考文献；涉及外部证据的论断只能标记为证据不足")
 	}
 	return out, reviewState, sources, nil
-}
-
-type loadedReviewPlan struct {
-	artifactID store.UUID
-	revision   int
-	status     string
-	plan       *research.ChapterPlan
-}
-
-func loadAdoptedReviewPlan(ctx context.Context, db *gorm.DB, projectID store.UUID) (*loadedReviewPlan, []research.ReviewSource, []string) {
-	var artifacts []store.ResearchArtifact
-	if err := db.WithContext(ctx).Where("project_id = ? AND kind = ?", projectID, store.ResearchArtifactChapterPlan).
-		Order("updated_at DESC").Find(&artifacts).Error; err != nil {
-		return nil, nil, []string{"读取章节计划失败：" + err.Error()}
-	}
-	var chosen *store.ResearchArtifact
-	status := ""
-	for i := range artifacts {
-		if artifacts[i].AdoptedRevision != nil {
-			chosen, status = &artifacts[i], "adopted"
-			break
-		}
-	}
-	if chosen == nil && len(artifacts) > 0 {
-		chosen, status = &artifacts[0], "candidate"
-	}
-	if chosen == nil {
-		return nil, nil, nil
-	}
-	revision := chosen.CurrentRevision
-	if chosen.AdoptedRevision != nil {
-		revision = *chosen.AdoptedRevision
-	}
-	if revision <= 0 {
-		return nil, nil, []string{"章节计划没有可用修订"}
-	}
-	var rev store.ResearchArtifactRevision
-	if err := db.WithContext(ctx).Where("artifact_id = ? AND revision = ?", chosen.ID, revision).First(&rev).Error; err != nil {
-		return nil, nil, []string{"读取章节计划修订失败：" + err.Error()}
-	}
-	var plan research.ChapterPlan
-	if err := json.Unmarshal(rev.PayloadJSON, &plan); err != nil || len(plan.Sections) == 0 {
-		return nil, nil, []string{"章节计划内容不可用"}
-	}
-	name := fmt.Sprintf("章节计划 v%d（%s）", revision, map[string]string{"adopted": "已采用", "candidate": "候选未采用"}[status])
-	return &loadedReviewPlan{artifactID: chosen.ID, revision: revision, status: status, plan: &plan},
-		[]research.ReviewSource{{Kind: "plan", Name: name}}, nil
 }
 
 // verifyChapterReviewPayload 在报告落库前做确定性核对：
@@ -498,6 +451,9 @@ func verifyReviewSourceBasis(ctx context.Context, db *gorm.DB, projectID store.U
 	return nil
 }
 
+// LocateQuote 暴露逐字引文定位，供 review 域复用同一实现，避免两套匹配规则。
+func LocateQuote(content, quote string) (int, int, bool) { return locateQuote(content, quote) }
+
 // locateQuote 在原文中定位引文（空白归一化），返回 1 起始的行号区间。
 func locateQuote(content, quote string) (int, int, bool) {
 	fields := strings.Fields(quote)
@@ -521,14 +477,4 @@ func locateQuote(content, quote string) (int, int, bool) {
 	return startLine, endLine, true
 }
 
-func planSectionText(sec research.ChapterSection) string {
-	parts := []string{sec.Title, sec.Responsibility}
-	parts = append(parts, sec.Questions...)
-	for _, claim := range sec.Claims {
-		parts = append(parts, claim.Text)
-		for _, evidence := range claim.Evidence {
-			parts = append(parts, evidence.Quote)
-		}
-	}
-	return strings.Join(parts, "\n")
-}
+func planSectionText(sec research.ChapterSection) string { return research.PlanSectionText(sec) }

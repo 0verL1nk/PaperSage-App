@@ -276,10 +276,12 @@ func (c *EmailLoginCode) BeforeCreate(*gorm.DB) error {
 // AgentConversation：AI 助手会话（云端化，DB 持久）。
 // 用 gorm.DeletedAt 而非 SoftDeleteTime：本表无唯一键，不需要 deleted_seq。
 type AgentConversation struct {
-	ID        UUID           `gorm:"column:id;primaryKey"`
-	ProjectID UUID           `gorm:"column:project_id;not null;index"`
-	UserID    UUID           `gorm:"column:user_id;not null"`
-	Title     string         `gorm:"column:title;size:200;default:新对话"`
+	ID        UUID   `gorm:"column:id;primaryKey"`
+	ProjectID UUID   `gorm:"column:project_id;not null;index"`
+	UserID    UUID   `gorm:"column:user_id;not null"`
+	Title     string `gorm:"column:title;size:200;default:新对话"`
+	// chat：用户可见会话；review：检查任务的隐藏会话（列表只返回 chat）。
+	Kind      string         `gorm:"column:kind;size:20;not null;default:chat"`
 	CreatedAt time.Time      `gorm:"column:created_at;autoCreateTime"`
 	UpdatedAt time.Time      `gorm:"column:updated_at;autoUpdateTime"`
 	DeletedAt gorm.DeletedAt `gorm:"column:deleted_at;index"`
@@ -336,6 +338,7 @@ func coreModels() []any {
 		&AgentConversation{}, &AgentMessage{}, &AgentMessagePart{},
 		&AgentTurn{}, &AgentRun{}, &AgentToolCall{}, &AgentEvent{},
 		&AgentArtifact{}, &AgentChangeProposal{}, &AgentEvidence{}, &AgentWikiSource{},
+		&ReviewRun{}, &ReviewUnit{},
 		&NormPack{}, &NormEntry{}, &NormVersion{}, &NormEntryTag{}, &ProjectNormAdoption{},
 	}
 }

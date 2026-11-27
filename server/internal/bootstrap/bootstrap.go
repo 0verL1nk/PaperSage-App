@@ -29,6 +29,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/recheck"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
+	"github.com/0verL1nk/GraduateProject/server/internal/review"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
@@ -144,6 +145,15 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 	agentSvc.Norms = normSvc
 
+	// 检查域：确定性结构入口 + 范围化检查引擎（单元 Run 复用 agent 底座）。
+	reviewSvc := review.NewService(db, latexFiles)
+	reviewSvc.Agent = agentSvc
+	reviewSvc.Research = researchSvc
+	reviewSvc.Norms = normSvc
+	reviewSvc.Cfg = cfg
+	// agent 已先收敛遗留 agent_runs；这里把遗留检查任务一并置为失败。
+	reviewSvc.ReconcileOrphaned(ctx)
+
 	// ── HTTP ──
 	engine := httpapi.New(nil)
 	bundle, err := latexprofile.Embedded()
@@ -178,6 +188,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
 	compilediag.Mount(v1, authSvc, compilediag.NewService(db, cfg.CompileDiagnosticRetentionDays))
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
+	review.Mount(v1, authSvc.AuthRequired(), reviewSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
 }
