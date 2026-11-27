@@ -58,6 +58,16 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	// 生成 DAO（gorm.io/gen）的全局入口；域代码可用 query.Q.Documents 等
 	query.SetDefault(db)
 
+	// SUPERUSER_EMAILS 启动同步：改完 env 重启即对既有账号幂等提权，
+	// 已登录用户刷新页面立即生效（认证中间件每请求重读用户行）。
+	promoted, err := auth.SyncSuperusers(ctx, db, cfg.SuperuserEmails)
+	if err != nil {
+		return nil, fmt.Errorf("superuser sync: %w", err)
+	}
+	if promoted > 0 {
+		slog.Info("superuser: promoted existing accounts from SUPERUSER_EMAILS", "count", promoted)
+	}
+
 	// 模型能力目录：后台刷新，不阻塞启动；失败时保持“未知”，由用户覆盖。
 	modelregistry.Default.Start(ctx, cfg.ModelRegistryURL, time.Duration(cfg.ModelRegistryRefreshHours)*time.Hour)
 

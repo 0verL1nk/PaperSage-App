@@ -174,22 +174,14 @@ func (s *Service) login(c *gin.Context) {
 
 // maybePromoteSuperuser：SUPERUSER_EMAILS env（逗号分隔）命中即幂等
 // 提升——部署者的 bootstrap 管理通道，不属于代码硬编码。
+// 匹配规则与启动同步（SyncSuperusers）共用：全邮箱 trim + 小写。
 func (s *Service) maybePromoteSuperuser(ctx context.Context, user *store.User) {
-	list := strings.Split(s.Cfg.SuperuserEmails, ",")
-	email := ""
-	if user.Email != nil {
-		email = normalizeEmail(*user.Email)
-	}
-	for _, e := range list {
-		e = strings.TrimSpace(e)
-		if e == "" || email == "" || normalizeEmail(e) != email {
-			continue
-		}
-		if !user.IsSuperuser {
-			_ = s.DB.WithContext(ctx).Model(user).Update("is_superuser", true).Error
-			user.IsSuperuser = true
-		}
+	if user.Email == nil || !isSuperuserEmail(s.Cfg.SuperuserEmails, *user.Email) {
 		return
+	}
+	if !user.IsSuperuser {
+		_ = s.DB.WithContext(ctx).Model(user).Update("is_superuser", true).Error
+		user.IsSuperuser = true
 	}
 }
 
