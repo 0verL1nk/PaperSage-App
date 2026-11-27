@@ -207,7 +207,7 @@ export function CompileFailurePanel({
   }
 
   return (
-    <div className="mx-auto mt-16 max-w-lg select-text rounded-xl border border-destructive/20 bg-destructive/5 p-6">
+    <div data-testid="compile-failure-panel" className="mx-auto mt-16 max-w-lg select-text rounded-xl border border-destructive/20 bg-destructive/5 p-6">
       <div className="mb-3 flex items-center justify-between text-destructive">
         <div className="flex items-center gap-2">
           <AlertCircle size={16} />

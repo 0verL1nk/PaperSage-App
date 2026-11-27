@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-import { mockWritingPageAPIs, seedAuthTokens, TEST_PROJECT_ID, WRITING_URL } from '../helpers'
+import { API_LATEX_FILE_CONTENT, mockWritingPageAPIs, seedAuthTokens, TEST_PROJECT_ID, WRITING_URL } from '../helpers'
 
 /**
  * 浏览器编译失败 → 报错条目定位与一键跳行（引擎用桩，不需要真实 WASM）。
@@ -51,21 +51,37 @@ test.describe('Compile error navigation', () => {
       })
     })
 
-    // 记录跨文件内容请求：跳行必须真的切换到 sections/intro.tex 并加载它。
+    // 报错行 42 必须真实存在于文件内容中，否则 Monaco 不会渲染该行的装饰；
+    // 同时记录跨文件内容请求：跳行必须真的切换到 sections/intro.tex 并加载它。
+    const introContent = Array.from({ length: 48 }, (_, index) =>
+      index === 41 ? '\\badcommand' : `% filler line ${index + 1}`,
+    ).join('\n')
     let introFetched = 0
-    await page.route(/\/latex-files\/sections%2Fintro\.tex$/, async (route) => {
+    await page.route(API_LATEX_FILE_CONTENT('sections/intro.tex'), async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.fallback()
+        return
+      }
       introFetched += 1
-      await route.fallback()
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 200, data: { path: 'sections/intro.tex', content: introContent } }),
+      })
     })
 
     await page.goto(WRITING_URL, { timeout: 60_000 })
     await page.getByTestId('compile-button').click({ timeout: 30_000 })
 
-    await expect(page.getByText('sections/intro.tex:42')).toBeVisible({ timeout: 30_000 })
-    await expect(page.getByText('Undefined control sequence.')).toBeVisible()
-    await expect(page.getByText(/BibTeX 日志只给出辅助文件位置/)).toBeVisible()
+    // 原始日志 <pre> 也包含同一句错误：按「可点击的报错条目」定位，避免 strict mode。
+    // （CI 曾因裸 getByText 同时命中条目与日志而 strict mode violation。）
+    const panel = page.getByTestId('compile-failure-panel')
+    const issueRow = panel.getByRole('button', { name: /sections\/intro\.tex:42/ })
+    await expect(issueRow).toBeVisible({ timeout: 30_000 })
+    await expect(issueRow).toContainText('Undefined control sequence.')
+    await expect(panel.getByText(/BibTeX 日志只给出辅助文件位置/).first()).toBeVisible()
 
-    const navigate = page.getByTitle('跳转到报错位置')
+    const navigate = panel.getByTitle('跳转到报错位置')
     await expect(navigate).toHaveCount(1)
     await navigate.click()
 
