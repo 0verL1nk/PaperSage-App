@@ -92,6 +92,13 @@ describe('NormsPage', () => {
 
   it('没有条目时给出空态而不是空白列表', () => {
     render(wrap(<NormsPage />))
-    expect(screen.getByText(/没有匹配的规范条目/)).toBeInTheDocument()
+    // 未选包、无筛选条件：库里就是空的，不要用「没有匹配」误导用户去改筛选。
+    expect(screen.getByText('这个库里还没有条目。')).toBeInTheDocument()
+  })
+
+  it('自建包为空时提示去新增条目，而不是让用户换筛选条件', () => {
+    render(wrap(<NormsPage />))
+    fireEvent.click(screen.getByText('实验室补充要求'))
+    expect(screen.getByText(/这个包还没有条目/)).toBeInTheDocument()
   })
 })
