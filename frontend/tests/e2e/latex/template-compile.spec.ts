@@ -98,14 +98,22 @@ for (const template of cases) {
     // Format generation on first use can take many minutes on slow hardware;
     // log live progress so a timeout is diagnosable instead of silent.
     const compileStartedAt = Date.now()
+    // A missing file is normal TeX behaviour: kpathsea probes optional inputs
+    // and the engine probes "<font>.fontspec" before every font. Only a
+    // transport error or a 5xx/409 means the resource service is broken, and
+    // those lines are echoed as they appear so a killed run stays diagnosable.
+    const reportedFailures = new Set<string>()
     const progress = setInterval(() => {
-      // The engine probes "<font>.fontspec" before every font; a 404 there is
-      // its normal fallback to the font file, not a broken resource.
-      const fontspecProbe = (line: string) => /\.fontspec(?:\s|$)/.test(line)
-      const failures = networkLogs
-        .filter((line) => (line.startsWith('FAILED') || /^HTTP 5|^HTTP 4/.test(line)) && !fontspecProbe(line)).length
-      const probes = networkLogs.filter((line) => line.startsWith('HTTP 404') && fontspecProbe(line)).length
-      console.log(`[template-e2e] ${template.name}: ${Math.round((Date.now() - compileStartedAt) / 1000)}s elapsed, texlive requests=${networkLogs.length}, failures=${failures}, fontspec-probes=${probes}`)
+      const httpStatus = (line: string) => /^HTTP (\d{3})/.exec(line)?.[1] ?? ''
+      const missing = networkLogs.filter((line) => httpStatus(line) === '404').length
+      const failures = networkLogs.filter((line) => line.startsWith('FAILED') || httpStatus(line) === '409' || httpStatus(line).startsWith('5'))
+      for (const line of failures) {
+        if (reportedFailures.size >= 20 || reportedFailures.has(line)) continue
+        reportedFailures.add(line)
+        console.log(`[template-e2e] ${template.name}: resource failure ${line}`)
+      }
+      const probes = networkLogs.filter((line) => httpStatus(line) === '404' && /\.fontspec(?:\s|$)/.test(line)).length
+      console.log(`[template-e2e] ${template.name}: ${Math.round((Date.now() - compileStartedAt) / 1000)}s elapsed, texlive requests=${networkLogs.length}, failures=${failures.length}, missing-404=${missing}, fontspec-probes=${probes}`)
     }, 15_000)
     let result: { pdfBase64?: string; log?: string; error?: string }
     try {
