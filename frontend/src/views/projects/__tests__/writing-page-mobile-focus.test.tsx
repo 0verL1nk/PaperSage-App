@@ -238,6 +238,32 @@ describe('WritingPage compile recovery', () => {
     ))
     unmount()
   })
+
+  it('手机端编辑页会提示编译失败，并可切到失败卡片', async () => {
+    window.innerWidth = 390
+    vi.mocked(compileLatexInBrowser).mockRejectedValue(
+      new Error('pdfLaTeX 浏览器引擎初始化超时：超过 2 分钟仍未就绪，已停止本次编译。'),
+    )
+    const toastError = vi.spyOn(toast, 'error')
+    const { unmount } = render(<WritingPage />)
+    try {
+      await waitFor(() => expect(screen.getByTestId('writing-pane-preview')).toBeInTheDocument())
+      fireEvent.click(screen.getByTestId('compile-button'))
+
+      await waitFor(() => expect(toastError).toHaveBeenCalledWith('编译失败', expect.objectContaining({
+        description: expect.stringContaining('编译超过预期时间仍未完成'),
+      })))
+      const previewTab = screen.getByTestId('writing-pane-preview')
+      expect(previewTab).toHaveTextContent('（编译失败，点此查看原因）')
+
+      fireEvent.click(previewTab)
+      await waitFor(() => expect(screen.getByTestId('retry-browser-compile')).toBeInTheDocument())
+      expect(screen.getByText(/编译超过预期时间仍未完成/)).toBeInTheDocument()
+    } finally {
+      toastError.mockRestore()
+      unmount()
+    }
+  })
 })
 
 describe('WritingPage LaTeX project import', () => {

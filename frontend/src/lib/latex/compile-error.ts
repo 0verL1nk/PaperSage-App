@@ -26,6 +26,21 @@ export function classifyCompileFailure(
   return 'unknown'
 }
 
+/**
+ * 原始日志正文：失败原因常常已经包含在日志里（引擎初始化超时的 logs 就是 message），
+ * 这里去重，并用中文分隔，避免同一句错误出现两遍。
+ */
+export function compileRawLogText(
+  error: string | null | undefined,
+  logs: string | null | undefined,
+): string {
+  const message = (error ?? '').trim()
+  const full = (logs ?? '').trim()
+  if (!full) return message
+  if (!message || full.includes(message)) return full
+  return `${message}\n\n—— 完整日志 ——\n${full}`
+}
+
 export function compileFailureMessage(kind: CompileFailureKind): string {
   switch (kind) {
     case 'resource':
