@@ -85,16 +85,7 @@ func (s *Service) appendAdoptedNorms(ctx context.Context, b *strings.Builder, pr
 	}
 }
 
-func scenarioLabel(s string) string {
-	switch s {
-	case "undergraduate_thesis":
-		return "本科毕业设计"
-	case "intro_paper":
-		return "入门级学术小论文"
-	default:
-		return s
-	}
-}
+func scenarioLabel(s string) string { return store.ScenarioLabel(s) }
 
 func phaseLabel(p string) string {
 	switch p {

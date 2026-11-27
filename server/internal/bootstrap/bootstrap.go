@@ -29,6 +29,7 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
 	"github.com/0verL1nk/GraduateProject/server/internal/recheck"
 	"github.com/0verL1nk/GraduateProject/server/internal/research"
+	"github.com/0verL1nk/GraduateProject/server/internal/review"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/sources"
 	"github.com/0verL1nk/GraduateProject/server/internal/storage"
@@ -122,6 +123,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	projSvc.OnPurge = purgeProjectHook(db, s3, ragStore)
 
 	researchSvc := research.NewService(db)
+	reviewSvc := review.NewService(db, latexFiles)
 	recheckSvc := recheck.NewService(db)
 	sourcesSvc := sources.NewService(db, s3)
 
@@ -178,6 +180,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
 	compilediag.Mount(v1, authSvc, compilediag.NewService(db, cfg.CompileDiagnosticRetentionDays))
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
+	review.Mount(v1, authSvc.AuthRequired(), reviewSvc)
 
 	return &App{API: engine, DB: db, Close: agentSvc.Close}, nil
 }
