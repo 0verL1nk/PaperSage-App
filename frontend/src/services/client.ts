@@ -7,6 +7,8 @@ import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
 import {
   createBackendEnvelopeError,
   FrontendApiError,
+  friendlyErrorMessage,
+  NETWORK_ERROR_MESSAGE,
   normalizeApiError,
 } from '@/services/errors'
 import { isDesktop } from '@/lib/desktop'
@@ -248,7 +250,7 @@ apiClient.interceptors.response.use(
     // 无响应 = 传输层失败：离线 / 服务不可达 / 超时。统一归为 network，
     // 供 requestApi 换成可操作提示，而不是 axios 的 "Network Error"。
     const normalized = isTransportFailure(error)
-      ? new FrontendApiError('Network request failed.', { kind: 'network', cause: error })
+      ? new FrontendApiError(NETWORK_ERROR_MESSAGE, { kind: 'network', cause: error })
       : normalizeApiError(error)
     // 401 = 会话过期：清 token 并跳登录。403 = 已登录但无权限，跳登录只会把
     // 用户登出并丢掉当前页面（管理页自己渲染「需要管理员权限」）。
@@ -328,8 +330,9 @@ export async function requestApi<TResponse, TBody = unknown>(
           duration: 4000,
         })
       } else {
-        const msg = normalized.info || normalized.message
-        toast.error('请求失败', { description: msg, duration: 4000 })
+        const msg = friendlyErrorMessage(normalized)
+        // 同一错误重复触发时替换上一条，连续失败不再堆叠刷屏（HELE-22 S6）。
+        toast.error('请求失败', { id: `api-error:${msg}`, description: msg, duration: 4000 })
       }
     }
     throw normalized

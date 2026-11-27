@@ -18,6 +18,14 @@ function failWithNetworkError() {
   }
 }
 
+function failWithEnvelope(status: number, info: string) {
+  apiClient.defaults.adapter = async (config) => {
+    throw new AxiosError('Request failed', 'ERR_BAD_RESPONSE', config, {}, {
+      config, data: { code: status, data: null, info }, headers: {}, status, statusText: '',
+    })
+  }
+}
+
 type ErrorToastArgs = [string, { id?: string; description?: string }?]
 
 function errorToastCalls() {
@@ -53,6 +61,20 @@ describe('unreachable API errors', () => {
     expect(calls).toHaveLength(2)
     expect(new Set(calls.map(([, options]) => options?.id))).toEqual(new Set(['api-unreachable']))
     expect(calls.every(([title]) => title === '无法连接到服务器')).toBe(true)
+  })
+
+  it('merges identical backend failures into one toast and shows Chinese text', async () => {
+    failWithEnvelope(500, 'Internal server error')
+
+    await expect(getJson('/health')).rejects.toBeTruthy()
+    await expect(getJson('/health')).rejects.toBeTruthy()
+
+    const calls = errorToastCalls()
+    expect(calls).toHaveLength(2)
+    expect(calls[0][0]).toBe('请求失败')
+    expect(calls[0][1]?.description).toBe('服务开小差了，请稍后重试')
+    expect(calls[1][1]?.id).toBe(calls[0][1]?.id)
+    expect(calls[0][1]?.id).toBe('api-error:服务开小差了，请稍后重试')
   })
 })
 

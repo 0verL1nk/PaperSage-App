@@ -131,3 +131,10 @@ func TestAPIErrorConstructors(t *testing.T) {
 	require.True(t, errors.As(error(NotFound("X")), &target))
 	assert.Equal(t, 404, target.Code)
 }
+
+// 契约串必须保持英文：中文资源名退化为通用串，避免「项目 not found」中英混杂（HELE-22）。
+func TestNotFoundFallsBackForNonEnglishResource(t *testing.T) {
+	assert.Equal(t, &APIError{Code: 404, Info: "Resource not found"}, NotFound("项目"))
+	assert.Equal(t, &APIError{Code: 404, Info: "Resource not found"}, NotFound(""))
+	assert.Equal(t, &APIError{Code: 404, Info: "Source version not found"}, NotFound("Source version"))
+}

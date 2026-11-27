@@ -69,6 +69,15 @@ describe('Toaster 全局定位', () => {
     expect(toaster.style.getPropertyValue('--mobile-offset-left')).toBe('16px')
   })
 
+  it('每条 toast 都带手动关闭按钮', async () => {
+    stubViewport(false)
+    const toaster = await renderToaster()
+
+    await waitFor(() => {
+      expect(toaster.querySelector('[data-sonner-toast] [data-close-button]')).not.toBeNull()
+    })
+  })
+
   it('运行环境没有 matchMedia 时按桌面端渲染', async () => {
     vi.stubGlobal('matchMedia', undefined)
     const toaster = await renderToaster()

@@ -100,7 +100,7 @@ func (s *Service) findAdoption(ctx context.Context, projectID, entryID store.UUI
 	var adoption store.ProjectNormAdoption
 	err := s.DB.WithContext(ctx).Where("project_id = ? AND entry_id = ?", projectID, entryID).First(&adoption).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, httpapi.NotFound("已采用的规范")
+		return nil, httpapi.NotFound("Adopted norm")
 	}
 	if err != nil {
 		return nil, err
@@ -241,7 +241,7 @@ func (s *Service) UpdateAdoption(ctx context.Context, uid, projectID, entryID st
 		return nil, err
 	}
 	if len(list) == 0 {
-		return nil, httpapi.NotFound("已采用的规范")
+		return nil, httpapi.NotFound("Adopted norm")
 	}
 	return &list[0], nil
 }
@@ -257,7 +257,7 @@ func (s *Service) Unadopt(ctx context.Context, uid, projectID, entryID store.UUI
 		return res.Error
 	}
 	if res.RowsAffected == 0 {
-		return httpapi.NotFound("已采用的规范")
+		return httpapi.NotFound("Adopted norm")
 	}
 	return nil
 }
