@@ -165,6 +165,37 @@ export function clearSessionTokens() {
   return useSessionStore.getState().clearTokens()
 }
 
+/**
+ * 吸收其他标签页写入的 token：localStorage 是唯一真相，zustand 只是缓存。
+ * 不回写 localStorage，避免 storage 事件回环。
+ */
+export function syncSessionTokensFromStorage(): SessionTokens {
+  const state = useSessionStore.getState()
+  if (!canUseBrowserStorage()) {
+    return { accessToken: state.accessToken, refreshToken: state.refreshToken, tokenType: state.tokenType }
+  }
+  const accessToken = window.localStorage.getItem(ACCESS_TOKEN_KEY) || ''
+  const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY) || ''
+  if (accessToken !== state.accessToken || refreshToken !== state.refreshToken) {
+    useSessionStore.setState({
+      accessToken,
+      refreshToken,
+      // 其他标签页登录/轮换后，本标签页的本地访客标记必须让位。
+      ...(accessToken ? { isGuest: false } : {}),
+    })
+  }
+  return { accessToken, refreshToken, tokenType: state.tokenType }
+}
+
+if (typeof window !== 'undefined') {
+  // storage 事件只在「其他标签页」触发；key === null 表示整库被 clear()。
+  window.addEventListener('storage', (event) => {
+    if (event.key === null || event.key === ACCESS_TOKEN_KEY || event.key === REFRESH_TOKEN_KEY) {
+      syncSessionTokensFromStorage()
+    }
+  })
+}
+
 export {
   ACCESS_TOKEN_KEY as ACCESS_TOKEN_STORAGE_KEY,
   REFRESH_TOKEN_KEY as REFRESH_TOKEN_STORAGE_KEY,

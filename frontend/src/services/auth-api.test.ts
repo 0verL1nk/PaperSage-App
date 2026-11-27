@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
-import { confirmPasswordReset, getCurrentUser, loginWithPassword, registerWithEmail, requestPasswordReset, sendEmailCode } from '@/services/auth-api'
+import { confirmPasswordReset, getCurrentUser, loginWithPassword, logout, registerWithEmail, requestPasswordReset, sendEmailCode } from '@/services/auth-api'
+import { clearSessionTokens, getRefreshToken, setSessionTokens } from '@/store'
 import { sha256 as jsSha256 } from 'js-sha256'
 
 vi.mock('@/services', async () => {
@@ -199,5 +200,34 @@ describe('auth api — Web Crypto fallback', () => {
     await expect(
       registerWithEmail('eve@example.edu.cn', 'pw'),
     ).resolves.toBeNull()
+  })
+})
+
+describe('auth api — logout', () => {
+  beforeEach(() => {
+    vi.mocked(postJson).mockReset()
+    vi.mocked(postMultipart).mockReset()
+    window.localStorage.clear()
+    clearSessionTokens()
+  })
+
+  it('revokes the refresh token over JSON so the server really ends the session', async () => {
+    setSessionTokens({ accessToken: 'access', refreshToken: 'refresh' })
+    vi.mocked(postJson).mockResolvedValue(null)
+
+    await logout()
+
+    expect(postJson).toHaveBeenCalledWith(
+      '/api/v1/auth/logout',
+      { refresh_token: 'refresh' },
+      { skipGlobalLoading: true, skipAuthRefresh: true },
+    )
+    expect(postMultipart).not.toHaveBeenCalled()
+    expect(getRefreshToken()).toBe('')
+  })
+
+  it('skips the network call for a local guest with no refresh token', async () => {
+    await logout()
+    expect(postJson).not.toHaveBeenCalled()
   })
 })

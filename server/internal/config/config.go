@@ -23,7 +23,7 @@ type Settings struct {
 
 	SecretKey                string `env:"SECRET_KEY" envDefault:"dev-secret-key-change-in-production"`
 	AccessTokenExpireMinutes int    `env:"ACCESS_TOKEN_EXPIRE_MINUTES" envDefault:"30"`
-	RefreshTokenExpireDays   int    `env:"REFRESH_TOKEN_EXPIRE_DAYS" envDefault:"7"`
+	RefreshTokenExpireDays   int    `env:"REFRESH_TOKEN_EXPIRE_DAYS" envDefault:"30"`
 
 	Debug        bool     `env:"DEBUG"`
 	AllowedHosts []string `env:"ALLOWED_HOSTS" envSeparator:"," envDefault:"localhost,127.0.0.1"`

@@ -1,7 +1,7 @@
 import axios, { type AxiosRequestConfig, type AxiosResponse } from 'axios'
 import { getOptionalApiBaseUrl, getRequiredApiBaseUrl, LocalBackendUnavailableError } from '@/lib/env'
 import { AUTH } from '@/services/api-routes'
-import { clearSessionTokens, getAccessToken, getRefreshToken, mergeRefreshedTokens, setSessionTokens, useSessionStore, type SessionTokens } from '@/store'
+import { clearSessionTokens, getAccessToken, getRefreshToken, mergeRefreshedTokens, REFRESH_TOKEN_STORAGE_KEY, setSessionTokens, syncSessionTokensFromStorage, useSessionStore, type SessionTokens } from '@/store'
 import { hideGlobalLoading, showGlobalLoading } from '@/store'
 import { API_SUCCESS_CODE, type ApiEnvelope } from '@/services/contracts'
 import {
@@ -105,34 +105,121 @@ async function refreshAccessToken(): Promise<SessionTokens> {
     timeout: 30_000,
   })
 
+  // 这一层不清会话：只有 /auth/refresh 返回 401/403 才说明会话确实失效
+  //（见 handleUnauthorized）；网络抖动/5xx 必须保留登录态。
+  const response = await refreshClient.post<ApiEnvelope<SessionTokens>>(
+    AUTH.refresh,
+    { refresh_token: refreshToken },
+    { headers: { 'Content-Type': 'application/json' } }
+  )
+
+  if (response.data.code !== API_SUCCESS_CODE) {
+    throw createBackendEnvelopeError({
+      code: response.data.code,
+      info: response.data.info,
+      details: response.data,
+    })
+  }
+
+  const newTokens = mergeRefreshedTokens({
+    accessToken: response.data.data.accessToken,
+    refreshToken: response.data.data.refreshToken,
+  }, useSessionStore.getState())
+
+  // 刷新在途时另一标签页可能刚登出：不能把会话写回来。
+  if (hasNoStoredRefreshToken()) {
+    throw new FrontendApiError('登录状态已失效，请重新登录。', {
+      kind: 'http',
+      status: 401,
+      info: 'Session ended in another tab',
+    })
+  }
+
+  // Save new tokens
+  setSessionTokens(newTokens)
+
+  return newTokens
+}
+
+function hasNoStoredRefreshToken(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.localStorage !== 'undefined' &&
+    !window.localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY)
+  )
+}
+
+function withBearer(config: ApiRequestConfig, accessToken: string): ApiRequestConfig {
+  return { ...config, headers: { ...config.headers, Authorization: `Bearer ${accessToken}` } }
+}
+
+const REFRESH_LOCK_NAME = 'papersage-auth-refresh'
+const REFRESH_LOCK_WAIT_MS = 5_000
+
+/**
+ * 跨标签页串行化刷新：同一时刻只有一个标签页真正请求 /auth/refresh。
+ * 拿不到锁（后台标签页可能长期持锁）时降级直连，由后端宽限期兜底，
+ * 不能把前台标签页一起卡死。
+ */
+async function withRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== 'undefined' ? navigator.locks : undefined
+  if (!locks?.request) return fn()
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), REFRESH_LOCK_WAIT_MS)
   try {
-    const response = await refreshClient.post<ApiEnvelope<SessionTokens>>(
-      AUTH.refresh,
-      { refresh_token: refreshToken },
-      { headers: { 'Content-Type': 'application/json' } }
-    )
-
-    if (response.data.code !== API_SUCCESS_CODE) {
-      throw createBackendEnvelopeError({
-        code: response.data.code,
-        info: response.data.info,
-        details: response.data,
-      })
-    }
-
-    const newTokens = mergeRefreshedTokens({
-      accessToken: response.data.data.accessToken,
-      refreshToken: response.data.data.refreshToken,
-    }, useSessionStore.getState())
-
-    // Save new tokens
-    setSessionTokens(newTokens)
-
-    return newTokens
+    return await locks.request(REFRESH_LOCK_NAME, { signal: controller.signal }, fn)
   } catch (error) {
-    // Refresh failed, clear tokens
-    clearSessionTokens()
-    throw error
+    // 等待超时被 abort → 降级直连；回调自身抛错则原样上抛。
+    if (!controller.signal.aborted) throw error
+    return fn()
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * 401 统一出口：跨标签页协同刷新 + 本标签页单飞订阅 + 锁外重试。
+ */
+async function handleUnauthorized(requestConfig: ApiRequestConfig | undefined): Promise<unknown> {
+  const failedAuthorization = requestConfig?.headers?.Authorization
+  if (isRefreshing) {
+    return new Promise((resolve, reject) => {
+      subscribeTokenRefresh((tokens) => {
+        resolve(apiClient.request(withBearer(requestConfig ?? {}, tokens.accessToken)))
+      }, reject)
+    })
+  }
+
+  isRefreshing = true
+  try {
+    const newTokens = await withRefreshLock(async () => {
+      // 先吸收其他标签页已轮换的 token：挂起很久的标签页靠这一步避免
+      // 拿旧 refresh token 触发后端的重放检测。
+      const stored = syncSessionTokensFromStorage()
+      if (stored.accessToken && `Bearer ${stored.accessToken}` !== failedAuthorization) {
+        return mergeRefreshedTokens(stored, useSessionStore.getState())
+      }
+      return refreshAccessToken()
+    })
+    notifyTokenRefresh(newTokens)
+    // 重试必须在锁外：Web Locks 不可重入，锁内重试再 401 会自锁死。
+    return apiClient.request(withBearer(requestConfig ?? {}, newTokens.accessToken))
+  } catch (refreshError) {
+    const normalized = normalizeApiError(refreshError)
+    rejectTokenRefresh(normalized)
+    if (refreshError instanceof LocalBackendUnavailableError) {
+      throw normalized
+    }
+    // 只有明确的鉴权拒绝才清会话；网络抖动/5xx 保留登录态。
+    if (normalized.status === 401 || normalized.status === 403) {
+      clearSessionTokens()
+      if (typeof window !== 'undefined') {
+        window.location.href = '/auth'
+      }
+    }
+    throw normalized
+  } finally {
+    isRefreshing = false
   }
 }
 
@@ -195,81 +282,18 @@ apiClient.interceptors.response.use(
       if (useSessionStore.getState().isGuest) {
         return Promise.reject(normalizeApiError(error))
       }
-      // login/register 的 401 是凭据错误，应交给页面展示错误提示；
-      // 走 refresh 重定向会整页跳转 /auth 并清空表单状态
-      // If already refreshing, wait for the refresh to complete
-      if (isRefreshing) {
-        return new Promise((resolve, reject) => {
-          subscribeTokenRefresh((tokens) => {
-            // Retry the original request with new token
-            const retryConfig = {
-              ...requestConfig,
-              headers: {
-                ...requestConfig?.headers,
-                Authorization: `Bearer ${tokens.accessToken}`,
-              },
-            }
-            resolve(apiClient.request(retryConfig))
-          }, reject)
-        })
-      }
-
-      isRefreshing = true
-
-      try {
-        const newTokens = await refreshAccessToken()
-        notifyTokenRefresh(newTokens)
-
-        // Retry the original request with new token
-        const retryConfig = {
-          ...requestConfig,
-          headers: {
-            ...requestConfig?.headers,
-            Authorization: `Bearer ${newTokens.accessToken}`,
-          },
-        }
-        return apiClient.request(retryConfig)
-      } catch (refreshError) {
-        const normalized = normalizeApiError(refreshError)
-        rejectTokenRefresh(normalized)
-        if (refreshError instanceof LocalBackendUnavailableError) {
-          return Promise.reject(normalized)
-        }
-        // Refresh failed, redirect to auth
-        clearSessionTokens()
-        // Only redirect if we're in a browser environment
-        if (typeof window !== 'undefined') {
-          window.location.href = '/auth'
-        }
-        return Promise.reject(normalized)
-      } finally {
-        isRefreshing = false
-      }
+      return handleUnauthorized(requestConfig)
     }
 
     // 无响应 = 传输层失败：离线 / 服务不可达 / 超时。统一归为 network，
     // 供 requestApi 换成可操作提示，而不是 axios 的 "Network Error"。
-    const normalized = isTransportFailure(error)
-      ? new FrontendApiError(NETWORK_ERROR_MESSAGE, { kind: 'network', cause: error })
-      : normalizeApiError(error)
-    // 401 = 会话过期：清 token 并跳登录。403 = 已登录但无权限，跳登录只会把
-    // 用户登出并丢掉当前页面（管理页自己渲染「需要管理员权限」）。
-    // 自行处理鉴权的请求（skipAuthRefresh）不参与全局跳转；auth 端点交给页面
-    // 渲染错误提示（login wrong-password 用例曾因整页跳转永远看不到 alert）。
-    if (
-      normalized.status === 401 &&
-      !isCredentialAuthEndpoint(requestConfig?.url) &&
-      !requestConfig?.skipAuthRefresh &&
-      !useSessionStore.getState().isGuest
-    ) {
-      clearSessionTokens()
-      if (typeof window !== 'undefined') {
-        const currentPath = window.location.pathname
-        window.location.href = `/auth?redirect=${encodeURIComponent(currentPath)}`
-      }
-    }
-
-    return Promise.reject(normalized)
+    // 401 已在上面统一走刷新/登出；403 是「已登录但无权限」，绝不跳登录
+    //（管理页自己渲染「需要管理员权限」）。
+    return Promise.reject(
+      isTransportFailure(error)
+        ? new FrontendApiError(NETWORK_ERROR_MESSAGE, { kind: 'network', cause: error })
+        : normalizeApiError(error),
+    )
   },
 )
 

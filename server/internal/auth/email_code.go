@@ -288,7 +288,8 @@ func (s *Service) verifyEmailCode(c *gin.Context) {
 		httpapi.WriteError(c.Writer, errBad("Internal server error", http.StatusInternalServerError))
 		return
 	}
-	s.storeRefresh(ctx, refresh, user.ID, s.refreshTTL())
+	s.storeRefresh(ctx, refresh, user.ID, s.refreshTTL(), newRefreshFamily())
+	s.maybeCleanupExpiredRefreshTokens(ctx)
 
 	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK, httpapi.Success(struct {
 		TokenResponse

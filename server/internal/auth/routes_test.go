@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/glebarez/sqlite"
 	"github.com/stretchr/testify/assert"
@@ -220,10 +221,14 @@ func TestRefreshFlow(t *testing.T) {
 	newData := bodyJSON(t, resp)["data"].(map[string]any)
 	assert.NotEmpty(t, newData["accessToken"])
 
-	// 真正的轮换：旧 refresh 用后即废。此前该断言写反（旧 token 可复用）
-	// 且靠 JWT 同秒确定性碰巧通过——JWE 随机 IV 让轮换真正生效后暴露
+	// 真正的轮换：旧 refresh 在宽限窗口外重放必须被拒绝。窗口内的并发刷新
+	// 是合法的平滑续签（多标签页），单独由 refresh_family_test.go 覆盖；
+	// 这里回拨吊销时间而不是 sleep。
+	require.NoError(t, srv.db.Model(&store.RefreshToken{}).
+		Where("token_hash = ?", tokenHash(oldRefresh)).
+		Update("revoked_at", time.Now().UTC().Add(-refreshGraceWindow-time.Second)).Error)
 	resp = postJSON(t, srv.URL+"/api/v1/auth/refresh", map[string]string{"refresh_token": oldRefresh})
-	assert.Equal(t, 401, resp.StatusCode, "旧 refresh token 应已被吊销")
+	assert.Equal(t, 401, resp.StatusCode, "窗口外重放旧 refresh token 必须被拒绝")
 }
 
 func TestRefreshInvalidToken(t *testing.T) {

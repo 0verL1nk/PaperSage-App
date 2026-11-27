@@ -247,7 +247,7 @@ Backend reads env vars via `server/internal/config`（变量名与旧 Python 版
   嵌入用 `EMBED_API_KEY` / `EMBED_BASE_URL` / `EMBED_MODEL`，未配置则退回哈希嵌入（仅保证管线可用）。
   两者都未配置时，创建 Run 的请求返回 400 + 引导文案，面板展示「去设置」入口。
 - **Email**: Resend (`RESEND_API_KEY`) or SMTP fallback
-- **Auth**: `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=7`
+- **Auth**: `SECRET_KEY`, `ACCESS_TOKEN_EXPIRE_MINUTES=30`, `REFRESH_TOKEN_EXPIRE_DAYS=30`（活跃即无限滑动续期；15s 宽限防多标签页误踢，窗口外重放整族吊销）
 
 完整工程规范见 `docs/backend/GO-BEST-PRACTICES.md`（不造轮子选库清单、设计模式对照、覆盖率要求）。
 

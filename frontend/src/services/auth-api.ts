@@ -1,5 +1,5 @@
 import { FrontendApiError, getJson, postJson, postMultipart } from '@/services'
-import { clearSessionTokens } from '@/store/session-store'
+import { clearSessionTokens, getRefreshToken } from '@/store/session-store'
 import type { SessionTokens } from '@/store/session-store'
 import { AUTH } from './api-routes'
 
@@ -149,11 +149,15 @@ export async function confirmPasswordReset(token: string, rawPassword: string) {
 }
 
 export async function logout() {
+  const refreshToken = getRefreshToken()
   try {
-    await postMultipart<null>(AUTH.logout, new FormData(), {
-      skipGlobalLoading: true,
-      skipAuthRefresh: true,
-    })
+    // 后端只接受 JSON {refresh_token}；无 token（本地访客）时无需请求。
+    if (refreshToken) {
+      await postJson<null>(AUTH.logout, { refresh_token: refreshToken }, {
+        skipGlobalLoading: true,
+        skipAuthRefresh: true,
+      })
+    }
   } finally {
     clearSessionTokens()
     if (typeof window !== 'undefined') {

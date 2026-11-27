@@ -31,6 +31,8 @@ func newRefreshToken(db *gorm.DB, opts ...gen.DOOption) refreshToken {
 	_refreshToken.UserID = field.NewField(tableName, "user_id")
 	_refreshToken.ExpiresAt = field.NewTime(tableName, "expires_at")
 	_refreshToken.RevokedAt = field.NewTime(tableName, "revoked_at")
+	_refreshToken.FamilyID = field.NewField(tableName, "family_id")
+	_refreshToken.ReplacedBy = field.NewString(tableName, "replaced_by")
 	_refreshToken.CreatedAt = field.NewTime(tableName, "created_at")
 
 	_refreshToken.fillFieldMap()
@@ -41,12 +43,14 @@ func newRefreshToken(db *gorm.DB, opts ...gen.DOOption) refreshToken {
 type refreshToken struct {
 	refreshTokenDo refreshTokenDo
 
-	ALL       field.Asterisk
-	TokenHash field.String
-	UserID    field.Field
-	ExpiresAt field.Time
-	RevokedAt field.Time
-	CreatedAt field.Time
+	ALL        field.Asterisk
+	TokenHash  field.String
+	UserID     field.Field
+	ExpiresAt  field.Time
+	RevokedAt  field.Time
+	FamilyID   field.Field
+	ReplacedBy field.String
+	CreatedAt  field.Time
 
 	fieldMap map[string]field.Expr
 }
@@ -67,6 +71,8 @@ func (r *refreshToken) updateTableName(table string) *refreshToken {
 	r.UserID = field.NewField(table, "user_id")
 	r.ExpiresAt = field.NewTime(table, "expires_at")
 	r.RevokedAt = field.NewTime(table, "revoked_at")
+	r.FamilyID = field.NewField(table, "family_id")
+	r.ReplacedBy = field.NewString(table, "replaced_by")
 	r.CreatedAt = field.NewTime(table, "created_at")
 
 	r.fillFieldMap()
@@ -96,11 +102,13 @@ func (r *refreshToken) GetFieldByName(fieldName string) (field.OrderExpr, bool) 
 }
 
 func (r *refreshToken) fillFieldMap() {
-	r.fieldMap = make(map[string]field.Expr, 5)
+	r.fieldMap = make(map[string]field.Expr, 7)
 	r.fieldMap["token_hash"] = r.TokenHash
 	r.fieldMap["user_id"] = r.UserID
 	r.fieldMap["expires_at"] = r.ExpiresAt
 	r.fieldMap["revoked_at"] = r.RevokedAt
+	r.fieldMap["family_id"] = r.FamilyID
+	r.fieldMap["replaced_by"] = r.ReplacedBy
 	r.fieldMap["created_at"] = r.CreatedAt
 }
 

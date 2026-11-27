@@ -3,7 +3,7 @@ import axios, { AxiosError, type AxiosAdapter, type AxiosInstance, type Internal
 import { waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
 import { appEnv, setApiTarget, setCustomApiBaseUrl, setDesktopLocalApiBaseUrl, setDesktopLocalBackendError } from '@/lib/env'
-import { getAccessToken, getRefreshToken, setSessionTokens } from '@/store'
+import { ACCESS_TOKEN_STORAGE_KEY, REFRESH_TOKEN_STORAGE_KEY, getAccessToken, getRefreshToken, setSessionTokens } from '@/store'
 import { apiClient, getJson, tokenRefresh } from '@/services/client'
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn() } }))
@@ -314,8 +314,9 @@ describe('concurrent refresh subscribers', () => {
     try {
       expect(secondSettled).toHaveBeenCalledWith('rejected', expect.objectContaining({ message: 'refresh failed' }))
       expect(thirdSettled).toHaveBeenCalledWith('rejected', expect.objectContaining({ message: 'refresh failed' }))
-      expect(getAccessToken()).toBe('')
-      expect(getRefreshToken()).toBe('')
+      // 非鉴权失败（网络抖动/未知错误）不再清会话：弱网一次失败不能把用户登出
+      expect(getAccessToken()).toBe(tokens.accessToken)
+      expect(getRefreshToken()).toBe(tokens.refreshToken)
       expect(tokenRefresh.isRefreshing()).toBe(false)
       tokenRefresh.notifyTokenRefresh(renewed)
       await nextTurn()
@@ -397,5 +398,131 @@ describe('concurrent refresh subscribers', () => {
       setDesktopLocalApiBaseUrl('')
       tokenRefresh.notifyTokenRefresh(renewed)
     }
+  })
+})
+
+describe('cross-tab refresh coordination', () => {
+  const stale = { accessToken: 'stale-access', refreshToken: 'shared-refresh' }
+  const renewedByOtherTab = { accessToken: 'fresh-access', refreshToken: 'fresh-refresh' }
+
+  // 每个 URL 第一次 401，重试返回 200——模拟「刷新成功后重放原请求」。
+  function oneUnauthorizedThenOK() {
+    const attempts = new Map<string, number>()
+    return vi.fn<AxiosAdapter>(async (config) => {
+      const url = config.url ?? ''
+      const count = (attempts.get(url) ?? 0) + 1
+      attempts.set(url, count)
+      if (count === 1) throw unauthorized(config)
+      return { config, data: {}, headers: {}, status: 200, statusText: 'OK' }
+    })
+  }
+
+  afterEach(() => {
+    setSessionTokens({ accessToken: '', refreshToken: '' })
+    window.localStorage.clear()
+    window.history.replaceState(null, '', '/')
+    delete (window.navigator as { locks?: unknown }).locks
+    vi.restoreAllMocks()
+  })
+
+  it('adopts a token another tab already refreshed instead of refreshing again', async () => {
+    setApiTarget('online')
+    setSessionTokens(stale)
+    // 另一个标签页已把轮换后的 token 写进 localStorage，本标签页 store 还是旧的。
+    window.localStorage.setItem(ACCESS_TOKEN_STORAGE_KEY, renewedByOtherTab.accessToken)
+    window.localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, renewedByOtherTab.refreshToken)
+    const post = vi.fn()
+    vi.spyOn(axios, 'create').mockReturnValue({ post } as unknown as AxiosInstance)
+    const adapter = vi.fn<AxiosAdapter>(async (config) => {
+      if (config.headers?.Authorization === `Bearer ${stale.accessToken}`) throw unauthorized(config)
+      return { config, data: {}, headers: {}, status: 200, statusText: 'OK' }
+    })
+
+    await expect(apiClient.get('/protected', { adapter })).resolves.toMatchObject({ status: 200 })
+
+    expect(post).not.toHaveBeenCalled()
+    expect(adapter).toHaveBeenCalledTimes(2)
+    expect(getAccessToken()).toBe(renewedByOtherTab.accessToken)
+    expect(getRefreshToken()).toBe(renewedByOtherTab.refreshToken)
+  })
+
+  it('serializes refresh across tabs with the Web Locks API', async () => {
+    setApiTarget('online')
+    setSessionTokens(stale)
+    const request = vi.fn(
+      async (_name: string, _options: unknown, callback: () => Promise<unknown>) => callback(),
+    )
+    Object.defineProperty(window.navigator, 'locks', { value: { request }, configurable: true })
+    const post = vi.fn().mockResolvedValue({
+      data: { code: 200, data: { accessToken: 'new-access', refreshToken: 'new-refresh' } },
+    })
+    vi.spyOn(axios, 'create').mockReturnValue({ post } as unknown as AxiosInstance)
+
+    await expect(
+      apiClient.get('/protected', { adapter: oneUnauthorizedThenOK() }),
+    ).resolves.toMatchObject({ status: 200 })
+
+    expect(request).toHaveBeenCalledWith(
+      'papersage-auth-refresh',
+      expect.objectContaining({ signal: expect.anything() }),
+      expect.any(Function),
+    )
+    expect(post).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the session when the refresh request fails at the network layer', async () => {
+    setApiTarget('online')
+    setSessionTokens(stale)
+    const post = vi.fn().mockRejectedValue(new AxiosError('Network Error', 'ERR_NETWORK', undefined, {}))
+    vi.spyOn(axios, 'create').mockReturnValue({ post } as unknown as AxiosInstance)
+
+    await expect(
+      apiClient.get('/protected', { adapter: oneUnauthorizedThenOK() }),
+    ).rejects.toMatchObject({ kind: 'network' })
+
+    expect(getAccessToken()).toBe(stale.accessToken)
+    expect(getRefreshToken()).toBe(stale.refreshToken)
+    expect(window.location.pathname).toBe('/')
+  })
+
+  it('clears the session only when the refresh token is explicitly rejected', async () => {
+    setApiTarget('online')
+    setSessionTokens(stale)
+    const post = vi.fn().mockRejectedValue(
+      new AxiosError('Unauthorized', 'ERR_BAD_REQUEST', undefined, undefined, {
+        config: undefined as never,
+        data: { code: 401, info: 'Refresh token has been revoked' },
+        headers: {},
+        status: 401,
+        statusText: 'Unauthorized',
+      }),
+    )
+    vi.spyOn(axios, 'create').mockReturnValue({ post } as unknown as AxiosInstance)
+
+    await expect(
+      apiClient.get('/protected', { adapter: oneUnauthorizedThenOK() }),
+    ).rejects.toMatchObject({ status: 401 })
+
+    expect(getAccessToken()).toBe('')
+    expect(getRefreshToken()).toBe('')
+  })
+
+  it('drops refreshed tokens when another tab logged out mid-refresh', async () => {
+    setApiTarget('online')
+    setSessionTokens(stale)
+    const post = vi.fn(async () => {
+      // 刷新请求在途时，另一标签页登出清空了 localStorage。
+      window.localStorage.removeItem(ACCESS_TOKEN_STORAGE_KEY)
+      window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY)
+      return { data: { code: 200, data: { accessToken: 'new-access', refreshToken: 'new-refresh' } } }
+    })
+    vi.spyOn(axios, 'create').mockReturnValue({ post } as unknown as AxiosInstance)
+
+    await expect(
+      apiClient.get('/protected', { adapter: oneUnauthorizedThenOK() }),
+    ).rejects.toMatchObject({ status: 401 })
+
+    expect(getAccessToken()).toBe('')
+    expect(getRefreshToken()).toBe('')
   })
 })

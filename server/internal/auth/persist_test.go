@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,10 @@ func TestRefreshSurvivesRestart(t *testing.T) {
 	newData := bodyJSON(t, resp)["data"].(map[string]any)
 	assert.NotEmpty(t, newData["accessToken"])
 
-	// 轮换语义跨重启保持：旧 token 已吊销
+	// 轮换语义跨重启保持：旧 token 在宽限窗口外重放被拒绝
+	require.NoError(t, db.Model(&store.RefreshToken{}).
+		Where("token_hash = ?", tokenHash(oldRefresh)).
+		Update("revoked_at", time.Now().UTC().Add(-refreshGraceWindow-time.Second)).Error)
 	resp = postJSON(t, srv2.URL+"/api/v1/auth/refresh", map[string]string{"refresh_token": oldRefresh})
-	assert.Equal(t, 401, resp.StatusCode, "旧 refresh token 应已吊销")
+	assert.Equal(t, 401, resp.StatusCode, "窗口外重放旧 refresh token 必须被拒绝")
 }
