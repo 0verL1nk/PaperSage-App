@@ -125,15 +125,16 @@ func (s *Service) streamRunHandler(c *gin.Context) {
 	for {
 		dto, err := s.Get(c.Request.Context(), uid, pid, rid)
 		if err != nil {
-			fmt.Fprintf(c.Writer, "event: error\ndata: {\"info\":\"读取检查进度失败\"}\n\n")
+			// SSE 写入是尽力而为：客户端断开就结束，错误没有可恢复动作。
+			_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"info\":\"读取检查进度失败\"}\n\n")
 			flusher.Flush()
 			return
 		}
 		payload, _ := json.Marshal(dto)
-		fmt.Fprintf(c.Writer, "event: snapshot\ndata: %s\n\n", payload)
+		_, _ = fmt.Fprintf(c.Writer, "event: snapshot\ndata: %s\n\n", payload)
 		flusher.Flush()
 		if isTerminalRun(dto.Status) {
-			fmt.Fprint(c.Writer, "event: done\ndata: {}\n\n")
+			_, _ = fmt.Fprint(c.Writer, "event: done\ndata: {}\n\n")
 			flusher.Flush()
 			return
 		}
@@ -141,7 +142,7 @@ func (s *Service) streamRunHandler(c *gin.Context) {
 		case <-c.Request.Context().Done():
 			return
 		case <-ticker.C:
-			fmt.Fprint(c.Writer, ": ping\n\n")
+			_, _ = fmt.Fprint(c.Writer, ": ping\n\n")
 			flusher.Flush()
 		}
 	}
