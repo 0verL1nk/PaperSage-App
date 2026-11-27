@@ -125,6 +125,14 @@ func resolveNormRefs(ctx context.Context, provider norms.Provider, projectID sto
 	return datatypes.JSON(encoded), nil
 }
 
+// newResearchService 构造带规范权威来源的产物服务。
+// 只允许通过它创建：直接 research.NewService 会漏掉 Norms 注入。
+func newResearchService(db *gorm.DB, provider norms.Provider) *research.Service {
+	svc := research.NewService(db)
+	svc.Norms = provider
+	return svc
+}
+
 func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider,
 	projectID, ownerID, runID store.UUID, documentReadLimitBytes int) ([]tool.BaseTool, error) {
 
@@ -450,7 +458,9 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 	}
 
 	// ── 科研组织产物 ──────────────────────────────────────
-	researchSvc := research.NewService(db)
+	// 必须注入同一个规范 Provider：create_research_artifact 写检查报告时要用它
+	// 校验规范依据，漏注入会让报告在「学术规范库未接入」上被自我拒绝。
+	researchSvc := newResearchService(db, normsProvider)
 
 	listResearch, err := utils.InferTool(
 		"list_research_artifacts",
