@@ -18,6 +18,10 @@ CREATE TABLE `agent_runs` (
   `model_provider` varchar(64) NOT NULL DEFAULT '',
   `model_name` varchar(128) NOT NULL DEFAULT '',
   `prompt_version` varchar(32) NOT NULL DEFAULT '',
+  -- chat：用户对话；auto/manual：写作过程中的动态建议 Run（隐藏会话）。
+  `trigger` varchar(20) NOT NULL DEFAULT 'chat',
+  -- 建议 Run 的焦点快照（文件/章节/段落/选区与段落 hash），重试可复用。
+  `focus_json` json DEFAULT NULL,
   `temperature` decimal(4,2) DEFAULT NULL,
   `input_tokens` int NOT NULL DEFAULT '0',
   `output_tokens` int NOT NULL DEFAULT '0',

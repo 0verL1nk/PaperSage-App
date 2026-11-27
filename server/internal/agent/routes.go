@@ -22,6 +22,8 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g := rg.Group("", authMw)
 
 	g.POST("/projects/:project_id/agent/chat", s.chat)
+	// 动态写作建议：停顿/手动检查触发，服务端做去重、限额与结构门禁。
+	g.POST("/projects/:project_id/agent/suggestions", s.createSuggestion)
 	g.GET("/projects/:project_id/agent/conversations", s.listConversations)
 	g.POST("/projects/:project_id/agent/conversations", s.createConversation)
 	g.GET("/projects/:project_id/agent/proposals", s.listProposals)
@@ -42,6 +44,8 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g.POST("/agent/tool-calls/:tool_call_id/approval", s.approveToolCall)
 	g.POST("/agent/change-proposals/:proposal_id/apply", s.decideProposalHandler(true))
 	g.POST("/agent/change-proposals/:proposal_id/reject", s.decideProposalHandler(false))
+	// 一键撤销：只有 applied 可撤销，且 new_text 必须仍恰好出现一次。
+	g.POST("/agent/change-proposals/:proposal_id/undo", s.undoProposal)
 	g.GET("/agent/artifacts/:artifact_id", s.getArtifact)
 }
 

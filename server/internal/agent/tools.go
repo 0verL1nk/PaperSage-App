@@ -289,23 +289,9 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 		return nil, err
 	}
 
-	readLatexFile, err := utils.InferTool(
-		"read_latex_file",
-		"读取一个 LaTeX 源文件的内容。",
-		func(ctx context.Context, in struct {
-			Path string `json:"path" jsonschema:"description=文件路径，如 main.tex"`
-		}) (string, error) {
-			if err := verify(ctx); err != nil {
-				return "", err
-			}
-			f, content, err := findLatex(ctx, db, stg, projectID, in.Path)
-			if err != nil {
-				return "", err
-			}
-			_ = f
-			reviewReads.record("latex", in.Path)
-			return content, nil
-		})
+	readLatexFile, err := newReadLatexFileTool(db, stg, projectID, ownerID, func(path string) {
+		reviewReads.record("latex", path)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -317,56 +303,9 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 	// 助手不再直接改稿。原先的 write_latex_file（整文件覆盖、无确认、无版本校验）
 	// 已摘除——docs/project/12-ai-writing-design.md §10 P0 要求「切断未经确认的
 	// 稿件覆盖」。改为产出带锚点的建议，由用户确认后经服务端校验基准版本再应用。
-	proposeEdit, err := utils.InferTool(
-		"propose_edit",
-		"提出对某个 LaTeX 源文件的修改建议（不直接改稿，用户确认后才应用）。用户提出任何改稿请求（包括“给个建议”“帮我改”“润色这段”）都必须调用本工具，不要用回复里的代码块代替建议卡。需给出目标文件路径、要替换的原文片段、替换后的新文与理由。old_text 必须与文件当前内容逐字一致，否则会被拒绝——不确定时先 read_latex_file。",
-		func(ctx context.Context, in struct {
-			Path    string `json:"path" jsonschema:"description=文件路径，如 main.tex"`
-			OldText string `json:"old_text" jsonschema:"description=要被替换的原文片段（必须与文件当前内容逐字一致）"`
-			NewText string `json:"new_text" jsonschema:"description=替换后的新文"`
-			Reason  string `json:"reason" jsonschema:"description=修改理由"`
-			// 只能引用系统提示里列出的本项目规范编号；服务端会按本次注入集合校验。
-			NormRefs []string `json:"norm_refs,omitempty" jsonschema:"description=本建议依据的项目规范引用号（形如 N-GBT7714@v1），只能取自上下文列出的条目；没有依据就留空"`
-		}) (string, error) {
-			if err := verify(ctx); err != nil {
-				return "", err
-			}
-			if err := validateAgentPath(in.Path); err != nil {
-				return "", err
-			}
-			if in.OldText == "" {
-				return "", fmt.Errorf("old_text 不能为空")
-			}
-			_, content, err := findLatex(ctx, db, stg, projectID, in.Path)
-			if err != nil {
-				return "", err
-			}
-			if !strings.Contains(content, in.OldText) {
-				// 当场报错让模型自我纠正，而不是留下一条注定无法应用的无效建议。
-				return "", fmt.Errorf(
-					"old_text 在 %s 的当前内容中找不到。请先 read_latex_file 取回原文，再给出逐字一致的片段", in.Path)
-			}
-			sum := md5.Sum([]byte(content))
-			base := hex.EncodeToString(sum[:])
-			normRefs, err := resolveNormRefs(ctx, normsProvider, projectID, in.NormRefs)
-			if err != nil {
-				return "", err
-			}
-			p := store.AgentChangeProposal{
-				ID: store.MustNewUUID(), ProjectID: projectID, RunID: &runID,
-				FilePath: in.Path, BaseContentHash: base,
-				OldText: in.OldText, NewText: in.NewText, NormRefs: normRefs, Status: "pending",
-			}
-			if in.Reason != "" {
-				p.Reason = &in.Reason
-			}
-			if err := db.WithContext(ctx).Create(&p).Error; err != nil {
-				return "", err
-			}
-			return fmt.Sprintf(
-				"已生成修改建议（%s，建议 id %s），等待用户确认。不要声称已修改文件——用户确认后才会应用。",
-				in.Path, p.ID.String()), nil
-		})
+	// 建议侧：只产出建议，不写盘。聊天 Run 不启用严格锚点（用户主动要求润色
+	// 时没有材料/规范也要能产出），但共用同一套结构校验与 LaTeX 保护。
+	proposeEdit, err := newProposeEditTool(db, stg, normsProvider, projectID, ownerID, runID, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -606,6 +545,59 @@ func ProjectTools(db *gorm.DB, stg storage.Storage, normsProvider norms.Provider
 		proposeEdit, compileProject, getWritingState, saveWritingBrief,
 		listResearch, readResearch, createResearch, addResearchRevision, reviewContext,
 	}, nil
+}
+
+// verifyProjectOwner 确认项目仍属于该用户；工具执行前统一走这一次检查。
+func verifyProjectOwner(ctx context.Context, db *gorm.DB, projectID, ownerID store.UUID) error {
+	var n int64
+	if err := db.WithContext(ctx).Model(&store.Project{}).
+		Where("id = ? AND owner_id = ?", projectID, ownerID).Count(&n).Error; err != nil || n == 0 {
+		return fmt.Errorf("project not accessible")
+	}
+	return nil
+}
+
+// newReadLatexFileTool 读取项目内一个 LaTeX 文件；onRead 用于记录真实读取。
+func newReadLatexFileTool(db *gorm.DB, stg storage.Storage, projectID, ownerID store.UUID,
+	onRead func(path string)) (tool.BaseTool, error) {
+
+	return utils.InferTool(
+		"read_latex_file",
+		"读取一个 LaTeX 源文件的内容。",
+		func(ctx context.Context, in struct {
+			Path string `json:"path" jsonschema:"description=文件路径，如 main.tex"`
+		}) (string, error) {
+			if err := verifyProjectOwner(ctx, db, projectID, ownerID); err != nil {
+				return "", err
+			}
+			_, content, err := findLatex(ctx, db, stg, projectID, in.Path)
+			if err != nil {
+				return "", err
+			}
+			if onRead != nil {
+				onRead(in.Path)
+			}
+			return content, nil
+		})
+}
+
+// newProposeEditTool 构建 propose_edit。strict 非空时启用动态建议门禁。
+func newProposeEditTool(db *gorm.DB, stg storage.Storage, provider norms.Provider,
+	projectID, ownerID, runID store.UUID, strict *SuggestionSpec) (tool.BaseTool, error) {
+
+	description := "提出对某个 LaTeX 源文件的修改建议（不直接改稿，用户确认后才应用）。用户提出任何改稿请求（包括“给个建议”“帮我改”“润色这段”）都必须调用本工具，不要用回复里的代码块代替建议卡。需给出目标文件路径、要替换的原文片段、替换后的新文与理由。old_text 必须与文件当前内容逐字一致，否则会被拒绝——不确定时先 read_latex_file。"
+	if strict != nil {
+		description = "对当前焦点段落提出一条可应用的修改建议（不直接改稿）。必须给出：逐字取自焦点段落的 old_text、替换后的 new_text、具体理由、suggestion_kind、confidence=high、以及至少一条真实依据 basis（材料原文 evidence / 已采用规范 norm / 已采用章节计划缺口 plan）。涉及事实、背景、方法、对比的改动先用 search_evidence 检索并引用 evidence_id；段落确实触及规范时才引用 norm；不得为了“有依据”硬挂规范。禁止纯同义词替换、禁止删除 \\cite/\\ref/\\label 或公式、禁止泛泛点评。本段没有值得改的问题时调用 skip_suggestion，不要硬凑建议。"
+	}
+	return utils.InferTool(
+		"propose_edit",
+		description,
+		func(ctx context.Context, in proposeEditArgs) (string, error) {
+			if err := verifyProjectOwner(ctx, db, projectID, ownerID); err != nil {
+				return "", err
+			}
+			return createProposal(ctx, db, stg, provider, projectID, runID, in, strict)
+		})
 }
 
 // SearchSubAgent 构建检索子 agent（检索专家）：持 rag_search（hybrid 检索）与

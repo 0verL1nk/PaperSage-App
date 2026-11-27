@@ -155,6 +155,8 @@ type runContext struct {
 	finalizeDeadline time.Time
 	// Review 非空时按检查单元执行：只读工具集、锁定的单元上下文、不加载聊天历史。
 	Review *ReviewUnitSpec
+	// Suggestion 非空时按动态写作建议执行：锁定焦点段落、只读工具 + 建议工具。
+	Suggestion *SuggestionSpec
 	// OnSettled 在 Run 终态落库后回调（检查编排器据此推进，不轮询）。
 	OnSettled func(status, failure string)
 }
@@ -325,6 +327,11 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		handlers    []adk.TypedChatModelAgentMiddleware[*schema.Message]
 		maxIter     = s.Cfg.AgentMaxIterations
 	)
+	// 规范库未注入时显式按「未接入」处理，检查报告必须如实标注，不得假装没有采用。
+	normsProvider := s.Norms
+	if normsProvider == nil {
+		normsProvider = norms.Unavailable{}
+	}
 	if rc.Review != nil {
 		// 检查单元：只读工具 + 服务端锁定的上下文，不加载聊天历史、不做会话压缩。
 		reviewTools, terr := ReviewUnitTools(s.DB, s.Storage, rc.ProjectID, rc.Review)
@@ -339,6 +346,21 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		if maxIter <= 0 {
 			maxIter = reviewUnitDefaultIterations
 		}
+	} else if rc.Suggestion != nil {
+		// 动态建议：只读 + propose_edit/skip_suggestion；锁定焦点段落，不加载聊天历史。
+		suggestionTools, terr := SuggestionTools(s.DB, s.Storage, s.RAG, normsProvider,
+			rc.ProjectID, rc.UserID, rc.RunID, rc.Suggestion)
+		if terr != nil {
+			fail("构建写作建议工具失败")
+			return
+		}
+		tools = suggestionTools
+		instruction = s.suggestionInstruction(ctx, rc)
+		history = []*schema.Message{{Role: schema.User, Content: rc.Content}}
+		maxIter = s.Cfg.AgentSuggestionMaxIterations
+		if maxIter <= 0 {
+			maxIter = suggestionDefaultIterations
+		}
 	} else {
 		// 接近上下文窗口时先压缩较早消息；失败则由 loadHistory 的确定性裁剪兜底。
 		s.maybeCompact(ctx, rc, chatModel)
@@ -347,11 +369,6 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		if herr != nil {
 			fail("读取历史失败")
 			return
-		}
-		// 规范库未注入时显式按「未接入」处理，检查报告必须如实标注，不得假装没有采用。
-		normsProvider := s.Norms
-		if normsProvider == nil {
-			normsProvider = norms.Unavailable{}
 		}
 		chatTools, terr := ProjectTools(s.DB, s.Storage, normsProvider, rc.ProjectID, rc.UserID, rc.RunID, s.Cfg.AgentDocumentReadLimitBytes)
 		if terr != nil {
