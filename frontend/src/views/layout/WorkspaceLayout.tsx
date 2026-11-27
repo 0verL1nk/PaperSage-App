@@ -136,7 +136,8 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
 
       {/* Mobile Tabs Fallback（<1024 横向滚动，不换行也不压标题） */}
       <nav className="lg:hidden flex-none sticky top-14 z-40 bg-background/80 backdrop-blur-xl border-b border-border/40 px-2">
-        <div className="flex h-12 items-center gap-1 overflow-x-auto no-scrollbar">
+        {/* 320px 下压缩间距让四项一屏可达；≥390px 恢复原间距，溢出仍可横向滚动兜底 */}
+        <div className="flex h-12 items-center gap-0.5 min-[390px]:gap-1 overflow-x-auto no-scrollbar">
           {projectTabs.map((tab) => {
             const isActive = activeTab === tab.key
             return (
@@ -145,7 +146,7 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
                 aria-current={isActive ? 'page' : undefined}
                 onClick={() => handleNavigate(tab.path)}
                 className={cn(
-                  "flex-none min-h-11 px-4 h-full text-[13px] font-medium transition-all outline-none whitespace-nowrap border-b-2",
+                  "flex-none min-h-11 px-2 min-[390px]:px-4 h-full text-[13px] font-medium transition-all outline-none whitespace-nowrap border-b-2",
                   isActive 
                     ? "text-primary border-primary bg-primary/5" 
                     : "text-muted-foreground border-transparent hover:text-foreground hover:bg-muted/30"
