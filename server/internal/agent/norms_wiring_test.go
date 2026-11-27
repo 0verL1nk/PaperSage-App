@@ -32,3 +32,16 @@ func TestNewResearchServiceCarriesNormsProvider(t *testing.T) {
 	require.NotNil(t, svc)
 	assert.NotNil(t, svc.Norms, "产物服务必须带上规范 Provider，否则报告会被失败关闭逻辑拒绝")
 }
+
+// 回归：幂等键必须塞得进 varchar(64)。旧实现 "runID:md5" 是 69 字符，
+// 生产 PG 直接 22001 报错，报告写不进去。
+func TestResearchClientRequestIDFitsColumn(t *testing.T) {
+	runID := store.MustNewUUID()
+	payload := []byte(`{"kind":"chapter_review"}`)
+	id := researchClientRequestID(runID, payload)
+	assert.LessOrEqual(t, len(id), 64)
+	assert.NotEmpty(t, id)
+	// 同一 run + 同一 payload 稳定（幂等），换 run 必须不同（不跨 run 去重）。
+	assert.Equal(t, id, researchClientRequestID(runID, payload))
+	assert.NotEqual(t, id, researchClientRequestID(store.MustNewUUID(), payload))
+}
