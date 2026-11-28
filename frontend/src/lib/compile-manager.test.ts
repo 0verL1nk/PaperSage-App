@@ -106,6 +106,27 @@ describe('compile manager', () => {
     expect(mocks.uploadBrowserCompileResult).toHaveBeenCalledWith('p1', 'job-1', pdf, 'Output written on main.pdf')
   })
 
+  it('records the progress stage and format cache hit for the preview progress view', async () => {
+    mocks.compileLatexInBrowser.mockImplementation(async (_files: unknown, _root: string, _compiler: string, opts: {
+      onProgress: (progress: Record<string, unknown>) => void
+    }) => {
+      opts.onProgress({ stage: 'format', message: '正在首次生成 LaTeX 格式文件', cached: false })
+      expect(projectState()).toMatchObject({ phase: 'compiling', stage: 'format', formatCacheHit: false })
+      opts.onProgress({
+        stage: 'resource',
+        message: '正在加载 ctex.sty',
+        resource: { name: 'ctex.sty', kind: 'package', state: 'loading' },
+      })
+      expect(projectState()).toMatchObject({ stage: 'resource' })
+      return { pdf, log: '' }
+    })
+
+    await started()
+
+    expect(projectState()?.startedAt).toEqual(expect.any(Number))
+    expect(projectState()?.phase).toBe('success')
+  })
+
   it('keeps guest compiles local: no server job and no upload', async () => {
     mocks.compileLatexInBrowser.mockResolvedValue({ pdf, log: '' })
 

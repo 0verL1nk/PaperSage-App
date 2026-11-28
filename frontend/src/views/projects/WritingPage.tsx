@@ -7,9 +7,10 @@ import {
   Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
-  HardDrive, ExternalLink, X,
+  HardDrive, X,
 } from 'lucide-react'
 import { EmptyPreview } from './empty-preview'
+import { CompileProgress, EngineLicenseLinks } from './compile-progress'
 import { toast } from 'sonner'
 import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
@@ -283,6 +284,8 @@ export function WritingPage() {
   const isBrowserCompiling = compileState?.phase === 'preparing' || compileState?.phase === 'compiling'
   const isRetryingBrowserUpload = compileState?.retryingUpload ?? false
   const isCompiling = isCompileActive(compileState?.phase) || isRetryingBrowserUpload
+  // 编译一开始就把预览区切到阶段进度视图，别让用户对着空态以为没点上。
+  const showCompileProgress = isBrowserCompiling && Boolean(compileState)
   const pendingBrowserResult = compileState?.pendingUpload ?? null
   const browserProgressMessage = compileState?.progressMessage ?? null
   const browserThirdPartyLicense = compileState?.license ?? null
@@ -700,7 +703,10 @@ export function WritingPage() {
           ? `《${busyName}》的编译尚未结束，请等它完成或先到那个项目取消。`
           : '请等当前编译结束或取消后再试。',
       })
+      return
     }
+    // 手机端编辑与预览分屏：编译开始后直接停在进度视图，避免用户以为没点上。
+    if (isMobile) setMobilePane('preview')
   }
 
   handleCompileRef.current = handleCompile
@@ -1056,6 +1062,12 @@ export function WritingPage() {
                 className={cn('inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors', mobilePane === 'preview' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
               >
                 预览
+                {isBrowserCompiling && (
+                  <>
+                    <span className="ml-1 inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true" />
+                    <span className="sr-only">（编译中，点此查看进度）</span>
+                  </>
+                )}
                 {showCompileFailureBadge && (
                   <>
                     <span className="ml-1 inline-block size-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
@@ -1254,26 +1266,13 @@ export function WritingPage() {
                     </div>
                   </div>
                 )}
-                {isCompiling && browserProgressMessage && !compileError && (
+                {isCompiling && !showCompileProgress && browserProgressMessage && !compileError && (
                   <div role="status" aria-live="polite" className="mx-auto max-w-2xl rounded-lg border bg-background/95 p-3 shadow-sm backdrop-blur">
                     <div className="flex items-center gap-2 text-sm font-medium">
                       <Loader2 size={15} className="shrink-0 animate-spin text-primary" />
                       <span>{browserProgressMessage}</span>
                     </div>
-                    {browserThirdPartyLicense && (
-                      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
-                        <span>{browserThirdPartyLicense.name} · {browserThirdPartyLicense.spdx}</span>
-                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.licenseUrl} target="_blank" rel="noreferrer">
-                          引擎许可证 <ExternalLink size={11} />
-                        </a>
-                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.sourceUrl} target="_blank" rel="noreferrer">
-                          上游源码 <ExternalLink size={11} />
-                        </a>
-                        <a className="inline-flex items-center gap-1 underline underline-offset-2 hover:text-foreground" href={browserThirdPartyLicense.thirdPartyNoticesUrl} target="_blank" rel="noreferrer">
-                          第三方许可 <ExternalLink size={11} />
-                        </a>
-                      </div>
-                    )}
+                    <EngineLicenseLinks license={browserThirdPartyLicense} />
                     {resourceList.length > 0 && (
                       <div className="mt-2 text-xs text-muted-foreground">
                         已加载 {loadedResourceCount} 项宏包/字体资源，其中 {cachedResourceCount} 项来自浏览器缓存。
@@ -1376,6 +1375,12 @@ export function WritingPage() {
                       </Button>
                     )}
                   </div>
+                ) : showCompileProgress && compileState ? (
+                  <CompileProgress
+                    state={compileState}
+                    hasPreviousPdf={Boolean(pdfFileSource)}
+                    onCancel={() => void cancelProjectCompile(projectId)}
+                  />
                 ) : pdfFileSource ? (
                   <div className="flex flex-col items-center gap-6 origin-top transition-transform duration-75 ease-out" style={{ transform: `scale(${displayScale / renderScale})` }}>
                     <Document

@@ -5,6 +5,9 @@ import type { BrowserLatexProgress, BrowserLatexResourceEvent } from '@/lib/late
 /** Where a project's browser compile stands. success/failed/cancelled are terminal. */
 export type CompilePhase = 'preparing' | 'compiling' | 'uploading' | 'success' | 'failed' | 'cancelled'
 
+/** 粒度更细的阶段：进度视图据此高亮步骤；prepare/upload 由管理器写入，其余来自引擎事件。 */
+export type CompileStage = 'prepare' | BrowserLatexProgress['stage'] | 'upload'
+
 /** 失败诊断的异步上报状态；null = 本次编译没有触发上报（成功/取消）。 */
 export type DiagnosticStatus = 'pending' | 'sent' | 'failed'
 
@@ -23,6 +26,11 @@ export interface ProjectCompileState {
   jobId: string | null
   buildId: string | null
   progressMessage: string | null
+  /** 当前阶段（进度视图高亮用）与编译开始时间（实时耗时）。 */
+  stage: CompileStage
+  startedAt: number
+  /** null=尚未走到格式阶段；false=首次冷编译；true=命中浏览器格式缓存。 */
+  formatCacheHit: boolean | null
   license: BrowserEngineLicense | null
   resources: Record<string, BrowserLatexResourceEvent>
   /** Latest PDF compiled in this session, so the preview survives leaving the page. */
@@ -50,6 +58,9 @@ function freshCompileState(projectName: string): ProjectCompileState {
     jobId: null,
     buildId: null,
     progressMessage: '正在保存并读取项目文件',
+    stage: 'prepare',
+    startedAt: Date.now(),
+    formatCacheHit: null,
     license: null,
     resources: {},
     pdf: null,
