@@ -62,11 +62,11 @@ func (s *Service) systemPromptFor(ctx context.Context, projectID, ownerID store.
 // 只提供条款原文、出处与稳定引用号；是否符合规范由模型结合草稿做语义判断，
 // 这里不做任何关键词/正则匹配。规范库不可用或未采用时如实说明，
 // 让模型没有条件假装「符合某条规范」。
-func (s *Service) appendAdoptedNorms(ctx context.Context, b *strings.Builder, projectID store.UUID) {
+func (s *Service) appendAdoptedNorms(ctx context.Context, b *strings.Builder, projectID store.UUID) int {
 	const unavailable = "\n学术规范：本次没有可用的项目规范，不要声称遵循或符合任何具体规范条款。\n"
 	if s.Norms == nil {
 		b.WriteString(unavailable)
-		return
+		return 0
 	}
 	entries, err := s.Norms.AdoptedForProject(ctx, projectID)
 	switch {
@@ -83,6 +83,7 @@ func (s *Service) appendAdoptedNorms(ctx context.Context, b *strings.Builder, pr
 			fmt.Fprintf(b, "- [%s] %s\n  规则：%s\n  出处：%s\n", entry.Cite(), entry.Title, entry.Rule, entry.Source)
 		}
 	}
+	return len(entries)
 }
 
 func scenarioLabel(s string) string { return store.ScenarioLabel(s) }

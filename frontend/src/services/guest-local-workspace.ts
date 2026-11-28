@@ -67,7 +67,7 @@ export class GuestStorageError extends Error {
 }
 
 export class GuestCapabilityError extends Error {
-  constructor(capability: 'AI 助手' | 'LaTeX 在线编译' | '云端 PDF' | '项目分组' | '科研组织产物' | '学术规范库' | '待复查提醒') {
+  constructor(capability: 'AI 助手' | 'LaTeX 在线编译' | '云端 PDF' | '项目分组' | '科研组织产物' | '学术规范库' | '待复查提醒' | '实验分析') {
     super(capability === '项目分组'
       ? '游客模式暂不支持项目分组；项目和文件仍会保存在此浏览器。'
       : `${capability}需要登录后连接云端服务。游客模式下，项目和文件仅保存在此浏览器。`)
@@ -207,6 +207,7 @@ const MAIN_TEMPLATE = `% !TEX program = xelatex
 \\documentclass[UTF8,a4paper,12pt]{ctexart}
 \\usepackage{geometry}
 \\geometry{margin=2.5cm}
+\\usepackage{booktabs}
 \\title{论文标题}
 \\author{作者姓名}
 \\date{\\today}

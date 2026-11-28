@@ -22,6 +22,7 @@ func Mount(rg *gin.RouterGroup, authMw gin.HandlerFunc, s *Service) {
 	g := rg.Group("", authMw)
 
 	g.POST("/projects/:project_id/agent/chat", s.chat)
+	g.POST("/projects/:project_id/agent/experiment-analysis", s.experimentAnalysis)
 	g.GET("/projects/:project_id/agent/conversations", s.listConversations)
 	g.POST("/projects/:project_id/agent/conversations", s.createConversation)
 	g.GET("/projects/:project_id/agent/proposals", s.listProposals)
