@@ -49,6 +49,7 @@ vi.mock('@/hooks/use-writing-suggestion', () => ({
     pending: [], visible: [], pendingCount: 0, checking: false, notice: null,
     autoCheck: false, setAutoCheck: vi.fn(), checkNow: vi.fn(),
     notifyActivity: vi.fn(), notifyCursorMove: vi.fn(), refetch: vi.fn(),
+    applyComment: vi.fn(), rejectComment: vi.fn(), undoComment: vi.fn(),
     isLoading: false, isError: false,
   }),
 }))
