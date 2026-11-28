@@ -7,7 +7,7 @@ import {
   Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
-  HardDrive, ExternalLink, X,
+  HardDrive, ExternalLink, X, Table2,
 } from 'lucide-react'
 import { EmptyPreview } from './empty-preview'
 import { toast } from 'sonner'
@@ -15,6 +15,7 @@ import { Events } from '@wailsio/runtime'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import Editor, { useMonaco } from '@monaco-editor/react'
+import type { editor as MonacoEditor } from 'monaco-editor'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import * as Resizable from 'react-resizable-panels'
@@ -46,6 +47,7 @@ import { useChatStore } from '@/store/chat-store'
 import { useSessionStore } from '@/store'
 import { LatexEnvironmentSetup } from '@/components/domain/latex-environment-setup'
 import { FolderSyncDialog } from '@/components/domain/folder-sync-dialog'
+import { ExperimentTableDialog } from './experiment-table-dialog'
 import { classifyCompileFailure, compileFailureMessage, compileRawLogText } from '@/lib/latex/compile-error'
 import { createLatexFile, fetchLatexFileBytes, fetchLatexFileContent, uploadLatexFile } from '@/services/latex-api'
 import { cancelProjectCompile, retryBrowserUpload, startCompile } from '@/lib/compile-manager'
@@ -188,7 +190,9 @@ export function WritingPage() {
   const [editorContent, setEditorContent] = useState('')
   const [isLatexSetupOpen, setIsLatexSetupOpen] = useState(false)
   const [isFolderSyncOpen, setIsFolderSyncOpen] = useState(false)
+  const [isExperimentOpen, setIsExperimentOpen] = useState(false)
   const handleCompileRef = useRef<((rootFile?: string) => void) | null>(null)
+  const monacoEditorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
 
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
@@ -412,6 +416,38 @@ export function WritingPage() {
     setEditorContent(value)
     autoSave.onChange(value)
   }
+
+  // 实验表格/分析插入：优先走 Monaco 编辑栈（保留 Ctrl+Z）；移动端编辑器
+  // 未挂载时退回同一自动保存路径，不新增第二条写盘链路。
+  const handleInsertExperiment = useCallback((text: string) => {
+    const snippet = `\n\n${text}\n\n`
+    const editor = monacoEditorRef.current
+    try {
+      const model = editor?.getModel()
+      const position = editor?.getPosition()
+      if (editor && model && position) {
+        editor.executeEdits('experiment-table', [{
+          range: {
+            startLineNumber: position.lineNumber, startColumn: position.column,
+            endLineNumber: position.lineNumber, endColumn: position.column,
+          },
+          text: snippet,
+          forceMoveMarkers: true,
+        }])
+        editor.pushUndoStop()
+        editor.focus()
+      } else {
+        const next = `${autoSave.getContent()}${snippet}`
+        setEditorContent(next)
+        autoSave.onChange(next)
+      }
+    } catch {
+      const next = `${autoSave.getContent()}${snippet}`
+      setEditorContent(next)
+      autoSave.onChange(next)
+    }
+    toast.success('已插入当前文件', { description: '插入后可继续编辑，Ctrl+Z 可撤销。' })
+  }, [autoSave])
 
   const handleSelectFile = useCallback((filePath: string) => {
     autoSave.switchFile(filePath)
@@ -845,6 +881,17 @@ export function WritingPage() {
       <Button
         variant="ghost"
         size="icon-sm"
+        aria-label="实验数据表格与分析"
+        title="从实验数据生成 booktabs 表格与分析草稿"
+        className="rounded-md text-muted-foreground hover:text-foreground"
+        onClick={() => setIsExperimentOpen(true)}
+        disabled={!isEditable}
+      >
+        <Table2 size={14} />
+      </Button>
+      <Button
+        variant="ghost"
+        size="icon-sm"
         aria-label="初始化浏览器 LaTeX 环境"
         title="初始化浏览器 LaTeX 环境"
         className="rounded-md text-muted-foreground hover:text-foreground"
@@ -1066,6 +1113,7 @@ export function WritingPage() {
                   <Editor
                     height="100%" language={getLanguageByExt(activeFilePath)} theme={editorDark ? 'vs-dark' : 'vs'}
                     value={editorContent} onChange={handleEditorChange}
+                    onMount={(editor) => { monacoEditorRef.current = editor }}
                     options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
                 ) : (
@@ -1326,6 +1374,15 @@ export function WritingPage() {
         </div>
       </div>
       <LatexEnvironmentSetup open={isLatexSetupOpen} onOpenChange={setIsLatexSetupOpen} disabled={isCompiling} />
+      <ExperimentTableDialog
+        open={isExperimentOpen}
+        onOpenChange={setIsExperimentOpen}
+        projectId={projectId}
+        activeFilePath={activeFilePath}
+        canInsert={Boolean(activeFilePath && isEditable)}
+        onInsert={handleInsertExperiment}
+        onBeforeGenerate={() => autoSave.saveNow()}
+      />
       {isFolderSyncOpen && (
         <FolderSyncDialog
           open

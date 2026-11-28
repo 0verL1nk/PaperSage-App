@@ -113,6 +113,8 @@ export const AGENT = {
   retryRun: (runId: string) => `${V1}/agent/runs/${runId}/retry`,
   proposals: (projectId: string, status?: string) =>
     `${V1}/projects/${projectId}/agent/proposals${status ? `?status=${status}` : ''}`,
+  /** 实验数据表格 → 有据分析草稿（一次同步模型调用） */
+  experimentAnalysis: (projectId: string) => `${V1}/projects/${projectId}/agent/experiment-analysis`,
   applyProposal: (id: string) => `${V1}/agent/change-proposals/${id}/apply`,
   rejectProposal: (id: string) => `${V1}/agent/change-proposals/${id}/reject`,
   artifact: (id: string) => `${V1}/agent/artifacts/${id}`,
