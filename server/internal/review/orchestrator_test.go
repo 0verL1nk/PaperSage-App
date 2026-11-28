@@ -418,6 +418,31 @@ func TestReviewUnitInvalidSubmitReportsRealReason(t *testing.T) {
 
 // 生产实测形态：模型逐步响应（慢），单元时限先到。
 // 单元必须记录「超过时限」，不能被 finishRun 的兜底文案覆盖。
+// 复现生产 v0.4.1 的库内签名：Run 级超时被配成秒级时，单元 agent run 会以
+// cancelled + context canceled 结束、且没有用户取消请求。修复（配置下限）之外，
+// 这里锁定「Run 级到点时单元原因写的是检查已取消」，不再被兜底文案吞掉。
+func TestReviewRunShortRunTimeoutCancelsUnits(t *testing.T) {
+	fake := newFakeModelServer(t)
+	env := newReviewTestEnv(t, fake)
+	env.ts.ReviewService.Cfg.ReviewRunTimeout = 2 * time.Second
+
+	runID := env.startReview(t, "short-run-timeout", "terminology_consistency")
+	run := env.waitRun(t, runID, 60*time.Second)
+
+	require.Equal(t, store.ReviewRunFailed, run.Status)
+	require.NotEmpty(t, run.Units)
+	unit := run.Units[0]
+	require.Equal(t, store.ReviewUnitCancelled, unit.Status, unit.Error)
+	require.Contains(t, unit.Error, "检查已取消")
+	require.NotContains(t, unit.Error, "未在时限内完成", "run-level deadline must not look like the fallback")
+
+	var agentRun store.AgentRun
+	require.NoError(t, env.ts.DB.Where("agent_key = ?", "review_unit").Order("created_at DESC").First(&agentRun).Error)
+	require.Equal(t, "cancelled", agentRun.Status)
+	require.Nil(t, agentRun.CancelRequestedAt, "no user cancel request should be recorded")
+	require.Contains(t, string(agentRun.ErrorJSON), "context canceled")
+}
+
 func TestReviewUnitTimeoutDuringSlowLoop(t *testing.T) {
 	fake := newFakeModelServer(t)
 	fake.delay = 1500 * time.Millisecond
