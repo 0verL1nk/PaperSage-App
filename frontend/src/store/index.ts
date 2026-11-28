@@ -11,6 +11,7 @@ export {
   REFRESH_TOKEN_STORAGE_KEY,
   restoreSessionState,
   setSessionTokens,
+  syncSessionTokensFromStorage,
   selectGuestSession,
   useSessionStore,
   type GuestSessionState,

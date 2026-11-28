@@ -324,7 +324,7 @@ dependencies = [
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `SECRET_KEY` | JWT 密钥 | (必须设置) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token 过期时间 | 30 |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh Token 过期时间 | 7 |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh Token 过期时间（活跃滑动续期） | 30 |
 | `DEBUG` | 调试模式 | `false` |
 | `ALLOWED_HOSTS` | CORS 允许的域名 | `*` |
 

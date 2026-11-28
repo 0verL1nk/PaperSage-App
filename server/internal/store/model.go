@@ -353,7 +353,13 @@ type RefreshToken struct {
 	UserID    UUID       `gorm:"column:user_id;not null"`
 	ExpiresAt time.Time  `gorm:"column:expires_at;not null"`
 	RevokedAt *time.Time `gorm:"column:revoked_at"`
-	CreatedAt time.Time  `gorm:"column:created_at;autoCreateTime"`
+	// FamilyID 串起一次登录派生的全部 refresh token（轮换继承）；
+	// 重放检测按 family 整族吊销。可空：兼容迁移前的历史行。
+	FamilyID *UUID `gorm:"column:family_id"`
+	// ReplacedBy 是轮换产生的新 token 的 SHA-256；非空 = 被轮换而非被登出，
+	// 宽限期只对「被轮换」的旧 token 生效。
+	ReplacedBy *string   `gorm:"column:replaced_by;size:64"`
+	CreatedAt  time.Time `gorm:"column:created_at;autoCreateTime"`
 }
 
 func (RefreshToken) TableName() string { return "refresh_tokens" }

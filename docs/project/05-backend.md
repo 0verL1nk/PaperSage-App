@@ -166,7 +166,7 @@ backend/
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `SECRET_KEY` | JWT 密钥 | (必须设置) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Access Token 过期时间 | 30 |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh Token 过期时间 | 7 |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | Refresh Token 过期时间（活跃滑动续期） | 30 |
 | `MINIO_ENDPOINT` | MinIO 端点 | localhost:9000 |
 | `MINIO_ACCESS_KEY` | MinIO Access Key | minioadmin |
 | `MINIO_SECRET_KEY` | MinIO Secret Key | minioadmin |

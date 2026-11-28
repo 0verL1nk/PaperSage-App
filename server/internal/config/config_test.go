@@ -22,7 +22,7 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, "", s.RedisURL)
 	assert.Equal(t, "dev-secret-key-change-in-production", s.SecretKey)
 	assert.Equal(t, 30, s.AccessTokenExpireMinutes)
-	assert.Equal(t, 7, s.RefreshTokenExpireDays)
+	assert.Equal(t, 30, s.RefreshTokenExpireDays)
 	assert.False(t, s.Debug)
 	assert.Equal(t, 0, s.AgentDocumentReadLimitBytes)
 	assert.Equal(t, 20, s.AgentMaxIterations)
