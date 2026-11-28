@@ -89,6 +89,9 @@ function toPdfFile(source: PdfRangeSource | { data: Uint8Array }) {
   return source as Parameters<typeof Document>[0]['file']
 }
 import { WritingFileTree, type FileTreeHandle } from './writing-file-tree'
+import { WritingPaneBar, type WritingPaneKey } from './writing-pane-bar'
+import { useCompactLayout } from '@/hooks/use-compact-layout'
+import { WorkspaceMenuExtra, WorkspacePageActions, useCloseWorkspaceMenu } from '@/views/layout/workspace-chrome'
 
 pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`
 import 'react-pdf/dist/Page/AnnotationLayer.css'
@@ -207,8 +210,7 @@ export function WritingPage() {
       return null
     }
   })
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
-  const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor')
+  const [mobilePane, setMobilePane] = useState<WritingPaneKey>('editor')
   const [popover, setPopover] = useState<{ proposalId: string; x: number; y: number } | null>(null)
   const [commentsOpen, setCommentsOpen] = useState(false)
   const autoLayoutAppliedRef = useRef<string | null>(null)
@@ -223,7 +225,8 @@ export function WritingPage() {
   const [numPages, setNumPages] = useState(0)
   const [displayScale, setDisplayScale] = useState(0.9)
   const [renderScale, setRenderScale] = useState(0.9)
-  const [isMobile, setIsMobile] = useState(false)
+  const isMobile = useCompactLayout()
+  const closeWorkspaceMenu = useCloseWorkspaceMenu()
   const [editorContent, setEditorContent] = useState('')
   const [isLatexSetupOpen, setIsLatexSetupOpen] = useState(false)
   const [isFolderSyncOpen, setIsFolderSyncOpen] = useState(false)
@@ -234,7 +237,6 @@ export function WritingPage() {
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
   const decorationsRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null)
   const cursorOffsetRef = useRef(0)
-  const mobileSidebarRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const renderDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -570,65 +572,13 @@ export function WritingPage() {
     }
   }, [files, autoSave])
 
-  // 响应式：<1024 移动 Sheet；1024–1279 批注抽屉；≥1280 四栏。
+  // 响应式：<1024 走 useCompactLayout 的四 pane；1024–1279 三栏+批注浮层；≥1280 四栏。
   useEffect(() => {
-    const check = () => {
-      setIsMobile(window.innerWidth < 1024)
-      setIsWide(window.innerWidth >= 1280)
-    }
+    const check = () => setIsWide(window.innerWidth >= 1280)
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
   }, [])
-
-  // Mobile sidebar overlay: move focus in, keep Tab inside, close on Escape,
-  // and return focus to the tab button that opened it.
-  useEffect(() => {
-    if (!isMobile || !mobileSidebarOpen) return
-    const panel = mobileSidebarRef.current
-    if (!panel) return
-    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const focusable = () => Array.from(panel.querySelectorAll<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    ))
-    focusable()[0]?.focus()
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        // 内联重命名/新建表单自己消费 Escape；这里不能再把整个侧栏关掉。
-        const target = event.target as HTMLElement | null
-        const editable = target?.closest('input, textarea, select, [contenteditable="true"]')
-        if (editable) return
-        event.preventDefault()
-        setMobileSidebarOpen(false)
-        return
-      }
-      if (event.key !== 'Tab') return
-      const items = focusable()
-      if (items.length === 0) return
-      const first = items[0]
-      const last = items[items.length - 1]
-      const active = document.activeElement
-      const wrap = event.shiftKey
-        ? active === first || active === panel
-        : active === last || active === panel
-      if (wrap) {
-        event.preventDefault()
-        ;(event.shiftKey ? last : first).focus()
-      }
-    }
-    // aria-modal：焦点被点到左侧活动栏时拉回面板，避免 Escape/Tab 失效。
-    const handleFocusIn = (event: FocusEvent) => {
-      if (panel.contains(event.target as Node)) return
-      focusable()[0]?.focus()
-    }
-    panel.addEventListener('keydown', handleKeyDown)
-    document.addEventListener('focusin', handleFocusIn)
-    return () => {
-      panel.removeEventListener('keydown', handleKeyDown)
-      document.removeEventListener('focusin', handleFocusIn)
-      previouslyFocused?.focus()
-    }
-  }, [isMobile, mobileSidebarOpen])
 
   // Sync editor with loaded file content (skip if user has local edits)
   useEffect(() => {
@@ -1105,10 +1055,7 @@ export function WritingPage() {
       <Select value={compiler} onValueChange={setCompiler}>
         <SelectTrigger
           aria-label="选择 LaTeX 编译器"
-          className={cn(
-            'h-7 border-transparent bg-transparent px-2 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 focus-visible:border-ring',
-            isMobile ? 'w-[100px]' : 'w-[112px]',
-          )}
+          className="h-7 w-[112px] border-transparent bg-transparent px-2 text-xs text-muted-foreground hover:border-border hover:bg-muted/60 focus-visible:border-ring"
         >
           <SelectValue>{compilerLabel}</SelectValue>
         </SelectTrigger>
@@ -1164,7 +1111,7 @@ export function WritingPage() {
         data-testid="compile-button"
         aria-label={isCompiling ? '编译中' : '编译'}
         title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
-        className={cn('gap-1.5 px-2.5 text-xs', isMobile ? 'h-11' : 'h-8')}
+        className="h-8 gap-1.5 px-2.5 text-xs"
         onClick={() => void handleCompile()}
         disabled={isCompiling || !compilerSupported}
       >
@@ -1178,7 +1125,7 @@ export function WritingPage() {
           data-testid="cancel-browser-compile"
           aria-label="取消浏览器编译"
           title="停止浏览器引擎并取消编译任务"
-          className={cn('gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive', isMobile ? 'h-11' : 'h-7')}
+          className="h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-destructive"
           onClick={() => void cancelProjectCompile(projectId)}
         >
           <Square size={12} className="fill-current" />
@@ -1225,7 +1172,7 @@ export function WritingPage() {
           activeFilePath={activeFilePath}
           onSelect={(path) => {
             handleSelectFile(path)
-            if (isMobile) setMobileSidebarOpen(false)
+            if (isMobile) setMobilePane('editor')
           }}
           onDeleteFile={handleDeleteFile}
           onDeleteFolder={handleDeleteFolder}
@@ -1244,85 +1191,84 @@ export function WritingPage() {
     </div>
   )
 
+  const showMobilePane = (pane: WritingPaneKey) => {
+    setMobilePane(pane)
+    if (pane === 'files' || pane === 'ai') setActiveTab(pane)
+  }
+
   return (
     <div className="relative flex h-full w-full bg-background overflow-hidden select-none font-sans">
-      {/* Activity Bar */}
-      <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
-        <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-      </aside>
+      {/* 手机端：唯一主操作投递到工作区顶栏；编译器与排版组件收进「更多」面板 */}
+      {isMobile && (
+        <WorkspacePageActions>
+          <Button
+            variant="default"
+            size="sm"
+            data-testid="compile-button"
+            aria-label={isCompiling ? '编译中' : '编译'}
+            title={compilerSupported ? '编译当前项目' : '浏览器暂不支持 LuaLaTeX，请切换到 pdfLaTeX 或 XeLaTeX'}
+            className="h-[36px] gap-1.5 px-3 text-xs"
+            onClick={() => void handleCompile()}
+            disabled={isCompiling || !compilerSupported}
+          >
+            {isCompiling ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} className="fill-current" />}
+            <span className="whitespace-nowrap">{isCompiling ? '编译中' : '编译'}</span>
+          </Button>
+        </WorkspacePageActions>
+      )}
+      {isMobile && (
+        <WorkspaceMenuExtra>
+          <p className="px-3 pb-1 pt-2 text-[11px] font-semibold text-muted-foreground">编译器</p>
+          {COMPILER_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              disabled={!option.supported}
+              onClick={() => setCompiler(option.value)}
+              className="flex min-h-[52px] items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-muted disabled:opacity-50"
+            >
+              <span className="flex-1">
+                {option.label}
+                {!option.supported && <span className="ml-2 text-xs text-muted-foreground">暂不可用</span>}
+              </span>
+              {compiler === option.value && <Check className="size-4 shrink-0 text-primary" />}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              closeWorkspaceMenu()
+              setIsLatexSetupOpen(true)
+            }}
+            className="flex min-h-[52px] items-center gap-3 rounded-xl px-3 text-left text-sm text-foreground outline-none transition-colors hover:bg-muted"
+          >
+            <HardDrive className="size-4 shrink-0 opacity-60" />
+            准备排版组件
+          </button>
+        </WorkspaceMenuExtra>
+      )}
 
-      {isMobile && mobileSidebarOpen && (
-        <div
-          ref={mobileSidebarRef}
-          role="dialog"
-          aria-modal="true"
-          aria-label={activeTab === 'files' ? '文件侧栏' : 'AI 助手侧栏'}
-          className="absolute inset-y-0 left-12 right-0 z-40 flex flex-col bg-card shadow-xl"
-        >
-          <div className="h-12 flex-none flex items-center justify-between border-b border-border/40 px-4">
-            <span className="text-sm font-semibold">{activeTab === 'files' ? '文件' : 'AI 助手'}</span>
-            <Button variant="ghost" size="icon-sm" className="h-11 w-11" aria-label="关闭侧栏" onClick={() => setMobileSidebarOpen(false)}>
-              <X className="size-4" />
-            </Button>
-          </div>
-          <div className="flex-1 min-h-0 overflow-hidden">{sidebarBody}</div>
-        </div>
+      {/* 桌面端活动栏：文件 / AI 侧栏切换（手机端由底部四分栏取代） */}
+      {!isMobile && (
+        <aside className="z-30 flex w-12 flex-none flex-col items-center gap-4 border-r border-border/40 bg-muted/20 py-4">
+          <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); sidebarPanel.current?.expand() }} />
+          <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); sidebarPanel.current?.expand() }} />
+        </aside>
       )}
 
       <div className="flex-1 min-w-0 flex flex-col">
-        {isMobile && (
-          <div className="min-h-11 flex-none flex flex-wrap items-center justify-between gap-x-2 gap-y-1 border-b border-border/40 bg-muted/10 px-2 py-1">
-            <div role="tablist" aria-label="写作视图" className="flex shrink-0 rounded-lg bg-muted/60 p-0.5">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mobilePane === 'editor'}
-                data-testid="writing-pane-editor"
-                onClick={() => setMobilePane('editor')}
-                className={cn('inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors', mobilePane === 'editor' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
-              >
-                编辑
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={mobilePane === 'preview'}
-                data-testid="writing-pane-preview"
-                onClick={() => setMobilePane('preview')}
-                className={cn('inline-flex min-h-11 shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 text-xs font-medium transition-colors', mobilePane === 'preview' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground')}
-              >
-                预览
-                {isBrowserCompiling && (
-                  <>
-                    <span className="ml-1 inline-block size-2 shrink-0 animate-pulse rounded-full bg-primary" aria-hidden="true" />
-                    <span className="sr-only">（编译中，点此查看进度）</span>
-                  </>
-                )}
-                {showCompileFailureBadge && (
-                  <>
-                    <span className="ml-1 inline-block size-2 shrink-0 rounded-full bg-destructive" aria-hidden="true" />
-                    <span className="sr-only">（编译失败，点此查看原因）</span>
-                  </>
-                )}
-              </button>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">{compileToolbar}</div>
-          </div>
-        )}
-        <div className="flex-1 min-h-0">
+        <div className="relative min-h-0 flex-1">
         <Resizable.Group
           orientation="horizontal"
-          id={isMobile ? 'writing-layout-mobile' : 'writing-layout-v9'}
-          defaultLayout={!isMobile && savedLayout ? savedLayout : undefined}
-          onLayoutChanged={
-            isMobile
-              ? undefined
-              : (layout) => window.localStorage.setItem(
-                isWide ? 'papersage.writing-panels-v2' : 'papersage.writing-panels',
-                JSON.stringify(layout),
-              )
-          }
+          id="writing-layout-v9"
+          defaultLayout={isMobile ? undefined : savedLayout ?? undefined}
+          onLayoutChanged={(layout) => {
+            // 手机端只有一个 pane，别把桌面三栏/四栏布局覆盖成单栏
+            if (!isMobile) window.localStorage.setItem(
+              isWide ? 'papersage.writing-panels-v2' : 'papersage.writing-panels',
+              JSON.stringify(layout),
+            )
+          }}
         >
           {!isMobile && (
             <>
@@ -1335,14 +1281,21 @@ export function WritingPage() {
             </>
           )}
 
-          {/* Editor Panel */}
-          {(!isMobile || mobilePane === 'editor') && (
+          {/* Editor Panel：手机端在「文件 / AI」面板下保持挂载，切回来不丢撤销栈 */}
+          {(!isMobile || mobilePane !== 'preview') && (
           <Resizable.Panel id="editor" defaultSize={isMobile ? 100 : isWide ? 38 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
-              <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
+              {/* 手机端文件名与保存态压缩成 24px 轻提示，不单独占一层 */}
+              <div
+                data-mobile-chrome="editor-hint"
+                className={cn(
+                  'border-b border-border/40 flex-none flex items-center justify-between bg-muted/10',
+                  isMobile ? 'h-[24px] gap-2 px-3' : 'h-10 px-4',
+                )}
+              >
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex min-w-0 items-center gap-1.5">
-                    <span className="text-[10px] font-bold text-muted-foreground truncate max-w-[200px]">
+                    <span className={cn('truncate text-[10px] font-bold text-muted-foreground', !isMobile && 'max-w-[200px]')}>
                       {activeFilePath || '无文件'}
                     </span>
                     <SavingStatus isSaving={saveMutation.isPending} />
@@ -1702,7 +1655,19 @@ export function WritingPage() {
           </Resizable.Panel>
           )}
         </Resizable.Group>
+          {isMobile && (mobilePane === 'files' || mobilePane === 'ai') && (
+            <div className="absolute inset-0 z-30 flex flex-col bg-card">{sidebarBody}</div>
+          )}
         </div>
+        {isMobile && (
+          <WritingPaneBar
+            active={mobilePane}
+            onChange={showMobilePane}
+            aiPendingCount={writingSuggestion.pendingCount}
+            compileActive={isBrowserCompiling}
+            compileFailed={showCompileFailureBadge}
+          />
+        )}
       </div>
       {popover && !isWide && popoverCurrent && createPortal(
         <div
