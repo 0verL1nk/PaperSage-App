@@ -42,6 +42,39 @@ function cleanTitle(raw: string): string {
   return raw.replace(/\\[a-zA-Z@]+\*?(?:\[[^\]]*\])?/g, '').replace(/[{}]/g, '').trim()
 }
 
+export interface SectionRange {
+  /** 章节路径（与 sectionPathAt 保持一致）。 */
+  path: string
+  /** 章节命令结束后的正文起点。 */
+  start: number
+  /** 下一章节命令起点（文件末尾则为文本长度）。 */
+  end: number
+}
+
+/**
+ * 把全文按章节命令切成区间，用于「同段文字多处出现」时按章节消歧。
+ * 只做结构切分，不做语义判断。
+ */
+export function sectionRanges(text: string): SectionRange[] {
+  const lines = splitLines(text)
+  const heads: Array<{ start: number; path: string }> = []
+  const levels: string[] = []
+  for (const line of lines) {
+    const m = SECTION_RE.exec(line.text)
+    if (!m) continue
+    const index = m[1] === 'chapter' ? 0 : m[1] === 'section' ? 1 : 2
+    levels.length = index
+    levels[index] = cleanTitle(m[2])
+    heads.push({ start: line.start, path: levels.filter(Boolean).join(' / ') })
+  }
+  if (!heads.length) return []
+  return heads.map((head, i) => ({
+    path: head.path,
+    start: head.start,
+    end: i + 1 < heads.length ? heads[i + 1].start : text.length,
+  }))
+}
+
 /** 光标之前最近的三级章节标题（chapter / section / subsection）。 */
 export function sectionPathAt(text: string, offset: number): string {
   const lines = splitLines(text)
@@ -59,24 +92,24 @@ export function sectionPathAt(text: string, offset: number): string {
   return levels.filter(Boolean).join(' / ')
 }
 
-/**
- * 取光标所在段落。光标落在章节命令、环境边界或空行上时返回 null——
- * 那不是一个可给写作建议的正文段落。
- */
-export function paragraphAt(text: string, offset: number): ParagraphFocus | null {
+interface ParagraphBounds {
+  start: number
+  end: number
+}
+
+function findParagraphBounds(text: string, offset: number): ParagraphBounds | null {
   if (offset < 0 || offset > text.length) return null
   const lines = splitLines(text)
   let current: Line[] = []
 
-  const flush = (): ParagraphFocus | null => {
+  const flush = (): ParagraphBounds | null => {
     if (!current.length) return null
     const first = current[0]
     const last = current[current.length - 1]
     const start = first.start
     const end = last.start + last.text.length
-    const paragraphText = text.slice(start, end).trim()
-    if (!paragraphText) return null
-    return { paragraphText, sectionPath: sectionPathAt(text, start) }
+    if (!text.slice(start, end).trim()) return null
+    return { start, end }
   }
   const contains = (line: Line) => offset >= line.start && offset <= line.start + line.text.length
   let mathDepth = 0
@@ -101,8 +134,8 @@ export function paragraphAt(text: string, offset: number): ParagraphFocus | null
     const isBoundary = BLANK_RE.test(line.text) || SECTION_RE.test(line.text) || STRUCTURAL_RE.test(line.text)
     if (isBoundary) {
       if (current.some(contains)) {
-        const focus = flush()
-        if (focus) return focus
+        const bounds = flush()
+        if (bounds) return bounds
       }
       current = []
       if (contains(line)) return null
@@ -112,4 +145,22 @@ export function paragraphAt(text: string, offset: number): ParagraphFocus | null
   }
   if (current.some(contains)) return flush()
   return null
+}
+
+/**
+ * 取光标所在段落。光标落在章节命令、环境边界或空行上时返回 null——
+ * 那不是一个可给写作建议的正文段落。
+ */
+export function paragraphAt(text: string, offset: number): ParagraphFocus | null {
+  const bounds = findParagraphBounds(text, offset)
+  if (!bounds) return null
+  return {
+    paragraphText: text.slice(bounds.start, bounds.end).trim(),
+    sectionPath: sectionPathAt(text, bounds.start),
+  }
+}
+
+/** 段落原始区间（未 trim），用于「同段多条批注」翻页。 */
+export function paragraphRangeAt(text: string, offset: number): ParagraphBounds | null {
+  return findParagraphBounds(text, offset)
 }

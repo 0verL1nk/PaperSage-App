@@ -13,8 +13,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SegmentedControl } from '@/components/shared/segmented-control'
-import { StateBlock } from '@/components/shared/state-block'
 import { ModelSelector } from '@/views/settings/model-selector'
 import { useSettingsStore } from '@/store/settings-store'
 import { useSessionStore } from '@/store/session-store'
@@ -22,10 +20,8 @@ import { useChatStore, type ChatMessage, type ChatPart } from '@/store/chat-stor
 import * as agentApi from '@/services/agent-api'
 import { latexKeys } from '@/lib/query-keys'
 import { writingStateKeys } from '@/services/writing-state-api'
-import { cn } from '@/lib/utils'
 import { ChatMarkdown } from './chat-markdown'
 import { ProposalCard } from './proposal-card'
-import type { useWritingSuggestion } from '@/hooks/use-writing-suggestion'
 
 /**
  * AI 助手面板。
@@ -33,20 +29,11 @@ import type { useWritingSuggestion } from '@/hooks/use-writing-suggestion'
  * 三层信息密度（参考架构 §5.4）：对话主线 → 消息内活动（工具卡片/子 agent 活动）
  * → 按需展开的执行细节。默认简洁，工具细节折叠起来，不把执行轨迹倒进主线。
  */
-export function AiPanel({ projectId, mode = 'default', suggestion }: {
+export function AiPanel({ projectId, mode = 'default' }: {
   projectId: string
   mode?: 'default' | 'preparation' | 'review'
-  /** 写作页传入的动态建议控制器；不传则不显示建议视图。 */
-  suggestion?: ReturnType<typeof useWritingSuggestion>
 }) {
   const navigate = useNavigate()
-  const [panelTab, setPanelTab] = useState<'chat' | 'suggestions'>('chat')
-
-  // 用户主动点「检查本段」（无论在编辑器还是侧栏）时把面板切到建议视图，
-  // 否则结果只出现在看不见的 tab 里。自动检查不会切 tab。
-  useEffect(() => {
-    if (suggestion?.checking) setPanelTab('suggestions')
-  }, [suggestion?.checking])
   const { t } = useTranslation()
   const isGuest = useSessionStore((state) => state.isGuest)
   const { settings, fetchSettings, patchCategory, pendingAgentModelChanges, error: settingsError } = useSettingsStore()
@@ -278,25 +265,6 @@ export function AiPanel({ projectId, mode = 'default', suggestion }: {
         ) : undefined}
       />
 
-      {suggestion && (
-        <div className="flex-none border-b border-border/40 px-3 py-2">
-          <SegmentedControl
-            ariaLabel="AI 面板视图"
-            size="sm"
-            value={panelTab}
-            onValueChange={setPanelTab}
-            items={[
-              { value: 'chat', label: '对话' },
-              { value: 'suggestions', label: `建议 (${suggestion.pendingCount})` },
-            ]}
-          />
-        </div>
-      )}
-
-      {panelTab === 'suggestions' && suggestion ? (
-        <SuggestionPanel projectId={projectId} suggestion={suggestion} />
-      ) : (
-      <>
       {!settings && settingsError && (
         <div className="px-4 py-2 flex items-center gap-2 text-xs text-destructive">
           设置加载失败，请重试。
@@ -345,7 +313,7 @@ export function AiPanel({ projectId, mode = 'default', suggestion }: {
                   ? '告诉我你感兴趣的方向、已有想法或手头材料。我会一次聚焦一个问题，区分事实与假设，并在你确认后保存研究蓝图。'
                   : mode === 'review'
                     ? '我可以解释当前检查结果、帮你判断哪些问题缺材料，或按优先级整理下一步。不会直接改稿。'
-                    : '可以让我查看你的文件与资料、检索文献，或者对稿件提出修改建议。'}
+                    : '可以让我查看你的文件与资料、检索文献，或者让我给出稿件改动建议。'}
                 {mode === 'preparation' && (
                   <div className="mt-3 flex flex-wrap gap-2">
                     {[
@@ -446,8 +414,6 @@ export function AiPanel({ projectId, mode = 'default', suggestion }: {
           </Button>
         </div>
       </div>
-      </>
-      )}
     </div>
   )
 }
@@ -651,99 +617,5 @@ function ChatProposalCard({ proposalId, projectId }: { proposalId: string; proje
         await refreshLatex()
       }}
     />
-  )
-}
-
-/** 「建议」视图：待处理与最近已应用的建议，全部来自服务端持久列表。 */
-function SuggestionPanel({ projectId, suggestion }: {
-  projectId: string
-  suggestion: ReturnType<typeof useWritingSuggestion>
-}) {
-  const queryClient = useQueryClient()
-  const refresh = async (filePath: string) => {
-    await queryClient.invalidateQueries({ queryKey: ['agent-proposals', projectId] })
-    await queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
-    await queryClient.invalidateQueries({ queryKey: latexKeys.content(projectId, filePath) })
-  }
-
-  return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex-none space-y-2 border-b border-border/40 px-3 py-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            size="sm"
-            className="min-h-11 rounded-lg text-[11px] sm:min-h-8"
-            disabled={suggestion.checking}
-            onClick={() => void suggestion.checkNow()}
-          >
-            {suggestion.checking ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
-            {suggestion.checking ? '正在检查本段…' : '检查本段'}
-          </Button>
-          <label className="flex min-h-11 cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:min-h-8">
-            <input
-              type="checkbox"
-              checked={suggestion.autoCheck}
-              onChange={(event) => suggestion.setAutoCheck(event.target.checked)}
-              className="size-4"
-            />
-            停顿后自动检查
-          </label>
-        </div>
-        <p className="text-[10px] leading-4 text-muted-foreground">
-          默认只在你点「检查本段」时检查。开启自动检查后，停止输入约 8 秒才会在本段运行一次；打字过程中不会弹窗或抢光标。
-        </p>
-        {suggestion.notice && (
-          <p
-            role="status"
-            className={cn(
-              'text-[11px]',
-              suggestion.notice.kind === 'error'
-                ? 'text-destructive'
-                : suggestion.notice.kind === 'skip'
-                  ? 'text-amber-700 dark:text-amber-400'
-                  : 'text-green-700 dark:text-green-400',
-            )}
-          >
-            {suggestion.notice.text}
-          </p>
-        )}
-      </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
-        {suggestion.isLoading && <p className="text-[11px] text-muted-foreground">正在读取建议…</p>}
-        {suggestion.isError && (
-          <StateBlock
-            compact
-            title="建议加载失败"
-            description="网络或服务暂时不可用。"
-            action={<Button size="sm" variant="outline" onClick={() => void suggestion.refetch()}>重试</Button>}
-          />
-        )}
-        {!suggestion.isLoading && !suggestion.isError && suggestion.visible.length === 0 && (
-          <StateBlock
-            compact
-            title="暂无待处理建议"
-            description="把光标放在正文段落里，点上方「检查本段」。建议会带原文片段、可回查依据与可直接应用的改动。"
-          />
-        )}
-        {suggestion.visible.map((proposal) => (
-          <ProposalCard
-            key={proposal.id}
-            proposal={proposal}
-            onApply={async () => {
-              await agentApi.applyProposal(proposal.id)
-              await refresh(proposal.filePath)
-            }}
-            onReject={async (reason, note) => {
-              await agentApi.rejectProposal(proposal.id, reason, note)
-              await refresh(proposal.filePath)
-            }}
-            onUndo={async () => {
-              await agentApi.undoProposal(proposal.id)
-              await refresh(proposal.filePath)
-            }}
-          />
-        ))}
-      </div>
-    </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { paragraphAt, sectionPathAt } from './paragraph'
+import { paragraphAt, paragraphRangeAt, sectionPathAt } from './paragraph'
 
 const SAMPLE = `\\chapter{绪论}
 \\section{研究背景}
@@ -49,5 +49,12 @@ describe('latex paragraph focus', () => {
 
   it('returns empty section path before any heading', () => {
     expect(sectionPathAt('正文第一段。', 2)).toBe('')
+  })
+
+  it('returns the raw paragraph range for paging comments', () => {
+    const offset = offsetOf(SAMPLE, '人工智能')
+    const range = paragraphRangeAt(SAMPLE, offset)
+    expect(range).not.toBeNull()
+    expect(SAMPLE.slice(range!.start, range!.end).trim()).toBe('人工智能正在改变科研写作方式，但通用助手常常给出缺少依据的建议。')
   })
 })

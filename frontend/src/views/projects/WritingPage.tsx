@@ -1,13 +1,14 @@
 import '@/lib/monaco-setup'
 import { cn } from '@/lib/utils'
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams } from '@tanstack/react-router'
 import { useSaveWritingState, useWritingState } from '@/services/writing-state-api'
 import {
   Play, Download, Sparkles, Loader2, Square, History, RefreshCw,
   Plus, Upload, Files, Monitor, ZoomIn, ZoomOut, Maximize, AlertCircle,
   Check, Copy, Cloud, CloudUpload, FolderPlus, FolderSync, AlertTriangle,
-  HardDrive, X,
+  HardDrive, X, MessageSquare, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { EmptyPreview } from './empty-preview'
 import { CompileProgress, EngineLicenseLinks } from './compile-progress'
@@ -18,7 +19,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import Editor, { useMonaco } from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import { paragraphAt } from '@/lib/latex/paragraph'
+import { locateProposal } from '@/lib/latex/proposal-anchor'
+import { paragraphRangeAt } from '@/lib/latex/paragraph'
+import type { AgentChangeProposal } from '@/services/agent-api'
 import { useWritingSuggestion } from '@/hooks/use-writing-suggestion'
+import { Switch } from '@/components/ui/switch'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { MentorCommentRail } from './mentor-comment-rail'
+import { MentorCommentCard } from './mentor-comment-card'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { pdfDocumentOptions } from '@/lib/pdf/pdf-js'
 import * as Resizable from 'react-resizable-panels'
@@ -186,11 +194,14 @@ export function WritingPage() {
   useEffect(() => {
     window.localStorage.setItem('papersage.writing-tab', activeTab)
   }, [activeTab])
+  // 大屏（≥1280）四栏；窄屏批注走抽屉/Sheet，不挤压编辑区。
+  const [isWide, setIsWide] = useState(() => typeof window !== 'undefined' && window.innerWidth >= 1280)
   // 面板布局持久化：库 v4 移除了 autoSaveId，用 defaultLayout + onLayoutChanged 等价实现。
+  // 四栏与三栏布局项数不同，分开存储，避免旧布局错位。
   const [savedLayout] = useState<Resizable.Layout | null>(() => {
     if (typeof window === 'undefined') return null
     try {
-      const raw = window.localStorage.getItem('papersage.writing-panels')
+      const raw = window.localStorage.getItem(isWide ? 'papersage.writing-panels-v2' : 'papersage.writing-panels')
       return raw ? (JSON.parse(raw) as Resizable.Layout) : null
     } catch {
       return null
@@ -198,6 +209,14 @@ export function WritingPage() {
   })
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor')
+  const [popover, setPopover] = useState<{ proposalId: string; x: number; y: number } | null>(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
+  const autoLayoutAppliedRef = useRef<string | null>(null)
+  const [activeProposalId, setActiveProposalId] = useState<string | null>(null)
+  const [flashProposalId, setFlashProposalId] = useState<string | null>(null)
+  const [ariaAnnouncement, setAriaAnnouncement] = useState('')
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const popoverReturnFocus = useRef<HTMLElement | null>(null)
   const sidebarPanel = Resizable.usePanelRef()
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [compiler, setCompiler] = useState('pdflatex')
@@ -213,6 +232,7 @@ export function WritingPage() {
   // Refs
   const fileTreeRef = useRef<FileTreeHandle>(null)
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const decorationsRef = useRef<MonacoEditor.IEditorDecorationsCollection | null>(null)
   const cursorOffsetRef = useRef(0)
   const mobileSidebarRef = useRef<HTMLDivElement>(null)
   const previewContainerRef = useRef<HTMLDivElement>(null)
@@ -259,6 +279,214 @@ export function WritingPage() {
   // 光标回调仍捕获首次渲染时 autoCheck=false 的闭包。
   const notifyCursorMoveRef = useRef(writingSuggestion.notifyCursorMove)
   notifyCursorMoveRef.current = writingSuggestion.notifyCursorMove
+
+  const anchorOf = useCallback(
+    (proposal: AgentChangeProposal) => locateProposal(editorContent, proposal, cursorOffsetRef.current),
+    [editorContent],
+  )
+
+  const openPopover = useCallback((id: string, point?: { x: number; y: number }) => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    const proposal = writingSuggestion.visible.find((item) => item.id === id)
+    if (!editor || !model || !proposal) return
+    let x = point?.x ?? 16
+    let y = point?.y ?? 80
+    if (!point) {
+      const anchor = locateProposal(model.getValue(), proposal)
+      const position = anchor.locatable ? model.getPositionAt(anchor.start) : null
+      const viewport = position ? editor.getScrolledVisiblePosition(position) : null
+      const rect = editor.getDomNode()?.getBoundingClientRect()
+      if (viewport && rect) {
+        x = rect.left + viewport.left + 16
+        y = rect.top + viewport.top + viewport.height + 8
+      }
+    }
+    setActiveProposalId(id)
+    popoverReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    setPopover({ proposalId: id, x, y })
+  }, [writingSuggestion.visible])
+  const openPopoverRef = useRef(openPopover)
+  openPopoverRef.current = openPopover
+
+  const openComments = useCallback(() => {
+    if (isWide) {
+      setCommentsOpen(true)
+      return
+    }
+    const pending = writingSuggestion.visible.filter(
+      (item) => item.status === 'pending' && item.filePath === activeFilePathRef.current,
+    )
+    const target = pending.find((item) => item.id === activeProposalId) ?? pending[0]
+    if (target) openPopover(target.id)
+  }, [activeProposalId, isWide, openPopover, writingSuggestion.visible])
+  const closeComments = useCallback(() => {
+    if (isWide) setCommentsOpen(false)
+  }, [isWide])
+  const openCommentsRef = useRef(openComments)
+  openCommentsRef.current = openComments
+
+  // 进入页面/切换文件时按当前文件是否有 pending 决定展开；停留期间新建议只更新计数，不自动展开。
+  useEffect(() => {
+    if (!isWide || writingSuggestion.isLoading) return
+    const key = activeFilePath ?? ''
+    if (!key || autoLayoutAppliedRef.current === key) return
+    autoLayoutAppliedRef.current = key
+    const hasPending = writingSuggestion.visible.some(
+      (item) => item.filePath === key && item.status === 'pending',
+    )
+    setCommentsOpen(hasPending)
+  }, [activeFilePath, isWide, writingSuggestion.isLoading, writingSuggestion.visible])
+
+  const closePopover = useCallback(() => {
+    setPopover(null)
+    window.requestAnimationFrame(() => popoverReturnFocus.current?.focus())
+  }, [])
+
+  // 打开后把焦点移入浮层，键盘用户不会被留在触发按钮上。
+  useEffect(() => {
+    if (!popover) return
+    const frame = window.requestAnimationFrame(() => popoverRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [popover])
+
+  // 窄屏批注浮层：点外 / Esc / 滚动关闭；切文件也关闭。
+  useEffect(() => {
+    if (!popover) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closePopover()
+    }
+    const onPointer = (event: MouseEvent) => {
+      const element = document.getElementById('mentor-comment-popover')
+      if (element && event.target instanceof Node && element.contains(event.target)) return
+      closePopover()
+    }
+    const onScroll = () => closePopover()
+    window.addEventListener('keydown', onKey)
+    window.addEventListener('mousedown', onPointer, true)
+    document.addEventListener('scroll', onScroll, true)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('mousedown', onPointer, true)
+      document.removeEventListener('scroll', onScroll, true)
+    }
+  }, [closePopover, popover])
+  useEffect(() => { setPopover(null) }, [activeFilePath])
+
+  // 编辑器点击命中锚点：聚焦批注卡并展开批注栏（不改变光标选区）。
+  const proposalHitAtOffset = useCallback((offset: number): string | null => {
+    const path = activeFilePathRef.current
+    const model = editorRef.current?.getModel()
+    if (!path || !model) return null
+    const content = model.getValue()
+    for (const proposal of writingSuggestion.visible) {
+      if (proposal.filePath !== path || proposal.status !== 'pending') continue
+      const anchor = locateProposal(content, proposal)
+      if (anchor.locatable && offset >= anchor.start && offset <= anchor.end) return proposal.id
+    }
+    return null
+  }, [writingSuggestion.visible])
+  const hitAtOffsetRef = useRef(proposalHitAtOffset)
+  hitAtOffsetRef.current = proposalHitAtOffset
+
+  const revealProposal = useCallback((id: string) => {
+    setActiveProposalId(id)
+    if (isWide) setCommentsOpen(true)
+    const proposal = writingSuggestion.visible.find((item) => item.id === id)
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!proposal || !editor || !model) return
+    const anchor = locateProposal(model.getValue(), proposal)
+    if (!anchor.locatable) return
+    const start = model.getPositionAt(anchor.start)
+    const end = model.getPositionAt(anchor.end)
+    editor.revealRangeInCenterIfOutsideViewport({
+      startLineNumber: start.lineNumber, startColumn: start.column,
+      endLineNumber: end.lineNumber, endColumn: end.column,
+    })
+    setFlashProposalId(id)
+    window.setTimeout(() => setFlashProposalId((current) => (current === id ? null : current)), 1500)
+    setAriaAnnouncement(`已定位到第 ${start.lineNumber} 行`)
+  }, [isWide, writingSuggestion.visible])
+
+  // 行内锚点：只装饰当前文件、待处理且能确定性定位的批注。
+  useEffect(() => {
+    const editor = editorRef.current
+    const model = editor?.getModel()
+    if (!editor || !model) return
+    if (!decorationsRef.current) decorationsRef.current = editor.createDecorationsCollection([])
+    if (!activeFilePath || !isEditable) {
+      decorationsRef.current.clear()
+      return
+    }
+    const timer = window.setTimeout(() => {
+      const content = model.getValue()
+      const decorations: MonacoEditor.IModelDeltaDecoration[] = []
+      for (const proposal of writingSuggestion.visible) {
+        if (proposal.filePath !== activeFilePath || proposal.status !== 'pending') continue
+        const anchor = locateProposal(content, proposal)
+        if (!anchor.locatable) continue
+        const start = model.getPositionAt(anchor.start)
+        const end = model.getPositionAt(anchor.end)
+        const range = {
+          startLineNumber: start.lineNumber, startColumn: start.column,
+          endLineNumber: end.lineNumber, endColumn: end.column,
+        }
+        // 受控 value 更新可能滞后：以编辑器实际文本再校验一次。
+        if (model.getValueInRange(range) !== proposal.oldText) continue
+        decorations.push({
+          range,
+          options: {
+            inlineClassName: `mentor-anchor mentor-anchor--${proposal.suggestionKind ?? 'default'}${proposal.id === activeProposalId ? ' is-active' : ''}${proposal.id === flashProposalId ? ' is-flash' : ''}`,
+            glyphMarginClassName: 'mentor-glyph',
+            glyphMarginHoverMessage: { value: '写作批注' },
+            // NeverGrowsWhenTypingAtEdges：在锚点边缘输入时不扩张高亮。
+            stickiness: 1,
+          },
+        })
+      }
+      decorationsRef.current?.set(decorations)
+    }, 120)
+    return () => window.clearTimeout(timer)
+  }, [activeFilePath, activeProposalId, editorContent, flashProposalId, isEditable, writingSuggestion.visible])
+
+  const commentsRail = (onClose?: () => void) => (
+    <MentorCommentRail
+      proposals={writingSuggestion.visible}
+      activeId={activeProposalId}
+      anchorOf={anchorOf}
+      notice={writingSuggestion.notice}
+      checking={writingSuggestion.checking}
+      isLoading={writingSuggestion.isLoading}
+      isError={writingSuggestion.isError}
+      onRetry={() => void writingSuggestion.refetch()}
+      onActivate={revealProposal}
+      onApply={writingSuggestion.applyComment}
+      onReject={writingSuggestion.rejectComment}
+      onUndo={writingSuggestion.undoComment}
+      onRecheck={() => void writingSuggestion.checkNow()}
+      onClose={onClose}
+    />
+  )
+  const popoverProposals: AgentChangeProposal[] = (() => {
+    if (!popover) return []
+    const model = editorRef.current?.getModel()
+    const content = model?.getValue() ?? ''
+    const current = writingSuggestion.visible.find((item) => item.id === popover.proposalId)
+    if (!current) return []
+    const anchor = locateProposal(content, current)
+    const range = anchor.locatable ? paragraphRangeAt(content, anchor.start) : null
+    const sameParagraph = writingSuggestion.visible.filter((item) => {
+      if (item.status !== 'pending' || item.filePath !== current.filePath) return false
+      if (!range) return item.id === current.id
+      const located = locateProposal(content, item)
+      return located.locatable && located.start >= range.start && located.end <= range.end
+    })
+    return sameParagraph.some((item) => item.id === current.id) ? sameParagraph : [current]
+  })()
+  const popoverIndex = Math.max(0, popoverProposals.findIndex((item) => item.id === popover?.proposalId))
+  const popoverCurrent = popoverProposals[popoverIndex]
+
   const saveMutation = useSaveLatexFile(projectId)
   const autoSave = useAutoSave(saveMutation)
   const { saveNow: saveBeforeUpdate } = autoSave
@@ -342,9 +570,12 @@ export function WritingPage() {
     }
   }, [files, autoSave])
 
-  // Mobile detection
+  // 响应式：<1024 移动 Sheet；1024–1279 批注抽屉；≥1280 四栏。
   useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 1024)
+    const check = () => {
+      setIsMobile(window.innerWidth < 1024)
+      setIsWide(window.innerWidth >= 1280)
+    }
     check()
     window.addEventListener('resize', check)
     return () => window.removeEventListener('resize', check)
@@ -456,7 +687,7 @@ export function WritingPage() {
     // remounts it from this value, and compile reads it for the active file.
     setEditorContent(value)
     autoSave.onChange(value)
-    // 只有用户开启「停顿后自动检查」时才会真正排延迟检查。
+    // 只有用户开启自动批注时才会真正排延迟检查。
     writingSuggestion.notifyActivity()
   }
 
@@ -1009,7 +1240,7 @@ export function WritingPage() {
   ) : (
     <div className="flex h-full min-h-0 flex-col">
       <AdoptedResearchSummary projectId={projectId} />
-      <div className="min-h-0 flex-1"><AiPanel projectId={projectId} suggestion={writingSuggestion} /></div>
+      <div className="min-h-0 flex-1"><AiPanel projectId={projectId} /></div>
     </div>
   )
 
@@ -1018,7 +1249,7 @@ export function WritingPage() {
       {/* Activity Bar */}
       <aside className="flex-none w-12 border-r border-border/40 bg-muted/20 flex flex-col items-center py-4 gap-4 z-30">
         <TabButton testId="writing-tab-files" label="文件侧栏" icon={<Files size={20} />} active={activeTab === 'files'} onClick={() => { setActiveTab('files'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
-        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} badge={writingSuggestion.pendingCount} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
+        <TabButton testId="writing-tab-ai" label="AI 助手侧栏" icon={<Sparkles size={20} />} active={activeTab === 'ai'} onClick={() => { setActiveTab('ai'); if (isMobile) setMobileSidebarOpen(true); else sidebarPanel.current?.expand() }} />
       </aside>
 
       {isMobile && mobileSidebarOpen && (
@@ -1087,12 +1318,15 @@ export function WritingPage() {
           onLayoutChanged={
             isMobile
               ? undefined
-              : (layout) => window.localStorage.setItem('papersage.writing-panels', JSON.stringify(layout))
+              : (layout) => window.localStorage.setItem(
+                isWide ? 'papersage.writing-panels-v2' : 'papersage.writing-panels',
+                JSON.stringify(layout),
+              )
           }
         >
           {!isMobile && (
             <>
-              <Resizable.Panel id="sidebar" defaultSize={18} minSize={12} collapsible panelRef={sidebarPanel}>
+              <Resizable.Panel id="sidebar" defaultSize={isWide ? 15 : 18} minSize={12} collapsible panelRef={sidebarPanel}>
                 <aside className="h-full bg-card flex flex-col overflow-hidden border-r">
                   {sidebarBody}
                 </aside>
@@ -1103,7 +1337,7 @@ export function WritingPage() {
 
           {/* Editor Panel */}
           {(!isMobile || mobilePane === 'editor') && (
-          <Resizable.Panel id="editor" defaultSize={isMobile ? 100 : 42} minSize={25}>
+          <Resizable.Panel id="editor" defaultSize={isMobile ? 100 : isWide ? 38 : 42} minSize={25}>
             <section className="h-full flex flex-col min-w-0 bg-background relative select-text border-r">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-muted/10">
                 <div className="flex min-w-0 items-center gap-3">
@@ -1116,20 +1350,6 @@ export function WritingPage() {
                 </div>
                 {!isMobile && (
                   <div className="flex shrink-0 items-center gap-1">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 gap-1 text-[11px] text-muted-foreground"
-                      disabled={!isEditable || writingSuggestion.checking}
-                      onClick={() => {
-                        setActiveTab('ai')
-                        void writingSuggestion.checkNow()
-                      }}
-                      title="检查光标所在段落，建议会出现在右侧「建议」里"
-                    >
-                      {writingSuggestion.checking ? <Loader2 size={12} className="animate-spin" /> : <Sparkles size={12} />}
-                      检查本段
-                    </Button>
                     {compileToolbar}
                   </div>
                 )}
@@ -1147,30 +1367,104 @@ export function WritingPage() {
                     value={editorContent} onChange={handleEditorChange}
                     onMount={(editor) => {
                       editorRef.current = editor
+                      decorationsRef.current = editor.createDecorationsCollection([])
                       const position = editor.getPosition()
                       if (position) cursorOffsetRef.current = editor.getModel()?.getOffsetAt(position) ?? 0
                       const subscription = editor.onDidChangeCursorPosition((event) => {
-                        cursorOffsetRef.current = editor.getModel()?.getOffsetAt(event.position) ?? 0
+                        const model = editor.getModel()
+                        const offset = model?.getOffsetAt(event.position) ?? 0
+                        cursorOffsetRef.current = offset
                         notifyCursorMoveRef.current()
+                        const hit = hitAtOffsetRef.current(offset)
+                        if (hit) setActiveProposalId(hit)
+                      })
+                      // 点击行内批注/行旁气泡：聚焦对应批注卡并展开批注栏。
+                      const mouseSubscription = editor.onMouseDown((event) => {
+                        const position = event.target.position
+                        const model = editor.getModel()
+                        if (!position || !model) return
+                        const hit = hitAtOffsetRef.current(model.getOffsetAt(position))
+                        if (!hit) return
+                        setActiveProposalId(hit)
+                        if (window.innerWidth >= 1280) openCommentsRef.current()
+                        else openPopoverRef.current(hit, { x: event.event.posx, y: event.event.posy + 12 })
                       })
                       editor.onDidDispose(() => {
                         subscription.dispose()
+                        mouseSubscription.dispose()
+                        decorationsRef.current = null
                         if (editorRef.current === editor) editorRef.current = null
                       })
                     }}
-                    options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', scrollbar: { vertical: 'visible', useShadows: false } }}
+                    options={{ minimap: { enabled: false }, fontSize: 14, lineHeight: 1.6, padding: { top: 20 }, wordWrap: 'on', automaticLayout: true, folding: true, lineNumbers: 'on', glyphMargin: true, scrollbar: { vertical: 'visible', useShadows: false } }}
                   />
                 ) : (
                   <BinaryFilePlaceholder path={activeFilePath} projectId={projectId} />
                 )}
               </div>
+
+              <div className="flex min-h-[44px] flex-none flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/40 bg-muted/10 px-2 py-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-[44px] gap-1.5 px-2 text-[11px] sm:h-9 sm:min-h-9"
+                  disabled={!isEditable || isGuest || writingSuggestion.checking}
+                  onClick={() => {
+                    if (isWide) openComments()
+                    void writingSuggestion.checkNow()
+                  }}
+                >
+                  {writingSuggestion.checking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
+                  {writingSuggestion.checking ? '正在批注…' : '批注本段'}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="min-h-[44px] gap-1 px-2 text-[11px] text-muted-foreground sm:h-9 sm:min-h-9"
+                  onClick={openComments}
+                >
+                  <MessageSquare size={13} />
+                  批注
+                  <span className="rounded-full bg-muted px-1.5 text-[10px]">{writingSuggestion.pendingCount}</span>
+                </Button>
+                <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <span className="ml-auto flex min-h-[44px] items-center gap-1.5 text-[11px] text-muted-foreground sm:min-h-9">
+                      <label htmlFor="mentor-auto-comment" className="cursor-pointer">自动批注</label>
+                      <Switch
+                        id="mentor-auto-comment"
+                        checked={writingSuggestion.autoCheck}
+                        onCheckedChange={writingSuggestion.setAutoCheck}
+                        disabled={!isEditable || isGuest}
+                        aria-label="自动批注"
+                      />
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent>写完段落后自动生成批注</TooltipContent>
+                </Tooltip>
+                </TooltipProvider>
+                <span className="sr-only" aria-live="polite">{ariaAnnouncement}</span>
+              </div>
             </section>
           </Resizable.Panel>
           )}
 
+          {/* 写作批注栏：≥1280 独立第 4 栏；打开/关闭直接增删面板，避免折叠后无法展开。 */}
+          {isWide && commentsOpen && (
+            <>
+              <ResizeHandle />
+              <Resizable.Panel id="comments" defaultSize={18} minSize={14}>
+                <aside className="h-full border-r border-border/40">
+                  {commentsRail(closeComments)}
+                </aside>
+              </Resizable.Panel>
+            </>
+          )}
+
           {/* Preview Panel */}
           {(!isMobile || mobilePane === 'preview') && (
-          <Resizable.Panel id="preview" defaultSize={isMobile ? 100 : 40} minSize={20}>
+          <Resizable.Panel id="preview" defaultSize={isMobile ? 100 : isWide ? 26 : 40} minSize={20}>
             <aside className="h-full border-l border-border/40 bg-muted/20 flex flex-col relative min-w-0">
               <div className="h-10 border-b border-border/40 flex-none flex items-center justify-between px-4 bg-card/50">
                 <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest">预览</span>
@@ -1410,6 +1704,74 @@ export function WritingPage() {
         </Resizable.Group>
         </div>
       </div>
+      {popover && !isWide && popoverCurrent && createPortal(
+        <div
+          id="mentor-comment-popover"
+          ref={popoverRef}
+          role="dialog"
+          aria-modal="false"
+          aria-label="写作批注"
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab') return
+            const nodes = popoverRef.current?.querySelectorAll<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')
+            if (!nodes?.length) return
+            const first = nodes[0]
+            const last = nodes[nodes.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault(); last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault(); first.focus()
+            }
+          }}
+          className="fixed z-50 max-h-[60vh] w-[320px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-xl"
+          style={{
+            left: Math.min(Math.max(8, popover.x), Math.max(8, window.innerWidth - 328)),
+            top: Math.min(Math.max(8, popover.y), Math.max(8, window.innerHeight - 160)),
+          }}
+        >
+          <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
+            <span className="text-[11px] text-muted-foreground">写作批注</span>
+            <div className="flex items-center gap-2">
+              {popoverProposals.length > 1 && (
+                <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                  <button
+                    type="button"
+                    aria-label="上一条批注"
+                    className="flex size-[44px] items-center justify-center rounded-md"
+                    onClick={() => setPopover({ ...popover, proposalId: popoverProposals[(popoverIndex - 1 + popoverProposals.length) % popoverProposals.length].id })}
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  {popoverIndex + 1}/{popoverProposals.length}
+                  <button
+                    type="button"
+                    aria-label="下一条批注"
+                    className="flex size-[44px] items-center justify-center rounded-md"
+                    onClick={() => setPopover({ ...popover, proposalId: popoverProposals[(popoverIndex + 1) % popoverProposals.length].id })}
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </span>
+              )}
+              <button type="button" aria-label="关闭写作批注" className="flex size-[44px] items-center justify-center rounded-md" onClick={closePopover}>
+                <X size={16} />
+              </button>
+            </div>
+          </div>
+          <MentorCommentCard
+            proposal={popoverCurrent}
+            active={false}
+            locatable={anchorOf(popoverCurrent).locatable}
+            onActivate={() => {}}
+            onApply={() => writingSuggestion.applyComment(popoverCurrent)}
+            onReject={(reason, note) => writingSuggestion.rejectComment(popoverCurrent, reason, note)}
+            onUndo={() => writingSuggestion.undoComment(popoverCurrent)}
+            onRecheck={() => void writingSuggestion.checkNow()}
+          />
+        </div>,
+        document.body,
+      )}
       <LatexEnvironmentSetup open={isLatexSetupOpen} onOpenChange={setIsLatexSetupOpen} disabled={isCompiling} />
       {isFolderSyncOpen && (
         <FolderSyncDialog

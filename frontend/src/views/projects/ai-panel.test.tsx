@@ -345,20 +345,3 @@ describe('AI panel model selection', () => {
     expect(screen.queryByText(/secret must not be displayed/)).not.toBeInTheDocument()
   })
 })
-
-describe('AI panel writing suggestions', () => {
-  it('shows the suggestion view with empty state and opt-in auto check', () => {
-    const suggestion = {
-      pending: [], visible: [], pendingCount: 0, checking: false, notice: null,
-      autoCheck: false, setAutoCheck: vi.fn(), checkNow: vi.fn(), notifyActivity: vi.fn(),
-      refetch: vi.fn(), isLoading: false, isError: false,
-    }
-    render(<AiPanel projectId="p" suggestion={suggestion as never} />)
-    fireEvent.click(screen.getByText('建议 (0)'))
-    expect(screen.getByText('暂无待处理建议')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '检查本段' }))
-    expect(suggestion.checkNow).toHaveBeenCalled()
-    fireEvent.click(screen.getByRole('checkbox', { name: '停顿后自动检查' }))
-    expect(suggestion.setAutoCheck).toHaveBeenCalledWith(true)
-  })
-})
