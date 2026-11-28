@@ -3,6 +3,9 @@ import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { WRITING_URL, mockWritingPageAPIs, seedAuthTokens } from '../helpers'
 
+// 冷启动的 Vite 首次加载较慢；CI 有全局登录预热，本地 mock 运行时放宽导航等待。
+test.use({ navigationTimeout: 90_000 })
+
 /**
  * AI 助手面板（模式 B：先建 Run 再订阅事件）。
  *
@@ -325,8 +328,8 @@ test.describe('AI 助手面板', () => {
     await page.getByPlaceholder('问点什么…').fill('改一下开头')
     await page.getByPlaceholder('问点什么…').press('Enter')
 
-    await expect(page.getByText('查看修改')).toBeVisible()
-    await page.getByRole('button', { name: '采纳' }).click()
+    await expect(page.getByTestId('sidebar').getByText('查看修改')).toBeVisible()
+    await page.getByTestId('sidebar').getByRole('button', { name: '采纳' }).click()
 
     await expect.poll(() => applied).toBe(true)
     // 联动：稿件被改写后必须刷新文件树，否则用户会在旧内容上继续编辑
