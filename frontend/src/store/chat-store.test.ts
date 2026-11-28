@@ -371,7 +371,7 @@ describe('send 动作', () => {
 
   it('409 更新会话版本并提供重试，不静默重发', async () => {
     useChatStore.setState({ ...emptyChatState, conversationId: 'c-old', conversationVersion: 1, versionKnown: true })
-    vi.mocked(api.createRun).mockRejectedValueOnce(new FrontendApiError('会话已在其他位置被修改', {
+    vi.mocked(api.createRun).mockRejectedValueOnce(new FrontendApiError('这段对话在另一个页面被修改，请刷新后重试', {
       kind: 'http',
       status: 409,
       details: { code: 409, data: { threadVersion: 5 } },

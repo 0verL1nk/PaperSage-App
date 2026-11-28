@@ -84,12 +84,12 @@ describe('AI panel server fallback', () => {
     render(<AiPanel projectId="p" />)
 
     expect(screen.getByPlaceholderText('问点什么…')).toBeDisabled()
-    expect(screen.getByRole('status')).toHaveTextContent('正在恢复会话')
+    expect(screen.getByRole('status')).toHaveTextContent('正在恢复对话')
   })
 
   it('offers recovery retry rather than allowing a new message after lookup failure', () => {
     const open = vi.fn().mockResolvedValue(undefined)
-    useChatStore.setState({ conversationId: 'c-live', restoreFailed: true, error: '无法恢复会话', open })
+    useChatStore.setState({ conversationId: 'c-live', restoreFailed: true, error: '无法恢复对话', open })
     render(<AiPanel projectId="p" />)
 
     expect(screen.getByPlaceholderText('问点什么…')).toBeDisabled()

@@ -87,8 +87,8 @@ describe('AiPanel', () => {
     useSettingsStore.setState({ settings: structuredClone(noProviderSettings), error: null })
     const list = vi.spyOn(agentApi, 'listConversations').mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce([])
     renderWithRealQuery()
-    expect(await screen.findByText('会话加载失败，请重试。')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '重试会话' }))
+    expect(await screen.findByText('对话记录加载失败，请重试。')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
     await waitFor(() => expect(list).toHaveBeenCalledTimes(2))
     expect(await screen.findByText('尚未配置 AI 模型')).toBeInTheDocument()
   })
@@ -275,7 +275,10 @@ describe('AiPanel', () => {
     render(<AiPanel projectId="p1" />)
 
     expect(screen.getByText('已请求编译')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: /compile_project/ }))
+    // 标题用中文动作名，原始工具名只在展开的「技术细节」里出现。
+    expect(screen.queryByText(/compile_project/)).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /请求编译/ }))
+    expect(screen.getByText('技术细节：compile_project')).toBeInTheDocument()
     expect(screen.getByText('结果在写作页查看，模型无法直接读取编译结果。')).toBeInTheDocument()
     expect(screen.queryByText(/browser_compile_request/)).not.toBeInTheDocument()
   })

@@ -213,7 +213,7 @@ export function AiPanel({ projectId, mode = 'default' }: {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuLabel>会话</DropdownMenuLabel>
+                <DropdownMenuLabel>对话</DropdownMenuLabel>
                 {conversations.map((c) => (
                   <DropdownMenuItem key={c.id} onSelect={() => void chat.open(c.id, projectId)}>
                     <span className="truncate">{c.title}</span>
@@ -229,7 +229,7 @@ export function AiPanel({ projectId, mode = 'default' }: {
                 variant="ghost"
                 size="icon-xs"
                 className="h-7 w-7 rounded-md text-muted-foreground"
-                title="删除该会话"
+                title="删除这段对话"
                 onClick={async () => {
                   await agentApi.deleteConversation(activeConversationId)
                   chat.reset()
@@ -279,12 +279,12 @@ export function AiPanel({ projectId, mode = 'default' }: {
       )}
       {convQuery.isError && (
         <div className="px-4 py-2 flex items-center gap-2 text-xs text-destructive">
-          会话加载失败，请重试。
-          <Button size="sm" variant="outline" onClick={() => void convQuery.refetch()}>重试会话</Button>
+          对话记录加载失败，请重试。
+          <Button size="sm" variant="outline" onClick={() => void convQuery.refetch()}>重试</Button>
         </div>
       )}
 
-      {chat.restoring && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">正在恢复会话…</div>}
+      {chat.restoring && <div role="status" className="px-4 py-2 text-xs text-muted-foreground">正在恢复对话…</div>}
       {chat.recoveredBrowserCompileRequest && (
         <div role="status" className="px-4 py-2 text-xs text-muted-foreground">
           恢复了编译请求（{chat.recoveredBrowserCompileRequest.rootFile}），请确认是否需要在写作页手动编译。
@@ -433,6 +433,34 @@ function PanelHeader({ right, model }: { right?: React.ReactNode; model?: React.
   )
 }
 
+// 工具与子任务名 → 学生能看懂的动作名；原始英文名只在展开的「技术细节」里出现。
+const TOOL_LABELS: Record<string, string> = {
+  list_documents: '查看资料列表',
+  read_document: '阅读资料',
+  list_latex_files: '查看稿件文件',
+  read_latex_file: '阅读稿件内容',
+  list_research_artifacts: '查看整理记录',
+  read_research_artifact: '阅读整理记录',
+  search_references: '检索文献',
+  search_evidence: '查找依据',
+  rag_search: '检索项目资料',
+  list_adopted_norms: '查看学术规范',
+  skip_suggestion: '跳过本次建议',
+  wiki_read: '查阅知识页',
+  wiki_write: '记录知识页',
+  compile_project: '请求编译',
+  propose_edit: '生成修改建议',
+  save_writing_preparation: '保存研究计划',
+  create_research_artifact: '生成整理记录',
+  add_research_artifact_revision: '更新整理记录',
+  task: '分派检查任务',
+  write_todos: '规划步骤',
+}
+
+function toolLabel(name: string | undefined): string {
+  return (name && TOOL_LABELS[name]) || '执行步骤'
+}
+
 const TOOL_STATUS_LABELS: Record<string, string> = {
   'input-available': '准备中',
   executing: '执行中',
@@ -548,11 +576,12 @@ function ToolCard({ part }: { part: ChatPart }) {
         onClick={() => setOpen((v) => !v)}
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-        <span className="font-medium">{meta.toolName ?? '工具'}</span>
+        <span className="font-medium">{toolLabel(meta.toolName)}</span>
         <span className="ml-auto text-[10px] opacity-70">{statusLabel}{duration}</span>
       </button>
       {open && (
         <div className="px-3 pb-3 space-y-2">
+          {meta.toolName && <p className="text-[10px] text-muted-foreground">技术细节：{meta.toolName}</p>}
           {meta.input != null && (
             <pre className="text-[10px] bg-background/60 rounded-lg p-2 overflow-x-auto">
               {JSON.stringify(meta.input, null, 2)}
@@ -582,7 +611,7 @@ function ActivityRow({ part }: { part: ChatPart }) {
       ) : (
         <Check size={11} className="shrink-0" />
       )}
-      <span>{meta.title ?? '子任务'}</span>
+      <span>{toolLabel(meta.title)}</span>
     </div>
   )
 }

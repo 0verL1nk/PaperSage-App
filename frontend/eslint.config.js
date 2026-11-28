@@ -27,13 +27,11 @@ export default defineConfig([
     },
   },
   // 用户可见文案禁用内部术语（口径见 docs/frontend/ux-copy.md）。
-  // ai-panel / WritingPage / ReviewPage 由 HELE-69 / HELE-70 重写，落地后从 ignores 移除。
+  // ReviewPage 仍由 HELE-70 第 2 批彻底替换，替换前保留豁免。
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: [
       'src/**/*.test.{ts,tsx}',
-      'src/views/projects/ai-panel.tsx',
-      'src/views/projects/WritingPage.tsx',
       'src/views/projects/ReviewPage.tsx',
     ],
     rules: {
