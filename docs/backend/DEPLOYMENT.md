@@ -87,7 +87,7 @@ AI 运行时按**单实例**部署收敛遗留 Run（`ReconcileOrphanRuns`，属
 
 ## HTTPS、SSE 与首次切换
 
-`deploy/Caddyfile` 为 `api-papersage.overlink.top` 提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。原 `api.paper.overlink.top` 暂留 Vercel 作为迁移回退；不要擅自删除旧服务。
+`deploy/Caddyfile` 是脱敏模板，站点地址以 `api.example.com` 占位；部署时替换为实际 API 域名，为它提供 HTTPS，反代到 `127.0.0.1:5478`，及时刷新 SSE，不缓存整条 AI 回复。迁移期间可保留旧 API 域名作为回退；不要擅自删除旧服务。
 
 `deploy/papersage-cloudflare-guard.service` 使用 `deploy/cloudflare_guard.py` 从 Cloudflare 官方 HTTPS 地址读取并校验 IPv4/IPv6 网段，以单个 nftables 批次更新专属 `inet papersage_cloudflare` 表。仅 TCP/UDP 80、443 限定来源为 Cloudflare；回环、SSH 和其他端口不改。`deploy/caddy-cloudflare-guard.conf` 使 Caddy 在防护成功且该表存在时才启动。不要使用系统自带 `nftables.service` 的全规则集清空操作。
 

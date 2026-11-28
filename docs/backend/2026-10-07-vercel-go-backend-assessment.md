@@ -1,12 +1,12 @@
 # PaperSage Go 后端部署到 Vercel 调研
 
-> 状态：Go API 与 Vite 前端均通过 Git 自动部署到 Vercel；API 生产别名为 `api.paper.overlink.top`，前端为 `paper.overlink.top`。曾因仓库级 `.vercelignore` 同时排除 `.git` 与 `frontend/`，导致 Go 取 VCS 信息失败、前端找不到 Vite；已移除根级忽略并分别在 `server/` 配置忽略规则、在 `frontend/vercel.json` 固定 pnpm 构建。核对日期：2026-10-08。
+> 状态：Go API 与 Vite 前端均通过 Git 自动部署到 Vercel，两者各有生产域名（具体取值不在公开仓库记录）。曾因仓库级 `.vercelignore` 同时排除 `.git` 与 `frontend/`，导致 Go 取 VCS 信息失败、前端找不到 Vite；已移除根级忽略并分别在 `server/` 配置忽略规则、在 `frontend/vercel.json` 固定 pnpm 构建。核对日期：2026-10-08。
 
 ## 结论
 
 PaperSage 的 Go + Gin API 使用 Vercel Go Framework Preset 构建即可。Vercel 根据 `go.mod` 和 `cmd/server/main.go` 执行 Go 构建并托管 HTTP 服务；不需要容器，也不需要把每条路由拆成单独 handler。Go Runtime 仍处于 Beta，运行实例遵循 Function 的弹性生命周期和执行时限，不能当作永久常驻服务器。
 
-建议先用**独立 Vercel 后端项目**验证：连接同一 Git 仓库，将 Project Root 指向 `server/`，让 Go 服务先获得独立预览 URL；前端现有 `VITE_API_BASE_URL` 指向该 URL。正式稳定后可考虑绑定 `api.paper.overlink.top`，这是前端 `paper.overlink.top` 下独立的后端子域，不会占用 `api.overlink.top`。Vercel 会给出该域名要求的 DNS 记录；应在 Cloudflare 中只新增对应子域记录，不改动现有记录。验证通过后，再决定是否采用 Vercel Services 将前后端统一到同一域名。Services 与 Go Runtime 目前均为 Beta，首轮不建议把路由、构建和域名同时迁移。
+建议先用**独立 Vercel 后端项目**验证：连接同一 Git 仓库，将 Project Root 指向 `server/`，让 Go 服务先获得独立预览 URL；前端现有 `VITE_API_BASE_URL` 指向该 URL。正式稳定后可考虑为 API 绑定独立的后端子域（具体域名不在公开仓库记录），它不占用其他既有子域。Vercel 会给出该域名要求的 DNS 记录；应在 Cloudflare 中只新增对应子域记录，不改动现有记录。验证通过后，再决定是否采用 Vercel Services 将前后端统一到同一域名。Services 与 Go Runtime 目前均为 Beta，首轮不建议把路由、构建和域名同时迁移。
 
 ## 与当前代码的匹配
 
@@ -42,15 +42,15 @@ Vercel Services 的 path 前缀是入口路由规则，服务收到的请求路�
 3. **清理请求之外的 goroutine 假设。** 特别是文档索引；要么请求内完成并限制耗时，要么写入可恢复的持久任务队列。Agent SSE 设定明确超时并验证断线/取消行为。
 4. **配置预览环境变量。** 至少核对 `DATABASE_URL`、`SECRET_KEY`、S3 endpoint/access/secret/bucket/public URL、邮件 Provider 凭据、`APP_URL`、模型配置，以及 `LATEX_CLSI_ENABLED=false`。只在 Vercel 项目环境设置密钥，不写入源码、构建日志或文档。
 5. **接入前端 Preview。** 设置 `VITE_API_BASE_URL` 为 API Preview 地址并重建前端；验证登录/刷新 token、项目 CRUD、文件上传下载、邮件验证、Agent SSE 和健康检查。核实 Vite build-time 环境变量确实来自同一 Preview 环境。
-6. **通过验证后绑定后端子域并评估同域 Services。** 在 Vercel 后端项目添加 `api.paper.overlink.top`，照 Vercel 给出的 DNS 目标在 Cloudflare 新增该主机记录；不要改写根域或现有 `api.overlink.top` 记录。生产数据库先单独备份并执行迁移，再更换 API 地址；监控 Function 终止、冷启动、数据库连接数、对象存储与邮件失败率。
+6. **通过验证后绑定后端子域并评估同域 Services。** 在 Vercel 后端项目添加后端子域（具体域名不在公开仓库记录），照 Vercel 给出的 DNS 目标在 Cloudflare 新增该主机记录；不要改写根域或既有 API 记录。生产数据库先单独备份并执行迁移，再更换 API 地址；监控 Function 终止、冷启动、数据库连接数、对象存储与邮件失败率。
 
 ## 本次调研与生产核对
 
-Go Runtime 的 `cmd/server/main.go` 入口和共享启动包由 Vercel 根据 Go 模块自动构建。Vercel 项目 `papersage-api` 关联 GitHub 仓库 `0verL1nk/GraduateProject`，生产分支为 `main`，Root Directory 为 `server`，区域为 `sin1`，域名为 `api.paper.overlink.top`。2026-10-08 的最新生产部署使用 Go 1.26.6，Function 18.59 MB；`/health` 返回 200。修复部署配置后，`GET /api/v1/projects/{id}/writing-state` 在无认证请求下返回 401（已进入受保护路由），不再是 404；前端 `/auth` 与 `/` 均返回 200。
+Go Runtime 的 `cmd/server/main.go` 入口和共享启动包由 Vercel 根据 Go 模块自动构建。Vercel 项目 `<API_PROJECT>` 关联 GitHub 仓库 `0verL1nk/GraduateProject`，生产分支为 `main`，Root Directory 为 `server`，区域为 `<REGION>`，生产域名为 `<API_DOMAIN>`。2026-10-08 的最新生产部署使用 Go 1.26.6，Function 18.59 MB；`/health` 返回 200。修复部署配置后，`GET /api/v1/projects/{id}/writing-state` 在无认证请求下返回 401（已进入受保护路由），不再是 404；前端 `/auth` 与 `/` 均返回 200。
 
 生产数据库此前缺少 `users` 等表；已执行 `go run ./cmd/migrate`，并关闭 Vercel Production 的启动自动迁移。Neon pooler 的 pgx prepared statement 冲突通过 simple protocol 规避。注册失败提示现在同时出现在注册面板；邮件发送错误、token 写库失败和重发失败都会返回 503，未配置的 `noop` sender 也会报错。Resend 查询到当天两封验证邮件的事件为 `delivered`，但这只证明收件方邮件服务器接受，不证明进入主收件箱；检查垃圾邮件或学校邮箱隔离区。邮件失败分支由 Go 测试覆盖，尚未通过真实生产 Provider 故障注入测试。客户端 LaTeX 编译仍是后续方向，后端仍保留 CLSI 集成。`.env` 与本地数据库/构建目录由各项目自身忽略规则排除。
 
-2026-10-09 检查新项目文件时发现，Neon 中的项目与 `latex_files` 元数据正常，但生产函数的 `S3_ENDPOINT` 指向 `http://localhost:9002`，请求 R2 对象时失败，所以编辑器只显示空白内容。已用正式 `main.tex` 模板补齐该项目的 Cloudflare R2 对象与数据库元数据，并将 Vercel Production 的 `S3_ENDPOINT`、`S3_REGION`、`S3_BUCKET`、`S3_ACCESS_KEY`、`S3_SECRET_KEY` 更新为 `server/.env` 中已验证可读写 R2 的配置。随后已由 Git 触发生产重新部署，`api.paper.overlink.top/health` 返回 200；未带登录凭证访问文件接口返回预期的 401。当前浏览器没有登录会话，因此尚未从线上编辑器完成带认证的文件内容读取复验。
+2026-10-09 检查新项目文件时发现，Neon 中的项目与 `latex_files` 元数据正常，但生产函数的 `S3_ENDPOINT` 指向 `http://localhost:9002`，请求 R2 对象时失败，所以编辑器只显示空白内容。已用正式 `main.tex` 模板补齐该项目的 Cloudflare R2 对象与数据库元数据，并将 Vercel Production 的 `S3_ENDPOINT`、`S3_REGION`、`S3_BUCKET`、`S3_ACCESS_KEY`、`S3_SECRET_KEY` 更新为 `server/.env` 中已验证可读写 R2 的配置。随后已由 Git 触发生产重新部署，`<API_DOMAIN>/health` 返回 200；未带登录凭证访问文件接口返回预期的 401。当前浏览器没有登录会话，因此尚未从线上编辑器完成带认证的文件内容读取复验。
 
 ## 官方资料
 

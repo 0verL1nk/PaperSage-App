@@ -579,7 +579,7 @@ class DeploymentTemplateTests(unittest.TestCase):
         path = SCRIPT.with_name("Caddyfile")
         self.assertTrue(path.exists(), "Caddy template has not been implemented")
         content = path.read_text()
-        self.assertIn("api-papersage.overlink.top {", content)
+        self.assertIn("api.example.com {", content)
         self.assertIn("reverse_proxy 127.0.0.1:5478", content)
         self.assertIn("flush_interval -1", content)
         self.assertIn("header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}", content)
