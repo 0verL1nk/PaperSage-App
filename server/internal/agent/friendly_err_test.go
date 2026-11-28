@@ -4,12 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/cloudwego/eino/adk"
 )
 
 // H1 要求不同错误给出不同可执行提示，不能统一成“调用失败”。
+// 检查单元是非交互的后台任务：失败说明不能出现「发送继续让助手接着处理」这类聊天话术，
+// 并且要告诉用户下一步能做什么。
+func TestReviewUnitFailureTextHasNoChatWording(t *testing.T) {
+	got := reviewUnitFailureText(adk.ErrExceedMaxIterations)
+	for _, banned := range []string{"发送", "助手", "继续让"} {
+		if strings.Contains(got, banned) {
+			t.Fatalf("review unit failure text must not contain %q: %s", banned, got)
+		}
+	}
+	if !strings.Contains(got, "步数上限") || !strings.Contains(got, "重试") {
+		t.Fatalf("review unit failure text must say what happened and what to do: %s", got)
+	}
+	// 供应商错误的可执行提示沿用统一分类，不会因为检查场景丢失。
+	if !strings.Contains(reviewUnitFailureText(errors.New("status code: 429 too many requests")), "限额") {
+		t.Fatal("review unit failure text must keep the 429 guidance")
+	}
+}
+
 func TestFriendlyErrClassifiesProviderFailures(t *testing.T) {
 	cases := []struct {
 		name string

@@ -28,6 +28,9 @@ func TestLoadDefaults(t *testing.T) {
 	assert.Equal(t, 20, s.AgentMaxIterations)
 	assert.Equal(t, 2*time.Minute, s.AgentModelTimeout)
 	assert.Equal(t, 5*time.Minute, s.AgentModelIdleTimeout)
+	// 检查单元至少要覆盖「读上下文 → 读原文/资料 → 提交」并留出退回重试的轮次。
+	assert.Equal(t, 20, s.ReviewUnitMaxIterations)
+	assert.Equal(t, 5*time.Minute, s.ReviewUnitTimeout)
 	assert.Equal(t, []string{"localhost", "127.0.0.1"}, s.AllowedHosts)
 	assert.Equal(t, "0.0.0.0", s.Host)
 	assert.Equal(t, 5478, s.Port)
@@ -165,6 +168,12 @@ func TestMigrationDSN(t *testing.T) {
 
 func TestAgentMaxIterationsMustBePositive(t *testing.T) {
 	t.Setenv("AGENT_MAX_ITERATIONS", "0")
+	_, err := Load()
+	require.Error(t, err)
+}
+
+func TestReviewUnitTimeoutMustBePositive(t *testing.T) {
+	t.Setenv("REVIEW_UNIT_TIMEOUT", "0s")
 	_, err := Load()
 	require.Error(t, err)
 }
