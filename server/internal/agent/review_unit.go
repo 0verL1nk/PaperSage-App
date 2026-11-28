@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudwego/eino/adk"
 	"github.com/cloudwego/eino/components/tool"
 	"github.com/cloudwego/eino/components/tool/utils"
 	"gorm.io/gorm"
@@ -25,10 +26,21 @@ const (
 	// ReviewUnitAgentKey 写入 agent_runs.agent_key，便于审计区分聊天与检查。
 	ReviewUnitAgentKey = "review_unit"
 	// ReviewUnitPromptVersion 是单元提示词的版本号，参与增量指纹。
-	ReviewUnitPromptVersion = "review-unit-v1"
+	ReviewUnitPromptVersion = "review-unit-v2"
 	// reviewUnitDefaultIterations 是单元 ReAct 的默认迭代上限（控制成本与迟滞）。
-	reviewUnitDefaultIterations = 12
+	// 单元至少要走完「读上下文 → 按需读原文/资料（read_document 分段续读）→ 提交报告」，
+	// 服务端校验退回后还要留出修正重提的轮次；12 轮在多文件/多资料单元上会被耗尽。
+	reviewUnitDefaultIterations = 20
 )
+
+// reviewUnitFailureText 把单元执行错误转成后台检查场景的说明。
+// 检查单元是非交互任务：不能出现「发送继续让助手接着处理」这类聊天话术。
+func reviewUnitFailureText(err error) string {
+	if errors.Is(err, adk.ErrExceedMaxIterations) {
+		return "本单元达到步数上限，未产出结论；可重试本次检查，或缩小检查范围后重新运行"
+	}
+	return friendlyErr(err)
+}
 
 // ReviewSource 是单元实际读取过的来源（服务端记录，不采信模型自报）。
 type ReviewSource struct {

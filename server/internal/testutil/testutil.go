@@ -50,9 +50,11 @@ type TestServer struct {
 	CompileQueue    *latex.Queue
 	ProjectService  *projects.Service
 	DocumentService *documents.Service
-	DB              *gorm.DB
-	Token           string // 预置用户的 access token
-	UID             uuid.UUID
+	// ReviewService 暴露检查域，便于测试替换模型地址与超时后真实跑一遍编排。
+	ReviewService *review.Service
+	DB            *gorm.DB
+	Token         string // 预置用户的 access token
+	UID           uuid.UUID
 }
 
 // swappableSender 运行时可替换的邮件替身。
@@ -154,10 +156,15 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	reviewCfg.AgentBaseURL = "http://127.0.0.1:9"
 	reviewCfg.AgentModel = "test-model"
 	reviewSvc := review.NewService(db, latexFiles)
+	normSvc := norms.NewService(db)
+	researchSvc := research.NewService(db)
+	// 与 bootstrap 对齐：报告的规范引用要按服务端「已采用集合」核对，缺这层会在落库时误判。
+	researchSvc.Norms = normSvc
 	reviewSvc.Agent = agentSvc
-	reviewSvc.Research = research.NewService(db)
-	reviewSvc.Norms = norms.NewService(db)
+	reviewSvc.Research = researchSvc
+	reviewSvc.Norms = normSvc
 	reviewSvc.Cfg = &reviewCfg
+	ts.ReviewService = reviewSvc
 	review.Mount(v1, authSvc.AuthRequired(), reviewSvc)
 
 	uid := uuid.MustParse("44444444-4444-4444-4444-444444444444")

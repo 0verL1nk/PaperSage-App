@@ -73,10 +73,12 @@ type Settings struct {
 	// 动态写作建议：总开关与单段检查的迭代上限（控制成本与迟滞）。
 	AgentSuggestionEnabled       bool `env:"AGENT_SUGGESTION_ENABLED" envDefault:"true"`
 	AgentSuggestionMaxIterations int  `env:"AGENT_SUGGESTION_MAX_ITERATIONS" envDefault:"8"`
-	// 跨章节检查：单元并发、单次检查总超时、单元迭代上限。
+	// 跨章节检查：单元并发、单次检查总超时、单单元超时、单元迭代上限。
+	// 单单元超时必须显著小于总超时，保证一个卡住的单元不会吃光整次检查的预算。
 	ReviewUnitConcurrency   int           `env:"REVIEW_UNIT_CONCURRENCY" envDefault:"3"`
 	ReviewRunTimeout        time.Duration `env:"REVIEW_RUN_TIMEOUT" envDefault:"20m"`
-	ReviewUnitMaxIterations int           `env:"REVIEW_UNIT_MAX_ITERATIONS" envDefault:"12"`
+	ReviewUnitTimeout       time.Duration `env:"REVIEW_UNIT_TIMEOUT" envDefault:"5m"`
+	ReviewUnitMaxIterations int           `env:"REVIEW_UNIT_MAX_ITERATIONS" envDefault:"20"`
 	AgentModelTimeout       time.Duration `env:"AGENT_MODEL_TIMEOUT" envDefault:"2m"`      // 模型响应头超时，防止连接悬挂
 	AgentModelIdleTimeout   time.Duration `env:"AGENT_MODEL_IDLE_TIMEOUT" envDefault:"5m"` // 流式空闲超时；0 关闭
 	// 允许用户配置的 provider base_url 指向回环/私网（ollama、LM Studio 等本地模型）。
@@ -132,6 +134,9 @@ func Load() (*Settings, error) {
 	}
 	if s.ReviewRunTimeout <= 0 {
 		return nil, fmt.Errorf("REVIEW_RUN_TIMEOUT must be positive")
+	}
+	if s.ReviewUnitTimeout <= 0 {
+		return nil, fmt.Errorf("REVIEW_UNIT_TIMEOUT must be positive")
 	}
 	if s.ReviewUnitMaxIterations <= 0 {
 		return nil, fmt.Errorf("REVIEW_UNIT_MAX_ITERATIONS must be positive")

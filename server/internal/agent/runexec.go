@@ -609,7 +609,12 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 			// The client gets a friendly message; operators need the provider's
 			// actual failure (status, error body) to diagnose configuration.
 			slog.Warn("agent run failed", "run_id", rc.RunID.String(), "err", ev.Err)
-			fail(friendlyErr(ev.Err))
+			if rc.Review != nil {
+				// 检查单元是后台任务：失败说明里不能出现「发送继续」这类聊天话术。
+				fail(reviewUnitFailureText(ev.Err))
+			} else {
+				fail(friendlyErr(ev.Err))
+			}
 			return
 		}
 		if item.chunk != nil {

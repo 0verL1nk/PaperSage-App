@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"time"
 
 	"gorm.io/datatypes"
@@ -353,11 +354,15 @@ func jsonTimePtr(t *time.Time) *dto.JSONTime {
 	return &dto.JSONTime{Time: *t}
 }
 
-// failRun 把任务置为失败并写入可读原因。
+// failRun 把任务置为失败并写入可读原因；已有终态（取消/重启收敛）的任务不再覆盖。
 func (s *Service) failRun(ctx context.Context, runID store.UUID, reason string) {
 	now := time.Now().UTC()
-	_ = s.DB.WithContext(ctx).Model(&store.ReviewRun{}).Where("id = ?", runID).
-		Updates(map[string]any{"status": store.ReviewRunFailed, "error_text": truncateText(reason, 500), "completed_at": now}).Error
+	res := s.DB.WithContext(ctx).Model(&store.ReviewRun{}).
+		Where("id = ? AND status IN ?", runID, []string{store.ReviewRunQueued, store.ReviewRunRunning}).
+		Updates(map[string]any{"status": store.ReviewRunFailed, "error_text": truncateText(reason, 500), "completed_at": now})
+	if res.Error != nil {
+		slog.Warn("review run fail write failed", "run_id", runID.String(), "err", res.Error)
+	}
 }
 
 func truncateText(s string, max int) string {
