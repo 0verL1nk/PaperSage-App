@@ -196,9 +196,14 @@ func (s *Service) experimentAnalysis(c *gin.Context) {
 		httpapi.WriteError(c.Writer, experimentBadGateway("%s", err.Error()))
 		return
 	}
-	var norms []normRefMeta
+	// 空集合必须序列化为 []，前端按数组读取；null 会让面板渲染直接报错。
+	norms := make([]normRefMeta, 0)
 	if err := json.Unmarshal(normRefs, &norms); err != nil {
-		norms = nil
+		norms = []normRefMeta{}
+	}
+	warnings = in.Warnings
+	if warnings == nil {
+		warnings = []string{}
 	}
 
 	sectionTitle := ""
@@ -213,7 +218,7 @@ func (s *Service) experimentAnalysis(c *gin.Context) {
 			PlanStatus:   in.PlanStatus,
 			SectionID:    req.SectionID,
 			SectionTitle: sectionTitle,
-			Warnings:     in.Warnings,
+			Warnings:     warnings,
 		},
 		Model: experimentModelInfo{Name: resolved.Name, Source: resolved.Source},
 	}, ""))

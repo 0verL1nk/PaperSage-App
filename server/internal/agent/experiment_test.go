@@ -179,6 +179,7 @@ func TestExperimentAnalysisReturnsVerifiedDraft(t *testing.T) {
 	assert.Equal(t, "准确率 (%)", citations[0].ColumnLabel)
 	assert.Equal(t, "92.5", citations[0].Value)
 	assert.Equal(t, "server-env", envelope.Data.Model.Source)
+	assert.Contains(t, rec.Body.String(), `"normRefs":[]`, "空规范引用必须是数组，不能是 null")
 	assert.Equal(t, "missing", envelope.Data.Context.PlanStatus, "没有章节计划时必须如实说明")
 	assert.Contains(t, envelope.Data.Context.Warnings, "项目还没有可用的章节计划，分析未对齐章节职责")
 
