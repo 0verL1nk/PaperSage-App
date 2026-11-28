@@ -491,3 +491,39 @@ html.desktop-client body {
     background-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent);
   }
 }
+
+/* 导师批注：行内柔和锚点 + 行旁气泡。只用语义 token，不改文字颜色。 */
+.mentor-anchor {
+  background: color-mix(in oklab, var(--primary) 7%, transparent);
+  border-bottom: 1px dashed color-mix(in oklab, var(--primary) 45%, transparent);
+}
+.mentor-anchor--evidence_gap {
+  background: color-mix(in oklab, var(--warning) 7%, transparent);
+  border-bottom-color: color-mix(in oklab, var(--warning) 45%, transparent);
+}
+.mentor-anchor--norm,
+.mentor-anchor--citation {
+  background: color-mix(in oklab, var(--info) 7%, transparent);
+  border-bottom-color: color-mix(in oklab, var(--info) 45%, transparent);
+}
+.mentor-anchor.is-active {
+  background: color-mix(in oklab, var(--primary) 14%, transparent);
+  border-bottom-style: solid;
+}
+.mentor-anchor.is-flash {
+  animation: mentor-anchor-flash 1.5s ease-out;
+}
+@keyframes mentor-anchor-flash {
+  0%, 100% { background: color-mix(in oklab, var(--primary) 14%, transparent); }
+  35% { background: color-mix(in oklab, var(--primary) 24%, transparent); }
+}
+.mentor-glyph::after {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  margin: 6px auto;
+  border-radius: 9999px;
+  background: var(--primary);
+  opacity: 0.75;
+}

@@ -3,12 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 
 import * as agentApi from '@/services/agent-api'
 import { describeAgentError } from '@/services/agent-errors'
+import { latexKeys } from '@/lib/query-keys'
 import type { ParagraphFocus } from '@/lib/latex/paragraph'
 
 /**
  * 动态写作建议的触发层。
  *
- * 默认「专注写作」：不自动建 Run，只有用户点「检查本段」才发请求。
+ * 默认「专注写作」：不自动建 Run，只有用户点「请导师批注本段」才发请求。
  * Opt-In 自动检查默认关闭；开启后：
  * - 段落完成（光标离开刚编辑的段落 / 空行 / 标题）→ 3s 后检查该段；
  * - 仍停在本段继续写 → 停止输入 8s 后才检查。
@@ -27,11 +28,11 @@ export interface SuggestionFocusTarget {
 export type SuggestionNotice = { kind: 'ok' | 'skip' | 'error'; text: string }
 
 const SKIP_TEXT: Record<agentApi.SuggestionSkipReason, string> = {
-  pending: '本段已有待处理建议，先在「建议」里处理完再检查。',
-  duplicate: '本段刚检查过，先处理已有建议或修改后再试。',
-  running: '正在检查上一段，稍等片刻再试。',
-  rate_limited: '检查太频繁了，休息一下再试。',
-  too_short: '这一段还太短，写完一两句再检查。',
+  pending: '本段已有导师批注，先处理完再请导师看。',
+  duplicate: '导师刚看过这一段，先处理已有批注或修改后再试。',
+  running: '导师正在看上一段，稍等片刻。',
+  rate_limited: '导师刚看过这一段，稍后再请。',
+  too_short: '这一段还太短，写完一两句再请导师看。',
 }
 
 export function useWritingSuggestion(
@@ -89,17 +90,40 @@ export function useWritingSuggestion(
     [projectId, queryClient],
   )
 
+  const refreshAfterDecision = useCallback(async (proposal: agentApi.AgentChangeProposal) => {
+    await invalidate()
+    await queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    await queryClient.invalidateQueries({ queryKey: latexKeys.content(projectId, proposal.filePath) })
+  }, [invalidate, projectId, queryClient])
+
+  const applyComment = useCallback(async (proposal: agentApi.AgentChangeProposal) => {
+    await agentApi.applyProposal(proposal.id)
+    await refreshAfterDecision(proposal)
+  }, [refreshAfterDecision])
+
+  const rejectComment = useCallback(async (
+    proposal: agentApi.AgentChangeProposal, reasonCode?: string, note?: string,
+  ) => {
+    await agentApi.rejectProposal(proposal.id, reasonCode, note)
+    await invalidate()
+  }, [invalidate])
+
+  const undoComment = useCallback(async (proposal: agentApi.AgentChangeProposal) => {
+    await agentApi.undoProposal(proposal.id)
+    await refreshAfterDecision(proposal)
+  }, [refreshAfterDecision])
+
   const runCheck = useCallback(
     async (trigger: agentApi.SuggestionTrigger, override?: SuggestionFocusTarget) => {
       if (!enabled || checkingRef.current) return
       const target = override ?? getFocus()
       if (!target) {
-        setNotice({ kind: 'skip', text: '把光标放进正文段落再检查；标题与公式不能作为写作建议的目标。' })
+        setNotice({ kind: 'skip', text: '把光标放在正文段落里，再请导师批注。' })
         return
       }
       const text = target.focus.paragraphText
       if ([...text.trim()].length < 20) {
-        setNotice({ kind: 'skip', text: '这一段还太短，写完一两句再检查。' })
+        setNotice({ kind: 'skip', text: '这一段还太短，写完一两句再请导师看。' })
         return
       }
       // 同一段文本只自动检查一次；手动检查也登记，避免随后自动重复。
@@ -136,11 +160,11 @@ export function useWritingSuggestion(
         setLastCheckedText(text)
         await invalidate()
         if (sawProposal) {
-          setNotice({ kind: 'ok', text: '已给出建议，请在「建议」里查看依据并确认。' })
+          setNotice({ kind: 'ok', text: '导师批注已更新，请在右侧查看。' })
         } else if (toolsSeen.has('skip_suggestion')) {
-          setNotice({ kind: 'ok', text: '本段暂无需要修改的问题。' })
+          setNotice({ kind: 'ok', text: '导师看过了，这一段暂时没有需要修改的地方。' })
         } else {
-          setNotice({ kind: 'error', text: '本次没有产出可应用的结构化建议，可稍后重试。' })
+          setNotice({ kind: 'error', text: '导师这次没有给出可采纳的批注，可稍后再试。' })
         }
       } catch (error) {
         setNotice({ kind: 'error', text: describeAgentError(error) })
@@ -231,6 +255,9 @@ export function useWritingSuggestion(
     checkNow,
     notifyActivity,
     notifyCursorMove,
+    applyComment,
+    rejectComment,
+    undoComment,
     refetch: proposalsQuery.refetch,
     isLoading: proposalsQuery.isLoading,
     isError: proposalsQuery.isError,
