@@ -105,7 +105,8 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	// ── RAG（嵌入端点：管理后台 embed 组 → env；都未配置哈希兜底）──
 	embedder := defaultEmbedder(syssettings.GetEmbed(db), cfg)
-	if embedderDegraded(embedder) {
+	retrievalMode := retrievalModeFor(embedder)
+	if retrievalMode == httpapi.RetrievalKeyword {
 		slog.Warn("embedding: no admin embed config or EMBED_* env; semantic retrieval degraded to bag-of-words (hash) fallback")
 	}
 	ragStore, err := rag.NewStore(db, embedder, "")
@@ -181,6 +182,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 		return nil, fmt.Errorf("latex resource resolver init: %w", err)
 	}
 	engine.SetLatexResourceProfile(bundle.Profile.Profile)
+	engine.SetRetrievalMode(retrievalMode)
 	v1 := engine.Group(httpapi.APIVersion)
 	adminMw := authSvc.ChainMiddleware(auth.AdminRequired())
 
@@ -256,6 +258,15 @@ func embedderDegraded(e rag.Embedder) bool {
 		return true
 	}
 	return false
+}
+
+// retrievalModeFor 把嵌入器映射为 /health 公布的检索模式：界面据此如实告诉用户
+// 资料检索是按语义匹配还是按关键词匹配。
+func retrievalModeFor(e rag.Embedder) string {
+	if embedderDegraded(e) {
+		return httpapi.RetrievalKeyword
+	}
+	return httpapi.RetrievalSemantic
 }
 
 // indexDocumentHook 文献入库后的异步索引（抽取→索引，失败仅日志）。

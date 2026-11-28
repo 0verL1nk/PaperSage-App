@@ -39,14 +39,17 @@ func TestDefaultEmbedderDegradation(t *testing.T) {
 		admin    syssettings.EmbedSettings
 		cfg      *config.Settings
 		degraded bool
+		mode     string
 	}{
-		{"admin config", syssettings.EmbedSettings{BaseURL: "https://embed.example.com", APIKey: "key"}, &config.Settings{}, false},
-		{"env config", syssettings.EmbedSettings{}, &config.Settings{EmbedBaseURL: "https://embed.example.com", EmbedAPIKey: "key"}, false},
-		{"nothing configured", syssettings.EmbedSettings{}, &config.Settings{}, true},
+		{"admin config", syssettings.EmbedSettings{BaseURL: "https://embed.example.com", APIKey: "key"}, &config.Settings{}, false, "semantic"},
+		{"env config", syssettings.EmbedSettings{}, &config.Settings{EmbedBaseURL: "https://embed.example.com", EmbedAPIKey: "key"}, false, "semantic"},
+		{"nothing configured", syssettings.EmbedSettings{}, &config.Settings{}, true, "keyword"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.degraded, embedderDegraded(defaultEmbedder(tc.admin, tc.cfg)))
+			embedder := defaultEmbedder(tc.admin, tc.cfg)
+			assert.Equal(t, tc.degraded, embedderDegraded(embedder))
+			assert.Equal(t, tc.mode, retrievalModeFor(embedder))
 		})
 	}
 }

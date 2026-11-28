@@ -44,7 +44,7 @@ func (s *Service) createRunHandler(c *gin.Context) {
 		return
 	}
 	if req.ExpectedThreadVersion == nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusPreconditionRequired, Info: "缺少 expectedThreadVersion：请先读取会话版本"})
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusPreconditionRequired, Info: "页面上的对话信息已过期，请刷新页面后再发送"})
 		return
 	}
 
@@ -89,12 +89,12 @@ func (s *Service) writeRootRunError(c *gin.Context, cid, uid store.UUID, err err
 			return
 		}
 		_ = httpapi.WriteEnvelope(c.Writer, http.StatusConflict, httpapi.Envelope{
-			Code: http.StatusConflict, Data: gin.H{"threadVersion": conv.Version}, Info: "会话已在其他位置被修改",
+			Code: http.StatusConflict, Data: gin.H{"threadVersion": conv.Version}, Info: "这段对话在另一个页面被修改，请刷新后重试",
 		})
 	case errors.Is(err, errCommitUnknown):
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "无法确认请求是否已提交，请勿重新发送；请稍后查看会话"})
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "无法确认消息是否已发出，请不要重复发送；稍后打开这段对话查看即可"})
 	case errors.Is(err, errRequestConflict), errors.Is(err, errIncompleteTurn):
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "请求标识已使用或历史请求不完整，请检查会话"})
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "这条消息已经发送过，或之前的回答没有完成；请刷新对话后再试"})
 	default:
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusInternalServerError, Info: "Internal server error"})
 	}
@@ -191,11 +191,11 @@ func (s *Service) retryRun(c *gin.Context) {
 		return
 	}
 	if old.Status == RunRunning {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "Run 仍在执行，不能重试"})
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "AI 还在回答这条消息，请等它结束后再重试"})
 		return
 	}
 	if old.TurnID == nil {
-		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "Run has no turn"})
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 400, Info: "这条消息没有可重试的内容"})
 		return
 	}
 

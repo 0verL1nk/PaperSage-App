@@ -395,7 +395,7 @@ func TestUnknownCommitErrorIsExplicitHTTPFailure(t *testing.T) {
 	(&Service{}).writeRootRunError(ctx, store.UUID{}, store.UUID{}, errCommitUnknown)
 	assert.Equal(t, http.StatusServiceUnavailable, rec.Code)
 	assert.Contains(t, rec.Body.String(), "无法确认")
-	assert.Contains(t, rec.Body.String(), "勿重新发送")
+	assert.Contains(t, rec.Body.String(), "不要重复发送")
 }
 
 func TestRootRunConcurrentSQLiteWriters(t *testing.T) {
