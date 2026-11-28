@@ -29,7 +29,12 @@ import (
 )
 
 // 文本/二进制扩展集合（对齐 file_service.py）
-var allowedExtensions = []string{".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".lof", ".lot", ".toc"}
+// 与前端 project-import.ts 的 TEXT_FILE_EXTENSIONS 对齐：这些扩展名必须返回 JSON 信封，
+// 否则浏览器编译 prepare 会把裸文本当信封解析失败（.cfg/.ist 模板即触发）。
+var allowedExtensions = []string{
+	".tex", ".bib", ".cls", ".sty", ".bst", ".txt", ".md", ".lof", ".lot", ".toc",
+	".def", ".ist", ".fd", ".cfg", ".clo", ".bbx", ".cbx", ".lbx", ".mp",
+}
 
 var blockedExtensions = map[string]bool{".exe": true, ".dll": true, ".so": true, ".dylib": true}
 

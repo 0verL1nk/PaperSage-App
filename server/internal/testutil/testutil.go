@@ -30,8 +30,11 @@ import (
 	"github.com/0verL1nk/GraduateProject/server/internal/email"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
 	"github.com/0verL1nk/GraduateProject/server/internal/latex"
+	"github.com/0verL1nk/GraduateProject/server/internal/norms"
 	"github.com/0verL1nk/GraduateProject/server/internal/projects"
 	"github.com/0verL1nk/GraduateProject/server/internal/rag"
+	"github.com/0verL1nk/GraduateProject/server/internal/research"
+	"github.com/0verL1nk/GraduateProject/server/internal/review"
 	"github.com/0verL1nk/GraduateProject/server/internal/settings"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/store/query"
@@ -145,6 +148,17 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	compilediag.Mount(v1, authSvc, compilediag.NewService(db, 30))
+	// review 域：给测试注入可解析的模型兜底，避免每次检查都因为「未配置模型」400。
+	reviewCfg := *cfg
+	reviewCfg.AgentAPIKey = "test-agent-key"
+	reviewCfg.AgentBaseURL = "http://127.0.0.1:9"
+	reviewCfg.AgentModel = "test-model"
+	reviewSvc := review.NewService(db, latexFiles)
+	reviewSvc.Agent = agentSvc
+	reviewSvc.Research = research.NewService(db)
+	reviewSvc.Norms = norms.NewService(db)
+	reviewSvc.Cfg = &reviewCfg
+	review.Mount(v1, authSvc.AuthRequired(), reviewSvc)
 
 	uid := uuid.MustParse("44444444-4444-4444-4444-444444444444")
 	require.NoError(t, db.Create(&store.User{
