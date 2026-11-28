@@ -52,7 +52,8 @@ export async function loginWithPassword(payload: AuthPayload) {
   const data = await postMultipart<LoginResponse>(
     AUTH.login,
     formData,
-    { skipGlobalLoading: true },
+    // 弱网/断网时登录按钮不能无限转圈：与页面查询同样的 JS 级超时兜底。
+    { skipGlobalLoading: true, timeout: 15_000 },
   )
 
   if (!data?.accessToken || !data.refreshToken) {
@@ -120,6 +121,7 @@ export async function registerWithEmail(email: string, rawPassword: string) {
   const formData = await buildRegisterFormData(email, rawPassword)
   const data = await postMultipart<{ message?: string }>(AUTH.register, formData, {
     skipGlobalLoading: true,
+    timeout: 15_000,
   })
   return data
 }

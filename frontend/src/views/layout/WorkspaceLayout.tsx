@@ -1,12 +1,15 @@
 import { useNavigate, useParams, Link, useLocation } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
-import { ArrowLeft, BookOpenCheck, FileUp, PenLine, ClipboardCheck, Settings } from 'lucide-react'
+import { ArrowLeft, BookOpenCheck, FileUp, PenLine, ClipboardCheck, HardDrive, Settings } from 'lucide-react'
 import { type ReactNode } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { Button } from '@/components/ui/button'
 import { useProject } from '@/services/projects-api'
+import { isFrontendApiError } from '@/services/errors'
+import { getGuestProject } from '@/services/guest-local-workspace'
 import { cn } from '@/lib/utils'
 import { Skeleton } from '@/components/ui/skeleton'
-import { GuestModeChip, GuestSessionBadge } from '@/components/domain/GuestSessionBadge'
+import { GuestModeChip, GuestSessionBadge, OPEN_GUEST_IMPORT_EVENT } from '@/components/domain/GuestSessionBadge'
 import { useSessionStore } from '@/store'
 import { DesktopAppMenu, WindowControls } from '@/components/desktop/desktop-titlebar'
 
@@ -26,9 +29,18 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
   const location = useLocation()
   const { t } = useTranslation()
   const { projectId = 'default' } = useParams({ strict: false })
-  const { data: project, isLoading, isError: projectFailed } = useProject(projectId)
+  const { data: project, isLoading, isError: projectFailed, error: projectError } = useProject(projectId)
   const isGuest = useSessionStore((state) => state.isGuest)
   const guestImportPending = useSessionStore((state) => state.guestImportPending)
+  const missingOnServer = projectFailed && isFrontendApiError(projectError) && projectError.status === 404
+  // 登录后打开尚未导入的游客项目：服务端返回 404，但本机 IndexedDB 里还在。
+  // 显示「项目不存在」会让学生以为论文丢了，这里识别本机数据并给导入入口。
+  const { data: localGuestProject } = useQuery({
+    queryKey: ['guest-local-project', projectId],
+    queryFn: () => getGuestProject(projectId),
+    enabled: !isGuest && missingOnServer,
+    retry: false,
+  })
 
   // Find active tab based on current path
   const activeTab = projectTabs.find((tab) => {
@@ -71,6 +83,8 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
 
           {isLoading ? (
             <Skeleton className="h-4 w-24 rounded" />
+          ) : localGuestProject ? (
+            <h2 className="max-w-[240px] truncate text-[13px] font-medium text-foreground">{localGuestProject.name}</h2>
           ) : projectFailed ? (
             // 读取失败时不要用「未知项目」冒充项目名：等页面自己的错误态给出重试入口。
             <span className="text-[13px] text-muted-foreground">项目信息暂不可用</span>
@@ -161,7 +175,23 @@ export function WorkspaceLayout({ children }: WorkspaceLayoutProps) {
 
       {/* Main Content Area: Now using flex-1 and overflow-hidden for 3-pane internal scroll */}
       <main className="flex-1 bg-muted/5 overflow-hidden relative">
-        {children}
+        {localGuestProject ? (
+          <div className="flex h-full items-center justify-center p-6">
+            <div role="alert" className="w-full max-w-md rounded-2xl border border-amber-500/30 bg-card p-6 text-center shadow-sm">
+              <div className="mx-auto flex size-11 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-700 dark:text-amber-400">
+                <HardDrive className="size-5" />
+              </div>
+              <h2 className="mt-4 text-base font-semibold">这个项目还在这台设备上</h2>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                它是在游客模式下创建的，登录后需要先导入本机数据才能继续编辑。你的内容没有丢失。
+              </p>
+              <div className="mt-5 flex flex-wrap justify-center gap-2">
+                <Button onClick={() => window.dispatchEvent(new CustomEvent(OPEN_GUEST_IMPORT_EVENT))}>导入到账号</Button>
+                <Button variant="outline" asChild><Link to="/app/projects">返回项目列表</Link></Button>
+              </div>
+            </div>
+          </div>
+        ) : children}
       </main>
     </div>
   )

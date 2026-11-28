@@ -142,7 +142,7 @@ export function FolderTree({ projectId, folders, onCreateFolder }: FolderTreePro
           onClick={() => setSelectedFolder(null)}
         >
           <FolderOpen size={13} className="shrink-0" />
-          <span className="truncate">全部文档</span>
+          <span className="truncate">全部资料</span>
         </button>
 
         {tree.map((folder) => (

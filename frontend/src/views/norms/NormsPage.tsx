@@ -330,7 +330,7 @@ function NormsLibrary() {
                         <div className="min-w-0">
                           <p className="text-sm font-medium leading-5">{entry.title}</p>
                           <p className="mt-1 text-xs text-muted-foreground">
-                            {entry.packName} · {entry.code} · v{entry.version} · {entry.category}
+                            {entry.packName} · {entry.code} · {entry.category}
                           </p>
                         </div>
                         <Badge variant={entry.binding === 'must' ? 'default' : 'outline'} className="font-normal">

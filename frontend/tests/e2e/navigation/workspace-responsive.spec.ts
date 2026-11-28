@@ -70,7 +70,7 @@ test('project workspace stages, writing editor, and reference library fit phone/
   const pages = [
     { path: 'prepare', heading: '和研究顾问一起理清思路' },
     { path: 'review', heading: '提交前，把容易漏的地方过一遍' },
-    { path: 'uploading', heading: '参考文献' },
+    { path: 'uploading', heading: '资料库' },
     { path: 'writing', heading: '文件' },
   ]
 

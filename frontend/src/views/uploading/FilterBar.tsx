@@ -62,7 +62,7 @@ export function FilterBar({
         <div className="relative min-w-0 flex-1 max-w-[260px]">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
           <Input
-            placeholder="搜索文档..."
+            placeholder="搜索资料..."
             value={searchQuery}
             onChange={(e) => onSearchChange(e.target.value)}
             className="h-8 text-xs pl-9 rounded-xl bg-muted/30 border-border/40 focus-visible:ring-accent/30"

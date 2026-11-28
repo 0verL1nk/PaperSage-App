@@ -69,7 +69,7 @@ export function MoveDocumentDialog({
   }
 
   const count = documentIds.length
-  const label = count === 1 ? '文档' : `${count} 篇文档`
+  const label = count === 1 ? '资料' : `${count} 份资料`
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>

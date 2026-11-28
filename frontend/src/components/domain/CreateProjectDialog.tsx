@@ -84,7 +84,7 @@ export function CreateProjectDialog({ open, onOpenChange, groups }: CreateProjec
       <DialogContent className="max-h-[90dvh] w-[calc(100vw-1rem)] overflow-y-auto rounded-2xl border border-border/40 bg-background p-5 shadow-strong sm:max-w-[440px] sm:p-6">
         <DialogHeader>
           <DialogTitle className="text-xl font-semibold tracking-tight text-foreground">新建项目</DialogTitle>
-          <DialogDescription className="text-sm leading-5 text-muted-foreground">填写项目名称和写作场景，之后可以在工作台继续编辑。</DialogDescription>
+          <DialogDescription className="text-sm leading-5 text-muted-foreground">填写项目名称和论文场景，之后可以在工作台继续编辑。</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-5">

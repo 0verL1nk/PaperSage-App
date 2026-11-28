@@ -219,7 +219,7 @@ export function UploadingPage() {
     <div className="flex flex-col h-full w-full" data-file-drop-target="references" data-drop-target="references">
       {/* Header */}
       <div className="flex items-center justify-between px-5 py-3 border-b border-border/40 backdrop-blur-xl bg-background/80">
-        <h2 className="text-sm font-semibold text-foreground/90">参考文献</h2>
+        <h2 className="text-sm font-semibold text-foreground/90">资料库</h2>
         <div className="flex items-center gap-2">
           {isDesktop() && (
             <Button
@@ -329,7 +329,7 @@ export function UploadingPage() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between px-5 py-4 border-b border-border/40">
-              <h3 className="text-sm font-semibold">上传文档</h3>
+              <h3 className="text-sm font-semibold">上传资料</h3>
               <button
                 type="button"
                 onClick={() => setUploadOpen(false)}

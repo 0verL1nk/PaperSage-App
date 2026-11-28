@@ -82,7 +82,6 @@ export function TrashPage() {
             <Trash2 className="h-8 w-8 text-muted-foreground/30 stroke-[1.5]" />
           </div>
           <h3 className="text-lg font-medium text-foreground">回收站是空的</h3>
-          <p className="text-sm text-muted-foreground mt-2">删除的项目会显示在这里，可以随时恢复。</p>
         </div>
       ) : (
         <div className="grid gap-3">

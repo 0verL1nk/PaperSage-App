@@ -45,7 +45,7 @@ test.describe('Uploading folder ops (real frontend payloads)', () => {
     // 自动上传完成 → 已就绪 → 添加（成功后弹窗自动关闭）
     await expect(page.getByText('1 个已就绪')).toBeVisible({ timeout: 10_000 })
     await page.getByRole('button', { name: /添加 1 个/ }).click()
-    await expect(page.getByText('上传文档')).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.getByText('上传资料')).toHaveCount(0, { timeout: 10_000 })
     const row = page.getByRole('row').filter({ hasText: 'sample.pdf' }).first()
     await expect(row).toBeVisible({ timeout: 15_000 })
 

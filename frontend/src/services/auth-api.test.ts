@@ -91,9 +91,8 @@ describe('auth api', () => {
     expect(postMultipart).toHaveBeenCalledWith(
       '/api/v1/auth/login',
       expect.any(FormData),
-      expect.objectContaining({
-        skipGlobalLoading: true,
-      }),
+      // 断网时登录按钮必须在上限内回到可点状态（体验走查 S1）。
+      { skipGlobalLoading: true, timeout: 15_000 },
     )
 
     const formData = vi.mocked(postMultipart).mock.calls[0]?.[1]
@@ -131,9 +130,7 @@ describe('auth api', () => {
     expect(postMultipart).toHaveBeenCalledWith(
       '/api/v1/auth/register',
       expect.any(FormData),
-      expect.objectContaining({
-        skipGlobalLoading: true,
-      }),
+      { skipGlobalLoading: true, timeout: 15_000 },
     )
 
     const formData = vi.mocked(postMultipart).mock.calls[0]?.[1]

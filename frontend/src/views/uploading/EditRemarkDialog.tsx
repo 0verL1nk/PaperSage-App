@@ -59,7 +59,7 @@ export function EditRemarkDialog({
   }
 
   const count = documents.length
-  const label = count === 1 ? documents[0]?.name : `${count} 篇文档`
+  const label = count === 1 ? documents[0]?.name : `${count} 份资料`
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
@@ -83,7 +83,7 @@ export function EditRemarkDialog({
               id="remark"
               value={remark}
               onChange={(e) => setRemark(e.target.value)}
-              placeholder="添加关于此文档的备注..."
+              placeholder="添加关于这份资料的备注..."
               className="min-h-[100px] resize-none text-[14px] bg-muted/40 border-border/40 focus-visible:ring-1 focus-visible:ring-foreground/20 focus-visible:bg-background"
               autoFocus
             />

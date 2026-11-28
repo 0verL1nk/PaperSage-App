@@ -132,7 +132,7 @@ export function DataTable({ data, actions, totalCount, onClearFilters, onRowSele
       {/* Pagination */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-border/30">
         <span className="text-[11px] text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} 篇文档
+          {table.getFilteredRowModel().rows.length} 份资料
         </span>
         <div className="flex items-center gap-1.5">
           <Button

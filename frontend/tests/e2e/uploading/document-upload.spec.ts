@@ -36,7 +36,7 @@ test.describe('Document upload (real S3)', () => {
     // 自动上传 → 已就绪 → 添加 → 弹窗自动关闭 → 表格出现
     await expect(page.getByText('1 个已就绪')).toBeVisible({ timeout: 10_000 })
     await page.getByRole('button', { name: /添加 1 个/ }).click()
-    await expect(page.getByText('上传文档')).toHaveCount(0, { timeout: 10_000 })
+    await expect(page.getByText('上传资料')).toHaveCount(0, { timeout: 10_000 })
     await expect(page.getByRole('row').filter({ hasText: 'sample.pdf' }).first()).toBeVisible({ timeout: 15_000 })
   })
 
