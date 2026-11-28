@@ -619,4 +619,3 @@ function ChatProposalCard({ proposalId, projectId }: { proposalId: string; proje
     />
   )
 }
-

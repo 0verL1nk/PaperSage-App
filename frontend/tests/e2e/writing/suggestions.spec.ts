@@ -242,3 +242,55 @@ test('窄屏点击行内批注弹出浮层，Esc 关闭且不挤压编辑区', a
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
 })
+
+test('桌面 1280：折叠后点底栏计数或正文锚点都能重新打开批注栏', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 1280, height: 800 })
+  await mockBackend(page, { posts: [], proposals: () => [PROPOSAL] })
+
+  await page.goto(WRITING_URL)
+  await expect(page.getByText(PROPOSAL.reason)).toBeVisible({ timeout: 30_000 })
+
+  await page.getByRole('button', { name: '收起写作批注' }).click()
+  await expect(page.getByText(PROPOSAL.reason)).toHaveCount(0)
+
+  await page.getByRole('button', { name: /批注\s*1/ }).click()
+  await expect(page.getByText(PROPOSAL.reason)).toBeVisible()
+
+  await page.getByRole('button', { name: '收起写作批注' }).click()
+  const box = await page.locator('.monaco-editor').first().boundingBox()
+  expect(box).not.toBeNull()
+  await page.mouse.click(box!.x + 120, box!.y + 32)
+  await expect(page.getByText(PROPOSAL.reason)).toBeVisible()
+})
+
+test('移动 320：键盘打开浮层后焦点进入并可 Tab 循环，触控目标不小于 44px', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.setViewportSize({ width: 320, height: 640 })
+  const longReason = '这一段需要交代研究问题如何从材料中导出，并说明为什么现有文献不足以支撑当前论断，同时补充数据来源与采样范围；还需要说明该段与章节计划中研究目标的对应关系。'
+  await mockBackend(page, { posts: [], proposals: () => [{ ...PROPOSAL, reason: longReason }] })
+
+  await page.goto(WRITING_URL)
+  await expect(page.locator('.monaco-editor').first()).toBeVisible({ timeout: 30_000 })
+
+  const count = page.getByRole('button', { name: /批注\s*1/ })
+  await count.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: '写作批注' })
+  await expect(dialog).toBeVisible()
+  await expect.poll(() => page.evaluate(() => Boolean(document.activeElement?.closest('#mentor-comment-popover')))).toBe(true)
+
+  for (let i = 0; i < 8; i += 1) {
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => Boolean(document.activeElement?.closest('#mentor-comment-popover')))).toBe(true)
+  }
+
+  const closeBox = await dialog.getByRole('button', { name: '关闭写作批注' }).boundingBox()
+  expect(closeBox).not.toBeNull()
+  expect(closeBox!.width).toBeGreaterThanOrEqual(44)
+  expect(closeBox!.height).toBeGreaterThanOrEqual(44)
+
+  const expandBox = await dialog.getByRole('button', { name: '展开评语' }).boundingBox()
+  expect(expandBox).not.toBeNull()
+  expect(expandBox!.height).toBeGreaterThanOrEqual(44)
+})

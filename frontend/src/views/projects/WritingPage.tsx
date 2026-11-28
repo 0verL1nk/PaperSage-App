@@ -210,11 +210,13 @@ export function WritingPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false)
   const [mobilePane, setMobilePane] = useState<'editor' | 'preview'>('editor')
   const [popover, setPopover] = useState<{ proposalId: string; x: number; y: number } | null>(null)
+  const [commentsOpen, setCommentsOpen] = useState(false)
   const autoLayoutAppliedRef = useRef<string | null>(null)
   const [activeProposalId, setActiveProposalId] = useState<string | null>(null)
   const [flashProposalId, setFlashProposalId] = useState<string | null>(null)
   const [ariaAnnouncement, setAriaAnnouncement] = useState('')
-  const commentsPanel = Resizable.usePanelRef()
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const popoverReturnFocus = useRef<HTMLElement | null>(null)
   const sidebarPanel = Resizable.usePanelRef()
   const [activeFilePath, setActiveFilePath] = useState<string | null>(null)
   const [compiler, setCompiler] = useState('pdflatex')
@@ -301,6 +303,7 @@ export function WritingPage() {
       }
     }
     setActiveProposalId(id)
+    popoverReturnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     setPopover({ proposalId: id, x, y })
   }, [writingSuggestion.visible])
   const openPopoverRef = useRef(openPopover)
@@ -308,7 +311,7 @@ export function WritingPage() {
 
   const openComments = useCallback(() => {
     if (isWide) {
-      commentsPanel.current?.expand()
+      setCommentsOpen(true)
       return
     }
     const pending = writingSuggestion.visible.filter(
@@ -316,10 +319,10 @@ export function WritingPage() {
     )
     const target = pending.find((item) => item.id === activeProposalId) ?? pending[0]
     if (target) openPopover(target.id)
-  }, [activeProposalId, commentsPanel, isWide, openPopover, writingSuggestion.visible])
+  }, [activeProposalId, isWide, openPopover, writingSuggestion.visible])
   const closeComments = useCallback(() => {
-    if (isWide) commentsPanel.current?.collapse()
-  }, [commentsPanel, isWide])
+    if (isWide) setCommentsOpen(false)
+  }, [isWide])
   const openCommentsRef = useRef(openComments)
   openCommentsRef.current = openComments
 
@@ -332,22 +335,33 @@ export function WritingPage() {
     const hasPending = writingSuggestion.visible.some(
       (item) => item.filePath === key && item.status === 'pending',
     )
-    if (hasPending) commentsPanel.current?.expand()
-    else commentsPanel.current?.collapse()
-  }, [activeFilePath, commentsPanel, isWide, writingSuggestion.isLoading, writingSuggestion.visible])
+    setCommentsOpen(hasPending)
+  }, [activeFilePath, isWide, writingSuggestion.isLoading, writingSuggestion.visible])
+
+  const closePopover = useCallback(() => {
+    setPopover(null)
+    window.requestAnimationFrame(() => popoverReturnFocus.current?.focus())
+  }, [])
+
+  // 打开后把焦点移入浮层，键盘用户不会被留在触发按钮上。
+  useEffect(() => {
+    if (!popover) return
+    const frame = window.requestAnimationFrame(() => popoverRef.current?.focus())
+    return () => window.cancelAnimationFrame(frame)
+  }, [popover])
 
   // 窄屏批注浮层：点外 / Esc / 滚动关闭；切文件也关闭。
   useEffect(() => {
     if (!popover) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setPopover(null)
+      if (event.key === 'Escape') closePopover()
     }
     const onPointer = (event: MouseEvent) => {
       const element = document.getElementById('mentor-comment-popover')
       if (element && event.target instanceof Node && element.contains(event.target)) return
-      setPopover(null)
+      closePopover()
     }
-    const onScroll = () => setPopover(null)
+    const onScroll = () => closePopover()
     window.addEventListener('keydown', onKey)
     window.addEventListener('mousedown', onPointer, true)
     document.addEventListener('scroll', onScroll, true)
@@ -356,8 +370,8 @@ export function WritingPage() {
       window.removeEventListener('mousedown', onPointer, true)
       document.removeEventListener('scroll', onScroll, true)
     }
-  }, [popover])
-  useEffect(() => setPopover(null), [activeFilePath])
+  }, [closePopover, popover])
+  useEffect(() => { setPopover(null) }, [activeFilePath])
 
   // 编辑器点击命中锚点：聚焦批注卡并展开批注栏（不改变光标选区）。
   const proposalHitAtOffset = useCallback((offset: number): string | null => {
@@ -377,7 +391,7 @@ export function WritingPage() {
 
   const revealProposal = useCallback((id: string) => {
     setActiveProposalId(id)
-    if (isWide) commentsPanel.current?.expand()
+    if (isWide) setCommentsOpen(true)
     const proposal = writingSuggestion.visible.find((item) => item.id === id)
     const editor = editorRef.current
     const model = editor?.getModel()
@@ -393,7 +407,7 @@ export function WritingPage() {
     setFlashProposalId(id)
     window.setTimeout(() => setFlashProposalId((current) => (current === id ? null : current)), 1500)
     setAriaAnnouncement(`已定位到第 ${start.lineNumber} 行`)
-  }, [commentsPanel, isWide, writingSuggestion.visible])
+  }, [isWide, writingSuggestion.visible])
 
   // 行内锚点：只装饰当前文件、待处理且能确定性定位的批注。
   useEffect(() => {
@@ -1389,11 +1403,11 @@ export function WritingPage() {
                 )}
               </div>
 
-              <div className="flex min-h-11 flex-none flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/40 bg-muted/10 px-2 py-1">
+              <div className="flex min-h-[44px] flex-none flex-wrap items-center gap-x-2 gap-y-1 border-t border-border/40 bg-muted/10 px-2 py-1">
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 gap-1.5 px-2 text-[11px]"
+                  className="min-h-[44px] gap-1.5 px-2 text-[11px] sm:h-9 sm:min-h-9"
                   disabled={!isEditable || isGuest || writingSuggestion.checking}
                   onClick={() => {
                     if (isWide) openComments()
@@ -1406,7 +1420,7 @@ export function WritingPage() {
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 gap-1 px-2 text-[11px] text-muted-foreground"
+                  className="min-h-[44px] gap-1 px-2 text-[11px] text-muted-foreground sm:h-9 sm:min-h-9"
                   onClick={openComments}
                 >
                   <MessageSquare size={13} />
@@ -1416,7 +1430,7 @@ export function WritingPage() {
                 <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="ml-auto flex min-h-9 items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="ml-auto flex min-h-[44px] items-center gap-1.5 text-[11px] text-muted-foreground sm:min-h-9">
                       <label htmlFor="mentor-auto-comment" className="cursor-pointer">自动批注</label>
                       <Switch
                         id="mentor-auto-comment"
@@ -1436,11 +1450,11 @@ export function WritingPage() {
           </Resizable.Panel>
           )}
 
-          {/* 写作批注栏：≥1280 独立第 4 栏（可折叠）。 */}
-          {isWide && (
+          {/* 写作批注栏：≥1280 独立第 4 栏；打开/关闭直接增删面板，避免折叠后无法展开。 */}
+          {isWide && commentsOpen && (
             <>
               <ResizeHandle />
-              <Resizable.Panel id="comments" defaultSize={18} minSize={14} collapsible panelRef={commentsPanel}>
+              <Resizable.Panel id="comments" defaultSize={18} minSize={14}>
                 <aside className="h-full border-r border-border/40">
                   {commentsRail(closeComments)}
                 </aside>
@@ -1693,8 +1707,23 @@ export function WritingPage() {
       {popover && !isWide && popoverCurrent && createPortal(
         <div
           id="mentor-comment-popover"
+          ref={popoverRef}
           role="dialog"
+          aria-modal="false"
           aria-label="写作批注"
+          tabIndex={-1}
+          onKeyDown={(event) => {
+            if (event.key !== 'Tab') return
+            const nodes = popoverRef.current?.querySelectorAll<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])')
+            if (!nodes?.length) return
+            const first = nodes[0]
+            const last = nodes[nodes.length - 1]
+            if (event.shiftKey && document.activeElement === first) {
+              event.preventDefault(); last.focus()
+            } else if (!event.shiftKey && document.activeElement === last) {
+              event.preventDefault(); first.focus()
+            }
+          }}
           className="fixed z-50 max-h-[60vh] w-[320px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-xl"
           style={{
             left: Math.min(Math.max(8, popover.x), Math.max(8, window.innerWidth - 328)),
@@ -1709,6 +1738,7 @@ export function WritingPage() {
                   <button
                     type="button"
                     aria-label="上一条批注"
+                    className="flex size-[44px] items-center justify-center rounded-md"
                     onClick={() => setPopover({ ...popover, proposalId: popoverProposals[(popoverIndex - 1 + popoverProposals.length) % popoverProposals.length].id })}
                   >
                     <ChevronLeft size={14} />
@@ -1717,14 +1747,15 @@ export function WritingPage() {
                   <button
                     type="button"
                     aria-label="下一条批注"
+                    className="flex size-[44px] items-center justify-center rounded-md"
                     onClick={() => setPopover({ ...popover, proposalId: popoverProposals[(popoverIndex + 1) % popoverProposals.length].id })}
                   >
                     <ChevronRight size={14} />
                   </button>
                 </span>
               )}
-              <button type="button" aria-label="关闭写作批注" onClick={() => setPopover(null)}>
-                <X size={14} />
+              <button type="button" aria-label="关闭写作批注" className="flex size-[44px] items-center justify-center rounded-md" onClick={closePopover}>
+                <X size={16} />
               </button>
             </div>
           </div>

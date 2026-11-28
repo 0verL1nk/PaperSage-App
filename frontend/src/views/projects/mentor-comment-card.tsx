@@ -86,7 +86,7 @@ export function MentorCommentCard({
         {reason.length > 60 && (
           <button
             type="button"
-            className="text-[11px] text-primary"
+            className="min-h-[44px] px-1 text-[11px] text-primary"
             onClick={() => setReasonExpanded((value) => !value)}
           >
             {reasonExpanded ? '收起' : '展开评语'}
@@ -107,7 +107,7 @@ export function MentorCommentCard({
 
         <button
           type="button"
-          className="flex min-h-11 items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground sm:min-h-8"
+          className="flex min-h-[44px] items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground sm:min-h-8"
           aria-expanded={showDiff}
           onClick={() => setShowDiff((value) => !value)}
         >
@@ -122,7 +122,7 @@ export function MentorCommentCard({
         <div className="flex flex-wrap gap-2 px-3 pb-3">
           <Button
             size="sm"
-            className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+            className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
             disabled={busy || !locatable}
             onClick={() => void run(onApply)}
           >
@@ -132,7 +132,7 @@ export function MentorCommentCard({
           <Button
             size="sm"
             variant="ghost"
-            className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+            className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
             disabled={busy}
             onClick={() => setRejecting(true)}
           >
@@ -151,7 +151,7 @@ export function MentorCommentCard({
                 type="button"
                 size="sm"
                 variant={rejectReason === item.code ? 'default' : 'outline'}
-                className="min-h-11 rounded-lg px-2.5 text-[11px] sm:min-h-8"
+                className="min-h-[44px] rounded-lg px-2.5 text-[11px] sm:min-h-8"
                 onClick={() => setRejectReason(rejectReason === item.code ? '' : item.code)}
               >
                 {item.label}
@@ -163,12 +163,12 @@ export function MentorCommentCard({
             onChange={(event) => setRejectNote(event.target.value)}
             placeholder="补充说明（可选）"
             aria-label="忽略原因补充说明"
-            className="min-h-11 w-full rounded-lg border border-border/60 bg-background px-2.5 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/10"
+            className="min-h-[44px] w-full rounded-lg border border-border/60 bg-background px-2.5 text-[11px] focus:outline-none focus:ring-2 focus:ring-primary/10"
           />
           <div className="flex gap-2">
             <Button
               size="sm"
-              className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+              className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
               disabled={busy}
               onClick={() => void run(async () => {
                 await onReject(rejectReason, rejectNote.trim())
@@ -180,7 +180,7 @@ export function MentorCommentCard({
             <Button
               size="sm"
               variant="ghost"
-              className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+              className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
               disabled={busy}
               onClick={() => setRejecting(false)}
             >
@@ -195,7 +195,7 @@ export function MentorCommentCard({
           <Button
             size="sm"
             variant="outline"
-            className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+            className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
             disabled={busy}
             onClick={() => void run(onUndo)}
           >
@@ -209,7 +209,7 @@ export function MentorCommentCard({
           <Button
             size="sm"
             variant="outline"
-            className="min-h-11 rounded-lg px-3 text-[11px] sm:min-h-8"
+            className="min-h-[44px] rounded-lg px-3 text-[11px] sm:min-h-8"
             disabled={busy}
             onClick={onRecheck}
           >
