@@ -61,7 +61,7 @@ describe('streamRun（UI Message Stream 解析）', () => {
     }
   })
 
-  it.each(['https://api.paper.overlink.top/', 'http://localhost:5478', ''])('事件流跟随当前后端地址 %s', async (baseUrl) => {
+  it.each(['https://api.example.com/', 'http://localhost:5478', ''])('事件流跟随当前后端地址 %s', async (baseUrl) => {
     vi.spyOn(env, 'getRequiredApiBaseUrl').mockReturnValue(baseUrl)
     await collect(['data: [DONE]\n\n'])
     expect(fetch).toHaveBeenCalledWith(

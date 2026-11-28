@@ -116,8 +116,17 @@ func (s *Service) execute(runID store.UUID) {
 	defer s.executors.Delete(runID)
 
 	now := time.Now().UTC()
-	_ = s.DB.Model(&store.ReviewRun{}).Where("id = ? AND status = ?", runID, store.ReviewRunQueued).
-		Updates(map[string]any{"status": store.ReviewRunRunning, "started_at": now}).Error
+	claim := s.DB.Model(&store.ReviewRun{}).Where("id = ? AND status = ?", runID, store.ReviewRunQueued).
+		Updates(map[string]any{"status": store.ReviewRunRunning, "started_at": now})
+	if claim.Error != nil {
+		slog.Warn("review run claim failed", "run_id", runID.String(), "err", claim.Error)
+		return
+	}
+	// 一个任务只允许一个执行器：重复 execute（或已有执行器）时直接退出，
+	// 避免第二个执行器把仍在运行的单元按「未完成」收敛成失败。
+	if claim.RowsAffected == 0 {
+		return
+	}
 
 	pc, err := s.loadProjectContext(ctx, run.UserID, run.ProjectID)
 	if err != nil {
@@ -140,6 +149,8 @@ func (s *Service) execute(runID store.UUID) {
 		concurrency = s.Cfg.ReviewUnitConcurrency
 	}
 	sem := make(chan struct{}, concurrency)
+	slog.Info("review run executing", "run_id", runID.String(), "units", len(units),
+		"concurrency", concurrency, "run_timeout", timeout.String(), "unit_timeout", unitTimeout.String())
 	var wg sync.WaitGroup
 	for i := range units {
 		unit := units[i]
@@ -309,11 +320,21 @@ func humanDuration(d time.Duration) string {
 
 func (s *Service) markUnit(unitID store.UUID, status, reason string) {
 	now := time.Now().UTC()
-	if err := s.DB.Model(&store.ReviewUnit{}).
-		Where("id = ? AND status IN ?", unitID, []string{store.ReviewUnitPending, store.ReviewUnitRunning}).
-		Updates(map[string]any{"status": status, "error_text": truncateText(reason, 500), "completed_at": now}).Error; err != nil {
-		// 状态写不进去会让单元卡在 running；必须留痕，否则只能看到「未完成」而查不到原因。
-		slog.Warn("review unit state write failed", "unit_id", unitID.String(), "status", status, "err", err)
+	// 执行器是单元状态的唯一权威：只有已产出结果的终态（succeeded/reused）不能被覆盖。
+	// 早先限制成「只能从 pending/running 写入」，一旦有别的写入方先写了兜底文案，
+	// 真正原因就会被静默丢弃（生产上只看到「本单元未在时限内完成」）。
+	res := s.DB.Model(&store.ReviewUnit{}).
+		Where("id = ? AND status NOT IN ?", unitID, []string{store.ReviewUnitSucceeded, store.ReviewUnitReused}).
+		Updates(map[string]any{"status": status, "error_text": truncateText(reason, 500), "completed_at": now})
+	if res.Error != nil {
+		slog.Warn("review unit state write failed", "unit_id", unitID.String(), "status", status, "err", res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		var current store.ReviewUnit
+		_ = s.DB.Select("status").Where("id = ?", unitID).First(&current).Error
+		slog.Warn("review unit state write skipped", "unit_id", unitID.String(),
+			"status", status, "current", current.Status)
 	}
 }
 
@@ -366,10 +387,13 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 		case store.ReviewUnitFailed, store.ReviewUnitCancelled:
 			failed++
 		default:
-			// 未终态单元一律按失败收敛，绝不把未覆盖展示成通过；原因要能指向可执行动作。
-			s.markUnit(u.ID, store.ReviewUnitFailed, "本单元未在时限内完成，未产出结论")
+			// 未终态单元一律按失败收敛，绝不把未覆盖展示成通过。
+			// 原因从该单元自己的 agent run 终态推导，而不是统一兜底文案——
+			// 兜底文案会把「模型没提交报告」「执行被取消」等真实原因全部吞掉。
+			reason := s.unitUnfinishedReason(u)
+			s.markUnit(u.ID, store.ReviewUnitFailed, reason)
 			u.Status = store.ReviewUnitFailed
-			u.ErrorText = "本单元未在时限内完成，未产出结论"
+			u.ErrorText = reason
 			failed++
 		}
 	}
@@ -408,6 +432,39 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 		})
 	if res.Error != nil {
 		slog.Warn("review run finish write failed", "run_id", run.ID.String(), "err", res.Error)
+	}
+}
+
+// unitUnfinishedReason 用单元自己的 agent run 终态解释「为什么没有结论」。
+// 这是 finishRun 兜底路径的最后一道写实：宁可如实说「未提交/被取消/超时」，
+// 也不能用统一文案掩盖现场。
+func (s *Service) unitUnfinishedReason(u *store.ReviewUnit) string {
+	if u.AgentRunID == nil {
+		return "单元未启动（检查在启动前结束），请重试"
+	}
+	var run store.AgentRun
+	if err := s.DB.Where("id = ?", *u.AgentRunID).First(&run).Error; err != nil {
+		return "单元未产出结论，且读取执行记录失败；请重试本次检查"
+	}
+	switch run.Status {
+	case agent.RunCompleted:
+		return "模型未提交通过服务端校验的报告"
+	case agent.RunCancelled:
+		return "单元执行被取消或超出时限，未产出结论；可重试本次检查"
+	case agent.RunFailed:
+		var payload struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(run.ErrorJSON, &payload)
+		if msg := strings.TrimSpace(payload.Message); msg != "" {
+			return msg
+		}
+		return "单元执行失败，未产出结论；请重试本次检查"
+	default:
+		if s.Agent != nil {
+			s.Agent.CancelRun(run.ID)
+		}
+		return "单元执行超出时限，已终止；可重试本次检查或缩小检查范围"
 	}
 }
 

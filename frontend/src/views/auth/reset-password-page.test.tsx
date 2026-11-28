@@ -30,7 +30,7 @@ describe('ResetPasswordPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '更新密码' }))
     await waitFor(() => expect(confirmPasswordReset).toHaveBeenCalledWith('opaque-token', 'NewSecret123'))
     expect(await screen.findByRole('heading', { name: '密码已更新' })).toBeInTheDocument()
-    expect(screen.getByText(/其他已登录会话也已失效/)).toBeInTheDocument()
+    expect(screen.getByText(/其他设备上的登录也会失效/)).toBeInTheDocument()
   })
 
   it('does not allow submission without a reset token', () => {

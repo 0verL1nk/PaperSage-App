@@ -29,7 +29,7 @@ R2唯一对象：`acceptance/papersage-20261030/cloud-preflight.txt`。只在确
 
 ## 向量endpoint定位
 
-当前配置的 `ep-snowy-pond-b3tpe8oa` 未出现在当前授权账户可见的匹配区域项目endpoint元数据中，也不属于已确认的PaperSage主库endpoint。仅查元数据，没有读取其他项目业务数据或连接串，也没有尝试其他项目密码。
+当前配置的向量端点（`<VECTOR_ENDPOINT_ID>`）未出现在当前授权账户可见的匹配区域项目endpoint元数据中，也不属于已确认的PaperSage主库endpoint。仅查元数据，没有读取其他项目业务数据或连接串，也没有尝试其他项目密码。
 
 因此目前不能从既有管理授权自动修复该连接，需要正确的原项目/分支连接信息或用户更新权威 `.env`。不能悄悄改用主库、创建替代项目或重置共享角色。
 
@@ -39,16 +39,16 @@ R2唯一对象：`acceptance/papersage-20261030/cloud-preflight.txt`。只在确
 - [v0.1.1 Release](https://github.com/0verL1nk/GraduateProject/releases/tag/v0.1.1) 对应提交 `5d118a15ca5f8f006f0729aef24615408c9e31a7`；[Release 工作流](https://github.com/0verL1nk/GraduateProject/actions/runs/41272083111)中的 release 与 deploy 均成功。该次运行按当时配置生成多平台归档；linux/amd64-only是后续工作树变更，尚未发布。
 - 服务器 `papersage.service` 为 active/running；本机 `/health` 返回 `healthy`、版本 `0.1.1`、上述完整提交及 `go1.27.3`。未知前端路径返回 JSON 404，匿名访问项目API返回401；未通过此证据推断登录或AI对话成功。
 - LaTeX 资源网关 `GET /texlive/.../package-maps?packages=latex`：首次请求返回204耗约11.5秒，热请求204耗约18毫秒，旧Vercel API同请求也返回204；这证明catalog可加载，不证明实际模板已编译通过。进程RSS在首次读取前约37MiB，读取后一次观察约447MiB；尚无分配分析或优化后验证。
-- 用户选择新一级域名 `api-papersage.overlink.top` 并建立 Cloudflare 橙云记录；公开 DNS 返回 Cloudflare 地址，边缘证书验证通过。旧 `api.paper.overlink.top` 保持 Vercel 作为回退。
+- 用户选择新一级 API 域名（具体域名不在公开仓库记录）并建立 Cloudflare 橙云记录；公开 DNS 返回 Cloudflare 地址，边缘证书验证通过。旧 API 域名保持 Vercel 作为回退。
 - Caddy及专属 Cloudflare ingress guard 已运行并设为开机启动；源站公信证书已签发，本机SNI请求`/health`返回0.1.1。独立SSH连接仍成功；独立网络命名空间中实际验证IPv4/IPv6的非CF来源HTTP(S)被拒、SSH可用及CF来源HTTP(S)可达。工作流/持久模板见 [0verL1nk/GraduateProject#43](https://github.com/0verL1nk/GraduateProject/pull/43)，尚未合并。
-- 公开新域名此前返回重定向到自身的308；2026-11-01 再次检查时，HTTPS `/health` 返回200，响应版本 `0.1.1`、提交 `5d118a15ca5f8f006f0729aef24615408c9e31a7`，未授权访问 `/api/v1/projects` 返回401。以生产前端 Origin `https://paper.overlink.top` 发送含 Authorization、Content-Type 和导入标识头的 POST 预检，返回204并允许这些方法和请求头。Cloudflare 回源 SSL 模式未能读取，不据此断言 Strict 已启用。
+- 公开新域名此前返回重定向到自身的308；2026-11-01 再次检查时，HTTPS `/health` 返回200，响应版本 `0.1.1`、提交 `5d118a15ca5f8f006f0729aef24615408c9e31a7`，未授权访问 `/api/v1/projects` 返回401。以生产前端 Origin 发送含 Authorization、Content-Type 和导入标识头的 POST 预检，返回204并允许这些方法和请求头。Cloudflare 回源 SSL 模式未能读取，不据此断言 Strict 已启用。
 - 后续工作树已将公网 `/health` 收敛为仅 `{"status":"healthy"}`，version/commit/build/go 版本只在本机直连时返回；该变更随 v0.1.2 发布，线上公网 `/health` 已只返回状态。
 
 ## 2026-11-03 v0.1.2 发布与部署
 
 - [PR #44](https://github.com/0verL1nk/GraduateProject/pull/44) 全绿（15 通过、1 跳过、0 失败）后 squash 合并为 `27078e0`。
 - [v0.1.2 Release](https://github.com/0verL1nk/GraduateProject/releases/tag/v0.1.2) 由 tag 触发的 Release 工作流完成：validate、Server CI、Frontend CI、Playwright E2E、goreleaser、deploy 均成功；部署产物为 `papersage_0.1.2_linux_amd64.tar.gz`。
-- 线上 `https://api-papersage.overlink.top/health` 返回 `{"status":"healthy"}`（HTTP 200），不再暴露 version/commit/buildTime/goVersion；匿名 `/api/v1/projects` 返回 401；以生产前端 Origin 发起的 CORS 预检返回 204。
+- 线上 `<API_DOMAIN>/health` 返回 `{"status":"healthy"}`（HTTP 200），不再暴露 version/commit/buildTime/goVersion；匿名 `/api/v1/projects` 返回 401；以生产前端 Origin 发起的 CORS 预检返回 204。
 - 后续 PR 将 goreleaser 构建收敛为 linux/amd64-only；v0.1.2 仍按历史配置产出多平台归档。
 - 本次未验证登录后的真实模型对话、R2 业务读写与 LaTeX 编译闭环。
 

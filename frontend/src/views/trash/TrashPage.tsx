@@ -65,7 +65,7 @@ export function TrashPage() {
             <Trash2 className="h-7 w-7 text-muted-foreground/50 stroke-[1.5]" />
             回收站
           </h1>
-          <p className="text-sm text-muted-foreground">在此处管理已删除的项目，您可以选择恢复或永久删除</p>
+          <p className="text-sm text-muted-foreground">删除的项目会保留在这里，可随时恢复</p>
         </div>
         <Button variant="ghost" size="sm" asChild className="rounded-full text-muted-foreground hover:text-foreground">
           <Link to="/app/projects">
@@ -82,7 +82,7 @@ export function TrashPage() {
             <Trash2 className="h-8 w-8 text-muted-foreground/30 stroke-[1.5]" />
           </div>
           <h3 className="text-lg font-medium text-foreground">回收站是空的</h3>
-          <p className="text-sm text-muted-foreground mt-2">在这里您找不到任何被删除的项目。</p>
+          <p className="text-sm text-muted-foreground mt-2">删除的项目会显示在这里，可以随时恢复。</p>
         </div>
       ) : (
         <div className="grid gap-3">

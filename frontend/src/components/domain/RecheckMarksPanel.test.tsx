@@ -54,7 +54,7 @@ describe('RecheckMarksPanel', () => {
     render(<RecheckMarksPanel projectId="p1" />)
     expect(screen.getByText('章节计划（1 节）')).toBeInTheDocument()
     expect(screen.getByText('资料《论文.pdf》已删除')).toBeInTheDocument()
-    expect(screen.getByText(/系统不会自动改写正文或产物/)).toBeInTheDocument()
+    expect(screen.getByText(/系统不会自动改写正文/)).toBeInTheDocument()
     for (const label of ['已复查', '已重建', '忽略']) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument()
     }

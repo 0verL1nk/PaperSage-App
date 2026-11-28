@@ -20,7 +20,7 @@ export default async function globalSetup(config: FullConfig) {
     const page = await context.newPage()
     await page.goto('/auth')
     await page.getByRole('button', { name: '密码登录' }).click()
-    await page.getByPlaceholder('请输入您的账号').fill(process.env.E2E_USER ?? 'e2euser')
+    await page.getByPlaceholder('请输入账号或邮箱').fill(process.env.E2E_USER ?? 'e2euser')
     await page.getByPlaceholder('••••••••').fill(process.env.E2E_PASS ?? 'e2epass1')
     await page.getByRole('button', { name: '立即登录' }).click()
     await page.waitForURL(/\/app\/projects/, { timeout: 15_000 })

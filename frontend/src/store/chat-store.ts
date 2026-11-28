@@ -393,7 +393,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
       set({ ...emptyChatState, conversationId, isNewConversation: false, restoring: true })
       const failed = () => {
         if (seq === openSeq) {
-          set({ restoring: false, restoreFailed: true, error: '无法恢复会话或确认运行状态，请重试后再发送。' })
+          set({ restoring: false, restoreFailed: true, error: '无法恢复对话或确认运行状态，请重试后再发送。' })
         }
         return null
       }
@@ -461,7 +461,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
         versionKnown: detail !== null,
         restoring: false,
         restoreFailed: probeFailed,
-        error: probeFailed ? '无法恢复会话或确认运行状态，请重试后再发送。' : null,
+        error: probeFailed ? '无法恢复对话或确认运行状态，请重试后再发送。' : null,
       })
       // 刷新会丢掉内存里的流状态。服务端还有进行中的 Run 时必须重新订阅，
       // 否则界面看起来像“没开始”，用户会重复发送（验收 B2）。
@@ -532,7 +532,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
             set({
               conversationVersion: latest ?? get().conversationVersion,
               versionKnown: latest !== null,
-              error: '会话已在其他位置更新，请基于最新版本重试',
+              error: '对话已在其他位置更新，请基于最新版本重试',
               errorAction: 'retry-send',
               lastFailedContent: content,
               lastClientRequestId: clientRequestId,

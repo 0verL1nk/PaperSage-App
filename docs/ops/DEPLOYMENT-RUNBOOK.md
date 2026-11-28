@@ -1,8 +1,8 @@
-# 生产部署运行手册
+# 生产部署运行手册（脱敏模板）
 
-更新：2026-11-22。本文描述**当前实际部署**（拓扑、位置、发布与回滚、核对方式），与 `docs/backend/DEPLOYMENT.md` 的交付边界/首次安装说明互补；两者冲突时以本文的现网状态为准，并在变更后同步更新。
+更新：2026-11-28。本文是公开仓库中的**脱敏部署模板**，描述通用部署拓扑、发布与回滚、核对方式，与 `docs/backend/DEPLOYMENT.md` 的交付边界/首次安装说明互补。
 
-本文在公开仓库，因此用占位符代指服务器与 Vercel 上的实际路径和账号名：`<APP_DIR>`（版本目录根）、`<APP_STATE_DIR>`（运行状态目录）、`<ENV_FILE>`（环境文件）、`<APP_USER>` / `<DEPLOY_USER>`（运行用户 / 部署用户）、`<DEPLOY_HOME>`（部署用户主目录）、`<DEPLOY_BIN>`（发布命令安装目录）、`<VERCEL_TEAM>/<VERCEL_PROJECT>`。实际取值只在服务器与 Vercel 控制台内维护。
+本文用占位符代指实际取值：`<API_DOMAIN>`（API 公网域名）、`<FRONTEND_DOMAIN>`（前端生产域名）、`<FRONTEND_ALIAS>`（前端别名/跳转域名）、`<APP_DIR>`（版本目录根）、`<APP_STATE_DIR>`（运行状态目录）、`<ENV_FILE>`（环境文件）、`<APP_USER>` / `<DEPLOY_USER>`（运行用户 / 部署用户）、`<DEPLOY_HOME>`（部署用户主目录）、`<DEPLOY_BIN>`（发布命令安装目录）、`<VERCEL_TEAM>/<VERCEL_PROJECT>`。实际取值只在服务器与 Vercel 控制台内维护，不写入本仓库。
 
 ## 1. 拓扑
 
@@ -18,21 +18,21 @@ GitHub 0verL1nk/PaperSage-App (main)
   │                          stop ─► migrate ─► switch current ─► start ─► loopback /health 校验
   └─ 前端 ───────────► Vercel 自动构建（根目录 frontend，ignoreCommand 跳过无前端变更）
 
-用户 ─► Cloudflare ─► api-papersage.overlink.top ─► Caddy（TLS/SSE）─► 127.0.0.1:5478
+用户 ─► Cloudflare ─► <API_DOMAIN> ─► Caddy（TLS/SSE）─► 127.0.0.1:5478
                                      │                              papersage.service（非 root）
                                      └─ 主库 / 迁移直连 / R2 / 模型 / 邮件凭据在 <ENV_FILE>
 
-用户 ─► https://papersage.overlink.top（307）─► https://paper.overlink.top（Vercel 生产）
+用户 ─► https://<FRONTEND_ALIAS>（307）─► https://<FRONTEND_DOMAIN>（Vercel 生产）
 ```
 
 ## 2. 组件与位置
 
 | 组件 | 位置 | 说明 |
 |---|---|---|
-| 前端 | Vercel 项目 `<VERCEL_TEAM>/<VERCEL_PROJECT>` | 生产别名 `paper.overlink.top`（`papersage.overlink.top` 307 跳转）；构建根目录 `frontend/`，`frontend/vercel.json` 定义 install/build/输出与 SPA rewrite |
+| 前端 | Vercel 项目 `<VERCEL_TEAM>/<VERCEL_PROJECT>` | 生产别名 `<FRONTEND_DOMAIN>`（`<FRONTEND_ALIAS>` 307 跳转）；构建根目录 `frontend/`，`frontend/vercel.json` 定义 install/build/输出与 SPA rewrite |
 | API 二进制 | 服务器 `<APP_DIR>/releases/vX.Y.Z/` | root-owned 不可变版本目录（`papersage`、`migrate`、`manifest.json`）；`<APP_DIR>/current` 符号链接指向运行版本 |
 | API 进程 | systemd `papersage.service` | 以 `<APP_USER>` 用户运行；`WorkingDirectory=<APP_STATE_DIR>`；环境文件 `<ENV_FILE>`（root-only） |
-| 反向代理 | Caddy + `deploy/Caddyfile` | `api-papersage.overlink.top` 终止 TLS、刷新 SSE；仅回源 `127.0.0.1:5478` |
+| 反向代理 | Caddy + `deploy/Caddyfile` | `<API_DOMAIN>` 终止 TLS、刷新 SSE；仅回源 `127.0.0.1:5478` |
 | 源站防护 | `papersage-cloudflare-guard.service` | nftables 仅放行 Cloudflare 网段到 80/443；Caddy 依赖该表启动 |
 | 发布入口 | `<DEPLOY_BIN>/papersage-release` | 从 `deploy/papersage-release.py` 安装；只允许 `activate/rollback`，不接受任意 shell |
 | 部署用户 | `<DEPLOY_USER>`（非 root） | 只能写 `<DEPLOY_HOME>/uploads/`，通过 sudoers 调发布命令 |
@@ -69,17 +69,17 @@ git push origin vX.Y.Z
 
 ```bash
 # 1) 部署任务日志应出现：
-#    active: v0.1.17 <完整 commit>
+#    active: vX.Y.Z <完整 commit>
 gh run view <release-run-id> --repo 0verL1nk/PaperSage-App --log | grep "active:"
 
 # 2) 公网只返回健康状态（按设计不暴露版本/提交）
-curl -s https://api-papersage.overlink.top/health          # {"status":"healthy"}
+curl -s https://<API_DOMAIN>/health          # {"status":"healthy"}
 
 # 3) 鉴权边界仍在
-curl -s -o /dev/null -w '%{http_code}\n' https://api-papersage.overlink.top/api/v1/projects   # 401
+curl -s -o /dev/null -w '%{http_code}\n' https://<API_DOMAIN>/api/v1/projects   # 401
 
 # 4) 前端可用
-curl -s -o /dev/null -w '%{http_code}\n' -L https://paper.overlink.top/
+curl -s -o /dev/null -w '%{http_code}\n' -L https://<FRONTEND_DOMAIN>/
 ```
 
 版本/提交只能通过服务器本机回环 `/health` 或部署日志核对；公网 `/health` 不返回版本信息是刻意设计。
@@ -112,14 +112,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -L https://paper.overlink.top/
 | 迁移失败导致激活回滚 | 查看 `journalctl -u papersage-migrate-*`；迁移在独立 systemd 单元中运行，有运行时限；不要执行 down 迁移掩盖差异 |
 | 桌面自动更新下载失败 | Windows 桌面端问题，见桌面工作流/Release 资产；与 API 部署无关 |
 
-## 7. 当前状态（2026-11-22）
+## 7. 现网状态
 
-- `main`：以 `git log -1 origin/main` 为准（随开发前进，不在本文写死）；线上后端对应的仍是 `cce81e1`（v0.1.17）。
-- 服务端：**v0.1.17 @ `cce81e1`**。部署日志：`active: v0.1.17 cce81e1b321821d3117f8100ca0fb43cde4e71fc`（2026-11-22 08:55:28 UTC）；激活时执行了 0022（来源版本）与 0023（科研组织产物）迁移。
-- 数据库：`schema_migrations` 版本 **23**；`research_artifacts`、`research_artifact_revisions`、`research_artifact_dependencies` 三表已存在（0 行）。发布时无需再补跑 0022/0023。
-- 生产核对：`/health` 200 `{"status":"healthy"}`；匿名 `/api/v1/projects` 401；前端 `paper.overlink.top` 200。
-- 科研组织产物路由已上线，正确路径是 `GET|POST /api/v1/projects/{project_id}/research-artifacts`；修订/采用/拒绝在 `/api/v1/research-artifacts/{artifact_id}/revisions`、`/adopt`、`/reject`，删除是 `DELETE /api/v1/research-artifacts/{artifact_id}`（无尾段）。**没有**裸 `GET /api/v1/research-artifacts`。
-  - 探测时区分两种 404：`{"detail":"Not Found"}` 是路由不存在（路径拼错时出现）；带 token 请求正确路径返回信封 `{"code":404,"data":null,"info":"项目 not found"}`，说明路由存在、只是项目不存在。
-- 前端：Vercel 跟随 `main` 自动构建；后端版本以部署日志 `active:` 为准，两者仅在 Release 后对齐。
-- CLSI：未部署。历史状态：`papersage-clsi` 镜像曾构建成功且从未参与生产请求；该镜像与随仓 CLSI/render 服务已于 2026-11-26 删除（PR #109），**现在不再构建**。
-- 学校论文模板（thesis 模板）仍是手工导入/桌面端使用；浏览器 WASM 资源目录覆盖不足时需走桌面端完整 TeX 资源。
+线上版本、提交与生产核对记录只在私有运维环境维护，不在公开仓库记录；核对方法与判据见第 3 节。

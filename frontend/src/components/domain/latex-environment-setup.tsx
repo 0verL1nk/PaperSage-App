@@ -162,7 +162,7 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
     } catch (cause) {
       if (!(cause instanceof DOMException && cause.name === 'AbortError')) {
         const message = cause instanceof Error ? cause.message : '资源下载失败；已下载分块已保留，再试会续传'
-        setError(cause instanceof TypeError ? `网络请求失败。请检查资源源的 CORS 与 HTTP Range 配置；${message}` : message)
+        setError(cause instanceof TypeError ? '资源下载失败，请检查网络后重试。' : message)
       }
       setCurrent(null)
       await refreshEngine()
@@ -347,8 +347,8 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
             </div>
             <dl className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
               <div>
-                <dt className="text-muted-foreground">当前版本</dt>
-                <dd className="mt-0.5 break-all font-medium">{profileError ?? resourceProfile ?? '读取中…'}</dd>
+                <dt className="text-muted-foreground">编译引擎</dt>
+                <dd className="mt-0.5 break-all font-medium">{profileError ?? engineProfile.name}</dd>
               </div>
               <div>
                 <dt className="text-muted-foreground">宏包 / 字体</dt>
@@ -488,7 +488,7 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
         open={isPruneConfirmOpen}
         onOpenChange={setIsPruneConfirmOpen}
         title="清理其他版本的 TeX Live 缓存？"
-        description={`将删除旧版本 profile 的 ${otherProfileEntries} 个缓存文件（${formatBytes(otherProfileBytes)}），当前版本的缓存保留。再次编译旧版本文档时会重新下载。`}
+        description={`将删除旧版本缓存的 ${otherProfileEntries} 个文件（${formatBytes(otherProfileBytes)}），当前版本保留；再次编译旧版本文档时会重新下载。`}
         confirmText="确认清理"
         cancelText="保留"
         variant="destructive"
@@ -499,7 +499,7 @@ export function LatexEnvironmentSetup({ open, onOpenChange, disabled = false }: 
         open={isClearConfirmOpen}
         onOpenChange={setIsClearConfirmOpen}
         title="清理浏览器 LaTeX 缓存？"
-        description="这会删除已下载引擎、宏包、字体、格式文件和未完成的下载分块。项目源码与已上传的 PDF 不受影响；再次编译时会重新下载需要的资源。"
+        description="会删除已下载的引擎、宏包、字体与未完成的分块；项目源码与已上传 PDF 不受影响，再次编译时重新下载。"
         confirmText="确认清理全部"
         cancelText="保留缓存"
         variant="destructive"

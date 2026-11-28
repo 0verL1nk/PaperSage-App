@@ -72,7 +72,7 @@ SUPERUSER_EMAILS=you@example.com   # 管理员邮箱，逗号分隔（可选；�
 生产凭据轮换按“新旧并行—切换部署—验证—撤销旧值”执行，避免邮件发送在切换中断：
 
 1. 在 Resend 创建新的 `sending_access` key；如发信域已验证，限制到 PaperSage 发信域。新 key 仅在创建时显示一次，立即安全保存，不写入仓库、命令历史、日志或聊天内容。
-2. 在 Vercel 的 `papersage-api` 项目中，只更新确实使用该凭据的环境（至少 Production；Preview 仅在确实使用生产发信域时更新），变量名为 `RESEND_API_KEY`。不要把生产 key 放入浏览器可见变量或 Preview 的不相关环境。
+2. 在 Vercel 的 API 项目中，只更新确实使用该凭据的环境（至少 Production；Preview 仅在确实使用生产发信域时更新），变量名为 `RESEND_API_KEY`。不要把生产 key 放入浏览器可见变量或 Preview 的不相关环境。
 3. 重新部署后，先确认部署成功，再用已授权的测试邮箱走一遍验证/重置邮件链路，并检查 Resend 发送事件和应用日志；`delivered` 只表示收件方邮件服务器已接受。
 4. 确认新部署发信正常后，在 Resend 撤销旧 key；旧部署仍使用旧环境快照，必要时一并重部署。
 5. 不把 key、完整环境变量导出文件或含 token 的邮件链接提交到 Git；本地临时材料放在忽略目录并在验证后删除。

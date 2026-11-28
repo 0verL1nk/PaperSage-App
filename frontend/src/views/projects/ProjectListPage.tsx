@@ -74,7 +74,7 @@ export function ProjectListPage() {
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
         <div className="space-y-2">
           <h1 className="text-3xl font-semibold tracking-tight text-foreground">所有项目</h1>
-          <p className="text-sm text-muted-foreground">管理并组织您的研究文献与分析工作区</p>
+          <p className="text-sm text-muted-foreground">管理你的论文项目、资料与写作进度</p>
         </div>
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" asChild className="min-h-11 px-3 text-muted-foreground hover:text-foreground">
@@ -129,7 +129,7 @@ export function ProjectListPage() {
           </div>
           <h3 className="mb-2 text-lg font-medium text-foreground">暂无项目</h3>
           <p className="mb-8 max-w-[280px] text-sm text-muted-foreground leading-relaxed">
-            您还没有创建任何项目，新建一个项目开始您的研究之旅。
+            还没有项目。新建一个，从选题开始整理。
           </p>
           <Button variant="default" onClick={() => setIsCreateDialogOpen(true)} className="min-h-11">
             <Plus className="mr-2 h-4 w-4" />

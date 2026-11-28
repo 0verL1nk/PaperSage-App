@@ -28,8 +28,8 @@ test.describe('Auth flow (real backend)', () => {
     await page.goto('/auth')
     // 登录页默认「验证码登录」，密码表单需要先切到对应面板。
     await page.getByRole('button', { name: '密码登录' }).click()
-    await expect(page.getByPlaceholder('请输入您的账号')).toBeVisible()
-    await page.getByPlaceholder('请输入您的账号').fill(e2eEnv('E2E_USER', 'e2euser'))
+    await expect(page.getByPlaceholder('请输入账号或邮箱')).toBeVisible()
+    await page.getByPlaceholder('请输入账号或邮箱').fill(e2eEnv('E2E_USER', 'e2euser'))
     await page.getByPlaceholder('••••••••').fill('wrong-password-1234')
     await page.getByRole('button', { name: '立即登录' }).click()
     // Should NOT navigate away
@@ -70,7 +70,7 @@ test.describe('Auth flow (real backend)', () => {
 
     await page.getByRole('tab', { name: '账号登录' }).click()
     await page.getByRole('button', { name: '密码登录' }).click()
-    await page.getByPlaceholder('请输入您的账号').fill(email)
+    await page.getByPlaceholder('请输入账号或邮箱').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
     await page.getByRole('button', { name: '立即登录' }).click()
     await expect(page.getByText(/verify your email|验证/i).first()).toBeVisible({ timeout: 5000 })

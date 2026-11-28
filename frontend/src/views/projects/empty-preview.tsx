@@ -8,7 +8,7 @@ export function EmptyPreview({ onCompile, disabled }: { onCompile: () => void; d
   return (
     <StateBlock
       title="还没有生成预览"
-      description="点下面的按钮编译当前项目。第一次编译需要在浏览器内准备 LaTeX 环境，并按需下载宏包与字体，通常需要 1–3 分钟；完成后再编译通常几秒即可。"
+      description="点下面的按钮编译当前项目。第一次编译需要先在浏览器里准备 LaTeX 环境，约 1–3 分钟；之后通常几秒即可。"
       icon={FileText}
       className="mx-auto min-h-[480px] w-full max-w-[420px] justify-center"
       action={
