@@ -116,8 +116,17 @@ func (s *Service) execute(runID store.UUID) {
 	defer s.executors.Delete(runID)
 
 	now := time.Now().UTC()
-	_ = s.DB.Model(&store.ReviewRun{}).Where("id = ? AND status = ?", runID, store.ReviewRunQueued).
-		Updates(map[string]any{"status": store.ReviewRunRunning, "started_at": now}).Error
+	claim := s.DB.Model(&store.ReviewRun{}).Where("id = ? AND status = ?", runID, store.ReviewRunQueued).
+		Updates(map[string]any{"status": store.ReviewRunRunning, "started_at": now})
+	if claim.Error != nil {
+		slog.Warn("review run claim failed", "run_id", runID.String(), "err", claim.Error)
+		return
+	}
+	// 一个任务只允许一个执行器：重复 execute（或已有执行器）时直接退出，
+	// 避免第二个执行器把仍在运行的单元按「未完成」收敛成失败。
+	if claim.RowsAffected == 0 {
+		return
+	}
 
 	pc, err := s.loadProjectContext(ctx, run.UserID, run.ProjectID)
 	if err != nil {
