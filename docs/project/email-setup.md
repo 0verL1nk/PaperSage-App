@@ -48,7 +48,7 @@ APP_URL=http://localhost:5173      # 或线上地址
 EMAIL_PROVIDER=resend
 RESEND_API_KEY=re_xxxxxxxx         # 你的 key
 RESEND_DOMAIN=mail.example.com     # 已验证的发信域
-SUPERUSER_EMAILS=you@example.com   # 管理员邮箱（可选）
+SUPERUSER_EMAILS=you@example.com   # 管理员邮箱，逗号分隔（可选；大小写不敏感，改完重启即生效，无需退出重登）
 ```
 
 ### 5. 重启后端并端到端验证
