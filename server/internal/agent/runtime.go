@@ -36,6 +36,29 @@ const (
 // AgentKeyMain 主对话 agent 的标识；子 agent 用各自的 key 挂子 Run。
 const AgentKeyMain = "main"
 
+// FeatureKind 是发起 Run 的产品入口，由入口显式传值、服务端枚举校验；
+// 绝不从用户输入猜测「这是润色还是大纲」（项目红线：严禁伪智能）。
+// 新增一键入口时在同一 PR 注册新枚举值。
+const (
+	FeatureKindChat               = "chat"
+	FeatureKindCrossChapterReview = "cross_chapter_review"
+)
+
+var validFeatureKinds = map[string]bool{
+	FeatureKindChat:               true,
+	FeatureKindCrossChapterReview: true,
+}
+
+func validFeatureKind(v string) bool { return validFeatureKinds[v] }
+
+// normalizeFeatureKind：缺省 chat；非法值由 HTTP 层拒绝，这里只做兜底。
+func normalizeFeatureKind(v string) string {
+	if validFeatureKinds[v] {
+		return v
+	}
+	return FeatureKindChat
+}
+
 // ── Turn / Run ──────────────────────────────────────────────────────
 
 var (
@@ -111,7 +134,7 @@ func (s *Service) lookupRootRun(ctx context.Context, convID, userID store.UUID, 
 }
 
 // createRootRun commits all durable submission records before starting any work.
-func (s *Service) createRootRun(ctx context.Context, conv store.AgentConversation, userID store.UUID, key, content string, expected *int64) (*rootRunResult, error) {
+func (s *Service) createRootRun(ctx context.Context, conv store.AgentConversation, userID store.UUID, key, content, featureKind string, expected *int64) (*rootRunResult, error) {
 	if existing, err := s.replayRootRun(ctx, conv.ID, userID, key, content); !errors.Is(err, gorm.ErrRecordNotFound) {
 		return existing, err
 	}
@@ -153,7 +176,7 @@ func (s *Service) createRootRun(ctx context.Context, conv store.AgentConversatio
 		if err != nil {
 			return err
 		}
-		run, err := s.createRun(ctx, tx, conv.ID, result.turn.ID, AgentKeyMain, resolved.Source, resolved.Model, systemPromptVersion)
+		run, err := s.createRun(ctx, tx, conv.ID, result.turn.ID, AgentKeyMain, featureKind, resolved.Source, resolved.Model, systemPromptVersion)
 		if err != nil {
 			return err
 		}
@@ -195,11 +218,12 @@ func (s *Service) createRootRun(ctx context.Context, conv store.AgentConversatio
 
 // createRun 建一个 Run 并快照模型与提示版本。
 // Run 独立于 HTTP 连接存在：可查询、可取消、可恢复。
-func (s *Service) createRun(ctx context.Context, tx *gorm.DB, convID, turnID store.UUID, agentKey, provider, model, promptVersion string) (*store.AgentRun, error) {
+func (s *Service) createRun(ctx context.Context, tx *gorm.DB, convID, turnID store.UUID, agentKey, featureKind, provider, model, promptVersion string) (*store.AgentRun, error) {
 	now := time.Now().UTC()
 	run := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: convID,
 		AgentKey: agentKey, Status: RunRunning,
+		FeatureKind:   normalizeFeatureKind(featureKind),
 		ModelProvider: provider, ModelName: model, PromptVersion: promptVersion,
 		StartedAt: &now,
 	}

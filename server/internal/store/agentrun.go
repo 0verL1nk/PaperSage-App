@@ -54,10 +54,8 @@ type AgentRun struct {
 	ModelProvider   string         `gorm:"column:model_provider;size:64;not null"`
 	ModelName       string         `gorm:"column:model_name;size:128;not null"`
 	PromptVersion   string         `gorm:"column:prompt_version;size:32;not null"`
+	FeatureKind     string         `gorm:"column:feature_kind;size:32;not null;default:chat"`
 	Temperature     *float64       `gorm:"column:temperature;type:decimal(4,2)"`
-	InputTokens     int            `gorm:"column:input_tokens;not null;default:0"`
-	OutputTokens    int            `gorm:"column:output_tokens;not null;default:0"`
-	LatencyMs       int64          `gorm:"column:latency_ms;not null;default:0"`
 	LastSequence    int64          `gorm:"column:last_sequence;not null;default:0"`
 	ErrorJSON       datatypes.JSON `gorm:"column:error_json"`
 	StartedAt       *time.Time     `gorm:"column:started_at;index:ix_runs_conversation_started,priority:2"`

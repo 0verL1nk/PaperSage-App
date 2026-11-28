@@ -15,6 +15,7 @@ import (
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
 	"github.com/0verL1nk/GraduateProject/server/internal/agent/modelregistry"
+	"github.com/0verL1nk/GraduateProject/server/internal/aiusage"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/compilediag"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
@@ -144,6 +145,9 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 
 	agentSvc := agent.NewService(db, s3, latexFiles, cfg, ragStore)
 	agentSvc.Norms = normSvc
+	// 模型调用计量：管理端健康看板与个人用量都读 ai_model_calls。
+	aiUsageSvc := aiusage.NewService(db, cfg.AIUsageRetentionDays, cfg.AIUsageTimezone)
+	agentSvc.Usage = aiUsageSvc
 
 	// 检查域：确定性结构入口 + 范围化检查引擎（单元 Run 复用 agent 底座）。
 	reviewSvc := review.NewService(db, latexFiles)
@@ -187,6 +191,7 @@ func Build(ctx context.Context, cfg *config.Settings) (*App, error) {
 	sources.Mount(v1, authSvc.AuthRequired(), sourcesSvc)
 	norms.Mount(v1, authSvc.AuthRequired(), normSvc)
 	compilediag.Mount(v1, authSvc, compilediag.NewService(db, cfg.CompileDiagnosticRetentionDays))
+	aiusage.Mount(v1, authSvc, aiUsageSvc)
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	review.Mount(v1, authSvc.AuthRequired(), reviewSvc)
 

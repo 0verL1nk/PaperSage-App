@@ -51,7 +51,8 @@ func (s *Service) createChildRun(ctx context.Context, rc runContext, agentKey st
 	child := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: rc.ConversationID,
 		ParentRunID: &parent, AgentKey: agentKey,
-		Status: RunRunning, StartedAt: &now,
+		FeatureKind: rc.FeatureKind,
+		Status:      RunRunning, StartedAt: &now,
 	}
 	if err := s.DB.WithContext(ctx).Create(&child).Error; err != nil {
 		return nil, err
@@ -151,6 +152,7 @@ type runContext struct {
 	ProjectID        store.UUID
 	UserID           store.UUID
 	Content          string
+	FeatureKind      string
 	Model            *ResolvedModel
 	finalizeDeadline time.Time
 	// Review 非空时按检查单元执行：只读工具集、锁定的单元上下文、不加载聊天历史。
@@ -314,6 +316,15 @@ func (s *Service) ExecuteRun(ctx context.Context, rc runContext) {
 		fail("模型初始化失败")
 		return
 	}
+	// 唯一埋点：主 agent、子 agent、压缩/摘要共用这一实例，全部计入同一 Run。
+	chatModel = wrapUsage(chatModel, usageMeta{
+		recorder: s.Usage,
+		userID:   rc.UserID, projectID: rc.ProjectID, runID: rc.RunID,
+		featureKind:    normalizeFeatureKind(rc.FeatureKind),
+		provider:       rc.Model.Name,
+		providerSource: rc.Model.Source,
+		model:          rc.Model.Model,
+	})
 
 	// 工具失败要能被状态机与转录识别；错误文本只给模型看，不能当判据。
 	toolFailures := &toolFailureTracker{}

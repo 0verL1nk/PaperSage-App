@@ -18,10 +18,10 @@ CREATE TABLE `agent_runs` (
   `model_provider` varchar(64) NOT NULL DEFAULT '',
   `model_name` varchar(128) NOT NULL DEFAULT '',
   `prompt_version` varchar(32) NOT NULL DEFAULT '',
+  -- 发起 Run 的产品入口（chat / cross_chapter_review）：由入口显式传值，
+  -- 不从用户输入猜测；模型调用计量见 ai_model_calls。
+  `feature_kind` varchar(32) NOT NULL DEFAULT 'chat',
   `temperature` decimal(4,2) DEFAULT NULL,
-  `input_tokens` int NOT NULL DEFAULT '0',
-  `output_tokens` int NOT NULL DEFAULT '0',
-  `latency_ms` bigint NOT NULL DEFAULT '0',
   `last_sequence` bigint NOT NULL DEFAULT '0',
   `error_json` json DEFAULT NULL,
   `started_at` datetime(6) DEFAULT NULL,
