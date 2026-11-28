@@ -136,7 +136,7 @@ export function ReviewPage() {
 
   return (
     <div className="h-full overflow-y-auto overscroll-contain">
-      <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-7 lg:p-9">
+      <div className="mx-auto max-w-5xl space-y-3 p-4 sm:space-y-6 sm:p-7 lg:p-9">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <Badge variant="outline" className="mb-3 gap-1.5 rounded-full border-primary/20 bg-primary/5 px-3 py-1 text-primary">

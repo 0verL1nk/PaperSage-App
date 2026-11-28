@@ -102,6 +102,8 @@ vi.mock('react-resizable-panels', () => ({
   usePanelRef: () => ({ current: { expand: vi.fn() } }),
 }))
 vi.mock('../ai-panel', () => ({ AiPanel: () => <div data-testid="ai-panel" /> }))
+// AI 面板顶部的已采用研究概要需要 QueryClient；本用例只测面板切换。
+vi.mock('@/components/domain/AdoptedResearchSummary', () => ({ AdoptedResearchSummary: () => null }))
 vi.mock('../writing-file-tree', () => ({
   WritingFileTree: () => (
     <div data-testid="file-tree">
@@ -159,53 +161,42 @@ describe('WritingPage update preparation', () => {
   })
 })
 
-describe('WritingPage mobile sidebar focus', () => {
+describe('WritingPage mobile panes', () => {
   beforeEach(() => {
     window.innerWidth = 390
   })
 
-  it('moves focus into the panel, closes on Escape, and returns focus to the trigger', async () => {
+  it('starts on the editor and switches panes from the bottom bar', async () => {
     const user = userEvent.setup()
     render(<WritingPage />)
 
-    const trigger = screen.getByTestId('writing-tab-files')
-    await user.click(trigger)
+    expect(screen.getByTestId('writing-pane-editor')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByTestId('file-tree')).not.toBeInTheDocument()
 
-    expect(screen.getByRole('dialog', { name: '文件侧栏' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '关闭侧栏' })).toHaveFocus()
+    await user.click(screen.getByTestId('writing-pane-files'))
+    expect(screen.getByTestId('writing-pane-files')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('file-tree')).toBeInTheDocument()
 
-    await user.keyboard('{Escape}')
+    await user.click(screen.getByTestId('writing-pane-ai'))
+    expect(screen.getByTestId('writing-pane-ai')).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByTestId('ai-panel')).toBeInTheDocument()
 
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(trigger).toHaveFocus()
+    await user.click(screen.getByTestId('writing-pane-preview'))
+    expect(screen.getByTestId('writing-pane-preview')).toHaveAttribute('aria-selected', 'true')
   })
 
-  it('traps Tab and Shift+Tab inside the panel', async () => {
+  it('moves between panes with the arrow keys', async () => {
     const user = userEvent.setup()
     render(<WritingPage />)
-    await user.click(screen.getByTestId('writing-tab-files'))
 
-    const close = screen.getByRole('button', { name: '关闭侧栏' })
-    const last = screen.getByLabelText('重命名')
-    expect(close).toHaveFocus()
+    const editor = screen.getByTestId('writing-pane-editor')
+    editor.focus()
+    await user.keyboard('{ArrowRight}')
+    expect(screen.getByTestId('writing-pane-preview')).toHaveAttribute('aria-selected', 'true')
 
-    last.focus()
-    await user.tab()
-    expect(close).toHaveFocus()
-
-    await user.tab({ shift: true })
-    expect(last).toHaveFocus()
-  })
-
-  it('does not close the panel when Escape is handled by an inline editor', async () => {
-    const user = userEvent.setup()
-    render(<WritingPage />)
-    await user.click(screen.getByTestId('writing-tab-files'))
-
-    screen.getByLabelText('重命名').focus()
-    await user.keyboard('{Escape}')
-
-    expect(screen.getByRole('dialog', { name: '文件侧栏' })).toBeInTheDocument()
+    editor.focus()
+    await user.keyboard('{ArrowLeft}')
+    expect(screen.getByTestId('writing-pane-files')).toHaveAttribute('aria-selected', 'true')
   })
 })
 

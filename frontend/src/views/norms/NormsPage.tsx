@@ -65,7 +65,7 @@ export function NormsPage() {
 
 function GuestNormsGate() {
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-3 sm:p-5">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-3 p-4 sm:gap-4 sm:p-5">
       <NormsPageHeader
         action={
           <Button className="min-h-11" disabled title="登录后可新建规范包">
@@ -197,7 +197,7 @@ function NormsLibrary() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 overflow-y-auto p-3 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 overflow-y-auto p-4 sm:gap-4 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
       <NormsPageHeader
         action={
           <Button className="min-h-11" onClick={() => setPackDraft({ key: newPackKey(), name: '', scenario: 'undergraduate_thesis' })}>
@@ -212,8 +212,8 @@ function NormsLibrary() {
         </p>
       )}
 
-      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <Card className="max-h-64 overflow-y-auto rounded-2xl border-border/50 shadow-sm lg:max-h-none lg:min-h-0">
+      <div className="grid gap-3 sm:gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <Card className="max-h-40 overflow-y-auto rounded-2xl border-border/50 shadow-sm sm:max-h-64 lg:max-h-none lg:min-h-0">
           <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex items-center gap-2 text-sm"><BookMarked className="size-4 text-primary" />规范包</CardTitle>
           </CardHeader>

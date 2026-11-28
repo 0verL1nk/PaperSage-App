@@ -96,7 +96,7 @@ export function PreparePage() {
   const summary = briefSummary(state.brief)
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-3 sm:p-5 lg:grid lg:gap-4 lg:grid-cols-[minmax(250px,0.78fr)_minmax(0,1.8fr)] lg:overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden p-4 sm:p-5 lg:grid lg:gap-4 lg:grid-cols-[minmax(250px,0.78fr)_minmax(0,1.8fr)] lg:overflow-hidden">
       <div role="tablist" aria-label="研究准备视图" className="flex flex-none gap-1 rounded-xl border border-border/50 bg-card p-1 lg:hidden">
         <button
           type="button"
@@ -104,7 +104,7 @@ export function PreparePage() {
           aria-selected={mobileView === 'chat'}
           onClick={() => setMobileView('chat')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
+            'flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
             mobileView === 'chat' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground',
           )}
         >
@@ -116,7 +116,7 @@ export function PreparePage() {
           aria-selected={mobileView === 'brief'}
           onClick={() => setMobileView('brief')}
           className={cn(
-            'flex flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
+            'flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm transition-colors',
             mobileView === 'brief' ? 'bg-primary/10 font-medium text-primary' : 'text-muted-foreground',
           )}
         >
@@ -124,12 +124,12 @@ export function PreparePage() {
         </button>
       </div>
       <aside className={cn(
-        'order-2 min-w-0 space-y-4 lg:order-1 lg:block lg:overflow-y-auto lg:pr-1 lg:scroll-visible',
+        'order-2 min-w-0 space-y-3 lg:order-1 lg:block lg:space-y-4 lg:overflow-y-auto lg:pr-1 lg:scroll-visible',
         mobileView === 'brief' ? 'flex-1 overflow-y-auto' : 'hidden',
       )}>
         <div className="px-1 py-1">
           <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">写作准备</p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">和研究顾问一起理清思路</h1>
+          <h1 className="mt-2 text-xl font-semibold tracking-tight sm:text-2xl">和研究顾问一起理清思路</h1>
           <p className="mt-2 text-sm leading-6 text-muted-foreground">直接说你的想法、困惑或手头材料。助手会循序追问、整理成研究蓝图；确认后才会保存。</p>
         </div>
 
