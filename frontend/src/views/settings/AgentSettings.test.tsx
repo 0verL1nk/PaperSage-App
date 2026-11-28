@@ -13,6 +13,9 @@ vi.mock('./model-selector', () => ({
   ModelSelector: ({ value, onChange, disabled }: { value: { providerId: string; model: string }; onChange: (s: { providerId: string; model: string }) => void; disabled?: boolean }) => <button disabled={disabled} onClick={() => onChange({ providerId: 'p', model: 'B' })}>{value.model || 'none'}</button>,
 }))
 
+const retrieval = vi.hoisted(() => ({ mode: null as 'semantic' | 'keyword' | null }))
+vi.mock('@/hooks/use-retrieval-mode', () => ({ useRetrievalMode: () => retrieval.mode }))
+
 const settings: AllSettings = {
   ui: { theme: 'system', language: 'zh-CN', sidebar_collapsed: false },
   editor: { font_size: 14, tab_size: 2, auto_save: true, auto_save_interval: 30, word_wrap: true },
@@ -29,6 +32,19 @@ beforeEach(() => {
   useSettingsStore.setState({ settings: structuredClone(settings), error: null, patchCategory: originalPatch })
   vi.mocked(updateCategory).mockReset()
   vi.mocked(toast.error).mockClear()
+  retrieval.mode = null
+})
+
+it('未配置语义检索模型时在设置页说明检索按关键词匹配', () => {
+  retrieval.mode = 'keyword'
+  render(<AgentSettings />)
+  expect(screen.getByText(/当前未配置语义检索模型/)).toBeInTheDocument()
+})
+
+it('有语义检索模型时不显示检索降级提示', () => {
+  retrieval.mode = 'semantic'
+  render(<AgentSettings />)
+  expect(screen.queryByText(/当前未配置语义检索模型/)).not.toBeInTheDocument()
 })
 
 it('shows an error rather than an empty provider editor when settings could not load', () => {

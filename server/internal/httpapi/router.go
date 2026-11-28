@@ -22,12 +22,25 @@ const APIVersion = "/api/v1"
 type API struct {
 	*gin.Engine
 	latexResourceProfile string
+	retrievalMode        string
 }
+
+// 检索模式：未配置嵌入模型时资料检索退化为关键词匹配，界面据此如实告知用户。
+const (
+	RetrievalSemantic = "semantic"
+	RetrievalKeyword  = "keyword"
+)
 
 // SetLatexResourceProfile publishes the embedded profile id on /health so the
 // release probe can check resources without parsing the environment file.
 func (a *API) SetLatexResourceProfile(id string) {
 	a.latexResourceProfile = id
+}
+
+// SetRetrievalMode publishes whether retrieval has a semantic embedding model
+// (semantic) or falls back to keyword matching (keyword).
+func (a *API) SetRetrievalMode(mode string) {
+	a.retrievalMode = mode
 }
 
 // New builds the API engine.
@@ -111,10 +124,11 @@ type healthResponse struct {
 	BuildTime            string `json:"buildTime,omitempty"`
 	GoVersion            string `json:"goVersion,omitempty"`
 	LatexResourceProfile string `json:"latexResourceProfile,omitempty"`
+	RetrievalMode        string `json:"retrievalMode,omitempty"`
 }
 
 func (a *API) healthHandler(c *gin.Context) {
-	resp := healthResponse{Status: "healthy", LatexResourceProfile: a.latexResourceProfile}
+	resp := healthResponse{Status: "healthy", LatexResourceProfile: a.latexResourceProfile, RetrievalMode: a.retrievalMode}
 	// 构建元数据只给本机直连的发布校验；经 Caddy 暴露到公网时不返回。
 	if !isProxiedRequest(c) {
 		resp.Version = buildinfo.Version

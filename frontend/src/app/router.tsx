@@ -33,7 +33,6 @@ import { PreparePage } from '@/views/projects/PreparePage'
 import { ReviewPage } from '@/views/projects/ReviewPage'
 import { UploadingPage } from '@/views/uploading/UploadingPage'
 import { TrashPage } from '@/views/trash/TrashPage'
-import { UnderConstruction } from '@/components/shared/UnderConstruction'
 import { SettingsPage } from '@/views/settings/SettingsPage'
 
 export type AppRouterContext = {
@@ -204,20 +203,6 @@ const appLayoutRoute = createRoute({
   },
 })
 
-// /app/documents route - under construction
-const documentsRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: '/app/documents',
-  component: function Documents() {
-    return (
-      <UnderConstruction
-        title="文档"
-        description="参考文献管理即将上线"
-      />
-    )
-  },
-})
-
 // /app/projects route
 const projectsRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
@@ -337,7 +322,7 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   authRoute,
   guestRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminLayoutRoute.addChildren([adminSettingsRoute, adminCompileDiagnosticsRoute])]),
+  appLayoutRoute.addChildren([projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminLayoutRoute.addChildren([adminSettingsRoute, adminCompileDiagnosticsRoute])]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectPrepareRoute,
@@ -373,7 +358,7 @@ export function AppRouterProvider({ queryClient }: AppRouterContext) {
 export function getPlannedRouteGroups() {
   return {
     public: ['/', '/auth'],
-    main: ['/app/documents', '/app/norms', '/app/trash', '/app/profile', '/app/settings'],
+    main: ['/app/norms', '/app/trash', '/app/profile', '/app/settings'],
     project: [
       '/project/:projectId',
       '/project/:projectId/prepare',

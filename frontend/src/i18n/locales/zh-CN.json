@@ -8,7 +8,6 @@
     "projects": "所有项目",
     "trash": "回收站",
     "settings": "设置",
-    "documents": "文档",
     "norms": "规范库"
   },
   "layout": {
@@ -132,6 +131,7 @@
     "testFailed": "连接失败",
     "serverFallbackConfigured": "默认模型：{{model}}",
     "serverFallbackMissing": "服务端也未配置默认模型。",
+    "retrievalKeywordNotice": "当前未配置语义检索模型，资料检索按关键词匹配运行。查找资料时按字面关键词命中，可能漏掉换了说法的内容。",
     "models": "模型",
     "active": "当前使用",
     "noModel": "未选择模型",

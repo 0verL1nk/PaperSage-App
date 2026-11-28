@@ -22,6 +22,9 @@ const mocks = vi.hoisted(() => ({
   reportsState: { data: [] as ResearchArtifact[], isPending: false, error: null as Error | null },
 }))
 
+const retrieval = vi.hoisted(() => ({ mode: null as 'semantic' | 'keyword' | null }))
+vi.mock('@/hooks/use-retrieval-mode', () => ({ useRetrievalMode: () => retrieval.mode }))
+
 vi.mock('@tanstack/react-router', () => ({
   useParams: () => ({ projectId: 'project-1' }),
   Link: ({ children }: { children: ReactNode }) => <a href="#">{children}</a>,
@@ -119,6 +122,19 @@ describe('ReviewPage', () => {
     mocks.reportsState.data = []
     mocks.reportsState.isPending = false
     mocks.reportsState.error = null
+    retrieval.mode = null
+  })
+
+  it('未配置语义检索模型时说明资料检索按关键词匹配', () => {
+    retrieval.mode = 'keyword'
+    render(<ReviewPage />)
+    expect(screen.getByText(/当前未配置语义检索模型/)).toBeInTheDocument()
+  })
+
+  it('有语义检索模型时不显示检索降级提示', () => {
+    retrieval.mode = 'semantic'
+    render(<ReviewPage />)
+    expect(screen.queryByText(/当前未配置语义检索模型/)).not.toBeInTheDocument()
   })
 
   it('separates the deterministic structure checks from the AI review section', () => {

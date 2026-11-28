@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 import { useSettingsStore } from '@/store/settings-store'
 import { useSessionStore } from '@/store'
+import { useRetrievalMode } from '@/hooks/use-retrieval-mode'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -55,6 +56,7 @@ export function AgentSettings() {
   const { t } = useTranslation()
   const { settings, patchCategory, error, fetchSettings } = useSettingsStore()
   const isGuest = useSessionStore((session) => session.isGuest)
+  const retrievalMode = useRetrievalMode()
   const agent = settings?.agent
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editDraft, setEditDraft] = useState<ProviderConfig | null>(null)
@@ -145,6 +147,11 @@ export function AgentSettings() {
 
   return (
     <div className="space-y-4">
+      {retrievalMode === 'keyword' && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/5 p-3 text-sm leading-6 text-muted-foreground">
+          {t('agent.retrievalKeywordNotice')}
+        </div>
+      )}
       {saving && <p className="text-sm text-muted-foreground">{t('agent.savingSettings')}</p>}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">

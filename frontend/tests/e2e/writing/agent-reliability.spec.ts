@@ -262,7 +262,7 @@ test.describe('AI 对话可靠性与体验', () => {
       onCreateRun: (body, attempt) => {
         versions.push(body.expectedThreadVersion)
         if (attempt === 1) {
-          return { status: 409, body: { code: 409, info: '会话已更新', data: { threadVersion: 3 } } }
+          return { status: 409, body: { code: 409, info: '这段对话在另一个页面被修改，请刷新后重试', data: { threadVersion: 3 } } }
         }
         return null
       },
@@ -273,7 +273,7 @@ test.describe('AI 对话可靠性与体验', () => {
     await page.getByPlaceholder('问点什么…').fill('继续')
     await page.getByPlaceholder('问点什么…').press('Enter')
 
-    await expect(page.getByText('会话已更新')).toBeVisible()
+    await expect(page.getByText('这段对话在另一个页面被修改，请刷新后重试')).toBeVisible()
     await page.getByRole('button', { name: /重试/ }).first().click()
 
     await expect(page.getByText('好的')).toBeVisible()

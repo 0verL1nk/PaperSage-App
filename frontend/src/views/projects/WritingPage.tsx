@@ -952,7 +952,7 @@ export function WritingPage() {
     if (isGuest) {
       setCompileHistory([])
       setCompileHistoryTotal(0)
-      setCompileHistoryError('游客模式的编译记录只保留在本次会话中，登录后可查看历史编译')
+      setCompileHistoryError('游客模式的编译记录不会保存，登录后可查看历史编译')
       return
     }
     setIsCompileHistoryLoading(true)

@@ -1,7 +1,6 @@
 import { Link, useLocation, useNavigate } from '@tanstack/react-router'
 import { ShieldCheck,
   BookMarked,
-  FileText,
   Trash2,
   User,
   FolderOpen,
@@ -41,7 +40,6 @@ interface MainLayoutProps {
 
 const mainNavItems = [
   { path: '/app/projects', labelKey: 'nav.projects', icon: FolderOpen },
-  { path: '/app/documents', labelKey: 'nav.documents', icon: FileText },
   { path: '/app/norms', labelKey: 'nav.norms', icon: BookMarked },
   { path: '/app/trash', labelKey: 'nav.trash', icon: Trash2 },
 ]

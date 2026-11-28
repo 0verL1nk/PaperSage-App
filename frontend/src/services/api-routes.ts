@@ -5,6 +5,11 @@
 
 const V1 = '/api/v1'
 
+// --- 服务能力（裸 JSON，不带信封）---
+export const SYSTEM = {
+  health: '/health',
+} as const
+
 // --- Auth ---
 export const AUTH = {
   login: `${V1}/auth/login`,

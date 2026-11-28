@@ -66,6 +66,24 @@ func TestHealthReflectsBuildMetadata(t *testing.T) {
 	assertBody(t, resp, `{"status":"healthy","version":"1.2.3","commit":"0123456789abcdef0123456789abcdef01234567","buildTime":"2026-10-28T00:00:00Z","goVersion":"`+runtime.Version()+`"}`)
 }
 
+// 检索模式是给用户看的能力说明：前端与后端不同源，公网（代理）请求也必须返回。
+func TestHealthReportsRetrievalModeBehindProxy(t *testing.T) {
+	api := New(testLogger())
+	api.SetRetrievalMode(RetrievalKeyword)
+	srv := httptest.NewServer(api)
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequest(http.MethodGet, srv.URL+"/health", nil)
+	require.NoError(t, err)
+	req.Header.Set("X-Forwarded-For", "203.0.113.10")
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
+
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assertBody(t, resp, `{"status":"healthy","retrievalMode":"keyword"}`)
+}
+
 func TestUnknownFrontendPathReturnsJSON404(t *testing.T) {
 	srv := httptest.NewServer(New(testLogger()))
 	t.Cleanup(srv.Close)
