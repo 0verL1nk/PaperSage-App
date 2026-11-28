@@ -69,11 +69,11 @@ export function ProjectListPage() {
   }
 
   return (
-    <div className="p-8 md:p-12 max-w-7xl mx-auto space-y-10 pb-24">
+    <div className="p-4 sm:p-8 md:p-12 max-w-7xl mx-auto space-y-6 md:space-y-10 pb-24">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6">
+      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-semibold tracking-tight text-foreground">所有项目</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">所有项目</h1>
           <p className="text-sm text-muted-foreground">管理你的论文项目、资料与写作进度</p>
         </div>
         <div className="flex items-center gap-3">
@@ -137,7 +137,7 @@ export function ProjectListPage() {
           </Button>
         </div>
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-in fade-in duration-500">
+        <div className="grid gap-3 sm:grid-cols-2 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4 animate-in fade-in duration-500">
           {projects.map((project) => (
             <ProjectCard
               key={project.id}

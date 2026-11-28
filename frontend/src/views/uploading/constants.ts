@@ -14,8 +14,6 @@ export const ACCEPTED_FORMATS_LABEL = 'PDF、DOCX、TXT、MD'
 
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
 
-export const MOBILE_BREAKPOINT = 1024
-
 export const PANEL_SIZES = {
   /** Three-pane layout: folder tree | table + filters | preview */
   folder: 18,

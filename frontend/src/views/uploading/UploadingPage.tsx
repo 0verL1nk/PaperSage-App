@@ -12,7 +12,9 @@ import { useDocuments, useDeleteDocument, useUploadDocument } from '@/services/f
 import { useProjectFolders } from '@/services/folders-api'
 import { base64File, getDesktopService, isDesktop, onDesktopFilesDropped, type DroppedFile } from '@/lib/desktop'
 import type { ProjectDocument } from '@/types/files'
-import { PANEL_SIZES, MOBILE_BREAKPOINT } from './constants'
+import { PANEL_SIZES } from './constants'
+import { useCompactLayout } from '@/hooks/use-compact-layout'
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet'
 import { FolderTree } from './FolderTree'
 import { DataTable } from './DataTable'
 import { FilterBar } from './FilterBar'
@@ -22,19 +24,6 @@ import { DocumentPreviewPanel } from './DocumentPreviewPanel'
 import { MoveDocumentDialog } from './MoveDocumentDialog'
 import { EditRemarkDialog } from './EditRemarkDialog'
 import { CreateFolderDialog } from './CreateFolderDialog'
-
-/** Hook to detect mobile viewport. */
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== 'undefined' ? window.innerWidth < MOBILE_BREAKPOINT : false,
-  )
-  useEffect(() => {
-    const handler = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT)
-    window.addEventListener('resize', handler)
-    return () => window.removeEventListener('resize', handler)
-  }, [])
-  return isMobile
-}
 
 export function UploadingPage() {
   const { projectId = '' } = useParams({ strict: false })
@@ -277,16 +266,35 @@ export function UploadingPage() {
     </aside>
   ) : null
 
-  const isMobile = useIsMobile()
+  const isMobile = useCompactLayout()
+  const [folderSheetOpen, setFolderSheetOpen] = useState(false)
+  const currentFolderName = folders.find((folder) => folder.id === selectedFolderId)?.name ?? '全部文件夹'
 
   return (
     <div className="flex h-full w-full bg-background overflow-hidden">
       {isMobile ? (
-        /* Mobile: stacked layout */
-        <div className="flex flex-col h-full w-full">
-          <div className="h-48 shrink-0 border-b border-border/30 overflow-hidden">{folderTreePanel}</div>
+        /* Mobile: 单列；文件夹树收进左侧面板，不再固定占 192px */
+        <div className="flex h-full w-full flex-col">
+          <div className="flex flex-none items-center border-b border-border/30 px-3 py-1.5">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-10 gap-1.5 px-2 text-xs text-muted-foreground"
+              onClick={() => setFolderSheetOpen(true)}
+            >
+              <FolderOpen size={15} />
+              {currentFolderName}
+            </Button>
+          </div>
           <div className="flex-1 min-h-0">{tableContent}</div>
           {previewPanel && <div className="h-96 shrink-0 border-t border-border/30">{previewPanel}</div>}
+          <Sheet open={folderSheetOpen} onOpenChange={setFolderSheetOpen}>
+            <SheetContent side="left" className="w-72 p-0">
+              <SheetTitle className="sr-only">文件夹</SheetTitle>
+              <SheetDescription className="sr-only">选择要查看的文件夹。</SheetDescription>
+              <div className="h-full overflow-hidden">{folderTreePanel}</div>
+            </SheetContent>
+          </Sheet>
         </div>
       ) : previewPanel ? (
         /* Desktop with preview: three-pane resizable */
