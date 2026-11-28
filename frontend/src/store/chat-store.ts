@@ -301,7 +301,8 @@ type ChatStore = ChatState & {
   retryRun: (runId: string) => Promise<void>
   cancel: () => Promise<void>
   retire: () => void
-  decideProposal: (id: string, approve: boolean) => Promise<void>
+  decideProposal: (id: string, approve: boolean, reasonCode?: string, note?: string) => Promise<void>
+  undoProposal: (id: string) => Promise<void>
   consumeBrowserCompileRequest: () => { rootFile: string } | null
   reset: () => void
 }
@@ -629,13 +630,21 @@ export const useChatStore = create<ChatStore>((set, get) => {
       set({ streaming: false, cancelling: false, reconnecting: false, activeRunId: null })
     },
 
-    decideProposal: async (id, approve) => {
+    decideProposal: async (id, approve, reasonCode, note) => {
       try {
-        const res = approve ? await api.applyProposal(id) : await api.rejectProposal(id)
+        const res = approve
+          ? await api.applyProposal(id)
+          : await api.rejectProposal(id, reasonCode, note)
         set((s) => {
           const existing = s.proposals[id]
           if (!existing) return s
-          return { ...s, proposals: { ...s.proposals, [id]: { ...existing, status: res.status as AgentChangeProposal['status'] } } }
+          return {
+            ...s,
+            proposals: {
+              ...s.proposals,
+              [id]: { ...existing, status: res.status as AgentChangeProposal['status'], rejectReason: reasonCode },
+            },
+          }
         })
       } catch (error) {
         if (error instanceof FrontendApiError && error.status === 409) {
@@ -647,6 +656,15 @@ export const useChatStore = create<ChatStore>((set, get) => {
         }
         throw error
       }
+    },
+
+    undoProposal: async (id) => {
+      const res = await api.undoProposal(id)
+      set((s) => {
+        const existing = s.proposals[id]
+        if (!existing) return s
+        return { ...s, proposals: { ...s.proposals, [id]: { ...existing, status: res.status as AgentChangeProposal['status'] } } }
+      })
     },
 
     // 取走并清空：浏览器编译请求是一次性交接，避免重放时重复编译。

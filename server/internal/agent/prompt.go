@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/norms"
+	"github.com/0verL1nk/GraduateProject/server/internal/research"
 	"github.com/0verL1nk/GraduateProject/server/internal/store"
 	"github.com/0verL1nk/GraduateProject/server/internal/writingstate"
 )
@@ -54,7 +55,29 @@ func (s *Service) systemPromptFor(ctx context.Context, projectID, ownerID store.
 		fmt.Fprintf(&b, "- 方法：%s\n", brief.Methods)
 	}
 	s.appendAdoptedNorms(ctx, &b, projectID)
+	s.appendAdoptedPlan(ctx, &b, projectID)
 	return b.String()
+}
+
+// appendAdoptedPlan 注入已采用章节计划的摘要（章节标题 + 职责 + 待回答问题）。
+// 只给已采用修订；候选计划不作为依据，避免模型把建议挂在用户没采用的计划上。
+func (s *Service) appendAdoptedPlan(ctx context.Context, b *strings.Builder, projectID store.UUID) {
+	plan, _, _ := research.LoadAdoptedChapterPlan(ctx, s.DB, projectID)
+	if plan == nil || plan.Status != "adopted" {
+		b.WriteString("\n章节计划：本项目没有已采用的章节计划；不要声称符合某个章节计划。\n")
+		return
+	}
+	fmt.Fprintf(b, "\n已采用章节计划（v%d，引用章节时使用下列 id 与标题）：\n", plan.Revision)
+	for i, sec := range plan.Plan.Sections {
+		if i >= 8 {
+			b.WriteString("- …（其余章节从略）\n")
+			break
+		}
+		fmt.Fprintf(b, "- [%s] %s：%s\n", sec.ID, sec.Title, sec.Responsibility)
+		if len(sec.Questions) > 0 {
+			fmt.Fprintf(b, "  待回答：%s\n", strings.Join(sec.Questions, "；"))
+		}
+	}
 }
 
 // appendAdoptedNorms 注入项目已采用的规范（采用时锁定的版本）。

@@ -44,24 +44,28 @@ func (AgentMessagePart) TableName() string { return "agent_message_parts" }
 // AgentRun 一次执行。独立于 HTTP 连接存在；parent_run_id 形成 Run 树
 // （子 agent 挂子 Run，但用户始终只面对一个 Assistant）。
 type AgentRun struct {
-	ID              UUID           `gorm:"column:id;primaryKey"`
-	ConversationID  UUID           `gorm:"column:conversation_id;not null;index:ix_runs_conversation_started,priority:1"`
-	TurnID          *UUID          `gorm:"column:turn_id;index"`
-	ParentRunID     *UUID          `gorm:"column:parent_run_id;index"`
-	AgentKey        string         `gorm:"column:agent_key;size:64;not null"`
-	Status          string         `gorm:"column:status;size:20;not null;index:ix_runs_lease_expiry,priority:1"`
-	OutputMessageID *UUID          `gorm:"column:output_message_id"`
-	ModelProvider   string         `gorm:"column:model_provider;size:64;not null"`
-	ModelName       string         `gorm:"column:model_name;size:128;not null"`
-	PromptVersion   string         `gorm:"column:prompt_version;size:32;not null"`
-	Temperature     *float64       `gorm:"column:temperature;type:decimal(4,2)"`
-	InputTokens     int            `gorm:"column:input_tokens;not null;default:0"`
-	OutputTokens    int            `gorm:"column:output_tokens;not null;default:0"`
-	LatencyMs       int64          `gorm:"column:latency_ms;not null;default:0"`
-	LastSequence    int64          `gorm:"column:last_sequence;not null;default:0"`
-	ErrorJSON       datatypes.JSON `gorm:"column:error_json"`
-	StartedAt       *time.Time     `gorm:"column:started_at;index:ix_runs_conversation_started,priority:2"`
-	CompletedAt     *time.Time     `gorm:"column:completed_at"`
+	ID              UUID   `gorm:"column:id;primaryKey"`
+	ConversationID  UUID   `gorm:"column:conversation_id;not null;index:ix_runs_conversation_started,priority:1"`
+	TurnID          *UUID  `gorm:"column:turn_id;index"`
+	ParentRunID     *UUID  `gorm:"column:parent_run_id;index"`
+	AgentKey        string `gorm:"column:agent_key;size:64;not null"`
+	Status          string `gorm:"column:status;size:20;not null;index:ix_runs_lease_expiry,priority:1"`
+	OutputMessageID *UUID  `gorm:"column:output_message_id"`
+	ModelProvider   string `gorm:"column:model_provider;size:64;not null"`
+	ModelName       string `gorm:"column:model_name;size:128;not null"`
+	PromptVersion   string `gorm:"column:prompt_version;size:32;not null"`
+	// Trigger：chat（用户对话）/auto（停顿自动检查）/manual（手动检查本段）。
+	Trigger string `gorm:"column:trigger;size:20;not null;default:chat"`
+	// FocusJSON 是建议 Run 的焦点快照（文件/章节/段落/选区与段落 hash），重试复用。
+	FocusJSON    datatypes.JSON `gorm:"column:focus_json"`
+	Temperature  *float64       `gorm:"column:temperature;type:decimal(4,2)"`
+	InputTokens  int            `gorm:"column:input_tokens;not null;default:0"`
+	OutputTokens int            `gorm:"column:output_tokens;not null;default:0"`
+	LatencyMs    int64          `gorm:"column:latency_ms;not null;default:0"`
+	LastSequence int64          `gorm:"column:last_sequence;not null;default:0"`
+	ErrorJSON    datatypes.JSON `gorm:"column:error_json"`
+	StartedAt    *time.Time     `gorm:"column:started_at;index:ix_runs_conversation_started,priority:2"`
+	CompletedAt  *time.Time     `gorm:"column:completed_at"`
 	// 兼容已部署的 0020 列；执行生命周期仍由现有模式 B 管理。
 	ExecutionLeaseToken *string    `gorm:"column:execution_lease_token;size:64" json:"-"`
 	ExecutionLeaseUntil *time.Time `gorm:"column:execution_lease_until;index:ix_runs_lease_expiry,priority:2" json:"-"`
@@ -143,19 +147,38 @@ type AgentChangeProposal struct {
 	Reason          *string `gorm:"column:reason"`
 	// NormRefs 是模型引用、服务端按本次注入集合解析后的条款元数据（JSON 数组）。
 	// 只存服务端解析出的真实条款，模型无法把未注入的内容塞进这里。
-	NormRefs   datatypes.JSON `gorm:"column:norm_refs;not null"`
-	Status     string         `gorm:"column:status;size:20;not null;index:ix_proposal_project_status,priority:2"`
-	AppliedAt  *time.Time     `gorm:"column:applied_at"`
-	RejectedAt *time.Time     `gorm:"column:rejected_at"`
-	CreatedAt  time.Time      `gorm:"column:created_at;autoCreateTime"`
+	NormRefs datatypes.JSON `gorm:"column:norm_refs;not null"`
+	// Basis 是服务端解析后的三源依据（evidence/norm/plan），同样由服务端补全。
+	Basis          datatypes.JSON `gorm:"column:basis;not null"`
+	SuggestionKind string         `gorm:"column:suggestion_kind;size:32;not null;default:''"`
+	Confidence     string         `gorm:"column:confidence;size:12;not null;default:''"`
+	// ConfidenceReason：模型说明整体依据为何足够或不足，仅作展示与审计。
+	ConfidenceReason *string `gorm:"column:confidence_reason"`
+	// 去重与定位：旧文片段 hash、焦点段落 hash、章节路径。
+	AnchorHash    string `gorm:"column:anchor_hash;size:64;not null;default:''"`
+	ParagraphHash string `gorm:"column:paragraph_hash;size:64;not null;default:''"`
+	SectionPath   string `gorm:"column:section_path;size:500;not null;default:''"`
+	// Origin：chat/auto/manual；审计字段记录丢弃与拒绝原因。
+	Origin       string     `gorm:"column:origin;size:20;not null;default:chat"`
+	RejectReason string     `gorm:"column:reject_reason;size:32;not null;default:''"`
+	RejectNote   *string    `gorm:"column:reject_note"`
+	DropReason   string     `gorm:"column:drop_reason;size:64;not null;default:''"`
+	Status       string     `gorm:"column:status;size:20;not null;index:ix_proposal_project_status,priority:2"`
+	AppliedAt    *time.Time `gorm:"column:applied_at"`
+	RejectedAt   *time.Time `gorm:"column:rejected_at"`
+	RevertedAt   *time.Time `gorm:"column:reverted_at"`
+	CreatedAt    time.Time  `gorm:"column:created_at;autoCreateTime"`
 }
 
 func (AgentChangeProposal) TableName() string { return "agent_change_proposals" }
 
-// BeforeCreate 保证 norm_refs 永远是 JSON 数组：列为 NOT NULL，且读取端按数组解析。
+// BeforeCreate 保证 norm_refs / basis 永远是 JSON 数组：列为 NOT NULL，且读取端按数组解析。
 func (p *AgentChangeProposal) BeforeCreate(*gorm.DB) error {
 	if len(p.NormRefs) == 0 {
 		p.NormRefs = datatypes.JSON([]byte("[]"))
+	}
+	if len(p.Basis) == 0 {
+		p.Basis = datatypes.JSON([]byte("[]"))
 	}
 	return nil
 }

@@ -13,6 +13,8 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { SegmentedControl } from '@/components/shared/segmented-control'
+import { StateBlock } from '@/components/shared/state-block'
 import { ModelSelector } from '@/views/settings/model-selector'
 import { useSettingsStore } from '@/store/settings-store'
 import { useSessionStore } from '@/store/session-store'
@@ -22,6 +24,8 @@ import { latexKeys } from '@/lib/query-keys'
 import { writingStateKeys } from '@/services/writing-state-api'
 import { cn } from '@/lib/utils'
 import { ChatMarkdown } from './chat-markdown'
+import { ProposalCard } from './proposal-card'
+import type { useWritingSuggestion } from '@/hooks/use-writing-suggestion'
 
 /**
  * AI 助手面板。
@@ -29,8 +33,20 @@ import { ChatMarkdown } from './chat-markdown'
  * 三层信息密度（参考架构 §5.4）：对话主线 → 消息内活动（工具卡片/子 agent 活动）
  * → 按需展开的执行细节。默认简洁，工具细节折叠起来，不把执行轨迹倒进主线。
  */
-export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mode?: 'default' | 'preparation' | 'review' }) {
+export function AiPanel({ projectId, mode = 'default', suggestion }: {
+  projectId: string
+  mode?: 'default' | 'preparation' | 'review'
+  /** 写作页传入的动态建议控制器；不传则不显示建议视图。 */
+  suggestion?: ReturnType<typeof useWritingSuggestion>
+}) {
   const navigate = useNavigate()
+  const [panelTab, setPanelTab] = useState<'chat' | 'suggestions'>('chat')
+
+  // 用户主动点「检查本段」（无论在编辑器还是侧栏）时把面板切到建议视图，
+  // 否则结果只出现在看不见的 tab 里。自动检查不会切 tab。
+  useEffect(() => {
+    if (suggestion?.checking) setPanelTab('suggestions')
+  }, [suggestion?.checking])
   const { t } = useTranslation()
   const isGuest = useSessionStore((state) => state.isGuest)
   const { settings, fetchSettings, patchCategory, pendingAgentModelChanges, error: settingsError } = useSettingsStore()
@@ -262,6 +278,25 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
         ) : undefined}
       />
 
+      {suggestion && (
+        <div className="flex-none border-b border-border/40 px-3 py-2">
+          <SegmentedControl
+            ariaLabel="AI 面板视图"
+            size="sm"
+            value={panelTab}
+            onValueChange={setPanelTab}
+            items={[
+              { value: 'chat', label: '对话' },
+              { value: 'suggestions', label: `建议 (${suggestion.pendingCount})` },
+            ]}
+          />
+        </div>
+      )}
+
+      {panelTab === 'suggestions' && suggestion ? (
+        <SuggestionPanel projectId={projectId} suggestion={suggestion} />
+      ) : (
+      <>
       {!settings && settingsError && (
         <div className="px-4 py-2 flex items-center gap-2 text-xs text-destructive">
           设置加载失败，请重试。
@@ -411,6 +446,8 @@ export function AiPanel({ projectId, mode = 'default' }: { projectId: string; mo
           </Button>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }
@@ -523,7 +560,7 @@ function PartView({ part, projectId, streaming = false }: { part: ChatPart; proj
   if (part.type === 'activity') return <ActivityRow part={part} />
   if (part.type === 'proposal') {
     const pid = String((part.meta as { proposalId?: string })?.proposalId ?? '')
-    return <ProposalCard proposalId={pid} projectId={projectId} />
+    return <ChatProposalCard proposalId={pid} projectId={projectId} />
   }
   if (part.type === 'error') return <p className="text-[11px] text-destructive">{part.text}</p>
   return null
@@ -584,121 +621,129 @@ function ActivityRow({ part }: { part: ChatPart }) {
   )
 }
 
-function ProposalCard({ proposalId, projectId }: { proposalId: string; projectId: string }) {
+/** 聊天消息里的建议卡：状态在 chat-store，应用/忽略/撤销后联动刷新稿件。 */
+function ChatProposalCard({ proposalId, projectId }: { proposalId: string; projectId: string }) {
   const proposal = useChatStore((s) => s.proposals[proposalId])
   const decide = useChatStore((s) => s.decideProposal)
+  const undo = useChatStore((s) => s.undoProposal)
   const queryClient = useQueryClient()
-  const [busy, setBusy] = useState(false)
   if (!proposal) return null
 
-  const pending = proposal.status === 'pending'
-  const label = {
-    pending: '待确认',
-    applied: '已应用',
-    rejected: '已拒绝',
-    stale: '已过期（稿件已变化）',
-  }[proposal.status]
+  const refreshLatex = async () => {
+    // 稿件已被服务端改写：刷新文件树与编辑器内容，否则用户会在旧内容上
+    // 继续编辑、再自动保存把改动盖回去。
+    await queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    await queryClient.invalidateQueries({ queryKey: latexKeys.content(projectId, proposal.filePath) })
+  }
 
   return (
-    <div className="rounded-2xl border border-border/40 bg-card overflow-hidden">
-      <div className="px-3 py-2 border-b border-border/40 flex items-center gap-2">
-        <span className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">修改建议</span>
-        <span className="text-[10px] text-muted-foreground truncate">{proposal.filePath}</span>
-        <span
-          className={cn(
-            'ml-auto text-[10px]',
-            pending ? 'text-primary' : proposal.status === 'applied' ? 'text-green-600' : 'text-muted-foreground',
-          )}
-        >
-          {label}
-        </span>
-      </div>
-      <div className="px-3 py-2 space-y-1.5">
-        <pre className="text-[11px] rounded-lg bg-destructive/5 text-destructive/90 p-2 overflow-x-auto whitespace-pre-wrap">
-          {proposal.oldText}
-        </pre>
-        <pre className="text-[11px] rounded-lg bg-green-500/5 text-green-700 p-2 overflow-x-auto whitespace-pre-wrap">
-          {proposal.newText}
-        </pre>
-        {proposal.reason && <p className="text-[11px] text-muted-foreground">{proposal.reason}</p>}
-        {proposal.normRefs && proposal.normRefs.length > 0 && (
-          <div className="space-y-1">
-            <div className="flex flex-wrap gap-1">
-              {proposal.normRefs.map((ref) => (
-                <span
-                  key={ref.cite}
-                  title={ref.cite}
-                  className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >
-                  {ref.title}
-                </span>
-              ))}
-            </div>
-            <details>
-              <summary className="min-h-11 cursor-pointer text-[11px] text-primary">
-                查看依据的规范条款（{proposal.normRefs.length} 条）
-              </summary>
-              <ul className="mt-1 space-y-1">
-                {proposal.normRefs.map((ref) => (
-                  <li key={ref.cite} className="text-[11px] leading-5 text-muted-foreground">
-                    <span className="font-medium text-foreground">[{ref.cite}] {ref.title}</span>
-                    <span className="block">{ref.rule}</span>
-                    <span className="block">出处：{ref.source}</span>
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </div>
-        )}
-        {proposal.status === 'stale' && (
-          <p className="text-[11px] text-muted-foreground">稿件已变化，请基于当前内容重新请求修改建议。</p>
-        )}
-      </div>
-      {pending && (
-        <div className="px-3 pb-3 flex gap-2">
+    <ProposalCard
+      proposal={proposal}
+      onApply={async () => {
+        await decide(proposalId, true)
+        await refreshLatex()
+      }}
+      onReject={async (reason, note) => {
+        await decide(proposalId, false, reason, note)
+      }}
+      onUndo={async () => {
+        await undo(proposalId)
+        await refreshLatex()
+      }}
+    />
+  )
+}
+
+/** 「建议」视图：待处理与最近已应用的建议，全部来自服务端持久列表。 */
+function SuggestionPanel({ projectId, suggestion }: {
+  projectId: string
+  suggestion: ReturnType<typeof useWritingSuggestion>
+}) {
+  const queryClient = useQueryClient()
+  const refresh = async (filePath: string) => {
+    await queryClient.invalidateQueries({ queryKey: ['agent-proposals', projectId] })
+    await queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
+    await queryClient.invalidateQueries({ queryKey: latexKeys.content(projectId, filePath) })
+  }
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex-none space-y-2 border-b border-border/40 px-3 py-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             size="sm"
-            className="h-7 rounded-lg text-[11px]"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                await decide(proposalId, true)
-                // 联动：稿件已被服务端改写，刷新文件树与编辑器内容，
-                // 否则用户会在旧内容上继续编辑、再自动保存把改动盖回去。
-                await queryClient.invalidateQueries({ queryKey: latexKeys.files(projectId) })
-                await queryClient.invalidateQueries({
-                  queryKey: latexKeys.content(projectId, proposal.filePath),
-                })
-              } catch (error) {
-                toast.error(error instanceof Error ? error.message : '应用建议失败，请重试')
-              } finally {
-                setBusy(false)
-              }
-            }}
+            className="min-h-11 rounded-lg text-[11px] sm:min-h-8"
+            disabled={suggestion.checking}
+            onClick={() => void suggestion.checkNow()}
           >
-            应用
+            {suggestion.checking ? <Loader2 className="size-3 animate-spin" /> : <Sparkles className="size-3" />}
+            {suggestion.checking ? '正在检查本段…' : '检查本段'}
           </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 rounded-lg text-[11px]"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true)
-              try {
-                await decide(proposalId, false)
-              } catch (error) {
-                toast.error(error instanceof Error ? error.message : '拒绝建议失败，请重试')
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            拒绝
-          </Button>
+          <label className="flex min-h-11 cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground sm:min-h-8">
+            <input
+              type="checkbox"
+              checked={suggestion.autoCheck}
+              onChange={(event) => suggestion.setAutoCheck(event.target.checked)}
+              className="size-4"
+            />
+            停顿后自动检查
+          </label>
         </div>
-      )}
+        <p className="text-[10px] leading-4 text-muted-foreground">
+          默认只在你点「检查本段」时检查。开启自动检查后，停止输入约 8 秒才会在本段运行一次；打字过程中不会弹窗或抢光标。
+        </p>
+        {suggestion.notice && (
+          <p
+            role="status"
+            className={cn(
+              'text-[11px]',
+              suggestion.notice.kind === 'error'
+                ? 'text-destructive'
+                : suggestion.notice.kind === 'skip'
+                  ? 'text-amber-700 dark:text-amber-400'
+                  : 'text-green-700 dark:text-green-400',
+            )}
+          >
+            {suggestion.notice.text}
+          </p>
+        )}
+      </div>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {suggestion.isLoading && <p className="text-[11px] text-muted-foreground">正在读取建议…</p>}
+        {suggestion.isError && (
+          <StateBlock
+            compact
+            title="建议加载失败"
+            description="网络或服务暂时不可用。"
+            action={<Button size="sm" variant="outline" onClick={() => void suggestion.refetch()}>重试</Button>}
+          />
+        )}
+        {!suggestion.isLoading && !suggestion.isError && suggestion.visible.length === 0 && (
+          <StateBlock
+            compact
+            title="暂无待处理建议"
+            description="把光标放在正文段落里，点上方「检查本段」。建议会带原文片段、可回查依据与可直接应用的改动。"
+          />
+        )}
+        {suggestion.visible.map((proposal) => (
+          <ProposalCard
+            key={proposal.id}
+            proposal={proposal}
+            onApply={async () => {
+              await agentApi.applyProposal(proposal.id)
+              await refresh(proposal.filePath)
+            }}
+            onReject={async (reason, note) => {
+              await agentApi.rejectProposal(proposal.id, reason, note)
+              await refresh(proposal.filePath)
+            }}
+            onUndo={async () => {
+              await agentApi.undoProposal(proposal.id)
+              await refresh(proposal.filePath)
+            }}
+          />
+        ))}
+      </div>
     </div>
   )
 }

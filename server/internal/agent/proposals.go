@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -23,7 +24,18 @@ const (
 	ProposalApplied  = "applied"
 	ProposalRejected = "rejected"
 	ProposalStale    = "stale"
+	ProposalReverted = "reverted"
+	// ProposalDropped 是审计行：结构门禁未通过，不推给用户、不计入 pending。
+	ProposalDropped = "dropped"
 )
+
+// 用户忽略原因枚举（用于持续评测；可选）。
+var rejectReasons = map[string]bool{
+	"too_vague":        true,
+	"out_of_context":   true,
+	"no_change_needed": true,
+	"other":            true,
+}
 
 // linkProposal 把刚产出的建议挂到发起它的工具调用上（args 里带 path）。
 // 用 run + path 定位：工具是顺序执行的，同一 Run 内同路径的最新建议即本次产出。
@@ -64,7 +76,8 @@ func (s *Service) latestPendingProposal(ctx context.Context, runID store.UUID) (
 // 应用前必须**重新**校验（参考架构 §7：服务端应用时重新校验权限、基准版本与幂等键）：
 //   - 建议仍处于 pending（幂等：重复应用被拒）
 //   - 基准内容哈希与稿件当前内容一致（稿件变了则旧建议失效，不得用旧基准覆盖新内容）
-func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposalID store.UUID, approve bool) (*store.AgentChangeProposal, int, error) {
+func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposalID store.UUID,
+	approve bool, rejectReason, rejectNote string) (*store.AgentChangeProposal, int, error) {
 	var p store.AgentChangeProposal
 	if err := s.DB.WithContext(ctx).
 		Where("id = ? AND project_id = ?", proposalID, projectID).First(&p).Error; err != nil {
@@ -76,12 +89,15 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 
 	now := time.Now().UTC()
 	if !approve {
+		updates := map[string]any{"status": ProposalRejected, "rejected_at": now, "reject_reason": rejectReason}
+		if strings.TrimSpace(rejectNote) != "" {
+			updates["reject_note"] = strings.TrimSpace(rejectNote)
+		}
 		if err := s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
-			Where("id = ? AND status = ?", p.ID, ProposalPending).
-			Updates(map[string]any{"status": ProposalRejected, "rejected_at": now}).Error; err != nil {
+			Where("id = ? AND status = ?", p.ID, ProposalPending).Updates(updates).Error; err != nil {
 			return nil, http.StatusInternalServerError, err
 		}
-		p.Status = ProposalRejected
+		p.Status, p.RejectReason = ProposalRejected, rejectReason
 		s.closeToolCallOf(ctx, p)
 		return &p, http.StatusOK, nil
 	}
@@ -104,6 +120,11 @@ func (s *Service) decideProposal(ctx context.Context, userID, projectID, proposa
 	}
 	if !strings.Contains(content, p.OldText) {
 		return &p, http.StatusConflict, errors.New("anchor no longer present")
+	}
+	// 兜底：创建时已校验，但历史数据/旧客户端可能绕过；应用前再挡一次，
+	// 绝不允许一条会删掉 \cite/\ref 或破坏公式的建议写进稿件。
+	if err := latexIntegrityError(p.OldText, p.NewText); err != nil {
+		return &p, http.StatusConflict, err
 	}
 	newContent := strings.Replace(content, p.OldText, p.NewText, 1)
 	if s.files == nil {
@@ -167,19 +188,36 @@ func (s *Service) latestProposalOfCall(ctx context.Context, toolCallID store.UUI
 	return &p, nil
 }
 
-// proposalPayload 推给前端的建议形状（含 diff 锚点与状态）。
+// proposalPayload 推给前端的建议形状（含 diff 锚点、三源依据与状态）。
 func proposalPayload(p *store.AgentChangeProposal) gin.H {
 	h := gin.H{
 		"id": p.ID.String(), "filePath": p.FilePath,
 		"oldText": p.OldText, "newText": p.NewText, "status": p.Status,
+		"suggestionKind": p.SuggestionKind, "sectionPath": p.SectionPath,
+		"origin": p.Origin, "confidence": p.Confidence, "createdAt": p.CreatedAt,
 	}
 	if p.Reason != nil {
 		h["reason"] = *p.Reason
+	}
+	if p.ConfidenceReason != nil {
+		h["confidenceReason"] = *p.ConfidenceReason
+	}
+	if p.RejectReason != "" {
+		h["rejectReason"] = p.RejectReason
+	}
+	if p.RejectNote != nil {
+		h["rejectNote"] = *p.RejectNote
 	}
 	if len(p.NormRefs) > 0 {
 		var refs []normRefMeta
 		if err := json.Unmarshal(p.NormRefs, &refs); err == nil && len(refs) > 0 {
 			h["normRefs"] = refs
+		}
+	}
+	if len(p.Basis) > 0 {
+		var basis []proposalBasis
+		if err := json.Unmarshal(p.Basis, &basis); err == nil && len(basis) > 0 {
+			h["basis"] = basis
 		}
 	}
 	return h
@@ -206,6 +244,9 @@ func (s *Service) listProposals(c *gin.Context) {
 	q := s.DB.WithContext(ctx).Where("project_id = ?", projectID)
 	if st := c.Query("status"); st != "" {
 		q = q.Where("status = ?", st)
+	} else {
+		// 被丢弃的审计行默认不出现在用户可见列表；显式 ?status=dropped 才返回。
+		q = q.Where("status <> ?", ProposalDropped)
 	}
 	var rows []store.AgentChangeProposal
 	if err := q.Order("created_at DESC").Find(&rows).Error; err != nil {
@@ -247,12 +288,28 @@ func (s *Service) decideProposalHandler(approve bool) gin.HandlerFunc {
 			return
 		}
 		proposalID := store.UUID{UUID: pid}
+		// 拒绝原因可选，但给了就必须是枚举值；空 body 也允许（旧客户端）。
+		var req struct {
+			ReasonCode string `json:"reasonCode"`
+			Note       string `json:"note"`
+		}
+		if !approve {
+			if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+				httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+				return
+			}
+			req.ReasonCode = strings.TrimSpace(req.ReasonCode)
+			if req.ReasonCode != "" && !rejectReasons[req.ReasonCode] {
+				httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+				return
+			}
+		}
 		projectID, err := s.ownedProposalProject(ctx, proposalID, uid)
 		if err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Proposal not found"})
 			return
 		}
-		p, code, derr := s.decideProposal(ctx, uid, projectID, proposalID, approve)
+		p, code, derr := s.decideProposal(ctx, uid, projectID, proposalID, approve, req.ReasonCode, req.Note)
 		if derr != nil && code != http.StatusConflict {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: code, Info: "Internal server error"})
 			return
@@ -265,6 +322,67 @@ func (s *Service) decideProposalHandler(approve bool) gin.HandlerFunc {
 			Code: code, Data: gin.H{"status": p.Status}, Info: info,
 		})
 	}
+}
+
+// undoProposal POST /agent/change-proposals/:proposal_id/undo
+//
+// 一键撤销只处理「应用后原样未动」的情形：new_text 必须仍恰好出现一次。
+// 如果用户又改过那段文字（找不到或出现多次），绝不猜位置替换——返回 409
+// 让用户手动回退，避免撤销把无关内容改掉。
+func (s *Service) undoProposal(c *gin.Context) {
+	ctx := c.Request.Context()
+	uid := auth.CurrentUser(c).ID
+	pid, err := parseUUIDParam(c.Param("proposal_id"))
+	if err != nil {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	proposalID := store.UUID{UUID: pid}
+	projectID, err := s.ownedProposalProject(ctx, proposalID, uid)
+	if err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Proposal not found"})
+		return
+	}
+	var p store.AgentChangeProposal
+	if err := s.DB.WithContext(ctx).
+		Where("id = ? AND project_id = ?", proposalID, projectID).First(&p).Error; err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Proposal not found"})
+		return
+	}
+	if p.Status != ProposalApplied {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusConflict, Info: "只有已应用的建议可以撤销"})
+		return
+	}
+	if s.files == nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "文件服务不可用，无法撤销"})
+		return
+	}
+	_, content, err := s.readLatexForProposal(ctx, projectID, p.FilePath)
+	if err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "目标文件不存在或已删除"})
+		return
+	}
+	if p.NewText == "" || strings.Count(content, p.NewText) != 1 {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{
+			Code: http.StatusConflict,
+			Info: "稿件中已找不到唯一的新文片段（可能已被继续编辑），请手动回退这次修改",
+		})
+		return
+	}
+	restored := strings.Replace(content, p.NewText, p.OldText, 1)
+	if _, err := s.files.UpdateFile(ctx, projectID.UUID, p.FilePath, restored, uid.UUID); err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "撤销写入失败，请稍后重试"})
+		return
+	}
+	now := time.Now().UTC()
+	if err := s.DB.WithContext(ctx).Model(&store.AgentChangeProposal{}).
+		Where("id = ? AND status = ?", p.ID, ProposalApplied).
+		Updates(map[string]any{"status": ProposalReverted, "reverted_at": now}).Error; err != nil {
+		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
+		return
+	}
+	_ = httpapi.WriteEnvelope(c.Writer, http.StatusOK,
+		httpapi.Success(gin.H{"status": ProposalReverted}, ""))
 }
 
 // approveToolCall POST /agent/tool-calls/:id/approval
@@ -327,7 +445,7 @@ func (s *Service) approveToolCall(c *gin.Context) {
 
 	var p store.AgentChangeProposal
 	if err := s.DB.WithContext(ctx).Where("tool_call_id = ?", tc.ID).First(&p).Error; err == nil {
-		_, code, derr := s.decideProposal(ctx, uid, p.ProjectID, p.ID, approve)
+		_, code, derr := s.decideProposal(ctx, uid, p.ProjectID, p.ID, approve, "", "")
 		if derr != nil && code == http.StatusConflict {
 			_ = httpapi.WriteEnvelope(c.Writer, http.StatusConflict, httpapi.Envelope{
 				Code: http.StatusConflict, Data: gin.H{"status": ProposalStale},

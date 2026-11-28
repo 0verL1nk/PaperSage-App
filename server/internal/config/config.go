@@ -70,6 +70,9 @@ type Settings struct {
 	AgentModel                  string `env:"AGENT_MODEL" envDefault:"deepseek-chat"`
 	AgentDocumentReadLimitBytes int    `env:"AGENT_DOCUMENT_READ_LIMIT_BYTES" envDefault:"0"` // 0 disables the per-read limit.
 	AgentMaxIterations          int    `env:"AGENT_MAX_ITERATIONS" envDefault:"20"`           // Eino DeepAgent 显式上限，必须为正数
+	// 动态写作建议：总开关与单段检查的迭代上限（控制成本与迟滞）。
+	AgentSuggestionEnabled       bool `env:"AGENT_SUGGESTION_ENABLED" envDefault:"true"`
+	AgentSuggestionMaxIterations int  `env:"AGENT_SUGGESTION_MAX_ITERATIONS" envDefault:"8"`
 	// 跨章节检查：单元并发、单次检查总超时、单元迭代上限。
 	ReviewUnitConcurrency   int           `env:"REVIEW_UNIT_CONCURRENCY" envDefault:"3"`
 	ReviewRunTimeout        time.Duration `env:"REVIEW_RUN_TIMEOUT" envDefault:"20m"`
@@ -120,6 +123,9 @@ func Load() (*Settings, error) {
 	}
 	if s.AgentMaxIterations <= 0 {
 		return nil, fmt.Errorf("AGENT_MAX_ITERATIONS must be positive: Eino treats non-positive values as its built-in default")
+	}
+	if s.AgentSuggestionMaxIterations <= 0 {
+		return nil, fmt.Errorf("AGENT_SUGGESTION_MAX_ITERATIONS must be positive")
 	}
 	if s.ReviewUnitConcurrency < 1 || s.ReviewUnitConcurrency > 4 {
 		return nil, fmt.Errorf("REVIEW_UNIT_CONCURRENCY must be between 1 and 4")

@@ -34,8 +34,9 @@ const systemPrompt = `你是 PaperSage 的论文写作助手，服务对象是�
 - 用户在写作准备阶段讨论选题、研究问题或计划时，先调用 get_writing_state 了解已有信息；像研究导师一样循序追问，一次聚焦一个关键缺口，不要求用户逐项填写空白字段。
 - 对话中区分已知事实、假设和待验证事项。先向用户总结拟更新的研究蓝图与课题要求；只有用户明确确认保存后，才调用 save_writing_preparation，并使用最新 revision。未讨论课题要求时原样保留已有要求。不得捏造研究材料或把建议写成事实。
 - 任何修改稿件的请求（包括“给个建议”“帮我改”“润色这段”）都必须调用 propose_edit 产出建议卡，由用户在界面上确认；不得只在回复里贴代码或声称已修改。不确定替换锚点时先 read_latex_file 取回原文。
+- 内容级改动（事实、背景、方法、数据、对比）先用 search_references 或 read_document 查材料；有材料依据时在 basis 里引用 evidence。段落确实涉及某条已采用规范时才引用 norm，不相关就留空——禁止为了“有依据”硬挂规范。给出建议时尽量说明理由与依据；纯同义词替换不算建议。
 - compile_project 只请求浏览器在写作页编译，不返回编译结果；不要声称编译已通过。
-- LaTeX 建议保持与现有模板一致的结构（documentclass、宏包、章节层级）。
+- LaTeX 建议保持与现有模板一致的结构（documentclass、宏包、章节层级），不得删除 \cite/\ref/\label 或公式。
 - 引用文献时遵循 GB/T 7714 规范格式。
 - 回复保持精炼：先结论，再展开；代码/公式放代码块。`
 
@@ -148,7 +149,8 @@ func (s *Service) chat(c *gin.Context) {
 
 // systemPromptVersion 提示版本。改动 systemPrompt 语义时应递增；
 // 值会快照进 Run，避免换了提示却仍声称同一实验条件。
-const systemPromptVersion = "v5"
+// v6：注入已采用章节计划摘要，并要求内容级改动先检索材料、不硬凑规范。
+const systemPromptVersion = "v6"
 
 func (s *Service) ensureConversation(ctx context.Context, pid, uid store.UUID, idStr, firstMsg string) (*store.AgentConversation, error) {
 	if idStr != "" {

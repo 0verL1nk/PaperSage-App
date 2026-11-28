@@ -18,12 +18,29 @@ CREATE TABLE `agent_change_proposals` (
   `new_text` text NOT NULL,
   `reason` text DEFAULT NULL,
   `norm_refs` json NOT NULL,
+  -- 动态建议的质量契约：服务端解析后的三源依据（evidence/norm/plan）与置信度。
+  -- basis 只存服务端核对过的真实依据，模型无法把未注入的内容塞进这里。
+  `basis` json DEFAULT NULL,
+  `suggestion_kind` varchar(32) NOT NULL DEFAULT '',
+  `confidence` varchar(12) NOT NULL DEFAULT '',
+  `confidence_reason` text DEFAULT NULL,
+  -- 去重与定位：旧文片段 hash、焦点段落 hash、章节路径。
+  `anchor_hash` char(64) NOT NULL DEFAULT '',
+  `paragraph_hash` char(64) NOT NULL DEFAULT '',
+  `section_path` varchar(500) NOT NULL DEFAULT '',
+  -- origin：chat/auto/manual；audit 字段记录被丢弃的原因与用户拒绝原因。
+  `origin` varchar(20) NOT NULL DEFAULT 'chat',
+  `reject_reason` varchar(32) NOT NULL DEFAULT '',
+  `reject_note` text DEFAULT NULL,
+  `drop_reason` varchar(64) NOT NULL DEFAULT '',
+  `reverted_at` datetime(6) DEFAULT NULL,
   `status` varchar(20) NOT NULL DEFAULT 'pending',
   `applied_at` datetime(6) DEFAULT NULL,
   `rejected_at` datetime(6) DEFAULT NULL,
   `created_at` datetime(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY `ix_proposal_project_status` (`project_id`,`status`),
   KEY `ix_proposal_run` (`run_id`),
+  KEY `ix_proposal_dedupe` (`project_id`,`file_path`,`paragraph_hash`,`suggestion_kind`,`created_at`),
   PRIMARY KEY (`id`) /*T![clustered_index] CLUSTERED */,
   CONSTRAINT `fk_proposal_project` FOREIGN KEY (`project_id`) REFERENCES `projects` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_proposal_run` FOREIGN KEY (`run_id`) REFERENCES `agent_runs` (`id`) ON DELETE CASCADE

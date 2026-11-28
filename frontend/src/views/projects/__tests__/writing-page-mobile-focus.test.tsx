@@ -43,6 +43,15 @@ vi.mock('@/hooks/use-latex', () => {
   }
 })
 vi.mock('@/hooks/use-auto-save', () => ({ useAutoSave: () => mocks.autoSave }))
+// 本用例只测移动端焦点；建议 hook 需要 QueryClient，给它一个无副作用的替身。
+vi.mock('@/hooks/use-writing-suggestion', () => ({
+  useWritingSuggestion: () => ({
+    pending: [], visible: [], pendingCount: 0, checking: false, notice: null,
+    autoCheck: false, setAutoCheck: vi.fn(), checkNow: vi.fn(),
+    notifyActivity: vi.fn(), notifyCursorMove: vi.fn(), refetch: vi.fn(),
+    isLoading: false, isError: false,
+  }),
+}))
 vi.mock('@/lib/monaco-setup', () => ({}))
 vi.mock('@monaco-editor/react', () => ({
   default: () => <div data-testid="monaco-editor" />,
