@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
+import { Link } from '@tanstack/react-router'
 import { BookMarked, LoaderCircle, Pencil, Plus, RefreshCw, Trash2, TriangleAlert } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
@@ -36,6 +37,7 @@ import {
   type NormScenario,
 } from '@/types/norms'
 import { cn } from '@/lib/utils'
+import { useSessionStore } from '@/store'
 
 const SCENARIOS: NormScenario[] = ['undergraduate_thesis', 'intro_paper', 'all']
 const BINDINGS: NormBinding[] = ['must', 'should', 'recommended']
@@ -55,7 +57,53 @@ const emptyDraft = (packId: string, scenario: NormScenario): NormEntryInput => (
   sourceQuote: '',
 })
 
+/** 游客不挂载规范查询：规范库是账号能力，未登录时只给登录引导。 */
 export function NormsPage() {
+  const isGuest = useSessionStore((state) => state.isGuest)
+  return isGuest ? <GuestNormsGate /> : <NormsLibrary />
+}
+
+function GuestNormsGate() {
+  return (
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-3 sm:p-5">
+      <NormsPageHeader
+        action={
+          <Button className="min-h-11" disabled title="登录后可新建规范包">
+            <Plus className="size-4" />新建规范包
+          </Button>
+        }
+      />
+
+      <Card className="rounded-2xl border-border/50 shadow-sm">
+        <CardContent className="flex flex-col items-center justify-center gap-3 px-6 py-16 text-center">
+          <BookMarked className="size-8 text-primary" />
+          <h2 className="text-lg font-semibold">登录后使用学术规范库</h2>
+          <p className="max-w-sm text-sm leading-6 text-muted-foreground">
+            规范库保存在云端账号里。登录后可以查看内置规范、创建自己的规范包，并在写作准备与检查完善中采用。
+          </p>
+          <Button asChild className="min-h-11">
+            <Link to="/auth">去登录</Link>
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+  )
+}
+
+function NormsPageHeader({ action }: { action: ReactNode }) {
+  return (
+    <header className="flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">学术规范</p>
+        <h1 className="mt-1 text-2xl font-semibold tracking-tight">规范库</h1>
+        <p className="mt-1 text-sm text-muted-foreground">内置规范开箱可用；自建包里的条目可以自己增删改。</p>
+      </div>
+      {action}
+    </header>
+  )
+}
+
+function NormsLibrary() {
   const packs = useNormPacks()
   const [packId, setPackId] = useState('')
   const [keyword, setKeyword] = useState('')
@@ -124,17 +172,14 @@ export function NormsPage() {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-4 p-3 sm:p-5">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary">学术规范</p>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">规范库</h1>
-          <p className="mt-1 text-sm text-muted-foreground">内置规范开箱可用；自建包里的条目可以自己增删改。</p>
-        </div>
-        <Button className="min-h-11" onClick={() => setPackDraft({ key: '', name: '', scenario: 'undergraduate_thesis' })}>
-          <Plus className="size-4" />新建规范包
-        </Button>
-      </header>
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 overflow-y-auto p-3 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
+      <NormsPageHeader
+        action={
+          <Button className="min-h-11" onClick={() => setPackDraft({ key: '', name: '', scenario: 'undergraduate_thesis' })}>
+            <Plus className="size-4" />新建规范包
+          </Button>
+        }
+      />
 
       {mutationError && (
         <p role="alert" className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
@@ -142,8 +187,8 @@ export function NormsPage() {
         </p>
       )}
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
-        <Card className="min-h-0 overflow-y-auto rounded-2xl border-border/50 shadow-sm">
+      <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[260px_minmax(0,1fr)]">
+        <Card className="max-h-64 overflow-y-auto rounded-2xl border-border/50 shadow-sm lg:max-h-none lg:min-h-0">
           <CardHeader className="px-4 pb-2 pt-4">
             <CardTitle className="flex items-center gap-2 text-sm"><BookMarked className="size-4 text-primary" />规范包</CardTitle>
           </CardHeader>
@@ -174,7 +219,7 @@ export function NormsPage() {
           </CardContent>
         </Card>
 
-        <Card className="flex min-h-0 flex-col rounded-2xl border-border/50 shadow-sm">
+        <Card className="flex flex-col rounded-2xl border-border/50 shadow-sm lg:min-h-0">
           <CardHeader className="gap-3 px-4 pb-2 pt-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-sm">{selectedPack ? selectedPack.name : '全部条目'}</CardTitle>
@@ -227,7 +272,7 @@ export function NormsPage() {
             </div>
           </CardHeader>
 
-          <CardContent className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+          <CardContent className="px-4 pb-4 lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
             {entries.isLoading ? (
               <p role="status" className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
                 <LoaderCircle className="size-4 animate-spin" />正在读取规范条目…
@@ -241,7 +286,11 @@ export function NormsPage() {
               </div>
             ) : (entries.data?.items.length ?? 0) === 0 ? (
               <p className="py-8 text-center text-sm leading-6 text-muted-foreground">
-                没有匹配的规范条目。换个关键词或筛选条件试试。
+                {keyword.trim() || scenario
+                  ? '没有匹配的规范条目。换个关键词或筛选条件试试。'
+                  : selectedPack
+                    ? '这个包还没有条目。点「新增条目」开始添加。'
+                    : '这个库里还没有条目。'}
               </p>
             ) : (
               <ul className="space-y-2">
@@ -307,7 +356,14 @@ export function NormsPage() {
           onSubmit={() =>
             createPack.mutate(
               { key: packDraft.key.trim(), name: packDraft.name.trim(), scenario: packDraft.scenario },
-              { onSuccess: () => setPackDraft(null) },
+              {
+                onSuccess: (created) => {
+                  setPackDraft(null)
+                  // 建完立刻切到新包：否则停在「全部规范包」，「新增条目」仍是禁用的，
+                  // 用户会以为刚建的包不能加条目。
+                  setPackId(created.id)
+                },
+              },
             )
           }
         />

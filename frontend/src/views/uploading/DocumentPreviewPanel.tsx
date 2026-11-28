@@ -403,7 +403,7 @@ function PreviewContent({ doc, url }: { doc: ProjectDocument; url: string }) {
 
   if (type === 'application/pdf') return <PdfRenderer url={url} />
   if (type === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return <DocxRenderer url={url} />
-  if (type === 'text/plain') return <TxtRenderer url={url} />
+  if (type === 'text/plain' || type === 'text/markdown') return <TxtRenderer url={url} />
   return <UnsupportedRenderer type={type} />
 }
 

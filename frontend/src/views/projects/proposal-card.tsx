@@ -96,7 +96,9 @@ export function ProposalCard({ proposal, onApply, onReject, onUndo }: ProposalCa
           <p className="text-[10px] leading-4 text-muted-foreground">依据说明：{proposal.confidenceReason}</p>
         )}
 
-        {basis.length > 0 && <BasisList basis={basis} />}
+        {basis.length > 0
+          ? <BasisList basis={basis} />
+          : proposal.normRefs && proposal.normRefs.length > 0 && <NormRefList refs={proposal.normRefs} />}
 
         {proposal.status === 'stale' && (
           <p className="text-[11px] text-muted-foreground">稿件已变化，这条建议不能再应用；请基于当前内容重新检查本段。</p>
@@ -220,6 +222,35 @@ export function ProposalCard({ proposal, onApply, onReject, onUndo }: ProposalCa
         </div>
       )}
     </article>
+  )
+}
+
+/** 旧聊天建议只有 norm_refs：沿用合并前 main 的标题 chip，避免信息回退。 */
+function NormRefList({ refs }: { refs: NonNullable<AgentChangeProposal['normRefs']> }) {
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">
+        {refs.map((ref) => (
+          <span key={ref.cite} title={ref.cite} className="rounded-md border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            {ref.title}
+          </span>
+        ))}
+      </div>
+      <details>
+        <summary className="min-h-11 cursor-pointer text-[11px] text-primary">
+          查看依据的规范条款（{refs.length} 条）
+        </summary>
+        <ul className="mt-1 space-y-1">
+          {refs.map((ref) => (
+            <li key={ref.cite} className="text-[11px] leading-5 text-muted-foreground">
+              <span className="font-medium text-foreground">[{ref.cite}] {ref.title}</span>
+              <span className="block">{ref.rule}</span>
+              <span className="block">出处：{ref.source}</span>
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
   )
 }
 

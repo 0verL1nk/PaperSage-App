@@ -116,6 +116,17 @@ test('project workspace stages, writing editor, and reference library fit phone/
         await expect(activeTab).toBeVisible()
         await expect(activeTab).toHaveAttribute('aria-current', 'page')
         expect(await activeTab.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+        if (viewport.width === 320) {
+          // 四个阶段入口必须在 320px 一屏内全部可见（HELE-66 阻断项）
+          for (const label of ['写作准备', '论文撰写', '检查完善', '上传资料']) {
+            const tab = page.locator('nav.lg\\:hidden').getByRole('button', { name: label })
+            await expect(tab).toBeVisible()
+            expect(
+              await tab.evaluate((element) => element.getBoundingClientRect().right),
+              `${label} must fit within the 320px viewport`,
+            ).toBeLessThanOrEqual(320)
+          }
+        }
         if (route.path === 'prepare' && viewport.width === 320) {
           await activeTab.focus()
           await page.keyboard.press('Enter')
@@ -165,12 +176,17 @@ test('browser-local guest can create and save a real project across mobile, tabl
   expect(dialogGeometry.scrollWidth).toBeLessThanOrEqual(dialogGeometry.width + 1)
   await nameInput.fill('Local Guest Research')
   await createButton.click()
+  // 创建成功直接进工作台，不再回列表点卡片
+  await expect(page).toHaveURL(/\/project\/[^/]+\/prepare$/)
+  await expect(page.getByText('研究顾问需要登录后使用')).toBeVisible()
+  const projectId = new URL(page.url()).pathname.split('/')[2]
+
+  // 项目仍持久化在列表中
+  await page.goto('/app/projects')
   const projectCard = page.getByRole('button', { name: 'Local Guest Research', exact: true })
   await expect(projectCard).toBeVisible()
   await projectCard.click()
   await expect(page).toHaveURL(/\/project\/.+\/prepare$/)
-  await expect(page.getByText('研究顾问需要登录后使用')).toBeVisible()
-  const projectId = new URL(page.url()).pathname.split('/')[2]
   await page.evaluate(async (id) => {
     const local = await import('/src/services/guest-local-workspace.ts')
     const state = await local.getGuestWritingState(id)

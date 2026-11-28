@@ -267,3 +267,45 @@ func TestDeleteDocumentCleansDerivedIndex(t *testing.T) {
 	assert.Equal(t, p.ID, deletedProject, "删除文献必须清理该项目的派生索引")
 	assert.Equal(t, doc.ID, deletedDoc)
 }
+
+func TestUploadMarkdownAcceptsMarkdownMimeAndNormalizesUnknownType(t *testing.T) {
+	ts := testutil.New(t)
+	p := seedProject(t, ts)
+
+	upload := func(filename, contentType, content string) map[string]any {
+		t.Helper()
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		_ = mw.WriteField("projectId", p.ID.String())
+		hdr := make(textproto.MIMEHeader)
+		hdr.Set("Content-Disposition", `form-data; name="file"; filename="`+filename+`"`)
+		if contentType != "" {
+			hdr.Set("Content-Type", contentType)
+		}
+		fw, err := mw.CreatePart(hdr)
+		require.NoError(t, err)
+		_, _ = fw.Write([]byte(content))
+		_ = mw.Close()
+
+		req, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/v1/documents/upload", &buf)
+		req.Header.Set("Authorization", "Bearer "+ts.Token)
+		req.Header.Set("Content-Type", mw.FormDataContentType())
+		resp, err := http.DefaultClient.Do(req) //nolint:gosec,noctx // test
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = resp.Body.Close() })
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var m map[string]any
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&m))
+		return m["data"].(map[string]any)
+	}
+
+	doc := upload("notes.md", "text/markdown", "# 标题\n\n- 要点")
+	assert.Equal(t, "text/markdown", doc["type"])
+
+	doc = upload("plain.md", "application/octet-stream", "# 系统未注册 MIME")
+	assert.Equal(t, "text/markdown", doc["type"], "系统未注册 .md 的 MIME 时应按扩展名归一")
+
+	doc = upload("readme.txt", "text/plain", "hello")
+	assert.Equal(t, "text/plain", doc["type"], "非 .md 文件的类型不被改写")
+}

@@ -4,9 +4,13 @@ export const ACCEPTED_FILE_TYPES: Record<string, string[]> = {
   'application/pdf': ['.pdf'],
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
   'text/plain': ['.txt'],
+  'text/markdown': ['.md'],
 }
 
 export const ACCEPTED_EXTENSIONS = Object.values(ACCEPTED_FILE_TYPES).flat()
+
+/** 上传区提示与拒绝文案共用的格式清单，避免加格式时漏改一处。 */
+export const ACCEPTED_FORMATS_LABEL = 'PDF、DOCX、TXT、MD'
 
 export const MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024 // 50 MB
 
@@ -28,6 +32,7 @@ export const FILE_TYPE_LABELS = [
   { value: 'application/pdf', label: 'PDF' },
   { value: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', label: 'DOCX' },
   { value: 'text/plain', label: 'TXT' },
+  { value: 'text/markdown', label: 'MD' },
 ] as const
 
 export function formatFileSize(bytes: number): string {
@@ -40,5 +45,6 @@ export function getShortType(mimeType: string): string {
   if (mimeType === 'application/pdf') return 'PDF'
   if (mimeType.includes('wordprocessingml')) return 'DOCX'
   if (mimeType === 'text/plain') return 'TXT'
+  if (mimeType === 'text/markdown') return 'MD'
   return mimeType.split('/').pop()?.toUpperCase() ?? 'Unknown'
 }
