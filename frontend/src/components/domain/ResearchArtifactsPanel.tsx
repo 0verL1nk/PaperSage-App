@@ -33,6 +33,11 @@ const KINDS: Array<ResearchArtifactKind | 'all'> = [
 type ActionKind = 'adopt' | 'reject' | 'delete' | 'save'
 
 /** 同一操作重复失败时按「标题 + 文案」合并，避免连续点击把 toast 堆满（HELE-22 S6）。 */
+function formatUpdatedAt(value: string) {
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false })
+}
+
 function showActionError(title: string, error: unknown) {
   const description = friendlyErrorMessage(error)
   toast.error(title, { id: `${title}:${description}`, description })
@@ -348,7 +353,7 @@ export function ResearchArtifactsPanel({ projectId }: { projectId: string }) {
                       }}
                     />
                   ) : null}
-                  <p className="text-[10px] text-muted-foreground">上次更新：{new Date(artifact.updatedAt).toLocaleString('zh-CN', { hour12: false })}</p>
+                  <p className="text-[10px] text-muted-foreground">上次更新：{formatUpdatedAt(artifact.updatedAt)}</p>
                 </div>
               ) : null}
             </div>

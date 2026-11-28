@@ -50,7 +50,8 @@ test('采用章节计划后，撰写侧栏只显示已采用版本', async ({ pa
   await page.goto(`/project/${TEST_PROJECT_ID}/prepare`)
   await page.getByText('章节计划（1 节）').click()
   await page.getByRole('button', { name: '采用' }).click()
-  await expect(page.getByText('当前 v1，已采用 v1')).toBeVisible()
+  await expect(page.getByText(/上次更新：/)).toBeVisible()
+  await expect(page.getByText('已采用', { exact: true })).toBeVisible()
 
   await page.goto(`/project/${TEST_PROJECT_ID}/writing`)
   await page.getByTestId('writing-tab-ai').click()

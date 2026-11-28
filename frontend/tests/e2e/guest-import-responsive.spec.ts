@@ -50,6 +50,6 @@ test('account import preview and confirmation remain usable from phone to deskto
     await confirm.scrollIntoViewIfNeeded()
     await expect(confirm).toBeVisible()
     expect(await confirm.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
-    await expect(page.getByText('默认保留本机备份')).toBeVisible()
+    await expect(page.getByText(/本机游客数据会作为备份保留/)).toBeVisible()
   }
 })
