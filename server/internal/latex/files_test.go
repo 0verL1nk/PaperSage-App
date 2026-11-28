@@ -169,6 +169,34 @@ func TestBinaryFileRawResponse(t *testing.T) {
 	require.Equal(t, 200, resp.StatusCode)
 }
 
+// 文本配置文件必须走 JSON 信封：前端 prepare 按 TEXT_FILE_EXTENSIONS 判定为文本后
+// 解析信封，裸文本会导致浏览器编译在创建任务前报「请求失败」。
+func TestTextConfigFileReturnsJSONEnvelope(t *testing.T) {
+	ts, p := seed(t)
+	for _, fp := range []string{"hithesisbook.cfg", "hithesis.ist", "papersage.def"} {
+		body, _ := json.Marshal(map[string]any{"path": fp, "content": "%% config"})
+		resp := ts.Do(t, http.MethodPost, latexPath(p, "/"), body)
+		require.Equal(t, 200, resp.StatusCode, fp)
+
+		resp = ts.Do(t, http.MethodGet, latexPath(p, "/"+fp), nil)
+		require.Equal(t, 200, resp.StatusCode, fp)
+		var m struct {
+			Code int `json:"code"`
+			Data struct {
+				Content string `json:"content"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&m), "%s must be a JSON envelope: %s", fp, resp.Header.Get("Content-Type"))
+		assert.Equal(t, 200, m.Code, fp)
+		assert.Equal(t, "%% config", m.Data.Content, fp)
+
+		resp = ts.Do(t, http.MethodGet, latexPath(p, "/"+fp+"?raw=true"), nil)
+		require.Equal(t, 200, resp.StatusCode, fp)
+		raw, _ := io.ReadAll(resp.Body)
+		assert.Equal(t, "%% config", string(raw), fp)
+	}
+}
+
 func TestFolderRenameAndDelete(t *testing.T) {
 	ts, p := seed(t)
 	var resp *http.Response

@@ -152,6 +152,7 @@ func (s *Service) Create(ctx context.Context, userID, projectID store.UUID, req 
 			DimensionsJSON: datatypes.JSON(dimsJSON), ContextJSON: datatypes.JSON(u.ContextJSON),
 			InputFingerprint: u.Fingerprint, Status: store.ReviewUnitPending,
 			FindingsJSON: datatypes.JSON("[]"), DimensionResultsJSON: datatypes.JSON("[]"),
+			SourcesReadJSON: datatypes.JSON("[]"),
 		}
 		if u.Reused != nil {
 			ru.Status = store.ReviewUnitReused
