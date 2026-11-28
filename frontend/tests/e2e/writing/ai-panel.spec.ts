@@ -325,8 +325,8 @@ test.describe('AI 助手面板', () => {
     await page.getByPlaceholder('问点什么…').fill('改一下开头')
     await page.getByPlaceholder('问点什么…').press('Enter')
 
-    await expect(page.getByText('修改建议')).toBeVisible()
-    await page.getByRole('button', { name: '应用' }).click()
+    await expect(page.getByText('查看修改')).toBeVisible()
+    await page.getByRole('button', { name: '采纳' }).click()
 
     await expect.poll(() => applied).toBe(true)
     // 联动：稿件被改写后必须刷新文件树，否则用户会在旧内容上继续编辑

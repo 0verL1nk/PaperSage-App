@@ -9,7 +9,7 @@ import { formatBasisSummary, suggestionKindLabel } from './suggestion-display'
  * 批注与聊天建议共用的展示原子。
  *
  * 只做静态枚举映射与排版，不生成/改写任何评语——评语始终是模型 reason 原文，
- * 避免前端模板冒充导师口吻。
+ * 避免前端模板冒充模型口吻。
  */
 
 export function SuggestionTypeLabel({ kind, className }: { kind?: string; className?: string }) {

@@ -42,7 +42,7 @@ describe('MentorCommentRail', () => {
         ])}
       />,
     )
-    expect(screen.getByText('导师批注')).toBeInTheDocument()
+    expect(screen.getByText('写作批注')).toBeInTheDocument()
     expect(screen.getByText('2 条待处理')).toBeInTheDocument()
     expect(screen.getByText('绪论 / 研究背景')).toBeInTheDocument()
     expect(screen.getByText('绪论 / 研究方法')).toBeInTheDocument()
@@ -60,8 +60,8 @@ describe('MentorCommentRail', () => {
   it('shows the empty state and closes from the header', () => {
     const props = railProps([])
     render(<MentorCommentRail {...props} />)
-    expect(screen.getByText('还没有导师批注')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '收起导师批注' }))
+    expect(screen.getByText('还没有写作批注')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '收起写作批注' }))
     expect(props.onClose).toHaveBeenCalled()
   })
 })

@@ -2,10 +2,10 @@ import { expect, test, type Page } from '@playwright/test'
 import { WRITING_URL, mockWritingPageAPIs, seedAuthTokens, TEST_PROJECT_ID } from '../helpers'
 
 /**
- * 导师批注闭环（HELE-69 重做）：
- * - 批注形态：正文行内锚点 + 右侧导师批注栏，不是 AI 助手里的第二个 Tab；
- * - 默认不自动；底栏「请导师批注本段」手动触发；
- * - 卡片首屏是「类型 + 导师评语 + 查看修改 + 依据摘要 + 采纳/忽略」；
+ * 写作批注闭环（HELE-69 重做）：
+ * - 批注形态：正文行内锚点 + 右侧写作批注栏，不是 AI 助手里的第二个 Tab；
+ * - 默认不自动；底栏「批注本段」手动触发；
+ * - 卡片首屏是「类型 + 批注评语 + 查看修改 + 依据摘要 + 采纳/忽略」；
  * - 采纳后可撤销，忽略可带原因；自动批注 3s/8s 不抢焦点、不 toast。
  *
  * 全 route mock：`E2E_SKIP_LOGIN=1 pnpm exec playwright test ...` 可在无后端时跑。
@@ -113,7 +113,7 @@ async function enableAutoComment(page: Page) {
   await page.getByRole('switch', { name: '自动批注' }).click()
 }
 
-test('导师批注：默认不自动、手动批注、依据展开、采纳/撤销/忽略', async ({ page }) => {
+test('写作批注：默认不自动、手动批注、依据展开、采纳/撤销/忽略', async ({ page }) => {
   test.setTimeout(120_000)
   let status = 'pending'
   let hasProposal = false
@@ -129,19 +129,19 @@ test('导师批注：默认不自动、手动批注、依据展开、采纳/撤�
   })
 
   await page.goto(WRITING_URL)
-  await expect(page.getByRole('button', { name: '请导师批注本段' })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('button', { name: '批注本段' })).toBeVisible({ timeout: 30_000 })
 
   // 默认不自动建 Run。
   await page.waitForTimeout(1500)
   expect(posts, '默认进入写作页不得自动发 POST /agent/suggestions').toEqual([])
 
-  // 手动批注：请求带当前段落；卡片出现在导师批注栏。
+  // 手动批注：请求带当前段落；卡片出现在写作批注栏。
   hasProposal = true
-  await page.getByRole('button', { name: '请导师批注本段' }).click()
+  await page.getByRole('button', { name: '批注本段' }).click()
   await expect.poll(() => posts.length).toBe(1)
   expect(posts[0].paragraphText).toBe(PARAGRAPH)
   expect(posts[0].trigger).toBe('manual')
-  await expect(page.getByText('导师批注', { exact: true })).toBeVisible()
+  await expect(page.getByText('写作批注', { exact: true })).toBeVisible()
   await expect(page.getByText(PROPOSAL.reason)).toBeVisible()
   await expect(page.getByText('论证')).toBeVisible()
   await expect(page.getByText(/依据：章节计划 v2 · 研究背景/)).toBeVisible()
@@ -167,7 +167,7 @@ test('导师批注：默认不自动、手动批注、依据展开、采纳/撤�
   // 忽略原因。
   status = 'pending'
   await page.reload()
-  await page.getByText('导师批注', { exact: true }).click()
+  await page.getByText('写作批注', { exact: true }).click()
   await page.getByRole('button', { name: '忽略' }).click()
   await page.getByRole('button', { name: '太泛' }).click()
   await page.getByRole('button', { name: '确认忽略' }).click()
@@ -236,7 +236,7 @@ test('窄屏点击行内批注弹出浮层，Esc 关闭且不挤压编辑区', a
   const box = await page.locator('.monaco-editor').first().boundingBox()
   expect(box).not.toBeNull()
   await page.mouse.click(box!.x + 80, box!.y + 32)
-  const dialog = page.getByRole('dialog', { name: '导师批注' })
+  const dialog = page.getByRole('dialog', { name: '写作批注' })
   await expect(dialog).toBeVisible()
   await expect(dialog.getByText('论证')).toBeVisible()
   await page.keyboard.press('Escape')

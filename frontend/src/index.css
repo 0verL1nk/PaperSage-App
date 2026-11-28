@@ -492,7 +492,7 @@ html.desktop-client body {
   }
 }
 
-/* 导师批注：行内柔和锚点 + 行旁气泡。只用语义 token，不改文字颜色。 */
+/* 写作批注：行内柔和锚点 + 行旁气泡。只用语义 token，不改文字颜色。 */
 .mentor-anchor {
   background: color-mix(in oklab, var(--primary) 7%, transparent);
   border-bottom: 1px dashed color-mix(in oklab, var(--primary) 45%, transparent);

@@ -9,7 +9,7 @@ import type { ParagraphFocus } from '@/lib/latex/paragraph'
 /**
  * 动态写作建议的触发层。
  *
- * 默认「专注写作」：不自动建 Run，只有用户点「请导师批注本段」才发请求。
+ * 默认「专注写作」：不自动建 Run，只有用户点「批注本段」才发请求。
  * Opt-In 自动检查默认关闭；开启后：
  * - 段落完成（光标离开刚编辑的段落 / 空行 / 标题）→ 3s 后检查该段；
  * - 仍停在本段继续写 → 停止输入 8s 后才检查。
@@ -28,11 +28,11 @@ export interface SuggestionFocusTarget {
 export type SuggestionNotice = { kind: 'ok' | 'skip' | 'error'; text: string }
 
 const SKIP_TEXT: Record<agentApi.SuggestionSkipReason, string> = {
-  pending: '本段已有导师批注，先处理完再请导师看。',
-  duplicate: '导师刚看过这一段，先处理已有批注或修改后再试。',
-  running: '导师正在看上一段，稍等片刻。',
-  rate_limited: '导师刚看过这一段，稍后再请。',
-  too_short: '这一段还太短，写完一两句再请导师看。',
+  pending: '本段已有待处理批注，先处理完再试。',
+  duplicate: '本段刚批注过，修改或处理完已有批注后再试。',
+  running: '正在批注上一段，稍等片刻。',
+  rate_limited: '批注太频繁，稍后再试。',
+  too_short: '这一段还太短，写完一两句再试。',
 }
 
 export function useWritingSuggestion(
@@ -118,12 +118,12 @@ export function useWritingSuggestion(
       if (!enabled || checkingRef.current) return
       const target = override ?? getFocus()
       if (!target) {
-        setNotice({ kind: 'skip', text: '把光标放在正文段落里，再请导师批注。' })
+        setNotice({ kind: 'skip', text: '把光标放在正文段落里再批注。' })
         return
       }
       const text = target.focus.paragraphText
       if ([...text.trim()].length < 20) {
-        setNotice({ kind: 'skip', text: '这一段还太短，写完一两句再请导师看。' })
+        setNotice({ kind: 'skip', text: '这一段还太短，写完一两句再试。' })
         return
       }
       // 同一段文本只自动检查一次；手动检查也登记，避免随后自动重复。
@@ -160,11 +160,11 @@ export function useWritingSuggestion(
         setLastCheckedText(text)
         await invalidate()
         if (sawProposal) {
-          setNotice({ kind: 'ok', text: '导师批注已更新，请在右侧查看。' })
+          setNotice({ kind: 'ok', text: '已生成批注，请在右侧查看。' })
         } else if (toolsSeen.has('skip_suggestion')) {
-          setNotice({ kind: 'ok', text: '导师看过了，这一段暂时没有需要修改的地方。' })
+          setNotice({ kind: 'ok', text: '本段暂未发现需要修改的问题。' })
         } else {
-          setNotice({ kind: 'error', text: '导师这次没有给出可采纳的批注，可稍后再试。' })
+          setNotice({ kind: 'error', text: '本次未生成可采纳的批注，可稍后再试。' })
         }
       } catch (error) {
         setNotice({ kind: 'error', text: describeAgentError(error) })

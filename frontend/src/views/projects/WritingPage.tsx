@@ -425,7 +425,7 @@ export function WritingPage() {
           options: {
             inlineClassName: `mentor-anchor mentor-anchor--${proposal.suggestionKind ?? 'default'}${proposal.id === activeProposalId ? ' is-active' : ''}${proposal.id === flashProposalId ? ' is-flash' : ''}`,
             glyphMarginClassName: 'mentor-glyph',
-            glyphMarginHoverMessage: { value: '导师批注' },
+            glyphMarginHoverMessage: { value: '写作批注' },
             // NeverGrowsWhenTypingAtEdges：在锚点边缘输入时不扩张高亮。
             stickiness: 1,
           },
@@ -1401,7 +1401,7 @@ export function WritingPage() {
                   }}
                 >
                   {writingSuggestion.checking ? <Loader2 size={14} className="animate-spin" /> : <MessageSquare size={14} />}
-                  {writingSuggestion.checking ? '导师正在看…' : '请导师批注本段'}
+                  {writingSuggestion.checking ? '正在批注…' : '批注本段'}
                 </Button>
                 <Button
                   variant="ghost"
@@ -1410,7 +1410,7 @@ export function WritingPage() {
                   onClick={openComments}
                 >
                   <MessageSquare size={13} />
-                  导师批注
+                  批注
                   <span className="rounded-full bg-muted px-1.5 text-[10px]">{writingSuggestion.pendingCount}</span>
                 </Button>
                 <TooltipProvider>
@@ -1427,7 +1427,7 @@ export function WritingPage() {
                       />
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent>段落完成后自动请导师批注，不会打断输入</TooltipContent>
+                  <TooltipContent>写完段落后自动生成批注</TooltipContent>
                 </Tooltip>
                 </TooltipProvider>
                 <span className="sr-only" aria-live="polite">{ariaAnnouncement}</span>
@@ -1436,7 +1436,7 @@ export function WritingPage() {
           </Resizable.Panel>
           )}
 
-          {/* 导师批注栏：≥1280 独立第 4 栏（可折叠）。 */}
+          {/* 写作批注栏：≥1280 独立第 4 栏（可折叠）。 */}
           {isWide && (
             <>
               <ResizeHandle />
@@ -1694,7 +1694,7 @@ export function WritingPage() {
         <div
           id="mentor-comment-popover"
           role="dialog"
-          aria-label="导师批注"
+          aria-label="写作批注"
           className="fixed z-50 max-h-[60vh] w-[320px] max-w-[calc(100vw-16px)] overflow-y-auto rounded-xl border border-border/60 bg-card shadow-xl"
           style={{
             left: Math.min(Math.max(8, popover.x), Math.max(8, window.innerWidth - 328)),
@@ -1702,7 +1702,7 @@ export function WritingPage() {
           }}
         >
           <div className="flex items-center justify-between border-b border-border/40 px-3 py-2">
-            <span className="text-[11px] text-muted-foreground">导师批注</span>
+            <span className="text-[11px] text-muted-foreground">写作批注</span>
             <div className="flex items-center gap-2">
               {popoverProposals.length > 1 && (
                 <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
@@ -1723,7 +1723,7 @@ export function WritingPage() {
                   </button>
                 </span>
               )}
-              <button type="button" aria-label="关闭导师批注" onClick={() => setPopover(null)}>
+              <button type="button" aria-label="关闭写作批注" onClick={() => setPopover(null)}>
                 <X size={14} />
               </button>
             </div>

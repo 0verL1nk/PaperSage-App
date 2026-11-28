@@ -26,7 +26,7 @@ export interface MentorCommentRailProps {
   className?: string
 }
 
-/** 导师批注栏：桌面右栏 / 窄屏抽屉 / 移动 Sheet 共用同一份内容。 */
+/** 写作批注栏：桌面右栏 / 窄屏抽屉 / 移动 Sheet 共用同一份内容。 */
 export function MentorCommentRail({
   proposals, activeId, anchorOf, notice, checking, isLoading, isError, onRetry,
   onActivate, onApply, onReject, onUndo, onRecheck, onClose, className,
@@ -54,14 +54,14 @@ export function MentorCommentRail({
     <div className={cn('flex h-full min-h-0 flex-col bg-card', className)}>
       <header className="flex min-h-11 flex-none items-center gap-2 border-b border-border/40 px-3">
         <MessageSquare size={14} className="text-muted-foreground" />
-        <span className="text-[12px] font-medium">导师批注</span>
+        <span className="text-[12px] font-medium">写作批注</span>
         <span className="text-[11px] text-muted-foreground">{pending.length} 条待处理</span>
         {onClose && (
           <Button
             variant="ghost"
             size="icon-xs"
             className="ml-auto size-9 rounded-md text-muted-foreground"
-            aria-label="收起导师批注"
+            aria-label="收起写作批注"
             onClick={onClose}
           >
             <X size={14} />
@@ -73,7 +73,7 @@ export function MentorCommentRail({
         <div className="flex-none space-y-1 border-b border-border/40 px-3 py-2">
           {checking && (
             <p role="status" className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" /> 导师正在看这一段…
+              <Loader2 className="size-3 animate-spin" /> 正在批注这一段…
             </p>
           )}
           {notice && (
@@ -95,7 +95,7 @@ export function MentorCommentRail({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {isLoading && <p className="px-3 py-3 text-[11px] text-muted-foreground">正在读取导师批注…</p>}
+        {isLoading && <p className="px-3 py-3 text-[11px] text-muted-foreground">正在读取写作批注…</p>}
         {isError && (
           <StateBlock
             compact
@@ -107,8 +107,8 @@ export function MentorCommentRail({
         {!isLoading && !isError && proposals.length === 0 && (
           <StateBlock
             compact
-            title="还没有导师批注"
-            description="把光标放在正文段落里，点上方「请导师批注本段」。"
+            title="还没有写作批注"
+            description="把光标放在正文段落里，点上方「批注本段」。"
           />
         )}
 

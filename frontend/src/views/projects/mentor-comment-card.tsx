@@ -31,7 +31,7 @@ export interface MentorCommentCardProps {
   onRecheck?: () => void
 }
 
-/** 导师批注卡：首屏只留「类型 + 评语 + 查看修改 + 依据摘要 + 采纳/忽略」。 */
+/** 写作批注卡：首屏只留「类型 + 评语 + 查看修改 + 依据摘要 + 采纳/忽略」。 */
 export function MentorCommentCard({
   proposal, active, locatable, onActivate, onApply, onReject, onUndo, onRecheck,
 }: MentorCommentCardProps) {
@@ -44,7 +44,7 @@ export function MentorCommentCard({
   const [error, setError] = useState('')
 
   const basis = proposalBasis(proposal)
-  const reason = proposal.reason?.trim() || '导师没有给出具体评语。'
+  const reason = proposal.reason?.trim() || '暂无具体说明。'
   const pending = proposal.status === 'pending'
   const canRecheck = proposal.status === 'stale' || !locatable
 

@@ -315,7 +315,7 @@ test.describe('AI 对话可靠性与体验', () => {
     await expect(page.getByText('历史回答')).toBeVisible()
     await expect(page.getByText('read_document')).toBeVisible()
     await expect(page.getByText('成功')).toBeVisible()
-    await expect(page.getByText('修改建议')).toBeVisible()
+    await expect(page.getByText('查看修改')).toBeVisible()
     await expect(page.getByText('main.tex', { exact: true }).first()).toBeVisible()
     // 旧实现会把工具卡显示成「工具 / completed」并丢掉建议卡
     await expect(page.getByText('工具', { exact: true })).toHaveCount(0)
