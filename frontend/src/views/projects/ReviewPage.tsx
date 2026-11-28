@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useLatexFileContent, useLatexFiles } from '@/hooks/use-latex'
+import { useRetrievalMode } from '@/hooks/use-retrieval-mode'
 import { friendlyErrorMessage } from '@/services/errors'
 import { useResearchArtifacts } from '@/services/research-api'
 import { useChatStore } from '@/store/chat-store'
@@ -72,6 +73,7 @@ export function ReviewPage() {
   const passCount = checks.filter((check) => check.status === 'pass').length
 
   const isGuest = useSessionStore((state) => state.isGuest)
+  const retrievalMode = useRetrievalMode()
   const chat = useChatStore()
   const agentSettings = useSettingsStore((state) => state.settings?.agent)
   const fetchSettings = useSettingsStore((state) => state.fetchSettings)
@@ -265,6 +267,12 @@ export function ReviewPage() {
                   ) : null}
                 </div>
               </div>
+            )}
+
+            {!isGuest && retrievalMode === 'keyword' && (
+              <p className="rounded-xl border border-amber-500/25 bg-amber-500/5 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                当前未配置语义检索模型，资料检索按关键词匹配运行；AI 查找资料时按字面关键词命中，可能漏掉换了说法的内容。
+              </p>
             )}
 
             {chat.streaming ? (

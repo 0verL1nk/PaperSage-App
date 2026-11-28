@@ -14,6 +14,7 @@ vi.mock('@/services/settings-api', () => ({
   resetCategory: vi.fn(),
   testAgentConnection: vi.fn(),
 }))
+vi.mock('@/hooks/use-retrieval-mode', () => ({ useRetrievalMode: () => null }))
 
 // Radix Select does not open reliably in jsdom; expose each option as a button.
 type SelectItemProps = { value: string; children: ReactNode }

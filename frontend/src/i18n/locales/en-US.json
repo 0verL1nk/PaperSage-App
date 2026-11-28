@@ -8,7 +8,6 @@
     "projects": "All Projects",
     "trash": "Trash",
     "settings": "Settings",
-    "documents": "Documents",
     "norms": "Norms"
   },
   "layout": {
@@ -132,6 +131,7 @@
     "testFailed": "Connection failed",
     "serverFallbackConfigured": "Default model: {{model}}",
     "serverFallbackMissing": "No server default model is configured.",
+    "retrievalKeywordNotice": "Semantic search is not configured, so reference lookup runs on keyword matching. It matches literal keywords and may miss content phrased differently.",
     "models": "Models",
     "active": "Active",
     "noModel": "No model selected",
