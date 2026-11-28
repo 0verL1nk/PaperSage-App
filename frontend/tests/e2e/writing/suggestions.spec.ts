@@ -168,7 +168,7 @@ test('默认不自动检查；手动检查与建议卡应用、忽略、撤销�
   await expect(page.getByText('计划缺口：未交代研究问题的来源')).toBeVisible()
 
   await page.getByRole('button', { name: '应用到稿件' }).click()
-  await expect(page.getByText('已应用')).toBeVisible()
+  await expect(page.getByText('已应用', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '撤销这次修改' }).click()
   await expect(page.getByText('已撤销', { exact: true })).toBeVisible()
 

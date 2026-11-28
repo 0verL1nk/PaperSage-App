@@ -391,7 +391,7 @@ export async function loginAs(
   await page.goto('/auth')
   // 登录页默认「验证码登录」，密码登录需要先切到对应面板。
   await page.getByRole('button', { name: '密码登录' }).click()
-  await page.getByPlaceholder('请输入您的账号').fill(u)
+  await page.getByPlaceholder('请输入账号或邮箱').fill(u)
   await page.getByPlaceholder('••••••••').fill(p)
   await page.getByRole('button', { name: '立即登录' }).click()
   await page.waitForURL(/\/app\/projects/, { timeout: 15_000 })

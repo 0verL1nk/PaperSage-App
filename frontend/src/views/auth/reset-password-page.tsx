@@ -63,7 +63,7 @@ export function ResetPasswordPage() {
             <h1 className="text-2xl font-semibold tracking-tight">{done ? '密码已更新' : '设置新密码'}</h1>
             <p className="text-sm leading-6 text-muted-foreground">
               {done
-                ? '出于安全考虑，你需要使用新密码重新登录。其他已登录会话也已失效。'
+                ? '出于安全考虑，你需要使用新密码重新登录。其他设备上的登录也会失效。'
                 : '设置至少 8 位的新密码。重置链接仅可使用一次，有效期为 15 分钟。'}
             </p>
           </header>

@@ -64,7 +64,7 @@ export function NormLibraryPanel({ projectId }: { projectId: string }) {
               ))}
             </div>
             {summary.outdated > 0 && (
-              <p className="text-xs text-amber-700">{summary.outdated} 条规范有新版本；本项目仍按采用时的版本生效，取消采用后重新采用即可换到新版本。</p>
+              <p className="text-xs text-amber-700">{summary.outdated} 条规范有新版本；已采用的论文不受影响，想换到新版本请先取消采用再重新采用。</p>
             )}
           </>
         )}
@@ -74,7 +74,7 @@ export function NormLibraryPanel({ projectId }: { projectId: string }) {
           <SheetHeader className="p-0">
             <SheetTitle>选择本项目的学术规范</SheetTitle>
             <SheetDescription>
-              采用后即锁定当前版本；条目更新不会自动改变你的约束，需要你在列表里显式升级。
+              采用后会固定当前版本；规范更新不会自动改变已采用的论文。
             </SheetDescription>
           </SheetHeader>
           {open && <NormPicker projectId={projectId} />}
@@ -195,9 +195,7 @@ function NormPicker({ projectId }: { projectId: string }) {
                 key={entry.id}
                 entry={entry}
                 adoptedState={adopted.get(entry.id)?.state}
-                adoptedVersion={adopted.get(entry.id)?.version}
                 hasNewerVersion={adopted.get(entry.id)?.hasNewerVersion ?? false}
-                latestVersion={adopted.get(entry.id)?.latestVersion ?? entry.version}
                 busy={busy}
                 onAdopt={() => adopt.mutate({ entryIds: [entry.id] })}
                 onToggle={() => {
@@ -221,9 +219,7 @@ function NormPicker({ projectId }: { projectId: string }) {
 interface EntryRowProps {
   entry: NormEntry
   adoptedState?: 'enabled' | 'disabled'
-  adoptedVersion?: number
   hasNewerVersion: boolean
-  latestVersion: number
   busy: boolean
   onAdopt: () => void
   onToggle: () => void
@@ -233,9 +229,7 @@ interface EntryRowProps {
 function EntryRow({
   entry,
   adoptedState,
-  adoptedVersion,
   hasNewerVersion,
-  latestVersion,
   busy,
   onAdopt,
   onToggle,
@@ -247,7 +241,7 @@ function EntryRow({
         <div className="min-w-0">
           <p className="text-sm font-medium leading-5">{entry.title}</p>
           <p className="mt-1 text-xs text-muted-foreground">
-            {entry.packName} · {entry.code} · v{entry.version}
+            {entry.packName} · {entry.code}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-1.5">
@@ -255,10 +249,10 @@ function EntryRow({
             {bindingLabel(entry.binding)}
           </Badge>
           {adoptedState === 'enabled' && (
-            <Badge variant="secondary" className="font-normal">已启用 v{adoptedVersion}</Badge>
+            <Badge variant="secondary" className="font-normal">已启用</Badge>
           )}
           {adoptedState === 'disabled' && (
-            <Badge variant="outline" className="font-normal">已停用 v{adoptedVersion}</Badge>
+            <Badge variant="outline" className="font-normal">已停用</Badge>
           )}
         </div>
       </div>
@@ -297,8 +291,7 @@ function EntryRow({
             </Button>
             {hasNewerVersion && (
               <span className="text-xs text-amber-700">
-                这里是目录里的最新 v{latestVersion}；本项目仍按 v{adoptedVersion} 生效。
-                想换到新版本：先「取消采用」再点「采用这条」。
+                目录里已有更新版本；本项目仍按采用时的版本生效。想换到新版本，请先取消采用，再重新采用。
               </span>
             )}
           </>

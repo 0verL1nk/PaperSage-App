@@ -14,7 +14,7 @@ import type {
 import { RESEARCH } from './api-routes'
 
 function requireSignedIn() {
-  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError('科研组织产物')
+  if (useSessionStore.getState().isGuest) throw new GuestCapabilityError('资料整理')
 }
 
 const KEY = 'research-artifacts'

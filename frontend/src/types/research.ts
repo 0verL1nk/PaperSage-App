@@ -245,8 +245,8 @@ export const RESEARCH_KIND_LABEL: Record<ResearchArtifactKind, string> = {
 }
 
 export const RESEARCH_STATUS_LABEL: Record<ResearchRevisionStatus, string> = {
-  candidate: '候选',
+  candidate: '待确认',
   adopted: '已采用',
-  rejected: '已拒绝',
+  rejected: '已忽略',
   superseded: '已被替换',
 }

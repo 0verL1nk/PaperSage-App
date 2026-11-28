@@ -90,7 +90,9 @@ describe('LatexEnvironmentSetup', () => {
   it('展示 TeX Live 统计并可按版本清理旧缓存', async () => {
     render(<LatexEnvironmentSetup open onOpenChange={vi.fn()} />)
 
-    expect(await screen.findByText('tl-new')).toBeInTheDocument()
+    // 资源 profile id 只用于内部缓存管理，界面只显示引擎名。
+    expect(await screen.findByText('编译引擎')).toBeInTheDocument()
+    expect(screen.queryByText('tl-new')).not.toBeInTheDocument()
     expect(screen.getByText('2 / 1')).toBeInTheDocument()
     expect(screen.getByText('1 个 · 1.0 MB')).toBeInTheDocument()
 

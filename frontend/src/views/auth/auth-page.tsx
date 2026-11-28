@@ -179,7 +179,7 @@ export function AuthPage() {
       const tokens = await loginMutation.mutateAsync(values)
       setPendingVerifyEmail('')
       setSessionTokens(tokens)
-      toast.success('登录成功', { description: '欢迎回来，PaperSage 会话已建立。' })
+      toast.success('登录成功', { description: '欢迎回来。' })
       await navigate({ to: '/app/projects' })
     } catch (error) {
       setAuthError(getErrorMessage(error))
@@ -226,7 +226,7 @@ export function AuthPage() {
       toast.success(result.isNewUser ? '账号已创建' : '登录成功', {
         description: result.isNewUser
           ? '已为你创建 PaperSage 账号。可随时在「设置 → 账号与安全」中设置登录密码。'
-          : '欢迎回来，PaperSage 会话已建立。',
+          : '欢迎回来。',
       })
       await navigate({ to: '/app/projects' })
     } catch (error) {
@@ -242,7 +242,7 @@ export function AuthPage() {
         password: values.password,
       })
       setPendingVerifyEmail(values.email)
-      toast.success('请求已处理', { description: '如果该邮箱需要验证，请查收邮件；未收到时可重试注册以重新发送。' })
+      toast.success('请查收邮件', { description: '如果该邮箱需要验证，我们已发送验证邮件；未收到可重试。' })
       setMode('login')
     } catch (error) {
       setAuthError(getErrorMessage(error))
@@ -357,7 +357,7 @@ export function AuthPage() {
                             <div className="flex-1 text-[12px] leading-relaxed text-foreground/80">
                               验证邮件已发送至 <span className="font-semibold">{pendingVerifyEmail}</span>，
                               请查收并点击邮件中的链接激活账号后再登录（24 小时内有效，注意垃圾箱）。
-                              {guestImportPending && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">当前浏览器中的游客项目仍保存在本机。验证并登录后，你可以检查内容并确认导入；不会自动上传。</p>}
+                              {guestImportPending && <p className="mt-1.5 text-[11px] leading-4 text-muted-foreground">本机还有未导入的游客项目，登录后可以确认导入。</p>}
                               <ResendButton email={pendingVerifyEmail} className="ml-1" />
                             </div>
                           </div>
@@ -487,7 +487,7 @@ export function AuthPage() {
                                   autoCapitalize="none"
                                   spellCheck={false}
                                   {...loginForm.register('username')}
-                                  placeholder="请输入您的账号"
+                                  placeholder="请输入账号或邮箱"
                                   className={fieldInputClass}
                                 />
                                 {loginForm.formState.errors.username && (

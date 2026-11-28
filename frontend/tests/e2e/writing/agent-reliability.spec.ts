@@ -205,7 +205,7 @@ test.describe('AI 对话可靠性与体验', () => {
 
     await page.goto(WRITING_URL)
     await page.getByTestId('writing-tab-ai').click()
-    await expect(page.getByText('无法恢复会话或确认运行状态，请重试后再发送。')).toBeVisible()
+    await expect(page.getByText('无法恢复对话或确认运行状态，请重试后再发送。')).toBeVisible()
     await expect(page.getByPlaceholder('问点什么…')).toBeDisabled()
     await page.getByRole('button', { name: '重试恢复' }).click()
     await expect(page.getByPlaceholder('问点什么…')).toBeEnabled()

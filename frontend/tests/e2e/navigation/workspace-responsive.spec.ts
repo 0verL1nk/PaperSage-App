@@ -112,13 +112,13 @@ test('project workspace stages, writing editor, and reference library fit phone/
         await page.getByRole('tab', { name: '研究顾问' }).click()
       }
       if (viewport.width < 768) {
-        const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : route.path === 'uploading' ? '上传资料' : '论文撰写' })
+        const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : route.path === 'uploading' ? '资料库' : '论文撰写' })
         await expect(activeTab).toBeVisible()
         await expect(activeTab).toHaveAttribute('aria-current', 'page')
         expect(await activeTab.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
         if (viewport.width === 320) {
           // 四个阶段入口必须在 320px 一屏内全部可见（HELE-66 阻断项）
-          for (const label of ['写作准备', '论文撰写', '检查完善', '上传资料']) {
+          for (const label of ['写作准备', '论文撰写', '检查完善', '资料库']) {
             const tab = page.locator('nav.lg\\:hidden').getByRole('button', { name: label })
             await expect(tab).toBeVisible()
             expect(

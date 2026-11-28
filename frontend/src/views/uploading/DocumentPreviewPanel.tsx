@@ -447,7 +447,7 @@ export function DocumentPreviewPanel({ document: doc, onClose }: DocumentPreview
         </Button>
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {previewError ? <ErrorState message={isGuest ? previewError : `本地后端不可用：${previewError}`} /> : previewUrl ? <PreviewContent doc={doc} url={previewUrl} /> : <LoadingSpinner text="读取文件中" className="p-8" />}
+        {previewError ? <ErrorState message={isGuest ? previewError : `预览暂时不可用：${previewError}`} /> : previewUrl ? <PreviewContent doc={doc} url={previewUrl} /> : <LoadingSpinner text="读取文件中" className="p-8" />}
       </div>
     </div>
   )

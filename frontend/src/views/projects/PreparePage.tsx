@@ -191,7 +191,7 @@ export function PreparePage() {
           <CardContent className="flex items-center justify-between gap-3 p-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/5 text-primary"><FileText className="size-4" /></div>
-              <div className="min-w-0"><p className="text-sm font-semibold">{confirmedDocuments.length} 份已确认材料</p><p className="mt-1 text-xs text-muted-foreground">最近更新：{latestDocumentDate ? new Date(latestDocumentDate).toLocaleDateString('zh-CN') : '暂无材料'}</p></div>
+              <div className="min-w-0"><p className="text-sm font-semibold">{confirmedDocuments.length} 份可用资料</p><p className="mt-1 text-xs text-muted-foreground">最近更新：{latestDocumentDate ? new Date(latestDocumentDate).toLocaleDateString('zh-CN') : '暂无材料'}</p></div>
             </div>
             <Button asChild variant="ghost" size="icon-sm" className="shrink-0" aria-label="进入资料库"><Link to="/project/$projectId/uploading" params={{ projectId }}><ArrowUpRight className="size-4" /></Link></Button>
           </CardContent>

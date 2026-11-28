@@ -240,7 +240,7 @@ async function runCompile(options: StartCompileOptions, controller: AbortControl
     if (!jobId) {
       patch(projectId, {
         phase: 'success',
-        progressMessage: 'PDF 已生成（游客模式，仅保留在本次会话）',
+        progressMessage: 'PDF 已生成（游客模式，仅保留在当前浏览器）',
       })
       void notifyWhenBackground('编译完成', 'PDF 已生成')
       notifyAway(projectId, 'success', 'PDF 编译完成', '打开撰写页即可查看和下载。')

@@ -269,13 +269,13 @@ export async function streamRun(
         try {
           event = JSON.parse(payload) as RunStreamEvent
         } catch {
-          throw new Error('AI 事件流格式错误，回答可能未完成；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送')
+          throw new Error('AI 事件流格式错误，回答可能未完成；后台可能仍在运行，请稍后从对话列表重新打开查看，勿重复发送')
         }
         opts.onEvent(event, { eventId })
         if (event.type === 'finish' || event.type === 'abort') return
       }
     }
-    throw new Error('AI 连接中断，回答尚未接收完整；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送')
+    throw new Error('AI 连接中断，回答尚未接收完整；后台可能仍在运行，请稍后从对话列表重新打开查看，勿重复发送')
   } finally {
     // 只关闭本次订阅，不调用后台 Run 的取消接口。
     void reader.cancel().catch(() => {})

@@ -59,7 +59,7 @@ export function RecheckMarksPanel({ projectId }: { projectId: string }) {
           <ShieldQuestion className="size-4 text-amber-700 dark:text-amber-400" />待复查
         </CardTitle>
         <CardDescription>
-          资料被删除或出了新版本后，依赖它的产物、证据和知识页会在这里提醒。待复查只表示依据变了，是否仍然成立需要你确认；系统不会自动改写正文或产物。
+          资料更新或删除后，用到它的整理记录和检查报告会在这里提醒你复核。系统不会自动改写正文。
         </CardDescription>
         <div role="tablist" aria-label="待复查状态" className="flex gap-1 pt-2">
           {(['open', 'resolved'] as const).map((item) => (

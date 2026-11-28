@@ -15,7 +15,7 @@ export function describeAgentError(error: unknown): string {
     if (error.status === 400 && /尚未配置|模型|provider/i.test(error.message)) return '尚未配置可用的 AI 模型，请先到设置中配置'
     return error.message
   }
-  if (error instanceof TypeError) return '网络连接中断，回答可能未完成；后台可能仍在运行，请稍后从会话列表重新打开查看，勿重复发送'
+  if (error instanceof TypeError) return '网络连接中断，回答可能未完成；后台可能仍在运行，请稍后从对话列表重新打开查看，勿重复发送'
   if (error instanceof Error) return error.message
   return 'AI 服务暂时不可用，请稍后重试'
 }
