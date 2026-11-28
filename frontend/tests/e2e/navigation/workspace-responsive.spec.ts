@@ -19,7 +19,8 @@ const writingState = {
 let persistedWritingState = { ...writingState }
 
 test('project workspace stages, writing editor, and reference library fit phone/tablet/desktop viewports', async ({ page }) => {
-  test.setTimeout(120_000)
+  // 4 页 × 5 视口，写作页还要跨视口开阶段面板；#146 合入后编辑器装饰变重，预算放宽。
+  test.setTimeout(240_000)
   const unmockedApiRequests: string[] = []
   await page.route('**/api/**', async (route) => {
     unmockedApiRequests.push(route.request().url())
@@ -87,11 +88,14 @@ test('project workspace stages, writing editor, and reference library fit phone/
 
       const geometry = await page.evaluate(() => {
         const header = document.querySelector('header')?.getBoundingClientRect()
+        const headerEl = document.querySelector('header')
         const nav = document.querySelector('nav.lg\\:hidden')?.getBoundingClientRect()
         const main = document.querySelector('main')?.getBoundingClientRect()
         const editor = document.querySelector('.monaco-editor')?.getBoundingClientRect()
         return {
           headerBottom: header?.bottom ?? 0,
+          headerHeight: header?.height ?? 0,
+          headerScrollHeight: headerEl?.scrollHeight ?? 0,
           navBottom: nav?.bottom ?? 0,
           mainTop: main?.top ?? 0,
           editorRight: editor?.right ?? 0,
@@ -99,6 +103,42 @@ test('project workspace stages, writing editor, and reference library fit phone/
         }
       })
       expect(geometry.mainTop, `${route.path} main should start below fixed workspace chrome at ${viewport.name}`).toBeGreaterThanOrEqual(Math.max(geometry.headerBottom, geometry.navBottom))
+      if (viewport.width < 1024) {
+        // 顶部固定区硬预算 ≤96px：写作页 48(顶栏)+24(文件提示)，非写作页 48+44(阶段导航)
+        const chrome = await page.evaluate(() => {
+          const parts = [...document.querySelectorAll('[data-mobile-chrome]')]
+            .filter((element) => element.getClientRects().length)
+            .map((element) => [element.getAttribute('data-mobile-chrome'), element.getBoundingClientRect().height] as const)
+          return { parts, total: parts.reduce((sum, [, height]) => sum + height, 0) }
+        })
+        expect(
+          chrome.total,
+          `${route.path} 顶部固定区必须 ≤96px，实际 ${JSON.stringify(chrome.parts)} @ ${viewport.name}`,
+        ).toBeLessThanOrEqual(96.5)
+        // 零折行：顶栏始终保持 48px 单行
+        expect(geometry.headerHeight, `${route.path} 顶栏高度 @ ${viewport.name}`).toBeLessThanOrEqual(49)
+        expect(geometry.headerScrollHeight, `${route.path} 顶栏不得折行 @ ${viewport.name}`).toBeLessThanOrEqual(49)
+        // 同行控件共基线（返回 / 项目名 / 主操作 / 更多）
+        const controlCenters = await page.evaluate(() => [...document.querySelectorAll('header button')]
+          .filter((element) => element.getClientRects().length)
+          .map((element) => {
+            const rect = element.getBoundingClientRect()
+            return Math.round(rect.top + rect.height / 2)
+          }))
+        expect(new Set(controlCenters).size, `${route.path} 顶栏控件必须垂直居中对齐 @ ${viewport.name}`).toBeLessThanOrEqual(1)
+      }
+      if (route.path === 'writing' && viewport.width < 1024) {
+        // 写作页是单焦点工作台：没有阶段导航条，改为底部四分栏；阶段从项目名面板切换
+        await expect(page.locator('[data-writing-pane-bar]')).toBeVisible()
+        await expect(page.locator('nav.lg\\:hidden')).toHaveCount(0)
+        await page.getByRole('button', { name: /切换阶段/ }).click()
+        const stageSheet = page.getByRole('dialog')
+        for (const label of ['写作准备', '论文撰写', '检查完善', '资料库']) {
+          await expect(stageSheet.getByRole('button', { name: label })).toBeVisible()
+        }
+        await page.keyboard.press('Escape')
+        await expect(page.getByRole('dialog')).toHaveCount(0)
+      }
       if (route.path === 'writing' && geometry.editorExists) {
         expect(geometry.editorRight, `editor should stay within viewport at ${viewport.name}`).toBeLessThanOrEqual(viewport.width + 1)
       }
@@ -111,8 +151,8 @@ test('project workspace stages, writing editor, and reference library fit phone/
         await expect(page.getByRole('region', { name: '研究准备对话' })).toBeHidden()
         await page.getByRole('tab', { name: '研究顾问' }).click()
       }
-      if (viewport.width < 768) {
-        const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : route.path === 'uploading' ? '资料库' : '论文撰写' })
+      if (viewport.width < 768 && route.path !== 'writing') {
+        const activeTab = page.locator('nav').getByRole('button', { name: route.path === 'prepare' ? '写作准备' : route.path === 'review' ? '检查完善' : '资料库' })
         await expect(activeTab).toBeVisible()
         await expect(activeTab).toHaveAttribute('aria-current', 'page')
         expect(await activeTab.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
