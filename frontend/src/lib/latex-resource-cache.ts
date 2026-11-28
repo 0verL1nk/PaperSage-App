@@ -42,6 +42,8 @@ interface CachedResource extends DownloadRecord {
 const DB_NAME = 'papersage-latex-resources'
 const DB_VERSION = 3
 const CHUNK_SIZE = 1024 * 1024
+/** 源站发布新版本导致 ETag/Last-Modified 变化时，最多从头重下几次。 */
+const MAX_VALIDATOR_RESTARTS = 3
 const liveDownloads = new Set<string>()
 
 function openDb(): Promise<IDBDatabase> {
@@ -344,6 +346,7 @@ export async function downloadLatexResource(
     }
     const resumed = offset > 0
     options.onProgress?.({ resource, downloaded: offset, total: resource.size, resumed })
+    let validatorRestarts = 0
 
     while (offset < resource.size) {
       if (options.signal?.aborted) throw new DOMException('下载已暂停；再次初始化会从已保存的位置继续', 'AbortError')
@@ -367,8 +370,19 @@ export async function downloadLatexResource(
       const etag = response.headers.get('ETag')
       const lastModified = response.headers.get('Last-Modified')
       if (record && ((record.etag && etag !== record.etag) || (record.lastModified && lastModified !== record.lastModified))) {
+        // 源站在下载期间发布了新版本（Vercel 静态资源常见）时自动从头重下；
+        // 最终 SHA-256 校验保证完整性，连续变化超过上限才报错。
+        if (validatorRestarts >= MAX_VALIDATOR_RESTARTS) {
+          await clearPartial(resource.id)
+          throw new Error(`${resource.name} 下载期间源文件版本反复变化，已清除旧分块；请稍后重试`)
+        }
+        validatorRestarts++
         await clearPartial(resource.id)
-        throw new Error(`${resource.name} 下载期间源文件版本发生变化，旧分块已清除；请重试`)
+        record = undefined
+        chunkMap.clear()
+        offset = 0
+        options.onProgress?.({ resource, downloaded: 0, total: resource.size, resumed: false })
+        continue
       }
       const bytes = await response.arrayBuffer()
       if (bytes.byteLength !== end - offset + 1) throw new Error(`${resource.name} 当前分块长度不完整；已保存分块会保留，重试可续传`)
