@@ -7,6 +7,7 @@ import { EditorSettings } from './EditorSettings'
 import { AgentSettings } from './AgentSettings'
 import { AccountSettings } from './AccountSettings'
 import { AboutSettings } from './AboutSettings'
+import { AiUsageSettings } from './AiUsageSettings'
 
 export function SettingsPage() {
   const { t } = useTranslation()
@@ -30,10 +31,11 @@ export function SettingsPage() {
     <div className="mx-auto w-full max-w-3xl p-8 md:p-12">
       <h1 className="text-2xl font-bold mb-6">{t('settings.pageTitle')}</h1>
       <Tabs defaultValue="ui" className="w-full">
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto w-full flex-wrap justify-start">
           <TabsTrigger value="ui">{t('settings.tabGeneral')}</TabsTrigger>
           <TabsTrigger value="editor">{t('settings.tabEditor')}</TabsTrigger>
           <TabsTrigger value="agent">{t('settings.tabAgent')}</TabsTrigger>
+          <TabsTrigger value="aiUsage">{t('settings.tabAiUsage')}</TabsTrigger>
           <TabsTrigger value="account">{t('settings.tabAccount')}</TabsTrigger>
           <TabsTrigger value="about">{t('settings.tabAbout')}</TabsTrigger>
         </TabsList>
@@ -45,6 +47,9 @@ export function SettingsPage() {
         </TabsContent>
         <TabsContent value="agent">
           <AgentSettings />
+        </TabsContent>
+        <TabsContent value="aiUsage">
+          <AiUsageSettings />
         </TabsContent>
         <TabsContent value="account">
           <AccountSettings />
