@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 
 import { chromium, type FullConfig } from '@playwright/test'
@@ -6,6 +6,13 @@ import { chromium, type FullConfig } from '@playwright/test'
 export default async function globalSetup(config: FullConfig) {
   const baseURL = String(config.projects[0]?.use.baseURL ?? 'http://localhost:5173')
   const storageStatePath = resolve('playwright/.auth/user.json')
+  // 全 route-mock 的用例（如写作建议）不依赖真实后端；没有本地栈时用它
+  // 跳过真实登录，避免 globalSetup 卡在 /auth 超时。
+  if (process.env.E2E_SKIP_LOGIN === '1') {
+    await mkdir(dirname(storageStatePath), { recursive: true })
+    await writeFile(storageStatePath, JSON.stringify({ cookies: [], origins: [] }))
+    return
+  }
   const browser = await chromium.launch()
 
   try {

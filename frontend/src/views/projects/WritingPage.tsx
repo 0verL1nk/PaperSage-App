@@ -254,6 +254,10 @@ export function WritingPage() {
     getSuggestionFocus,
     !isGuest && isEditable && !!activeFilePath,
   )
+  // Monaco onMount 只跑一次；用 ref 拿最新回调，否则自动检查开关打开后
+  // 光标回调仍捕获首次渲染时 autoCheck=false 的闭包。
+  const notifyCursorMoveRef = useRef(writingSuggestion.notifyCursorMove)
+  notifyCursorMoveRef.current = writingSuggestion.notifyCursorMove
   const saveMutation = useSaveLatexFile(projectId)
   const autoSave = useAutoSave(saveMutation)
   const { saveNow: saveBeforeUpdate } = autoSave
@@ -1135,6 +1139,7 @@ export function WritingPage() {
                       if (position) cursorOffsetRef.current = editor.getModel()?.getOffsetAt(position) ?? 0
                       const subscription = editor.onDidChangeCursorPosition((event) => {
                         cursorOffsetRef.current = editor.getModel()?.getOffsetAt(event.position) ?? 0
+                        notifyCursorMoveRef.current()
                       })
                       editor.onDidDispose(() => {
                         subscription.dispose()
