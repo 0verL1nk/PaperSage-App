@@ -767,6 +767,7 @@ func (s *FilesService) createHandler(projectID, uid func(*gin.Context) uuid.UUID
 // DefaultTemplate 是项目创建时的 main.tex 模板（对齐 projects.py 内嵌字符串）。
 const DefaultTemplate = `\documentclass{article}
 \usepackage[utf8]{inputenc}
+\usepackage{booktabs}
 
 \title{New Project}
 \author{}
