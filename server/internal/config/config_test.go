@@ -178,6 +178,14 @@ func TestReviewUnitTimeoutMustBePositive(t *testing.T) {
 	require.Error(t, err)
 }
 
+// 单元时限配成秒级等于必然全部超时（生产曾出现 10 秒级配置）。
+func TestReviewUnitTimeoutClampedToOneMinute(t *testing.T) {
+	t.Setenv("REVIEW_UNIT_TIMEOUT", "10s")
+	s, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, time.Minute, s.ReviewUnitTimeout)
+}
+
 func TestAgentModelTimeoutMustBePositive(t *testing.T) {
 	t.Setenv("AGENT_MODEL_TIMEOUT", "0s")
 	_, err := Load()

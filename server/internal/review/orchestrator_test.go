@@ -25,12 +25,17 @@ import (
 type fakeReply struct {
 	Tool string
 	Args string
+	// Text 非空时返回普通文本（不调用工具），用于模拟模型主动结束回合。
+	Text string
 	Hang bool
+	// Delay 模拟真实模型的响应耗时。
+	Delay time.Duration
 }
 
 type fakeModelServer struct {
 	*httptest.Server
-	seq atomic.Int64
+	seq   atomic.Int64
+	delay time.Duration
 }
 
 func newFakeModelServer(t *testing.T) *fakeModelServer {
@@ -45,6 +50,9 @@ func (f *fakeModelServer) handle(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasSuffix(r.URL.Path, "/chat/completions") {
 		http.NotFound(w, r)
 		return
+	}
+	if f.delay > 0 {
+		time.Sleep(f.delay)
 	}
 	raw, _ := io.ReadAll(r.Body)
 	var req struct {
@@ -70,6 +78,9 @@ func (f *fakeModelServer) handle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	reply := fakeScript(detectDimension(systemText), assistantRounds, text.String())
+	if reply.Delay > 0 {
+		time.Sleep(reply.Delay)
+	}
 	if reply.Hang {
 		<-r.Context().Done()
 		return
@@ -127,6 +138,15 @@ func fakeScript(dim string, round int, text string) fakeReply {
 		return fakeReply{Tool: "read_latex_file", Args: fmt.Sprintf(`{"path":%q}`, file)}
 	case "terminology_consistency":
 		return fakeReply{Hang: true}
+	case "norm_compliance":
+		// 生产实测形态：模型空参调用 submit，被服务端退回后不再提交，直接结束回合。
+		switch round {
+		case 0:
+			return fakeReply{Tool: "get_review_unit_context", Args: `{}`}
+		case 1:
+			return fakeReply{Tool: "submit_review_unit_report", Args: `{}`}
+		}
+		return fakeReply{Text: "已完成检查。"}
 	}
 	switch round {
 	case 0:
@@ -144,6 +164,24 @@ func (f *fakeModelServer) writeStream(w http.ResponseWriter, reply fakeReply) {
 	w.WriteHeader(http.StatusOK)
 	flusher, _ := w.(http.Flusher)
 	id := fmt.Sprintf("chatcmpl-%d", f.seq.Add(1))
+	if reply.Text != "" {
+		writeSSE(w, flusher, map[string]any{
+			"id": id, "object": "chat.completion.chunk", "created": 1, "model": "fake-model",
+			"choices": []any{map[string]any{
+				"index": 0, "delta": map[string]any{"role": "assistant", "content": reply.Text},
+				"finish_reason": nil,
+			}},
+		})
+		writeSSE(w, flusher, map[string]any{
+			"id": id, "object": "chat.completion.chunk", "created": 1, "model": "fake-model",
+			"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "stop"}},
+		})
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		if flusher != nil {
+			flusher.Flush()
+		}
+		return
+	}
 	callID := fmt.Sprintf("call_%d", f.seq.Add(1))
 	writeSSE(w, flusher, map[string]any{
 		"id": id, "object": "chat.completion.chunk", "created": 1, "model": "fake-model",
@@ -170,8 +208,19 @@ func (f *fakeModelServer) writeStream(w http.ResponseWriter, reply fakeReply) {
 }
 
 func (f *fakeModelServer) writeJSON(w http.ResponseWriter, reply fakeReply) {
-	callID := fmt.Sprintf("call_%d", f.seq.Add(1))
 	w.Header().Set("Content-Type", "application/json")
+	if reply.Text != "" {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "chatcmpl-text", "object": "chat.completion", "created": 1, "model": "fake-model",
+			"choices": []any{map[string]any{
+				"index": 0, "message": map[string]any{"role": "assistant", "content": reply.Text},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]any{"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+		})
+		return
+	}
+	callID := fmt.Sprintf("call_%d", f.seq.Add(1))
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"id": "chatcmpl-json", "object": "chat.completion", "created": 1, "model": "fake-model",
 		"choices": []any{map[string]any{
@@ -347,6 +396,43 @@ func TestReviewRunAllUnitsExhaustedReportsActionableReason(t *testing.T) {
 	for _, unit := range run.Units {
 		require.Equal(t, store.ReviewUnitFailed, unit.Status)
 	}
+}
+
+// 生产实测形态：模型空参调用 submit、被退回后直接结束回合。
+// 单元必须给出真实原因（未提交合法报告），不能被 finishRun 的兜底文案吞掉。
+func TestReviewUnitInvalidSubmitReportsRealReason(t *testing.T) {
+	fake := newFakeModelServer(t)
+	env := newReviewTestEnv(t, fake)
+
+	runID := env.startReview(t, "invalid-submit", "norm_compliance")
+	run := env.waitRun(t, runID, 120*time.Second)
+
+	require.Equal(t, store.ReviewRunFailed, run.Status)
+	require.NotEmpty(t, run.Units)
+	for _, unit := range run.Units {
+		require.Equal(t, store.ReviewUnitFailed, unit.Status)
+		require.Contains(t, unit.Error, "模型未提交通过服务端校验的报告")
+		require.NotContains(t, unit.Error, "未在时限内完成", "real reason must not be replaced by the timeout fallback")
+	}
+}
+
+// 生产实测形态：模型逐步响应（慢），单元时限先到。
+// 单元必须记录「超过时限」，不能被 finishRun 的兜底文案覆盖。
+func TestReviewUnitTimeoutDuringSlowLoop(t *testing.T) {
+	fake := newFakeModelServer(t)
+	fake.delay = 1500 * time.Millisecond
+	env := newReviewTestEnv(t, fake)
+	env.ts.ReviewService.Cfg.ReviewUnitTimeout = 3 * time.Second
+
+	runID := env.startReview(t, "slow-timeout", "norm_compliance")
+	run := env.waitRun(t, runID, 90*time.Second)
+	t.Logf("run status=%s err=%q", run.Status, run.Error)
+	for _, u := range run.Units {
+		t.Logf("unit status=%s err=%q", u.Status, u.Error)
+	}
+	require.Equal(t, store.ReviewRunFailed, run.Status)
+	require.Contains(t, run.Units[0].Error, "超过")
+	require.NotContains(t, run.Units[0].Error, "未在时限内完成", "timeout reason must not be replaced by the fallback")
 }
 
 // 一个单元卡住不返回时，只终止它自己：其余单元仍要完成并落库（此前会拖到 Run 总超时一起失败）。

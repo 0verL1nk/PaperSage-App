@@ -138,6 +138,12 @@ func Load() (*Settings, error) {
 	if s.ReviewUnitTimeout <= 0 {
 		return nil, fmt.Errorf("REVIEW_UNIT_TIMEOUT must be positive")
 	}
+	// 一个单元至少要跑完「读上下文 → 读原文/资料 → 提交」，真实模型约 1–3 分钟。
+	// 把时限配成几秒等于必然全部超时（生产出现过 10 秒级配置导致 7 单元全败），
+	// 这里统一抬到 1 分钟下限；显式配置更长则按配置执行。
+	if s.ReviewUnitTimeout < time.Minute {
+		s.ReviewUnitTimeout = time.Minute
+	}
 	if s.ReviewUnitMaxIterations <= 0 {
 		return nil, fmt.Errorf("REVIEW_UNIT_MAX_ITERATIONS must be positive")
 	}
