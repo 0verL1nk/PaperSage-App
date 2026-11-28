@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { Textarea } from '@/components/ui/textarea'
-import { friendlyErrorMessage } from '@/services/errors'
+import { friendlyErrorMessage, isFrontendApiError } from '@/services/errors'
 import {
   useCreateEntry,
   useCreatePack,
@@ -103,6 +103,11 @@ function NormsPageHeader({ action }: { action: ReactNode }) {
   )
 }
 
+/** 规范包标识只用于内部唯一性，学生不需要理解；随机生成并保证符合后端 3–80 位规则。 */
+function newPackKey() {
+  return `pack-${crypto.randomUUID().slice(0, 8)}`
+}
+
 function NormsLibrary() {
   const packs = useNormPacks()
   const [packId, setPackId] = useState('')
@@ -171,11 +176,31 @@ function NormsLibrary() {
     }
   }
 
+  // 标识是隐藏字段，碰撞时用户无法自行修改，所以命中唯一冲突就换一个重试一次。
+  const submitPack = (value: { key: string; name: string; scenario: NormScenario }, retried = false) => {
+    createPack.mutate(
+      { key: value.key, name: value.name.trim(), scenario: value.scenario },
+      {
+        onSuccess: (created) => {
+          setPackDraft(null)
+          // 建完立刻切到新包：否则停在「全部规范包」，「新增条目」仍是禁用的，
+          // 用户会以为刚建的包不能加条目。
+          setPackId(created.id)
+        },
+        onError: (error) => {
+          if (!retried && isFrontendApiError(error) && error.status === 409) {
+            submitPack({ ...value, key: newPackKey() }, true)
+          }
+        },
+      },
+    )
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-4 overflow-y-auto p-3 sm:p-5 lg:h-full lg:min-h-0 lg:overflow-hidden">
       <NormsPageHeader
         action={
-          <Button className="min-h-11" onClick={() => setPackDraft({ key: '', name: '', scenario: 'undergraduate_thesis' })}>
+          <Button className="min-h-11" onClick={() => setPackDraft({ key: newPackKey(), name: '', scenario: 'undergraduate_thesis' })}>
             <Plus className="size-4" />新建规范包
           </Button>
         }
@@ -251,7 +276,7 @@ function NormsLibrary() {
               </div>
             </div>
             <CardDescription>
-              {editablePack ? '这是你自建的规范包，条目可以新增、编辑与删除。' : '内置规范包只读；点条目可查看出处与版本历史。'}
+              {editablePack ? '自建规范包，条目可自行增删改。' : '内置规范包只读；点条目可查看出处与版本历史。'}
             </CardDescription>
             <div className="flex flex-col gap-2">
               <Input
@@ -351,21 +376,9 @@ function NormsLibrary() {
           draft={packDraft}
           busy={createPack.isPending}
           error={createPack.error}
-          onChange={setPackDraft}
+          onChange={(value) => setPackDraft({ ...packDraft, ...value })}
           onCancel={() => setPackDraft(null)}
-          onSubmit={() =>
-            createPack.mutate(
-              { key: packDraft.key.trim(), name: packDraft.name.trim(), scenario: packDraft.scenario },
-              {
-                onSuccess: (created) => {
-                  setPackDraft(null)
-                  // 建完立刻切到新包：否则停在「全部规范包」，「新增条目」仍是禁用的，
-                  // 用户会以为刚建的包不能加条目。
-                  setPackId(created.id)
-                },
-              },
-            )
-          }
+          onSubmit={() => submitPack(packDraft)}
         />
       )}
     </div>
@@ -508,7 +521,7 @@ function EntryEditor({
       <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{editing ? '编辑规范条目' : '新增规范条目'}</DialogTitle>
-          <DialogDescription>修改会追加一个新版本，已采用旧版本的项目不会自动变化。</DialogDescription>
+          <DialogDescription>修改后生成新版本；已采用旧版本的论文不受影响。</DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
           <Field label="标题" required value={draft.title} onChange={(value) => set('title', value)} />
@@ -568,10 +581,10 @@ function PackEditor({
   onCancel,
   onSubmit,
 }: {
-  draft: { key: string; name: string; scenario: NormScenario }
+  draft: { name: string; scenario: NormScenario }
   busy: boolean
   error: unknown
-  onChange: (value: { key: string; name: string; scenario: NormScenario }) => void
+  onChange: (value: { name: string; scenario: NormScenario }) => void
   onCancel: () => void
   onSubmit: () => void
 }) {
@@ -584,13 +597,6 @@ function PackEditor({
         </DialogHeader>
         <div className="space-y-3">
           <Field label="名称" required value={draft.name} onChange={(value) => onChange({ ...draft, name: value })} />
-          <Field
-            label="标识"
-            required
-            value={draft.key}
-            placeholder="小写字母、数字与连字符，例如 my-lab-rules"
-            onChange={(value) => onChange({ ...draft, key: value })}
-          />
           <div>
             <span className="text-xs font-medium text-muted-foreground">适用场景</span>
             <div className="mt-1 flex flex-wrap gap-1.5">
@@ -615,7 +621,7 @@ function PackEditor({
         </div>
         <DialogFooter>
           <Button variant="outline" className="min-h-11" onClick={onCancel}>取消</Button>
-          <Button className="min-h-11" disabled={busy || !draft.name.trim() || !draft.key.trim()} onClick={onSubmit}>
+          <Button className="min-h-11" disabled={busy || !draft.name.trim()} onClick={onSubmit}>
             {busy ? '创建中…' : '创建'}
           </Button>
         </DialogFooter>

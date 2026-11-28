@@ -178,7 +178,7 @@ export function GuestImportGate() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><UploadCloud className="size-5 text-primary" />导入本机游客项目</DialogTitle>
           <DialogDescription className="leading-6">
-            先核对将复制到账号的内容。确认后会按项目和文件逐项上传；完成后本机游客数据库会作为备份保留。
+            先核对将复制到账号的内容。确认后会按项目和文件逐项上传；完成后本机游客数据会作为备份保留。
           </DialogDescription>
         </DialogHeader>
 
@@ -187,7 +187,7 @@ export function GuestImportGate() {
             <CheckCircle2 className="size-4 text-emerald-700" />
             <AlertTitle>云端副本已完整建立</AlertTitle>
             <AlertDescription className="leading-5">
-              已完成 {completedSummary.completed}/{completedSummary.total} 项，包含项目内容与回收站状态。请选择保留本机备份，或确认删除本机游客数据库后继续。
+              已完成 {completedSummary.completed}/{completedSummary.total} 项，包含项目内容与回收站状态。请选择保留本机备份，或确认删除本机游客数据后继续。
             </AlertDescription>
           </Alert>
         )}
@@ -228,11 +228,6 @@ export function GuestImportGate() {
               </div>
             )}
             {error && progress && <p className="text-xs leading-5 text-muted-foreground">已完成 {progress.completed}/{progress.total} 项。检查点已保存；可以重试继续，游客原始数据仍在本机。</p>}
-            <Alert className="border-primary/20 bg-primary/5">
-              <CheckCircle2 className="size-4 text-primary" />
-              <AlertTitle className="text-sm">默认保留本机备份</AlertTitle>
-              <AlertDescription className="text-xs leading-5">导入会在账号下创建云端副本。完成后你可以保留本机数据，或通过二次确认删除本机游客数据库。</AlertDescription>
-            </Alert>
           </div>
         )}
 
@@ -262,7 +257,7 @@ export function GuestImportGate() {
         open={confirmDeleteBackup}
         onOpenChange={setConfirmDeleteBackup}
         title="删除本机游客备份？"
-        description="云端副本已完整建立。确认后会删除此浏览器中的整个游客数据库，无法从 PaperSage 恢复；请先确认云端项目都已导入完成。"
+        description="云端副本已完整建立。确认后会删除此浏览器中的全部游客数据，无法从 PaperSage 恢复；请先确认云端项目都已导入完成。"
         confirmText="确认删除本机副本"
         cancelText="继续保留"
         variant="destructive"

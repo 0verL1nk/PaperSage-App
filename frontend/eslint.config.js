@@ -26,4 +26,22 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  // 用户可见文案禁用内部术语（口径见 docs/frontend/ux-copy.md）。
+  // ai-panel / WritingPage / ReviewPage 由 HELE-69 / HELE-70 重写，落地后从 ignores 移除。
+  {
+    files: ['src/**/*.{ts,tsx}'],
+    ignores: [
+      'src/**/*.test.{ts,tsx}',
+      'src/views/projects/ai-panel.tsx',
+      'src/views/projects/WritingPage.tsx',
+      'src/views/projects/ReviewPage.tsx',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error',
+        { selector: 'Literal[value=/产物|会话|您|置信度|确定性/]', message: '界面文案避免内部术语，见 docs/frontend/ux-copy.md' },
+        { selector: 'JSXText[value=/产物|会话|您|置信度|确定性/]', message: '界面文案避免内部术语，见 docs/frontend/ux-copy.md' },
+        { selector: 'TemplateElement[value.raw=/产物|会话|您|置信度|确定性/]', message: '界面文案避免内部术语，见 docs/frontend/ux-copy.md' },
+      ],
+    },
+  },
 ])

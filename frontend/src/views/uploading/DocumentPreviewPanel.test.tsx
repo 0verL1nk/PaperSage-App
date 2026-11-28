@@ -50,7 +50,7 @@ describe('document preview backend selection', () => {
     render(<DocumentPreviewPanel document={pdf} onClose={() => {}} />)
 
     expect(pdfDocument).not.toHaveBeenCalled()
-    expect(screen.getByText(`本地后端不可用：${backendError}`)).toBeInTheDocument()
+    expect(screen.getByText(`预览暂时不可用：${backendError}`)).toBeInTheDocument()
     expect(screen.queryByText('读取文件中')).not.toBeInTheDocument()
   })
 
@@ -65,7 +65,7 @@ describe('document preview backend selection', () => {
     render(<DocumentPreviewPanel document={{ ...pdf, type }} onClose={() => {}} />)
 
     expect(request).not.toHaveBeenCalled()
-    expect(screen.getByText(`本地后端不可用：${backendError}`)).toBeInTheDocument()
+    expect(screen.getByText(`预览暂时不可用：${backendError}`)).toBeInTheDocument()
   })
 
   it('still uses the same-origin URL for the explicit online target', () => {

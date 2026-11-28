@@ -62,7 +62,7 @@ test('删除资料后准备页展示待复查，处理后提醒消失', async ({
 
   // 受影响目标、原因与「不自动改写」说明都要可见。
   await expect(page.getByText('资料《论文.pdf》已删除').first()).toBeVisible()
-  await expect(page.getByText(/系统不会自动改写正文或产物/)).toBeVisible()
+  await expect(page.getByText(/系统不会自动改写正文/)).toBeVisible()
   await expect(page.getByRole('button', { name: '已复查' })).toBeVisible()
   await expect(page.getByRole('button', { name: '已重建' })).toBeVisible()
   await expect(page.getByRole('button', { name: '忽略' })).toBeVisible()

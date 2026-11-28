@@ -310,7 +310,7 @@ describe('send 动作', () => {
       expect(state.messages.at(-1)?.status).not.toBe('completed')
       expect(state.streaming).toBe(false)
       expect(state.error).toMatch(/中断|未完成/)
-      expect(state.error).toMatch(/会话/)
+      expect(state.error).toMatch(/对话/)
       expect(api.createRun).toHaveBeenCalledTimes(1)
       expect(api.cancelRun).not.toHaveBeenCalled()
       // 初次订阅 + 3 次退避重连后仍失败，才交给用户显式重试。
@@ -332,7 +332,7 @@ describe('send 动作', () => {
     expect(textOf(useChatStore.getState())).toBe('部分内容')
     expect(useChatStore.getState().streaming).toBe(false)
     expect(useChatStore.getState().messages.at(-1)?.runId).toBe('r1')
-    expect(useChatStore.getState().error).toMatch(/会话列表/)
+    expect(useChatStore.getState().error).toMatch(/对话列表/)
   })
 
   it('还没有会话时先建会话再发 Run——否则第一条消息会静默消失', async () => {

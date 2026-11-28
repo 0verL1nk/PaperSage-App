@@ -52,7 +52,7 @@ export function AdoptedResearchSummary({ projectId }: { projectId: string }) {
           {adopted.map((artifact) => (
             <div key={artifact.id}>
               <p className="flex flex-wrap items-center gap-1 text-[10px] font-medium text-muted-foreground">
-                {artifact.kind === 'chapter_plan' ? '章节计划' : '章节摘要'} · 已采用 v{artifact.adoptedRevision}
+                {artifact.kind === 'chapter_plan' ? '章节计划' : '章节摘要'} · 已采用
                 {artifact.needsRecheck ? (
                   <Badge variant="outline" className="border-amber-500/40 font-normal text-amber-700 dark:text-amber-400">待复查</Badge>
                 ) : null}

@@ -88,7 +88,7 @@ test.describe('Email code login (real backend)', () => {
     await logout(page)
     await expect(page).toHaveURL(/\/auth/)
     await page.getByRole('button', { name: '密码登录' }).click()
-    await page.getByPlaceholder('请输入您的账号').fill(email)
+    await page.getByPlaceholder('请输入账号或邮箱').fill(email)
     await page.getByPlaceholder('••••••••').fill(password)
     await page.getByRole('button', { name: '立即登录' }).click()
     await expect(page).toHaveURL(/\/app\/projects/, { timeout: 15_000 })

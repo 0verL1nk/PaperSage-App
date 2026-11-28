@@ -70,7 +70,7 @@ describe('ResearchArtifactsPanel', () => {
 
   it('shows an honest empty state', () => {
     render(<ResearchArtifactsPanel projectId="p1" />)
-    expect(screen.getByText(/还没有组织产物/)).toBeInTheDocument()
+    expect(screen.getByText(/还没有整理记录/)).toBeInTheDocument()
   })
 
   it('renders the current revision and adopts it', async () => {
@@ -80,13 +80,13 @@ describe('ResearchArtifactsPanel', () => {
     expect(screen.getByText(/引言/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: '采用' }))
     expect(adopt).toHaveBeenCalledWith({ artifactId: 'a1', revision: 2, expectedRevision: 2 })
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已采用该修订'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已采用这次修改'))
   })
 
   it('surfaces load failures instead of pretending empty', () => {
     state.error = new Error('offline')
     render(<ResearchArtifactsPanel projectId="p1" />)
-    expect(screen.getByRole('alert')).toHaveTextContent('产物加载失败')
+    expect(screen.getByRole('alert')).toHaveTextContent('整理记录加载失败')
     fireEvent.click(screen.getByRole('button', { name: '重试' }))
     expect(refetch).toHaveBeenCalledTimes(1)
   })
@@ -116,7 +116,7 @@ describe('ResearchArtifactsPanel', () => {
 
     const pending = screen.getByRole('button', { name: /采用中/ })
     expect(pending).toBeDisabled()
-    expect(screen.getByRole('button', { name: '拒绝' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: '忽略' })).toBeDisabled()
 
     finish({})
     await waitFor(() => expect(screen.getByRole('button', { name: '采用' })).toBeEnabled())
@@ -131,9 +131,9 @@ describe('ResearchArtifactsPanel', () => {
 
     const title = screen.getByLabelText('章节 1 标题')
     fireEvent.change(title, { target: { value: '改过的标题' } })
-    fireEvent.click(screen.getByRole('button', { name: '保存新修订' }))
+    fireEvent.click(screen.getByRole('button', { name: '保存修改' }))
 
-    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('保存修订失败', expect.objectContaining({
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('保存失败', expect.objectContaining({
       description: '产物已在其他位置更新，请基于最新版本重试',
     })))
     expect(screen.getByLabelText('章节 1 标题')).toHaveValue('改过的标题')
@@ -146,12 +146,12 @@ describe('ResearchArtifactsPanel', () => {
     render(<ResearchArtifactsPanel projectId="p1" />)
     fireEvent.click(screen.getByText('章节计划（1 节）'))
 
-    fireEvent.click(screen.getByRole('button', { name: '删除产物' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除整理记录' }))
     expect(remove).not.toHaveBeenCalled()
 
-    fireEvent.click(screen.getByRole('button', { name: '删除产物' }))
+    fireEvent.click(screen.getByRole('button', { name: '删除整理记录' }))
     expect(confirm).toHaveBeenCalledTimes(2)
     await waitFor(() => expect(remove).toHaveBeenCalledWith('a1'))
-    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已删除产物'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('已删除整理记录'))
   })
 })

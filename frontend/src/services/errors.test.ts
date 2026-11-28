@@ -19,9 +19,9 @@ function httpError(status: number, data: unknown) {
 describe('translateBackendInfo', () => {
   it.each([
     ['Project not found', '项目不存在或已被删除'],
-    ['Source version not found', '来源版本不存在或已被删除'],
-    ['Revision not found', '修订版本不存在，请刷新后重试'],
-    ['Artifact not found', '研究产物不存在或已被删除'],
+    ['Source version not found', '这份资料的版本不存在或已被删除'],
+    ['Revision not found', '这个版本不存在，请刷新后重试'],
+    ['Artifact not found', '这条整理记录不存在或已被删除'],
     ['Norm pack not found', '规范包不存在或已被删除'],
     ['Norm entry not found', '规范条目不存在或已被删除'],
     ['Adopted norm not found', '该规范尚未被采用或已移除'],
@@ -45,13 +45,13 @@ describe('normalizeApiError', () => {
 
   it('translates backend envelope info', () => {
     expect(normalizeApiError(httpError(404, { code: 404, info: 'Source version not found' }))).toMatchObject({
-      kind: 'http', status: 404, message: '来源版本不存在或已被删除',
+      kind: 'http', status: 404, message: '这份资料的版本不存在或已被删除',
     })
   })
 
   it('translates FastAPI-style route-level detail', () => {
     expect(normalizeApiError(httpError(404, { detail: 'Not Found' }))).toMatchObject({
-      message: '请求的接口不存在，请刷新页面或升级客户端后重试',
+      message: '服务暂时不可用，请刷新页面或升级客户端后重试',
     })
   })
 
