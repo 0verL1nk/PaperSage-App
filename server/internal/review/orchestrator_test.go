@@ -163,7 +163,7 @@ func (f *fakeModelServer) writeStream(w http.ResponseWriter, reply fakeReply) {
 		"id": id, "object": "chat.completion.chunk", "created": 1, "model": "fake-model",
 		"choices": []any{map[string]any{"index": 0, "delta": map[string]any{}, "finish_reason": "tool_calls"}},
 	})
-	fmt.Fprint(w, "data: [DONE]\n\n")
+	_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()
 	}
@@ -191,7 +191,7 @@ func (f *fakeModelServer) writeJSON(w http.ResponseWriter, reply fakeReply) {
 
 func writeSSE(w http.ResponseWriter, flusher http.Flusher, payload any) {
 	encoded, _ := json.Marshal(payload)
-	fmt.Fprintf(w, "data: %s\n\n", encoded)
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", encoded)
 	if flusher != nil {
 		flusher.Flush()
 	}
