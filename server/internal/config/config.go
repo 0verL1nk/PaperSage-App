@@ -138,9 +138,15 @@ func Load() (*Settings, error) {
 	if s.ReviewUnitTimeout <= 0 {
 		return nil, fmt.Errorf("REVIEW_UNIT_TIMEOUT must be positive")
 	}
+	// 一次检查要跑完全部单元（默认并发 3、每单元 1–3 分钟，7 单元约 3 波）。
+	// Run 级超时同时会把单元时限压到不高于它自己（execute 里取 min），所以配成秒级
+	// 会让每个单元刚起步就被取消（生产 v0.4.1 实测 9.1 秒 context canceled）。
+	// 统一抬到 10 分钟下限；显式配置更长则按配置执行。
+	if s.ReviewRunTimeout < 10*time.Minute {
+		s.ReviewRunTimeout = 10 * time.Minute
+	}
 	// 一个单元至少要跑完「读上下文 → 读原文/资料 → 提交」，真实模型约 1–3 分钟。
-	// 把时限配成几秒等于必然全部超时（生产出现过 10 秒级配置导致 7 单元全败），
-	// 这里统一抬到 1 分钟下限；显式配置更长则按配置执行。
+	// 把时限配成几秒等于必然全部超时，这里统一抬到 1 分钟下限。
 	if s.ReviewUnitTimeout < time.Minute {
 		s.ReviewUnitTimeout = time.Minute
 	}

@@ -186,6 +186,16 @@ func TestReviewUnitTimeoutClampedToOneMinute(t *testing.T) {
 	assert.Equal(t, time.Minute, s.ReviewUnitTimeout)
 }
 
+// Run 级超时会把单元时限压到不高于自己；配成秒级会让每个单元刚起步就被取消
+// （生产 v0.4.1 实测 9.1 秒 context canceled）。
+func TestReviewRunTimeoutClampedToTenMinutes(t *testing.T) {
+	t.Setenv("REVIEW_RUN_TIMEOUT", "10s")
+	s, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, 10*time.Minute, s.ReviewRunTimeout)
+	assert.GreaterOrEqual(t, s.ReviewRunTimeout, s.ReviewUnitTimeout)
+}
+
 func TestAgentModelTimeoutMustBePositive(t *testing.T) {
 	t.Setenv("AGENT_MODEL_TIMEOUT", "0s")
 	_, err := Load()
