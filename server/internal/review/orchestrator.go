@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,7 +21,11 @@ import (
 const (
 	defaultUnitConcurrency = 3
 	defaultRunTimeout      = 20 * time.Minute
-	unitCancelGrace        = 10 * time.Second
+	// defaultUnitTimeout 是单个单元的独立时限：一个卡住的单元只能拖垮自己，
+	// 不能吃光整次检查的预算（此前只有 Run 级总超时，一个单元挂住会让其余单元
+	// 在总超时处一起被清掉，整单零产物）。
+	defaultUnitTimeout = 5 * time.Minute
+	unitCancelGrace    = 10 * time.Second
 )
 
 type runExecutor struct {
@@ -93,6 +98,13 @@ func (s *Service) execute(runID store.UUID) {
 	if s.Cfg != nil && s.Cfg.ReviewRunTimeout > 0 {
 		timeout = s.Cfg.ReviewRunTimeout
 	}
+	unitTimeout := defaultUnitTimeout
+	if s.Cfg != nil && s.Cfg.ReviewUnitTimeout > 0 {
+		unitTimeout = s.Cfg.ReviewUnitTimeout
+	}
+	if unitTimeout > timeout {
+		unitTimeout = timeout
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -144,7 +156,7 @@ func (s *Service) execute(runID store.UUID) {
 				s.markUnit(u.ID, store.ReviewUnitCancelled, "检查已取消")
 				return
 			}
-			s.runUnit(ctx, exec, &run, &u, pc, model)
+			s.runUnit(ctx, exec, &run, &u, pc, model, unitTimeout)
 		}(unit)
 	}
 	wg.Wait()
@@ -152,15 +164,23 @@ func (s *Service) execute(runID store.UUID) {
 }
 
 func (s *Service) runUnit(ctx context.Context, exec *runExecutor, run *store.ReviewRun,
-	unit *store.ReviewUnit, pc *projectContext, model *agent.ResolvedModel) {
+	unit *store.ReviewUnit, pc *projectContext, model *agent.ResolvedModel, unitTimeout time.Duration) {
 
 	if exec.isCancelled() || ctx.Err() != nil {
 		s.markUnit(unit.ID, store.ReviewUnitCancelled, "检查已取消")
 		return
 	}
 	started := time.Now().UTC()
-	_ = s.DB.Model(&store.ReviewUnit{}).Where("id = ?", unit.ID).
-		Updates(map[string]any{"status": store.ReviewUnitRunning, "started_at": started}).Error
+	// 只有仍处于 pending 的单元才允许启动：若重启收敛或其他写入方已给出终态，不得复活。
+	res := s.DB.Model(&store.ReviewUnit{}).Where("id = ? AND status = ?", unit.ID, store.ReviewUnitPending).
+		Updates(map[string]any{"status": store.ReviewUnitRunning, "started_at": started})
+	if res.Error != nil {
+		slog.Warn("review unit start write failed", "unit_id", unit.ID.String(), "err", res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		return
+	}
 
 	var files, sections, dims []string
 	_ = json.Unmarshal(unit.FilePathsJSON, &files)
@@ -173,6 +193,18 @@ func (s *Service) runUnit(ctx context.Context, exec *runExecutor, run *store.Rev
 	done := make(chan struct{})
 	var once sync.Once
 	settleStatus, settleFailure := "", ""
+	// 报告一旦通过服务端校验，单元目的就达成了：随即停掉该单元的 Agent 循环，
+	// 不再让模型继续读文件/寒暄而把迭代预算耗尽。
+	var stopMu sync.Mutex
+	var stopRun func()
+	stopAfterSubmit := func() {
+		stopMu.Lock()
+		fn := stopRun
+		stopMu.Unlock()
+		if fn != nil {
+			fn()
+		}
+	}
 	spec := &agent.ReviewUnitSpec{
 		UnitID:      unit.ID.String(),
 		Instruction: buildUnitInstruction(*planned, pc),
@@ -187,6 +219,7 @@ func (s *Service) runUnit(ctx context.Context, exec *runExecutor, run *store.Rev
 				return verr
 			}
 			exec.setResult(unit.ID.String(), result)
+			stopAfterSubmit()
 			return nil
 		},
 	}
@@ -204,34 +237,54 @@ func (s *Service) runUnit(ctx context.Context, exec *runExecutor, run *store.Rev
 		return
 	}
 	exec.setRunning(unit.ID.String(), agentRunID)
-	_ = s.DB.Model(&store.ReviewUnit{}).Where("id = ?", unit.ID).Update("agent_run_id", agentRunID).Error
+	stopMu.Lock()
+	stopRun = func() { s.Agent.CancelRun(agentRunID) }
+	stopMu.Unlock()
+	if err := s.DB.Model(&store.ReviewUnit{}).Where("id = ?", unit.ID).Update("agent_run_id", agentRunID).Error; err != nil {
+		slog.Warn("review unit agent_run_id write failed", "unit_id", unit.ID.String(), "err", err)
+	}
 
+	// 每个单元有自己的时限：到点只终止本单元，其余单元继续。
+	unitCtx, stopUnit := context.WithTimeout(ctx, unitTimeout)
+	defer stopUnit()
+	var deadlineHit bool
 	select {
 	case <-done:
-	case <-ctx.Done():
+	case <-unitCtx.Done():
 		s.Agent.CancelRun(agentRunID)
 		select {
 		case <-done:
 		case <-time.After(unitCancelGrace):
 			settleStatus = agent.RunCancelled
 		}
+		// Run 级超时/用户取消沿用「检查已取消」；只有单元自身到点才单独报超时。
+		deadlineHit = ctx.Err() == nil && settleStatus != agent.RunCompleted
 	}
 	exec.clearRunning(unit.ID.String())
 
-	if settleStatus == agent.RunCompleted {
-		if result := exec.result(unit.ID.String()); result != nil {
-			findingsJSON, _ := json.Marshal(result.Findings)
-			dimsJSON, _ := json.Marshal(result.Dimensions)
-			sourcesJSON, _ := json.Marshal(result.SourcesRead)
-			now := time.Now().UTC()
-			_ = s.DB.Model(&store.ReviewUnit{}).Where("id = ?", unit.ID).Updates(map[string]any{
-				"status": store.ReviewUnitSucceeded, "findings_json": findingsJSON,
-				"dimension_results_json": dimsJSON, "sources_read_json": sourcesJSON,
-				"error_text": "", "completed_at": now,
-			}).Error
-			return
+	// 判定标准是「服务端是否收到并通过校验的报告」，不是 Agent 循环是否优雅收尾：
+	// 模型提交后继续读文件会撞上迭代上限，此前会把已校验的报告一起丢掉。
+	if result := exec.result(unit.ID.String()); result != nil && !exec.isCancelled() {
+		findingsJSON, _ := json.Marshal(result.Findings)
+		dimsJSON, _ := json.Marshal(result.Dimensions)
+		sourcesJSON, _ := json.Marshal(result.SourcesRead)
+		now := time.Now().UTC()
+		if err := s.DB.Model(&store.ReviewUnit{}).Where("id = ?", unit.ID).Updates(map[string]any{
+			"status": store.ReviewUnitSucceeded, "findings_json": findingsJSON,
+			"dimension_results_json": dimsJSON, "sources_read_json": sourcesJSON,
+			"error_text": "", "completed_at": now,
+		}).Error; err != nil {
+			slog.Warn("review unit result write failed", "unit_id", unit.ID.String(), "err", err)
 		}
+		return
+	}
+	if settleStatus == agent.RunCompleted {
 		s.markUnit(unit.ID, store.ReviewUnitFailed, "模型未提交通过服务端校验的报告")
+		return
+	}
+	if deadlineHit {
+		s.markUnit(unit.ID, store.ReviewUnitFailed,
+			fmt.Sprintf("本单元超过 %s未完成，已终止；其余单元不受影响", humanDuration(unitTimeout)))
 		return
 	}
 	status := store.ReviewUnitFailed
@@ -246,11 +299,22 @@ func (s *Service) runUnit(ctx context.Context, exec *runExecutor, run *store.Rev
 	s.markUnit(unit.ID, status, reason)
 }
 
+// humanDuration 把单元时限写成用户能读懂的长度（5m0s → 5 分钟）。
+func humanDuration(d time.Duration) string {
+	if d >= time.Minute {
+		return fmt.Sprintf("%.0f 分钟", d.Minutes())
+	}
+	return fmt.Sprintf("%.0f 秒", d.Seconds())
+}
+
 func (s *Service) markUnit(unitID store.UUID, status, reason string) {
 	now := time.Now().UTC()
-	_ = s.DB.Model(&store.ReviewUnit{}).
+	if err := s.DB.Model(&store.ReviewUnit{}).
 		Where("id = ? AND status IN ?", unitID, []string{store.ReviewUnitPending, store.ReviewUnitRunning}).
-		Updates(map[string]any{"status": status, "error_text": truncateText(reason, 500), "completed_at": now}).Error
+		Updates(map[string]any{"status": status, "error_text": truncateText(reason, 500), "completed_at": now}).Error; err != nil {
+		// 状态写不进去会让单元卡在 running；必须留痕，否则只能看到「未完成」而查不到原因。
+		slog.Warn("review unit state write failed", "unit_id", unitID.String(), "status", status, "err", err)
+	}
 }
 
 func contextTruncated(raw []byte) bool {
@@ -275,11 +339,17 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 	if err := s.DB.First(&latest, "id = ?", run.ID).Error; err != nil {
 		return
 	}
-	if latest.Status == store.ReviewRunCancelled || exec.isCancelled() {
+	// 终态只写一次：重启收敛、用户取消或其他写入方已收敛的任务不得被本进程覆盖。
+	if latest.Status != store.ReviewRunQueued && latest.Status != store.ReviewRunRunning {
+		return
+	}
+	if exec.isCancelled() {
 		now := time.Now().UTC()
-		_ = s.DB.Model(&store.ReviewUnit{}).
+		if err := s.DB.Model(&store.ReviewUnit{}).
 			Where("review_run_id = ? AND status IN ?", run.ID, []string{store.ReviewUnitPending, store.ReviewUnitRunning}).
-			Updates(map[string]any{"status": store.ReviewUnitCancelled, "error_text": "检查已取消", "completed_at": now}).Error
+			Updates(map[string]any{"status": store.ReviewUnitCancelled, "error_text": "检查已取消", "completed_at": now}).Error; err != nil {
+			slog.Warn("review units cancel write failed", "run_id", run.ID.String(), "err", err)
+		}
 		return
 	}
 	var units []store.ReviewUnit
@@ -288,7 +358,6 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 		return
 	}
 	success, failed := 0, 0
-	firstFailure := ""
 	for i := range units {
 		u := &units[i]
 		switch u.Status {
@@ -296,21 +365,16 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 			success++
 		case store.ReviewUnitFailed, store.ReviewUnitCancelled:
 			failed++
-			if firstFailure == "" && u.ErrorText != "" {
-				firstFailure = u.ErrorText
-			}
 		default:
-			// 超时或异常退出：未终态单元一律按失败收敛，绝不把未覆盖展示成通过。
-			s.markUnit(u.ID, store.ReviewUnitFailed, "检查单元未完成")
+			// 未终态单元一律按失败收敛，绝不把未覆盖展示成通过；原因要能指向可执行动作。
+			s.markUnit(u.ID, store.ReviewUnitFailed, "本单元未在时限内完成，未产出结论")
 			u.Status = store.ReviewUnitFailed
+			u.ErrorText = "本单元未在时限内完成，未产出结论"
 			failed++
 		}
 	}
 	if success == 0 {
-		reason := "所有检查单元都失败了，请检查模型配置后重试"
-		if firstFailure != "" {
-			reason = "所有检查单元都失败了：" + firstFailure
-		}
+		reason := fmt.Sprintf("所有检查单元都失败了（%d 个）：%s", failed, summarizeUnitFailures(units))
 		s.failRun(ctx, run.ID, reason)
 		return
 	}
@@ -336,10 +400,43 @@ func (s *Service) finishRun(ctx context.Context, exec *runExecutor, run *store.R
 	}
 	artifactID := store.UUID{UUID: out.ID}
 	now := time.Now().UTC()
-	_ = s.DB.Model(&store.ReviewRun{}).Where("id = ?", run.ID).Updates(map[string]any{
-		"status": status, "artifact_id": artifactID, "artifact_revision": out.CurrentRevision,
-		"error_text": errorText, "completed_at": now,
-	}).Error
+	res := s.DB.Model(&store.ReviewRun{}).
+		Where("id = ? AND status IN ?", run.ID, []string{store.ReviewRunQueued, store.ReviewRunRunning}).
+		Updates(map[string]any{
+			"status": status, "artifact_id": artifactID, "artifact_revision": out.CurrentRevision,
+			"error_text": errorText, "completed_at": now,
+		})
+	if res.Error != nil {
+		slog.Warn("review run finish write failed", "run_id", run.ID.String(), "err", res.Error)
+	}
+}
+
+// summarizeUnitFailures 把单元失败原因去重后汇总，避免只用「第一个失败」代表全部。
+func summarizeUnitFailures(units []store.ReviewUnit) string {
+	reasons := make([]string, 0, 3)
+	seen := map[string]bool{}
+	for i := range units {
+		u := &units[i]
+		if u.Status != store.ReviewUnitFailed && u.Status != store.ReviewUnitCancelled {
+			continue
+		}
+		reason := strings.TrimSpace(u.ErrorText)
+		if reason == "" {
+			reason = "未返回失败原因"
+		}
+		if seen[reason] {
+			continue
+		}
+		seen[reason] = true
+		reasons = append(reasons, reason)
+		if len(reasons) == 3 {
+			break
+		}
+	}
+	if len(reasons) == 0 {
+		return "请稍后重试"
+	}
+	return strings.Join(reasons, "；")
 }
 
 // buildReport 纯确定性聚合：维度状态取最坏、findings 合并加前缀、scope 记录单元来源。
