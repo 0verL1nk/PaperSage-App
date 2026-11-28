@@ -4,6 +4,7 @@ import { ResetPasswordPage } from '@/views/auth/reset-password-page'
 import { AdminLayout } from '@/views/admin/AdminLayout'
 import { AdminPage } from '@/views/admin/AdminPage'
 import { CompileDiagnosticsPage } from '@/views/admin/CompileDiagnosticsPage'
+import { AiUsagePage } from '@/views/admin/AiUsagePage'
 import type { QueryClient } from '@tanstack/react-query'
 import {
   Link,
@@ -145,6 +146,12 @@ const adminCompileDiagnosticsRoute = createRoute({
   getParentRoute: () => adminLayoutRoute,
   path: '/compile-diagnostics',
   component: CompileDiagnosticsPage,
+})
+
+const adminAiUsageRoute = createRoute({
+  getParentRoute: () => adminLayoutRoute,
+  path: '/ai-usage',
+  component: AiUsagePage,
 })
 
 const authVerifyRoute = createRoute({
@@ -337,7 +344,7 @@ const routeTree = rootRoute.addChildren([
   resetPasswordRoute,
   authRoute,
   guestRoute,
-  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminLayoutRoute.addChildren([adminSettingsRoute, adminCompileDiagnosticsRoute])]),
+  appLayoutRoute.addChildren([documentsRoute, projectsRoute, normsRoute, trashRoute, settingsRoute, profileRoute, adminLayoutRoute.addChildren([adminSettingsRoute, adminCompileDiagnosticsRoute, adminAiUsageRoute])]),
   projectLayoutRoute.addChildren([
     projectRootRoute,
     projectPrepareRoute,

@@ -51,6 +51,10 @@ type Settings struct {
 	CompileHistoryLimit         int `env:"COMPILE_HISTORY_LIMIT" envDefault:"20"`
 	// 浏览器编译错误诊断的保留天数（clamp 1–365）：到期硬删，防止表膨胀。
 	CompileDiagnosticRetentionDays int `env:"COMPILE_DIAGNOSTIC_RETENTION_DAYS" envDefault:"30"`
+	// AI 调用计量（ai_model_calls）的保留天数（clamp 7–730）与统计时区。
+	// 时区非法时 aiusage.NewService 回退 UTC 并 Warn，不阻断启动。
+	AIUsageRetentionDays int    `env:"AI_USAGE_RETENTION_DAYS" envDefault:"180"`
+	AIUsageTimezone      string `env:"AI_USAGE_TIMEZONE" envDefault:"Asia/Shanghai"`
 
 	S3Endpoint                 string `env:"S3_ENDPOINT"`
 	S3AccessKey                string `env:"S3_ACCESS_KEY"`
@@ -144,6 +148,12 @@ func Load() (*Settings, error) {
 	}
 	if s.CompileDiagnosticRetentionDays > 365 {
 		s.CompileDiagnosticRetentionDays = 365
+	}
+	if s.AIUsageRetentionDays < 7 {
+		s.AIUsageRetentionDays = 7
+	}
+	if s.AIUsageRetentionDays > 730 {
+		s.AIUsageRetentionDays = 730
 	}
 	// Python's parse_allowed_hosts strips whitespace and drops empty items.
 	s.AllowedHosts = normalizeHosts(s.AllowedHosts)

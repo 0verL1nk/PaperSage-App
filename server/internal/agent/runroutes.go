@@ -37,9 +37,14 @@ func (s *Service) createRunHandler(c *gin.Context) {
 	var req struct {
 		Content               string `json:"content"`
 		ClientRequestID       string `json:"clientRequestId"`
+		FeatureKind           string `json:"featureKind"`
 		ExpectedThreadVersion *int64 `json:"expectedThreadVersion"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || len([]rune(req.ClientRequestID)) > 64 {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	if req.FeatureKind != "" && !validFeatureKind(req.FeatureKind) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
@@ -56,14 +61,15 @@ func (s *Service) createRunHandler(c *gin.Context) {
 		return
 	}
 
-	result, err := s.createRootRun(ctx, conv, uid, req.ClientRequestID, req.Content, req.ExpectedThreadVersion)
+	result, err := s.createRootRun(ctx, conv, uid, req.ClientRequestID, req.Content, normalizeFeatureKind(req.FeatureKind), req.ExpectedThreadVersion)
 	if err != nil {
 		s.writeRootRunError(c, cid, uid, err)
 		return
 	}
 	if result.created {
 		rc := runContext{RunID: result.run.ID, ConversationID: cid,
-			ProjectID: conv.ProjectID, UserID: uid, Content: req.Content, Model: result.model, finalizeDeadline: result.finalizeDeadline}
+			ProjectID: conv.ProjectID, UserID: uid, Content: req.Content,
+			FeatureKind: result.run.FeatureKind, Model: result.model, finalizeDeadline: result.finalizeDeadline}
 		if err := s.StartRun(rc); err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
 			return
@@ -240,7 +246,7 @@ func (s *Service) retryRun(c *gin.Context) {
 		writeModelResolutionError(c, rerr)
 		return
 	}
-	run, err := s.createRun(ctx, s.DB, old.ConversationID, *old.TurnID, AgentKeyMain,
+	run, err := s.createRun(ctx, s.DB, old.ConversationID, *old.TurnID, AgentKeyMain, old.FeatureKind,
 		resolved.Source, resolved.Model, systemPromptVersion)
 	if err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 500, Info: "Internal server error"})
@@ -249,7 +255,8 @@ func (s *Service) retryRun(c *gin.Context) {
 	_ = s.appendEvent(ctx, old.ConversationID, run.ID, evtRunStarted, nil)
 	if err := s.StartRun(runContext{
 		RunID: run.ID, ConversationID: old.ConversationID,
-		ProjectID: projID, UserID: uid, Content: content, Model: resolved,
+		ProjectID: projID, UserID: uid, Content: content,
+		FeatureKind: run.FeatureKind, Model: resolved,
 	}); err != nil {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
 		return

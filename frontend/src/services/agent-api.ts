@@ -129,12 +129,17 @@ export function deleteConversation(conversationId: string, config?: ApiRequestCo
 
 // --- Run ---
 
+/** 发起 Run 的产品入口；服务端白名单校验，缺省 chat。 */
+export type AgentFeatureKind = 'chat' | 'cross_chapter_review'
+
 export interface CreateRunInput {
   content: string
   /** 幂等键：双击发送/网络重试不会产生第二个 Run */
   clientRequestId?: string
   /** 乐观锁：与当前会话版本不符时后端返回 409 并附最新版本 */
   expectedThreadVersion?: number
+  /** 功能入口；只在有专用入口时显式传值，不从内容猜测。 */
+  featureKind?: AgentFeatureKind
 }
 
 export function createRun(conversationId: string, input: CreateRunInput, config?: ApiRequestConfig) {

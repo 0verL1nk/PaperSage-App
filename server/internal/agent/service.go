@@ -15,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/0verL1nk/GraduateProject/server/internal/aiusage"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
 	"github.com/0verL1nk/GraduateProject/server/internal/httpapi"
@@ -69,6 +70,8 @@ type Service struct {
 	// Norms 提供项目已采用的学术规范；未注入时按「规范库不可用」显式呈现，
 	// 不允许假装「已接入但没有采用」。
 	Norms norms.Provider
+	// Usage 记录每次真实模型调用的耗时/Token/状态；未注入时不计量。
+	Usage aiusage.Recorder
 }
 
 func NewService(db *gorm.DB, stg storage.Storage, files *latex.FilesService,
@@ -111,9 +114,14 @@ func (s *Service) chat(c *gin.Context) {
 		Content        string `json:"content"`
 		// ClientRequestID 幂等键：双击发送/网络重试不产生第二个 Turn。
 		ClientRequestID       string `json:"clientRequestId"`
+		FeatureKind           string `json:"featureKind"`
 		ExpectedThreadVersion *int64 `json:"expectedThreadVersion"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Content) == "" || len([]rune(req.ClientRequestID)) > 64 {
+		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
+		return
+	}
+	if req.FeatureKind != "" && !validFeatureKind(req.FeatureKind) {
 		httpapi.WriteError(c.Writer, httpapi.ErrValidation)
 		return
 	}
@@ -124,14 +132,15 @@ func (s *Service) chat(c *gin.Context) {
 		httpapi.WriteError(c.Writer, &httpapi.APIError{Code: 404, Info: "Conversation not found"})
 		return
 	}
-	result, err := s.createRootRun(ctx, *conv, uid, req.ClientRequestID, req.Content, req.ExpectedThreadVersion)
+	result, err := s.createRootRun(ctx, *conv, uid, req.ClientRequestID, req.Content, normalizeFeatureKind(req.FeatureKind), req.ExpectedThreadVersion)
 	if err != nil {
 		s.writeRootRunError(c, conv.ID, uid, err)
 		return
 	}
 	if result.created {
 		rc := runContext{RunID: result.run.ID, ConversationID: conv.ID,
-			ProjectID: store.UUID{UUID: pid}, UserID: uid, Content: req.Content, Model: result.model, finalizeDeadline: result.finalizeDeadline}
+			ProjectID: store.UUID{UUID: pid}, UserID: uid, Content: req.Content,
+			FeatureKind: result.run.FeatureKind, Model: result.model, finalizeDeadline: result.finalizeDeadline}
 		if err := s.StartRun(rc); err != nil {
 			httpapi.WriteError(c.Writer, &httpapi.APIError{Code: http.StatusServiceUnavailable, Info: "服务正在关闭，请稍后重试"})
 			return

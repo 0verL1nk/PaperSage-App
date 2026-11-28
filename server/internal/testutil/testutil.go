@@ -23,6 +23,7 @@ import (
 	"gorm.io/gorm/logger"
 
 	"github.com/0verL1nk/GraduateProject/server/internal/agent"
+	"github.com/0verL1nk/GraduateProject/server/internal/aiusage"
 	"github.com/0verL1nk/GraduateProject/server/internal/auth"
 	"github.com/0verL1nk/GraduateProject/server/internal/compilediag"
 	"github.com/0verL1nk/GraduateProject/server/internal/config"
@@ -141,10 +142,13 @@ func NewWithClsi(t *testing.T, clsiURL string) *TestServer {
 	}
 	query.SetDefault(db) // 生成 DAO 全局入口（与 bootstrap 对齐）
 	agentSvc := agent.NewService(db, mem, latexFiles, cfg, ragStore)
+	aiUsageSvc := aiusage.NewService(db, 180, "Asia/Shanghai")
+	agentSvc.Usage = aiUsageSvc
 	agent.Mount(v1, authSvc.AuthRequired(), agentSvc)
 	latex.MountFiles(v1, authSvc.AuthRequired(), latexFiles)
 	latex.MountCompile(v1, authSvc.AuthRequired(), compileSvc, compileQueue)
 	compilediag.Mount(v1, authSvc, compilediag.NewService(db, 30))
+	aiusage.Mount(v1, authSvc, aiUsageSvc)
 
 	uid := uuid.MustParse("44444444-4444-4444-4444-444444444444")
 	require.NoError(t, db.Create(&store.User{

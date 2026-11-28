@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 const TABS = [
   { to: '/app/admin', label: '系统设置' },
   { to: '/app/admin/compile-diagnostics', label: '编译错误日志' },
+  { to: '/app/admin/ai-usage', label: 'AI 调用与健康度' },
 ] as const
 
 export function AdminLayout() {

@@ -116,7 +116,7 @@ func TestRootRunCommitAckLoss(t *testing.T) {
 			first := make(chan outcome, 1)
 			go func() {
 				version := int64(0)
-				result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", &version)
+				result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", FeatureKindChat, &version)
 				first <- outcome{result, err}
 			}()
 			select {
@@ -127,7 +127,7 @@ func TestRootRunCommitAckLoss(t *testing.T) {
 			var replay *rootRunResult
 			if key != "" {
 				version := int64(0)
-				replay, err = svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", &version)
+				replay, err = svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", FeatureKindChat, &version)
 				require.NoError(t, err)
 				assert.False(t, replay.created, "a competing replay must not start this Run")
 				assert.Zero(t, calls.Load())
@@ -170,7 +170,7 @@ func TestRootRunUnconfirmedCommitDoesNotStart(t *testing.T) {
 			svc.DB = wrapped
 			pool.armed.Store(true)
 			version := int64(0)
-			result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", &version)
+			result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", FeatureKindChat, &version)
 			assert.ErrorIs(t, err, errCommitUnknown)
 			assert.Nil(t, result)
 			var turns, roots int64
@@ -200,7 +200,7 @@ func TestRootRunCommitAckLossAfterRequestCancellation(t *testing.T) {
 	svc.DB = wrapped
 	pool.armed.Store(true)
 	version := int64(0)
-	result, err := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", &version)
+	result, err := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", FeatureKindChat, &version)
 	require.ErrorIs(t, ctx.Err(), context.Canceled)
 	require.NoError(t, err)
 	require.NotNil(t, result)
@@ -227,7 +227,7 @@ func TestRootRunCommitAckLossWhenReconciliationUnavailable(t *testing.T) {
 	svc.DB = wrapped
 	pool.armed.Store(true)
 	version := int64(0)
-	result, err := svc.createRootRun(context.Background(), conv, conv.UserID, "key", "question", &version)
+	result, err := svc.createRootRun(context.Background(), conv, conv.UserID, "key", "question", FeatureKindChat, &version)
 	assert.ErrorIs(t, err, errCommitUnknown)
 	assert.Nil(t, result)
 	var runs int64
@@ -256,7 +256,7 @@ func TestRootRunCommitAckLossDuringShutdown(t *testing.T) {
 	first := make(chan outcome, 1)
 	go func() {
 		version := int64(0)
-		result, err := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", &version)
+		result, err := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", FeatureKindChat, &version)
 		first <- outcome{result, err}
 	}()
 	select {
@@ -324,7 +324,7 @@ func TestRootRunCommitAckLossAfterShutdownDeadline(t *testing.T) {
 	go func() {
 		defer releaseLease()
 		version := int64(0)
-		created, createErr := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", &version)
+		created, createErr := svc.createRootRun(ctx, conv, conv.UserID, "key", "question", FeatureKindChat, &version)
 		if createErr == nil && created.created {
 			createErr = svc.StartRun(runContext{RunID: created.run.ID, ConversationID: conv.ID, ProjectID: conv.ProjectID, UserID: conv.UserID, Content: "question", Model: created.model, finalizeDeadline: created.finalizeDeadline})
 		}
@@ -427,7 +427,7 @@ func TestRootRunConcurrentSQLiteWriters(t *testing.T) {
 				go func(key string) {
 					defer wg.Done()
 					version := int64(0)
-					result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", &version)
+					result, err := svc.createRootRun(context.Background(), conv, conv.UserID, key, "question", FeatureKindChat, &version)
 					results <- outcome{result, err}
 				}(key)
 			}
@@ -468,7 +468,7 @@ func TestRootRunConcurrentSQLiteWriters(t *testing.T) {
 			assert.EqualValues(t, 1, updated.Version)
 			if sameKey {
 				version := int64(0)
-				replay, err := svc.createRootRun(context.Background(), conv, conv.UserID, "one", "question", &version)
+				replay, err := svc.createRootRun(context.Background(), conv, conv.UserID, "one", "question", FeatureKindChat, &version)
 				require.NoError(t, err)
 				assert.False(t, replay.created)
 			}

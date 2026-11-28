@@ -138,6 +138,13 @@ export const RECHECK = {
     `${V1}/projects/${projectId}/recheck-marks/${markId}/resolve`,
 } as const
 
+// --- AI 用量（个人 / 管理端） ---
+export const AI_USAGE = {
+  personal: `${V1}/ai-usage`,
+  admin: `${V1}/admin/ai-usage`,
+  export: `${V1}/admin/ai-usage/export`,
+} as const
+
 export const RESEARCH = {
   list: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,
   create: (projectId: string) => `${V1}/projects/${projectId}/research-artifacts`,

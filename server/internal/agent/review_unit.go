@@ -143,6 +143,7 @@ func (s *Service) StartReviewUnit(req ReviewUnitRequest) (store.UUID, error) {
 	run := store.AgentRun{
 		ID: store.MustNewUUID(), ConversationID: req.ConversationID,
 		AgentKey: ReviewUnitAgentKey, Status: RunRunning,
+		FeatureKind:   FeatureKindCrossChapterReview,
 		ModelProvider: provider, ModelName: modelName, PromptVersion: ReviewUnitPromptVersion,
 		StartedAt: &now,
 	}
@@ -152,7 +153,7 @@ func (s *Service) StartReviewUnit(req ReviewUnitRequest) (store.UUID, error) {
 	rc := runContext{
 		RunID: run.ID, ConversationID: req.ConversationID,
 		ProjectID: req.ProjectID, UserID: req.UserID,
-		Content: req.Content, Model: req.Model,
+		Content: req.Content, FeatureKind: FeatureKindCrossChapterReview, Model: req.Model,
 		Review:    req.Spec,
 		OnSettled: req.OnSettled,
 	}

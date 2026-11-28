@@ -55,6 +55,8 @@ export interface ChatState {
   /** 发送失败时保留原文与幂等键，供“重试发送”复用，避免生成第二个 Run。 */
   lastFailedContent: string | null
   lastClientRequestId: string | null
+  /** 失败请求的功能入口，重试发送时原样复用，避免把检查记成普通对话。 */
+  lastFeatureKind: api.AgentFeatureKind | null
   /** 用户点了“新对话”：禁止面板自动重开第一条历史会话。 */
   isNewConversation: boolean
   proposals: Record<string, AgentChangeProposal>
@@ -79,6 +81,7 @@ export const emptyChatState: ChatState = {
   errorAction: null,
   lastFailedContent: null,
   lastClientRequestId: null,
+  lastFeatureKind: null,
   isNewConversation: false,
   proposals: {},
   pendingBrowserCompileRequest: null,
@@ -296,7 +299,7 @@ export function messagesFromApi(rows: AgentMessage[]): ChatMessage[] {
 
 type ChatStore = ChatState & {
   open: (conversationId: string, projectId?: string) => Promise<void>
-  send: (projectId: string, content: string, clientRequestId?: string) => Promise<void>
+  send: (projectId: string, content: string, clientRequestId?: string, featureKind?: api.AgentFeatureKind) => Promise<void>
   retrySend: (projectId: string) => Promise<void>
   retryRun: (runId: string) => Promise<void>
   cancel: () => Promise<void>
@@ -491,7 +494,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
       })
     },
 
-    send: async (projectId, content, clientRequestId = crypto.randomUUID()) => {
+    send: async (projectId, content, clientRequestId = crypto.randomUUID(), featureKind = 'chat') => {
       if (sendInFlight || get().restoring || get().restoreFailed || get().streaming || get().cancelling) return
       sendInFlight = true
       const localUserId = `user-${clientRequestId}`
@@ -524,6 +527,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
             content,
             clientRequestId,
             expectedThreadVersion: version,
+            featureKind,
           })
         } catch (error) {
           if (isThreadConflict(error)) {
@@ -535,6 +539,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
               errorAction: 'retry-send',
               lastFailedContent: content,
               lastClientRequestId: clientRequestId,
+              lastFeatureKind: featureKind,
             })
             return
           }
@@ -550,6 +555,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           lastEventId: 0,
           lastFailedContent: null,
           lastClientRequestId: null,
+          lastFeatureKind: null,
         })
         await consumeStream(handle.runId, 0)
       } catch (error) {
@@ -568,6 +574,7 @@ export const useChatStore = create<ChatStore>((set, get) => {
           errorAction: agentErrorAction(error),
           lastFailedContent: content,
           lastClientRequestId: clientRequestId,
+          lastFeatureKind: featureKind,
         }))
         throw new Error(message)
       } finally {
@@ -578,8 +585,9 @@ export const useChatStore = create<ChatStore>((set, get) => {
     retrySend: async (projectId) => {
       const content = get().lastFailedContent
       const clientRequestId = get().lastClientRequestId
+      const featureKind = get().lastFeatureKind ?? 'chat'
       if (!content || !clientRequestId) return
-      await get().send(projectId, content, clientRequestId)
+      await get().send(projectId, content, clientRequestId, featureKind)
     },
 
     retryRun: async (runId) => {
